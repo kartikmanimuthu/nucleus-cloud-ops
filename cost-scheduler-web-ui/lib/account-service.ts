@@ -6,6 +6,7 @@ import { AuditService } from './audit-service';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { ECSClient, ListClustersCommand } from '@aws-sdk/client-ecs';
 import { RDSClient, DescribeDBInstancesCommand } from '@aws-sdk/client-rds';
+import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
 
 // Define handleDynamoDBError if it's not properly imported
 const handleError = (error: any, operation: string) => {
@@ -213,6 +214,7 @@ export class AccountService {
                 active: 'active',
                 description: 'description',
                 connectionStatus: 'connection_status',
+                connectionError: 'connection_error',
                 updatedBy: 'updated_by',
                 regions: 'regions',
                 lastValidated: 'updated_at' // Hack for validation update
@@ -353,12 +355,20 @@ export class AccountService {
             await ecsClient.send(new ListClustersCommand({ maxResults: 1 }));
             console.log('AccountService - ECS ListClusters successful');
 
-            // 3. Verify RDS Access (Optional but good)
+            // 3. Verify EC2 Access (List Instances) - NEW
+            const ec2Client = new EC2Client({
+                region: region,
+                credentials
+            });
+            await ec2Client.send(new DescribeInstancesCommand({ MaxResults: 5 }));
+            console.log('AccountService - EC2 DescribeInstances successful');
+
+            // 4. Verify RDS Access (Optional but good)
             const rdsClient = new RDSClient({
                 region: region,
                 credentials
             });
-            await rdsClient.send(new DescribeDBInstancesCommand({ MaxRecords: 1 }));
+            await rdsClient.send(new DescribeDBInstancesCommand({ MaxRecords: 20 }));
             console.log('AccountService - RDS DescribeDBInstances successful');
 
             return { isValid: true };
@@ -394,6 +404,7 @@ export class AccountService {
             // Update status to validating
             await this.updateAccount(accountId, {
                 connectionStatus: 'validating',
+                connectionError: 'None' // Clear previous error
             });
 
             const now = new Date().toISOString();
@@ -411,11 +422,10 @@ export class AccountService {
             const updates: any = {
                 connectionStatus: finalStatus,
                 lastValidated: now,
+                connectionError: validationDetails.error || 'None'
             };
 
             if (validationDetails.error) {
-                // We might want to store the error somewhere, but currently types don't support "validationError" field.
-                // We can log it.
                 console.warn(`Validation failed for ${accountId}: ${validationDetails.error}`);
             }
 
@@ -465,6 +475,7 @@ export class AccountService {
             active: item.active,
             description: item.description || '',
             connectionStatus: item.connection_status || 'unknown',
+            connectionError: item.connection_error, // Map from DB
             lastValidated: item.updated_at,
             resourceCount: 0, // Placeholder
             schedulesCount: 0, // Placeholder
@@ -500,4 +511,111 @@ export class AccountService {
             throw error;
         }
     }
+
+    /**
+     * Scan resources (EC2, ECS, RDS) for a given account
+     */
+    static async scanResources(accountId: string): Promise<Array<{ id: string; type: 'ec2' | 'ecs' | 'rds'; name: string; arn: string }>> {
+        try {
+            console.log(`AccountService - Scanning resources for account: ${accountId}`);
+
+            const account = await this.getAccount(accountId);
+            if (!account || !account.roleArn) {
+                throw new Error('Account or Role ARN not found');
+            }
+
+            const region = account.regions?.[0] || 'us-east-1';
+
+            // 1. Assume Role
+            const stsClient = new STSClient({ region: 'us-east-1' });
+            const assumeRoleCommand = new AssumeRoleCommand({
+                RoleArn: account.roleArn,
+                RoleSessionName: 'NucleusScanSession',
+                ExternalId: account.externalId,
+            });
+
+            const stsResponse = await stsClient.send(assumeRoleCommand);
+            if (!stsResponse.Credentials) {
+                throw new Error('Failed to obtain temporary credentials');
+            }
+
+            const credentials = {
+                accessKeyId: stsResponse.Credentials.AccessKeyId!,
+                secretAccessKey: stsResponse.Credentials.SecretAccessKey!,
+                sessionToken: stsResponse.Credentials.SessionToken!,
+            };
+
+            const resources: Array<{ id: string; type: 'ec2' | 'ecs' | 'rds'; name: string; arn: string }> = [];
+
+            // 2. Scan EC2
+            try {
+                const ec2Client = new EC2Client({ region, credentials });
+                const ec2Response = await ec2Client.send(new DescribeInstancesCommand({}));
+                ec2Response.Reservations?.forEach(reservation => {
+                    reservation.Instances?.forEach(instance => {
+                        if (instance.InstanceId && instance.State?.Name !== 'terminated') {
+                            const nameTag = instance.Tags?.find(t => t.Key === 'Name')?.Value;
+                            resources.push({
+                                id: instance.InstanceId,
+                                type: 'ec2',
+                                name: nameTag || instance.InstanceId,
+                                arn: `arn:aws:ec2:${region}:${accountId}:instance/${instance.InstanceId}`
+                            });
+                        }
+                    });
+                });
+            } catch (e) {
+                console.error('Error scanning EC2:', e);
+            }
+
+            // 3. Scan ECS
+            try {
+                const ecsClient = new ECSClient({ region, credentials });
+                // Note: ListClusters only returns ARNs
+                const ecsResponse = await ecsClient.send(new ListClustersCommand({}));
+                ecsResponse.clusterArns?.forEach(arn => {
+                    const name = arn.split('/').pop() || arn;
+                    resources.push({
+                        id: name,
+                        type: 'ecs',
+                        name: name,
+                        arn: arn // ListClusters returns full ARN
+                    });
+                });
+            } catch (e) {
+                console.error('Error scanning ECS:', e);
+            }
+
+            // 4. Scan RDS
+            try {
+                const rdsClient = new RDSClient({ region, credentials });
+                const rdsResponse = await rdsClient.send(new DescribeDBInstancesCommand({}));
+                rdsResponse.DBInstances?.forEach(instance => {
+                    if (instance.DBInstanceIdentifier) {
+                        resources.push({
+                            id: instance.DBInstanceIdentifier,
+                            type: 'rds',
+                            name: instance.DBInstanceIdentifier,
+                            arn: instance.DBInstanceArn || `arn:aws:rds:${region}:${accountId}:db:${instance.DBInstanceIdentifier}`
+                        });
+                    }
+                });
+            } catch (e) {
+                console.error('Error scanning RDS:', e);
+            }
+
+            // Update resource count in metadata
+            await this.updateAccount(accountId, {
+                resourceCount: resources.length,
+                lastValidated: new Date().toISOString()
+            });
+
+            return resources;
+
+        } catch (error) {
+            console.error('AccountService - Error scanning resources:', error);
+            throw handleError(error, 'scan resources');
+        }
+    }
 }
+

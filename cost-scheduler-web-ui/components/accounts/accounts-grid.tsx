@@ -151,24 +151,19 @@ export function AccountsGrid({
   };
 
   const getConnectionStatus = (account: UIAccount) => {
-    // Map our simple active status to connection status for UI
-    if (account.active) {
-      return "connected";
-    } else {
-      return "inactive";
-    }
+    return account.connectionStatus || "unknown";
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "connected":
         return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "inactive":
-        return <XCircle className="h-4 w-4 text-gray-500" />;
       case "error":
         return <XCircle className="h-4 w-4 text-red-500" />;
       case "warning":
         return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+       case "validating":
+        return <RefreshCw className="h-4 w-4 text-blue-500 animate-spin" />;
       default:
         return <AlertTriangle className="h-4 w-4 text-gray-400" />;
     }
@@ -185,8 +180,6 @@ export function AccountsGrid({
             Connected
           </Badge>
         );
-      case "inactive":
-        return <Badge variant="secondary">Inactive</Badge>;
       case "error":
         return <Badge variant="destructive">Connection Error</Badge>;
       case "warning":
@@ -198,6 +191,8 @@ export function AccountsGrid({
             Warning
           </Badge>
         );
+      case "validating":
+        return <Badge variant="outline" className="border-blue-500 text-blue-500">Validating...</Badge>;
       default:
         return <Badge variant="outline">Unknown</Badge>;
     }
@@ -216,9 +211,15 @@ export function AccountsGrid({
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
-                    <CardTitle className="text-lg">
-                      {account.name || "Unnamed Account"}
-                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                        <CardTitle className="text-lg">
+                        {account.name || "Unnamed Account"}
+                        </CardTitle>
+                        <Badge variant={account.active ? "default" : "secondary"} className="text-xs h-5">
+                            {account.active ? "Active" : "Inactive"}
+                        </Badge>
+                    </div>
+                    
                     <CardDescription className="font-mono text-sm">
                       {account.accountId}
                     </CardDescription>
@@ -306,6 +307,11 @@ export function AccountsGrid({
                     {getStatusIcon(connectionStatus)}
                     {getStatusBadge(connectionStatus)}
                   </div>
+                  {account.connectionError && account.connectionError !== 'None' && (
+                       <p className="text-xs text-red-500 truncate max-w-[250px]" title={account.connectionError}>
+                          {account.connectionError}
+                       </p>
+                  )}
                 </div>
               </CardContent>
 

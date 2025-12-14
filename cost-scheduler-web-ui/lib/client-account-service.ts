@@ -258,7 +258,17 @@ export class ClientAccountService {
                 };
             }
 
-            console.log('ClientAccountService - Account validation result:', result.data);
+            console.log('ClientAccountService - Account validation result raw:', result);
+
+            // If the response follows the persistent endpoint structure
+            if (result.valid !== undefined) {
+                return {
+                    isValid: result.valid,
+                    error: result.data?.connectionError !== 'None' ? result.data?.connectionError : undefined
+                };
+            }
+
+            // Fallback for global/ephemeral endpoint structure
             return result.data || { isValid: false, error: 'Unknown validation error' };
         } catch (error) {
             console.error('ClientAccountService - Error validating account:', error);
@@ -266,6 +276,36 @@ export class ClientAccountService {
                 isValid: false,
                 error: error instanceof Error ? error.message : 'Validation failed'
             };
+        }
+    }
+    /**
+     * Scan resources for an account via API route
+     */
+    static async scanResources(accountId: string): Promise<Array<{ id: string; type: 'ec2' | 'ecs' | 'rds'; name: string; arn: string }>> {
+        try {
+            console.log('ClientAccountService - Scanning resources for account:', accountId);
+            const response = await fetch(`${this.baseUrl}/${encodeURIComponent(accountId)}/scan`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || `HTTP error! status: ${response.status}`);
+            }
+
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to scan resources');
+            }
+
+            console.log('ClientAccountService - Successfully scanned resources:', result.data.length);
+            return result.data;
+        } catch (error) {
+            console.error('ClientAccountService - Error scanning resources:', error);
+            throw error;
         }
     }
 }

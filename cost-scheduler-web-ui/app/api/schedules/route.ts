@@ -6,27 +6,27 @@ import { Schedule, UISchedule } from '@/lib/types';
 // GET /api/schedules - Get all schedules with optional filtering
 export async function GET(request: NextRequest) {
     try {
-        
-        
+
+
         // Get query parameters for filtering
         const { searchParams } = new URL(request.url);
         const statusFilter = searchParams.get('status') || undefined;
         const resourceFilter = searchParams.get('resource') || undefined;
         const searchTerm = searchParams.get('search') || undefined;
-        
+
         const filters = {
             statusFilter,
             resourceFilter,
             searchTerm
         };
-        
-        
-        
+
+
+
         // Fetch schedules with optional filters
         const schedules = await ScheduleService.getSchedules(filters);
-        
-        
-        
+
+
+
         return NextResponse.json({
             success: true,
             data: schedules,
@@ -48,9 +48,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         console.log('API - Creating new schedule');
-        
+
         const body = await request.json();
-        
+
         // Validate required fields
         if (!body.name || !body.starttime || !body.endtime || !body.timezone || !body.days) {
             return NextResponse.json(
@@ -61,7 +61,20 @@ export async function POST(request: NextRequest) {
                 { status: 400 }
             );
         }
-        
+
+        // Validate accountId if resource selection is intended
+        // Note: For backward compatibility, we don't strictly require it yet unless business logic demands it.
+        // But the requirement says "schedule has to be created against an account".
+        if (!body.accountId) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: 'Account ID is required',
+                },
+                { status: 400 }
+            );
+        }
+
         // Validate days array
         if (!Array.isArray(body.days) || body.days.length === 0) {
             return NextResponse.json(
@@ -72,7 +85,7 @@ export async function POST(request: NextRequest) {
                 { status: 400 }
             );
         }
-        
+
         // Validate timezone
         try {
             Intl.DateTimeFormat(undefined, { timeZone: body.timezone });
@@ -85,13 +98,13 @@ export async function POST(request: NextRequest) {
                 { status: 400 }
             );
         }
-        
+
         // Create schedule
         const schedule = await ScheduleService.createSchedule({
             ...body,
             active: body.active !== undefined ? body.active : true, // Default to active
         });
-        
+
         // Log audit event
         await AuditService.logUserAction({
             action: 'Create Schedule',
@@ -103,7 +116,7 @@ export async function POST(request: NextRequest) {
             status: 'success',
             details: `Created schedule "${schedule.name}"`,
         });
-        
+
         return NextResponse.json({
             success: true,
             data: schedule,
@@ -111,7 +124,7 @@ export async function POST(request: NextRequest) {
         }, { status: 201 });
     } catch (error: unknown) {
         console.error('API - Error creating schedule:', error);
-        
+
         // Log audit event for error
         if (error instanceof Error) {
             await AuditService.logUserAction({
@@ -125,7 +138,7 @@ export async function POST(request: NextRequest) {
                 details: `Failed to create schedule: ${error.message}`,
             });
         }
-        
+
         // Handle specific DynamoDB errors
         if (error instanceof Error && error.message.includes('already exists')) {
             return NextResponse.json({

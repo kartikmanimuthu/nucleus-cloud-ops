@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
-import { CreateScheduleForm } from "./create-schedule-form";
+import { ScheduleForm } from "@/components/schedule-form";
 
 export default function CreateSchedulePage() {
   const router = useRouter();
@@ -41,7 +40,7 @@ export default function CreateSchedulePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <CreateScheduleForm />
+           <ScheduleForm />
         </CardContent>
       </Card>
     </div>

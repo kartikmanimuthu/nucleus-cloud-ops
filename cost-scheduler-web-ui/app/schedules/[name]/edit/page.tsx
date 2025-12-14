@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useEffect } from "react";
+import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,90 +11,50 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { EditScheduleForm } from "./edit-schedule-form";
+import { ScheduleForm } from "@/components/schedule-form";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
-import { Schedule, UISchedule } from "@/lib/types";
+import { UISchedule } from "@/lib/types";
 
-interface EditSchedulePageProps {
-  params: Promise<{
-    name: string;
-  }>;
-}
-
-export default function EditSchedulePage({ params }: EditSchedulePageProps) {
-  const resolvedParams = use(params);
+export default function EditSchedulePage({ params }: { params: Promise<{ name: string }> }) {
   const router = useRouter();
+  const { name } = use(params);
   const [schedule, setSchedule] = useState<UISchedule | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const scheduleName = decodeURIComponent(resolvedParams.name);
 
   useEffect(() => {
-    const fetchSchedule = async () => {
+    async function fetchSchedule() {
       try {
-        setLoading(true);
-        setError(null);
-        const scheduleData = await ClientScheduleService.getSchedule(scheduleName);
-        if (!scheduleData) {
-          setError("Schedule not found");
-          return;
+        const decodedName = decodeURIComponent(name);
+        const data = await ClientScheduleService.getSchedule(decodedName);
+        if (data) {
+          setSchedule(data);
+        } else {
+            // Handle not found
+            // router.push("/schedules");
         }
-        setSchedule(scheduleData);
-      } catch (err) {
-        console.error("Failed to fetch schedule:", err);
-        setError("Failed to load schedule data");
+      } catch (error) {
+        console.error("Failed to fetch schedule:", error);
       } finally {
         setLoading(false);
       }
-    };
-
+    }
     fetchSchedule();
-  }, [scheduleName]);
+  }, [name]);
 
   if (loading) {
     return (
-      <div className="w-full py-6">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-            <p className="text-muted-foreground">Loading schedule...</p>
-          </div>
-        </div>
+      <div className="flex h-[50vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
-  if (error || !schedule) {
-    return (
-      <div className="w-full py-6">
-        <div className="flex items-center justify-between mb-6">
-          <Button variant="outline" onClick={() => router.back()}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
-          </Button>
-        </div>
-        <Card>
-          <CardContent className="flex items-center justify-center min-h-[400px]">
-            <div className="text-center">
-              <h3 className="text-lg font-semibold mb-2">
-                {error || "Schedule not found"}
-              </h3>
-              <p className="text-muted-foreground mb-4">
-                The schedule "{scheduleName}" could not be loaded.
-              </p>
-              <Button onClick={() => router.push("/schedules")}>
-                Return to Schedules
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  if (!schedule) {
+    return <div>Schedule not found</div>;
   }
 
   return (
-    <div className="w-full py-6 overflow-hidden">
+    <div className="container mx-auto py-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
           <Button variant="outline" onClick={() => router.back()}>
@@ -118,7 +78,7 @@ export default function EditSchedulePage({ params }: EditSchedulePageProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <EditScheduleForm schedule={schedule} />
+           <ScheduleForm initialData={schedule} isEditing={true} />
         </CardContent>
       </Card>
     </div>

@@ -75,6 +75,7 @@ export default function AccountsClient({
 
   // UI state - initialize with server provided values or defaults
   const [searchTerm, setSearchTerm] = useState(initialFilters?.searchTerm || "");
+  const [inputValue, setInputValue] = useState(initialFilters?.searchTerm || "");
   const [statusFilter, setStatusFilter] = useState(initialFilters?.statusFilter || "all");
   const [connectionFilter, setConnectionFilter] = useState(initialFilters?.connectionFilter || "all");
   const [viewMode, setViewMode] = useState<"table" | "grid">("table");
@@ -83,10 +84,13 @@ export default function AccountsClient({
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   
   // Debounced search term setter
-  // const debouncedSetSearchTerm = useDebouncedCallback((value: string) => {
-  //   setSearchTerm(value);
-  // }, 1000);
+  
+  const debouncedSetSearchTerm = useDebouncedCallback((value: string) => {
+    setSearchTerm(value);
+  }, 3000);
   const { toast } = useToast();
+
+
 
   // Load accounts from API
   const loadAccounts = async () => {
@@ -456,8 +460,11 @@ export default function AccountsClient({
               <div className="flex-1">
                 <Input
                   placeholder="Search accounts by name, ID, description, or creator..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  value={inputValue}
+                  onChange={(e) => {
+                      setInputValue(e.target.value);
+                      debouncedSetSearchTerm(e.target.value);
+                  }}
                   className="w-full"
                 />
               </div>

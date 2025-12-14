@@ -125,24 +125,19 @@ export function AccountsTable({
   };
 
   const getConnectionStatus = (account: UIAccount) => {
-    // Map our simple active status to connection status for UI
-    if (account.active) {
-      return "connected";
-    } else {
-      return "inactive";
-    }
+    return account.connectionStatus || "unknown";
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "connected":
         return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "inactive":
-        return <XCircle className="h-4 w-4 text-gray-500" />;
       case "error":
         return <XCircle className="h-4 w-4 text-red-500" />;
       case "warning":
         return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+       case "validating":
+        return <RefreshCw className="h-4 w-4 text-blue-500 animate-spin" />;
       default:
         return <AlertTriangle className="h-4 w-4 text-gray-400" />;
     }
@@ -159,8 +154,6 @@ export function AccountsTable({
             Connected
           </Badge>
         );
-      case "inactive":
-        return <Badge variant="secondary">Inactive</Badge>;
       case "error":
         return <Badge variant="destructive">Connection Error</Badge>;
       case "warning":
@@ -172,6 +165,8 @@ export function AccountsTable({
             Warning
           </Badge>
         );
+      case "validating":
+        return <Badge variant="outline" className="border-blue-500 text-blue-500">Validating...</Badge>;
       default:
         return <Badge variant="outline">Unknown</Badge>;
     }
@@ -235,6 +230,13 @@ export function AccountsTable({
                   </TableCell>
                   <TableCell>
                     <div className="space-y-2">
+                       {/* Connection Status */}
+                       <div className="flex items-center space-x-2">
+                          {getStatusIcon(getConnectionStatus(account))}
+                          {getStatusBadge(getConnectionStatus(account))}
+                       </div>
+                       
+                      {/* Active Status */}
                       <Badge
                         variant={account.active ? "default" : "secondary"}
                         className={
@@ -245,23 +247,26 @@ export function AccountsTable({
                       >
                         {account.active ? "Active" : "Inactive"}
                       </Badge>
-                      <div className="flex items-center space-x-2">
+                      
+                       {/* Quick Actions */}
+                      <div className="flex items-center space-x-2 pt-1">
                         <button
-                          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-2"
+                          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-7 px-2"
                           onClick={() => validateConnection(account.id)}
                           disabled={loadingActions === account.id}
+                          title="Validate Connection"
                         >
                           {loadingActions === account.id ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : (
                             <CheckCircle className="h-3 w-3" />
                           )}
-                          <span className="text-xs">Validate</span>
                         </button>
                         <button
-                          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-2"
+                          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-7 px-2"
                           onClick={() => toggleAccountStatus(account)}
                           disabled={loadingActions === account.id}
+                          title={account.active ? "Deactivate" : "Activate"}
                         >
                           {loadingActions === account.id ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
@@ -270,9 +275,6 @@ export function AccountsTable({
                           ) : (
                             <Power className="h-3 w-3" />
                           )}
-                          <span className="text-xs">
-                            {account.active ? "Deactivate" : "Activate"}
-                          </span>
                         </button>
                       </div>
                     </div>

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.821.0",
+    "@aws-sdk/client-ec2": "^3.948.0",
     "@aws-sdk/client-ecs": "^3.948.0",
     "@aws-sdk/client-rds": "^3.948.0",
     "@aws-sdk/client-sts": "^3.821.0",

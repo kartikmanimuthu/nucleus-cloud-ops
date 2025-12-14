@@ -168,9 +168,8 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
       // Client-side validation call
       await ClientAccountService.validateAccount({
         accountId: account.accountId,
-        region: account.regions[0] || 'us-east-1',
-        roleArn: account.roleArn,
-        externalId: account.externalId
+        region: account.regions[0] || 'us-east-1'
+        // roleArn and externalId intentionally omitted to trigger stored-account validation (persisted to DB)
       });
       await loadAccount(); // Reload to get updated status
     } catch (error) {
@@ -448,9 +447,16 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                       </span>
                       <div className="flex items-center space-x-2">
                         {getStatusIcon(account.connectionStatus || "unknown")}
-                        <span>{account.connectionStatus || "Unknown"}</span>
+                        <span>{account.connectionStatus || "unknown"}</span>
                       </div>
                     </div>
+                    {account.connectionError && account.connectionError !== 'None' && (
+                        <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
+                             <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                                Error: {account.connectionError}
+                             </p>
+                        </div>
+                    )}
                   </div>
                 </div>
               </div>

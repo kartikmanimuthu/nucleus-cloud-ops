@@ -8,6 +8,13 @@ export interface Schedule {
     active: boolean;
     days: string[];
     description?: string;
+    accountId?: string; // Account ID this schedule applies to
+    resources?: Array<{ // Selected resources
+        id: string;
+        type: 'ec2' | 'ecs' | 'rds';
+        name?: string;
+        arn?: string; // AWS ARN for the resource
+    }>;
     createdAt?: string;
     updatedAt?: string;
     createdBy?: string;
@@ -23,7 +30,8 @@ export interface AccountMetadata {
     regions: string[];
     active: boolean;
     description?: string;
-    connectionStatus?: 'connected' | 'error' | 'warning' | 'validating';
+    connectionStatus?: 'connected' | 'error' | 'warning' | 'validating' | 'unknown';
+    connectionError?: string;
     lastValidated?: string;
     resourceCount?: number;
     schedulesCount?: number;

@@ -28,6 +28,7 @@ import {
   ArrowLeft,
   Settings,
   Loader2,
+  Server,
 } from "lucide-react";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
 import { formatDate } from "@/lib/date-utils";
@@ -248,6 +249,54 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                         {schedule.description}
                       </p>
                     </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Resources Configuration */}
+              <Card className="md:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Server className="h-5 w-5 mr-2" />
+                    Target Resources
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                      <Label className="text-sm font-medium">Target Account</Label>
+                      <div className="flex items-center space-x-2">
+                        <Badge variant="outline">{schedule.accounts?.[0] || "No account selected"}</Badge>
+                      </div>
+                  </div>
+                  
+                  {schedule.resources && schedule.resources.length > 0 && (
+                     <div className="space-y-4 pt-2">
+                        <Label className="text-sm font-medium">Selected Resources ({schedule.resources.length})</Label>
+                        <Tabs defaultValue="list" className="w-full">
+                           <TabsList className="grid w-full grid-cols-2">
+                              <TabsTrigger value="list">List View</TabsTrigger>
+                              <TabsTrigger value="json">JSON View</TabsTrigger>
+                           </TabsList>
+                           <TabsContent value="list">
+                              <div className="rounded-md border p-4 h-[250px] overflow-y-auto space-y-2">
+                                 {schedule.resources.map((res: any) => (
+                                    <div key={res.id} className="flex flex-col space-y-1 border-b pb-2 last:border-0 last:pb-0">
+                                       <div className="flex items-center justify-between">
+                                          <span className="font-medium text-sm">{res.name || res.id}</span>
+                                          <Badge variant="secondary" className="text-xs">{res.type.toUpperCase()}</Badge>
+                                       </div>
+                                       <span className="text-xs text-muted-foreground font-mono">{res.arn || res.id}</span>
+                                    </div>
+                                 ))}
+                              </div>
+                           </TabsContent>
+                           <TabsContent value="json">
+                              <pre className="bg-muted p-4 rounded-md overflow-auto h-[250px] text-xs">
+                                 {JSON.stringify(schedule.resources, null, 2)}
+                              </pre>
+                           </TabsContent>
+                        </Tabs>
+                     </div>
                   )}
                 </CardContent>
               </Card>

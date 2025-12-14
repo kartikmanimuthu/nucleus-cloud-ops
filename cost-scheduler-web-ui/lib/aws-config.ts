@@ -104,7 +104,11 @@ const initializeAWSClients = () => {
         }
 
         console.log('Creating DynamoDB Document Client from base client');
-        dynamoDBDocumentClient = DynamoDBDocumentClient.from(dynamoDBClient);
+        dynamoDBDocumentClient = DynamoDBDocumentClient.from(dynamoDBClient, {
+            marshallOptions: {
+                removeUndefinedValues: true
+            }
+        });
         console.log('DynamoDB Document Client initialized successfully');
 
         return dynamoDBDocumentClient;
