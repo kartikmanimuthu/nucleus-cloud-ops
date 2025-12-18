@@ -27,6 +27,7 @@ import {
   Bell,
   ChevronLeft,
   ChevronRight,
+  Bot,
 } from "lucide-react"
 
 const navigation = [
@@ -34,6 +35,7 @@ const navigation = [
   { name: "AWS Accounts", href: "/accounts", icon: Server },
   { name: "Schedules", href: "/schedules", icon: Calendar },
   { name: "Audit Logs", href: "/audit", icon: Activity },
+  { name: "AI Agent", href: "/agent", icon: Bot },
   { name: "Settings", href: "/settings", icon: Settings },
 ]
 

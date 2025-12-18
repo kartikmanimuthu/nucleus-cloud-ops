@@ -1,15 +1,17 @@
 'use client'
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signIn, useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { Command } from 'lucide-react';
+import { Command, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
   const { data: session } = useSession();
+
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (session?.user) {
@@ -19,10 +21,12 @@ export default function LoginPage() {
 
   const handleSignIn = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
       await signIn("cognito", { callbackUrl: "/" });
     } catch (error) {
       console.error('Sign in error:', error);
+      setIsLoading(false);
     }
   };
 
@@ -63,8 +67,15 @@ export default function LoginPage() {
             </p>
           </div>
           <div className="grid gap-4">
-            <Button onClick={handleSignIn} variant="outline" className="w-full">
-              Sign in with Cognito
+            <Button onClick={handleSignIn} variant="outline" className="w-full" disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                "Sign in with Cognito"
+              )}
             </Button>
             {/* 
               Additional login options or form fields would go here.

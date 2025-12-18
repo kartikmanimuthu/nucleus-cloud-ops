@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Inter, Manrope } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeConfigProvider } from "@/components/theme-config-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { LayoutWrapper } from "@/components/layout-wrapper";
 import Providers from "@/providers/Providers";
@@ -32,10 +33,12 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <div>
-              <LayoutWrapper>{children}</LayoutWrapper>
-              <Toaster />
-            </div>
+            <ThemeConfigProvider>
+              <div>
+                <LayoutWrapper>{children}</LayoutWrapper>
+                <Toaster />
+              </div>
+            </ThemeConfigProvider>
           </ThemeProvider>
         </Providers>
       </body>

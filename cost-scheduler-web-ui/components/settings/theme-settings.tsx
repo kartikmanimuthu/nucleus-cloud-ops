@@ -5,6 +5,7 @@ import { Moon, Sun, Check } from "lucide-react"
 import { useTheme } from "next-themes"
 
 import { cn } from "@/lib/utils"
+import { useThemeConfig } from "@/components/theme-config-provider"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -18,11 +19,7 @@ import { themes } from "@/components/settings/theme-registry"
 
 export function ThemeSettings() {
   const { setTheme: setMode, resolvedTheme: mode } = useTheme()
-  const [config, setConfig] = React.useState({
-    theme: "zinc",
-    radius: 0.5,
-    font: "inter"
-  })
+  const { config, setConfig } = useThemeConfig()
 
   const [mounted, setMounted] = React.useState(false)
 
@@ -31,30 +28,7 @@ export function ThemeSettings() {
   }, [])
 
   // Apply theme changes
-  React.useEffect(() => {
-    if (!mounted) return
-    
-    const theme = themes.find((t) => t.name === config.theme)
-    if (!theme) return
-
-    const root = document.documentElement
-    const isDark = mode === "dark"
-    const cssVars = isDark ? theme.cssVars.dark : theme.cssVars.light
-
-    Object.entries(cssVars).forEach(([key, value]) => {
-      root.style.setProperty(key, value)
-    })
-    
-    // Apply Radius
-    root.style.setProperty("--radius", `${config.radius}rem`)
-
-    // Apply Font
-    let fontVar = "system-ui"
-    if (config.font === "inter") fontVar = "var(--font-inter)"
-    if (config.font === "manrope") fontVar = "var(--font-manrope)"
-    root.style.setProperty("--font-sans", fontVar)
-
-  }, [config, mode, mounted])
+  // Theme styles are managed by ThemeConfigProvider
 
   return (
     <div className="space-y-6">
