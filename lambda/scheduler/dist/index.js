@@ -535,6 +535,7 @@ var logger = new Logger(logLevel);
 
 // src/services/dynamodb-service.ts
 var import_client_dynamodb = require("@aws-sdk/client-dynamodb");
+var import_credential_provider_node = require("@aws-sdk/credential-provider-node");
 var import_lib_dynamodb = require("@aws-sdk/lib-dynamodb");
 
 // node_modules/uuid/dist/esm/stringify.js
@@ -622,7 +623,11 @@ var AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "ap
 var docClient = null;
 function getDynamoDBClient() {
   if (!docClient) {
-    const client = new import_client_dynamodb.DynamoDBClient({ region: AWS_REGION });
+    const clientConfig = { region: AWS_REGION };
+    clientConfig.credentials = (0, import_credential_provider_node.defaultProvider)({
+      profile: process.env.AWS_PROFILE
+    });
+    const client = new import_client_dynamodb.DynamoDBClient(clientConfig);
     docClient = import_lib_dynamodb.DynamoDBDocumentClient.from(client, {
       marshallOptions: {
         removeUndefinedValues: true
@@ -816,10 +821,11 @@ async function updateExecutionRecord(record, updates) {
   const updateExpressions = [
     "set #status = :status",
     "endTime = :endTime",
-    "duration = :duration"
+    "#duration = :duration"
   ];
   const expressionAttributeNames = {
-    "#status": "status"
+    "#status": "status",
+    "#duration": "duration"
   };
   const expressionAttributeValues = {
     ":status": updates.status,
@@ -846,6 +852,10 @@ async function updateExecutionRecord(record, updates) {
     updateExpressions.push("details = :details");
     expressionAttributeValues[":details"] = updates.details;
   }
+  if (updates.schedule_metadata) {
+    updateExpressions.push("schedule_metadata = :schedule_metadata");
+    expressionAttributeValues[":schedule_metadata"] = updates.schedule_metadata;
+  }
   try {
     await client.send(new import_lib_dynamodb2.UpdateCommand({
       TableName: APP_TABLE_NAME,
@@ -866,6 +876,47 @@ async function updateExecutionRecord(record, updates) {
     throw error;
   }
 }
+async function getExecutionHistory(scheduleId, tenantId = "default", limit = 50) {
+  const client = getDynamoDBClient();
+  try {
+    const response = await client.send(new import_lib_dynamodb2.QueryCommand({
+      TableName: APP_TABLE_NAME,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
+      ExpressionAttributeValues: {
+        ":pk": buildExecutionPK(tenantId, scheduleId),
+        ":skPrefix": "EXEC#"
+      },
+      ScanIndexForward: false,
+      // newest first
+      Limit: limit
+    }));
+    return response.Items || [];
+  } catch (error) {
+    logger.error("Failed to fetch execution history", error, { scheduleId });
+    return [];
+  }
+}
+async function getLastECSServiceState(scheduleId, serviceArn, tenantId = "default") {
+  try {
+    const executions = await getExecutionHistory(scheduleId, tenantId, 10);
+    for (const execution of executions) {
+      if (execution.schedule_metadata?.ecs) {
+        const ecsResource = execution.schedule_metadata.ecs.find(
+          (e) => e.arn === serviceArn && e.action === "stop" && e.status === "success"
+        );
+        if (ecsResource && ecsResource.last_state.desiredCount > 0) {
+          logger.debug(`Found last ECS state for ${serviceArn}: desiredCount=${ecsResource.last_state.desiredCount}`);
+          return { desiredCount: ecsResource.last_state.desiredCount };
+        }
+      }
+    }
+    logger.debug(`No previous ECS state found for ${serviceArn}`);
+    return null;
+  } catch (error) {
+    logger.error(`Failed to get last ECS service state for ${serviceArn}`, error);
+    return null;
+  }
+}
 
 // src/services/sts-service.ts
 var import_client_sts = require("@aws-sdk/client-sts");
@@ -877,7 +928,7 @@ function getSTSClient() {
   }
   return stsClient;
 }
-async function assumeRole(roleArn, accountId, region) {
+async function assumeRole(roleArn, accountId, region, externalId) {
   const client = getSTSClient();
   const roleSessionName = `scheduler-session-${accountId}-${region}`;
   logger.debug(`Assuming role ${roleArn} for account ${accountId}`, { accountId, region });
@@ -885,8 +936,9 @@ async function assumeRole(roleArn, accountId, region) {
     const response = await client.send(new import_client_sts.AssumeRoleCommand({
       RoleArn: roleArn,
       RoleSessionName: roleSessionName,
-      DurationSeconds: 3600
+      DurationSeconds: 3600,
       // 1 hour
+      ExternalId: externalId
     }));
     if (!response.Credentials) {
       throw new Error("No credentials returned from AssumeRole");
@@ -907,9 +959,7 @@ async function assumeRole(roleArn, accountId, region) {
 
 // src/resource-schedulers/ec2-scheduler.ts
 var import_client_ec2 = require("@aws-sdk/client-ec2");
-var SCHEDULE_TAG = process.env.SCHEDULER_TAG || "schedule";
-async function processEC2Instances(schedules, credentials, metadata) {
-  const results = [];
+async function processEC2Resource(resource, schedule, action, credentials, metadata) {
   const ec2Client = new import_client_ec2.EC2Client({
     credentials: credentials.credentials,
     region: credentials.region
@@ -918,67 +968,24 @@ async function processEC2Instances(schedules, credentials, metadata) {
     executionId: metadata.executionId,
     accountId: metadata.account.accountId,
     region: metadata.region,
-    service: "ec2"
+    service: "ec2",
+    resourceId: resource.id
   });
-  log.info(`EC2 Scheduler started for ${metadata.account.name}`);
+  log.info(`Processing EC2 resource: ${resource.id} (${resource.name || "unnamed"})`);
   try {
-    const response = await ec2Client.send(new import_client_ec2.DescribeInstancesCommand({}));
-    const instances = response.Reservations?.flatMap((r) => r.Instances || []) || [];
-    const scheduledInstances = instances.filter((instance) => {
-      const hasScheduleTag = instance.Tags?.some((tag) => tag.Key === SCHEDULE_TAG);
-      const isECSManaged = instance.Tags?.some(
-        (tag) => tag.Key === "AmazonECSManaged" && tag.Value === "true"
-      );
-      return hasScheduleTag && !isECSManaged;
-    });
-    log.debug(`Found ${scheduledInstances.length} scheduled EC2 instances`);
-    for (const instance of scheduledInstances) {
-      const result = await processInstance(instance, schedules, ec2Client, log, metadata);
-      if (result) {
-        results.push(result);
-      }
+    const describeResponse = await ec2Client.send(new import_client_ec2.DescribeInstancesCommand({
+      InstanceIds: [resource.id]
+    }));
+    const instance = describeResponse.Reservations?.[0]?.Instances?.[0];
+    if (!instance) {
+      throw new Error(`EC2 instance ${resource.id} not found`);
     }
-    log.info(`EC2 Scheduler completed - ${results.length} actions taken`);
-  } catch (error) {
-    log.error("EC2 Scheduler error", error);
-    await createAuditLog({
-      type: "audit_log",
-      eventType: "scheduler.ec2.error",
-      action: "scan",
-      user: "system",
-      userType: "system",
-      resourceType: "ec2",
-      resourceId: metadata.account.accountId,
-      status: "error",
-      details: `EC2 Scheduler error: ${error instanceof Error ? error.message : String(error)}`,
-      severity: "high",
-      accountId: metadata.account.accountId,
-      region: metadata.region
-    });
-  }
-  return results;
-}
-async function processInstance(instance, schedules, ec2Client, log, metadata) {
-  const instanceId = instance.InstanceId;
-  const scheduleTagValue = instance.Tags?.find((t) => t.Key === SCHEDULE_TAG)?.Value;
-  if (!scheduleTagValue) return null;
-  const schedule = schedules.find((s) => s.name === scheduleTagValue);
-  if (!schedule) {
-    log.debug(`Schedule "${scheduleTagValue}" not found for instance ${instanceId}`);
-    return null;
-  }
-  const inRange = isCurrentTimeInRange(
-    schedule.starttime,
-    schedule.endtime,
-    schedule.timezone,
-    schedule.days
-  );
-  const currentState = instance.State?.Name;
-  log.debug(`Processing EC2 ${instanceId}: schedule=${scheduleTagValue}, inRange=${inRange}, state=${currentState}`);
-  try {
-    if (inRange && currentState !== "running") {
-      await ec2Client.send(new import_client_ec2.StartInstancesCommand({ InstanceIds: [instanceId] }));
-      log.info(`Started EC2 instance ${instanceId}`);
+    const currentState = instance.State?.Name || "unknown";
+    const instanceType = instance.InstanceType || "unknown";
+    log.debug(`EC2 ${resource.id}: currentState=${currentState}, desiredAction=${action}`);
+    if (action === "start" && currentState !== "running" && currentState !== "pending") {
+      await ec2Client.send(new import_client_ec2.StartInstancesCommand({ InstanceIds: [resource.id] }));
+      log.info(`Started EC2 instance ${resource.id}`);
       await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.ec2.start",
@@ -986,17 +993,26 @@ async function processInstance(instance, schedules, ec2Client, log, metadata) {
         user: "system",
         userType: "system",
         resourceType: "ec2",
-        resourceId: instanceId,
+        resourceId: resource.id,
         status: "success",
-        details: `Started EC2 instance ${instanceId}`,
+        details: `Started EC2 instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
         severity: "medium",
         accountId: metadata.account.accountId,
         region: metadata.region
       });
-      return { resourceId: instanceId, resourceType: "ec2", action: "start", success: true };
-    } else if (!inRange && currentState === "running") {
-      await ec2Client.send(new import_client_ec2.StopInstancesCommand({ InstanceIds: [instanceId] }));
-      log.info(`Stopped EC2 instance ${instanceId}`);
+      return {
+        arn: resource.arn,
+        resourceId: resource.id,
+        action: "start",
+        status: "success",
+        last_state: {
+          instanceState: currentState,
+          instanceType
+        }
+      };
+    } else if (action === "stop" && currentState === "running") {
+      await ec2Client.send(new import_client_ec2.StopInstancesCommand({ InstanceIds: [resource.id] }));
+      log.info(`Stopped EC2 instance ${resource.id}`);
       await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.ec2.stop",
@@ -1004,35 +1020,69 @@ async function processInstance(instance, schedules, ec2Client, log, metadata) {
         user: "system",
         userType: "system",
         resourceType: "ec2",
-        resourceId: instanceId,
+        resourceId: resource.id,
         status: "success",
-        details: `Stopped EC2 instance ${instanceId}`,
+        details: `Stopped EC2 instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
         severity: "medium",
         accountId: metadata.account.accountId,
         region: metadata.region
       });
-      return { resourceId: instanceId, resourceType: "ec2", action: "stop", success: true };
+      return {
+        arn: resource.arn,
+        resourceId: resource.id,
+        action: "stop",
+        status: "success",
+        last_state: {
+          instanceState: currentState,
+          instanceType
+        }
+      };
     } else {
-      log.debug(`EC2 ${instanceId} already in desired state`);
-      return { resourceId: instanceId, resourceType: "ec2", action: "skip", success: true };
+      log.debug(`EC2 ${resource.id} already in desired state, skipping`);
+      return {
+        arn: resource.arn,
+        resourceId: resource.id,
+        action: "skip",
+        status: "success",
+        last_state: {
+          instanceState: currentState,
+          instanceType
+        }
+      };
     }
   } catch (error) {
-    log.error(`Failed to process EC2 instance ${instanceId}`, error);
-    return {
-      resourceId: instanceId,
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`Failed to process EC2 instance ${resource.id}`, error);
+    await createAuditLog({
+      type: "audit_log",
+      eventType: "scheduler.ec2.error",
+      action,
+      user: "system",
+      userType: "system",
       resourceType: "ec2",
-      action: inRange ? "start" : "stop",
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
+      resourceId: resource.id,
+      status: "error",
+      details: `Failed to ${action} EC2 instance ${resource.id}: ${errorMessage}`,
+      severity: "high",
+      accountId: metadata.account.accountId,
+      region: metadata.region
+    });
+    return {
+      arn: resource.arn,
+      resourceId: resource.id,
+      action,
+      status: "failed",
+      error: errorMessage,
+      last_state: {
+        instanceState: "unknown"
+      }
     };
   }
 }
 
 // src/resource-schedulers/rds-scheduler.ts
 var import_client_rds = require("@aws-sdk/client-rds");
-var SCHEDULE_TAG2 = process.env.SCHEDULER_TAG || "schedule";
-async function processRDSInstances(schedules, credentials, metadata) {
-  const results = [];
+async function processRDSResource(resource, schedule, action, credentials, metadata) {
   const rdsClient = new import_client_rds.RDSClient({
     credentials: credentials.credentials,
     region: credentials.region
@@ -1041,64 +1091,24 @@ async function processRDSInstances(schedules, credentials, metadata) {
     executionId: metadata.executionId,
     accountId: metadata.account.accountId,
     region: metadata.region,
-    service: "rds"
+    service: "rds",
+    resourceId: resource.id
   });
-  log.info(`RDS Scheduler started for ${metadata.account.name}`);
+  log.info(`Processing RDS resource: ${resource.id} (${resource.name || "unnamed"})`);
   try {
-    const response = await rdsClient.send(new import_client_rds.DescribeDBInstancesCommand({}));
-    const instances = response.DBInstances || [];
-    log.debug(`Found ${instances.length} RDS instances`);
-    for (const instance of instances) {
-      const result = await processInstance2(instance, schedules, rdsClient, log, metadata);
-      if (result) {
-        results.push(result);
-      }
-    }
-    log.info(`RDS Scheduler completed - ${results.length} actions taken`);
-  } catch (error) {
-    log.error("RDS Scheduler error", error);
-    await createAuditLog({
-      type: "audit_log",
-      eventType: "scheduler.rds.error",
-      action: "scan",
-      user: "system",
-      userType: "system",
-      resourceType: "rds",
-      resourceId: metadata.account.accountId,
-      status: "error",
-      details: `RDS Scheduler error: ${error instanceof Error ? error.message : String(error)}`,
-      severity: "high",
-      accountId: metadata.account.accountId,
-      region: metadata.region
-    });
-  }
-  return results;
-}
-async function processInstance2(instance, schedules, rdsClient, log, metadata) {
-  const instanceId = instance.DBInstanceIdentifier;
-  const instanceArn = instance.DBInstanceArn;
-  try {
-    const tagsResponse = await rdsClient.send(new import_client_rds.ListTagsForResourceCommand({
-      ResourceName: instanceArn
+    const describeResponse = await rdsClient.send(new import_client_rds.DescribeDBInstancesCommand({
+      DBInstanceIdentifier: resource.id
     }));
-    const scheduleTagValue = tagsResponse.TagList?.find((t) => t.Key === SCHEDULE_TAG2)?.Value;
-    if (!scheduleTagValue) return null;
-    const schedule = schedules.find((s) => s.name === scheduleTagValue);
-    if (!schedule) {
-      log.debug(`Schedule "${scheduleTagValue}" not found for RDS ${instanceId}`);
-      return null;
+    const instance = describeResponse.DBInstances?.[0];
+    if (!instance) {
+      throw new Error(`RDS instance ${resource.id} not found`);
     }
-    const inRange = isCurrentTimeInRange(
-      schedule.starttime,
-      schedule.endtime,
-      schedule.timezone,
-      schedule.days
-    );
-    const currentStatus = instance.DBInstanceStatus;
-    log.debug(`Processing RDS ${instanceId}: schedule=${scheduleTagValue}, inRange=${inRange}, status=${currentStatus}`);
-    if (inRange && currentStatus !== "available" && currentStatus !== "starting") {
-      await rdsClient.send(new import_client_rds.StartDBInstanceCommand({ DBInstanceIdentifier: instanceId }));
-      log.info(`Started RDS instance ${instanceId}`);
+    const currentStatus = instance.DBInstanceStatus || "unknown";
+    const dbInstanceClass = instance.DBInstanceClass || "unknown";
+    log.debug(`RDS ${resource.id}: currentStatus=${currentStatus}, desiredAction=${action}`);
+    if (action === "start" && currentStatus !== "available" && currentStatus !== "starting") {
+      await rdsClient.send(new import_client_rds.StartDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
+      log.info(`Started RDS instance ${resource.id}`);
       await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.rds.start",
@@ -1106,17 +1116,26 @@ async function processInstance2(instance, schedules, rdsClient, log, metadata) {
         user: "system",
         userType: "system",
         resourceType: "rds",
-        resourceId: instanceId,
+        resourceId: resource.id,
         status: "success",
-        details: `Started RDS instance ${instanceId}`,
+        details: `Started RDS instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
         severity: "medium",
         accountId: metadata.account.accountId,
         region: metadata.region
       });
-      return { resourceId: instanceId, resourceType: "rds", action: "start", success: true };
-    } else if (!inRange && currentStatus === "available") {
-      await rdsClient.send(new import_client_rds.StopDBInstanceCommand({ DBInstanceIdentifier: instanceId }));
-      log.info(`Stopped RDS instance ${instanceId}`);
+      return {
+        arn: resource.arn,
+        resourceId: resource.id,
+        action: "start",
+        status: "success",
+        last_state: {
+          dbInstanceStatus: currentStatus,
+          dbInstanceClass
+        }
+      };
+    } else if (action === "stop" && currentStatus === "available") {
+      await rdsClient.send(new import_client_rds.StopDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
+      log.info(`Stopped RDS instance ${resource.id}`);
       await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.rds.stop",
@@ -1124,41 +1143,70 @@ async function processInstance2(instance, schedules, rdsClient, log, metadata) {
         user: "system",
         userType: "system",
         resourceType: "rds",
-        resourceId: instanceId,
+        resourceId: resource.id,
         status: "success",
-        details: `Stopped RDS instance ${instanceId}`,
+        details: `Stopped RDS instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
         severity: "medium",
         accountId: metadata.account.accountId,
         region: metadata.region
       });
-      return { resourceId: instanceId, resourceType: "rds", action: "stop", success: true };
+      return {
+        arn: resource.arn,
+        resourceId: resource.id,
+        action: "stop",
+        status: "success",
+        last_state: {
+          dbInstanceStatus: currentStatus,
+          dbInstanceClass
+        }
+      };
     } else {
-      log.debug(`RDS ${instanceId} already in desired state`);
-      return { resourceId: instanceId, resourceType: "rds", action: "skip", success: true };
+      log.debug(`RDS ${resource.id} already in desired state, skipping`);
+      return {
+        arn: resource.arn,
+        resourceId: resource.id,
+        action: "skip",
+        status: "success",
+        last_state: {
+          dbInstanceStatus: currentStatus,
+          dbInstanceClass
+        }
+      };
     }
   } catch (error) {
-    log.error(`Failed to process RDS instance ${instanceId}`, error);
-    return {
-      resourceId: instanceId,
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`Failed to process RDS instance ${resource.id}`, error);
+    await createAuditLog({
+      type: "audit_log",
+      eventType: "scheduler.rds.error",
+      action,
+      user: "system",
+      userType: "system",
       resourceType: "rds",
-      action: "stop",
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
+      resourceId: resource.id,
+      status: "error",
+      details: `Failed to ${action} RDS instance ${resource.id}: ${errorMessage}`,
+      severity: "high",
+      accountId: metadata.account.accountId,
+      region: metadata.region
+    });
+    return {
+      arn: resource.arn,
+      resourceId: resource.id,
+      action,
+      status: "failed",
+      error: errorMessage,
+      last_state: {
+        dbInstanceStatus: "unknown"
+      }
     };
   }
 }
 
 // src/resource-schedulers/ecs-scheduler.ts
 var import_client_ecs = require("@aws-sdk/client-ecs");
-var import_client_auto_scaling = require("@aws-sdk/client-auto-scaling");
-var SCHEDULE_TAG3 = process.env.SCHEDULER_TAG || "schedule";
-async function processECSResources(schedules, credentials, metadata) {
-  const results = [];
+async function processECSResource(resource, schedule, action, credentials, metadata, lastDesiredCount) {
   const ecsClient = new import_client_ecs.ECSClient({
-    credentials: credentials.credentials,
-    region: credentials.region
-  });
-  const asgClient = new import_client_auto_scaling.AutoScalingClient({
     credentials: credentials.credentials,
     region: credentials.region
   });
@@ -1166,251 +1214,184 @@ async function processECSResources(schedules, credentials, metadata) {
     executionId: metadata.executionId,
     accountId: metadata.account.accountId,
     region: metadata.region,
-    service: "ecs"
+    service: "ecs",
+    resourceId: resource.id
   });
-  log.info(`ECS Scheduler started for ${metadata.account.name}`);
-  try {
-    const clustersResponse = await ecsClient.send(new import_client_ecs.ListClustersCommand({}));
-    const clusterArns = clustersResponse.clusterArns || [];
-    log.debug(`Found ${clusterArns.length} ECS clusters`);
-    for (const clusterArn of clusterArns) {
-      const clusterResults = await processCluster(
-        clusterArn,
-        schedules,
-        ecsClient,
-        asgClient,
-        log,
-        metadata
-      );
-      results.push(...clusterResults);
+  let clusterArn = resource.clusterArn;
+  if (!clusterArn) {
+    const extractedCluster = extractClusterName(resource.arn);
+    if (extractedCluster) {
+      clusterArn = extractedCluster;
+      log.debug(`Extracted cluster name '${clusterArn}' from service ARN`);
     }
-    log.info(`ECS Scheduler completed - ${results.length} actions taken`);
-  } catch (error) {
-    log.error("ECS Scheduler error", error);
-    await createAuditLog({
-      type: "audit_log",
-      eventType: "scheduler.ecs.error",
-      action: "scan",
-      user: "system",
-      userType: "system",
-      resourceType: "ecs",
-      resourceId: metadata.account.accountId,
-      status: "error",
-      details: `ECS Scheduler error: ${error instanceof Error ? error.message : String(error)}`,
-      severity: "high",
-      accountId: metadata.account.accountId,
-      region: metadata.region
-    });
   }
-  return results;
-}
-async function processCluster(clusterArn, schedules, ecsClient, asgClient, log, metadata) {
-  const results = [];
-  try {
-    const tagsResponse = await ecsClient.send(new import_client_ecs.ListTagsForResourceCommand({
-      resourceArn: clusterArn
-    }));
-    const tags = tagsResponse.tags || [];
-    const scheduleTagValue = tags.find((t) => t.key === SCHEDULE_TAG3)?.value;
-    if (!scheduleTagValue) {
-      log.debug(`Cluster ${clusterArn} has no schedule tag, skipping`);
-      return results;
-    }
-    const schedule = schedules.find((s) => s.name === scheduleTagValue);
-    if (!schedule) {
-      log.debug(`Schedule "${scheduleTagValue}" not found for cluster ${clusterArn}`);
-      return results;
-    }
-    const inRange = isCurrentTimeInRange(
-      schedule.starttime,
-      schedule.endtime,
-      schedule.timezone,
-      schedule.days
-    );
-    const desiredCapacity = inRange ? 1 : 0;
-    const servicesResults = await processClusterServices(
-      clusterArn,
-      schedules,
-      ecsClient,
-      log,
-      metadata
-    );
-    results.push(...servicesResults);
-    const asgResults = await processClusterASGs(
-      clusterArn,
-      desiredCapacity,
-      ecsClient,
-      asgClient,
-      log,
-      metadata
-    );
-    results.push(...asgResults);
-  } catch (error) {
-    log.error(`Error processing cluster ${clusterArn}`, error);
-  }
-  return results;
-}
-async function processClusterServices(clusterArn, schedules, ecsClient, log, metadata) {
-  const results = [];
-  try {
-    const servicesResponse = await ecsClient.send(new import_client_ecs.ListServicesCommand({
-      cluster: clusterArn
-    }));
-    const serviceArns = servicesResponse.serviceArns || [];
-    for (const serviceArn of serviceArns) {
-      const result = await processService(
-        clusterArn,
-        serviceArn,
-        schedules,
-        ecsClient,
-        log,
-        metadata
-      );
-      if (result) {
-        results.push(result);
+  if (!clusterArn) {
+    const errorMessage = `ECS service ${resource.id} is missing clusterArn and it could not be extracted from ARN`;
+    log.error(errorMessage);
+    return {
+      arn: resource.arn,
+      resourceId: resource.id,
+      clusterArn: "unknown",
+      action,
+      status: "failed",
+      error: errorMessage,
+      last_state: {
+        desiredCount: 0,
+        runningCount: 0
       }
-    }
-  } catch (error) {
-    log.error(`Error processing services for cluster ${clusterArn}`, error);
+    };
   }
-  return results;
-}
-async function processService(clusterArn, serviceArn, schedules, ecsClient, log, metadata) {
+  const serviceName = extractServiceName(resource.arn);
+  log.info(`Processing ECS service: ${serviceName} (${resource.name || "unnamed"}) in cluster ${clusterArn}`);
   try {
-    const tagsResponse = await ecsClient.send(new import_client_ecs.ListTagsForResourceCommand({
-      resourceArn: serviceArn
-    }));
-    const scheduleTagValue = tagsResponse.tags?.find((t) => t.key === SCHEDULE_TAG3)?.value;
-    if (!scheduleTagValue) return null;
-    const schedule = schedules.find((s) => s.name === scheduleTagValue);
-    if (!schedule) return null;
-    const serviceName = serviceArn.split("/").pop();
-    const serviceDetails = await ecsClient.send(new import_client_ecs.DescribeServicesCommand({
+    const describeResponse = await ecsClient.send(new import_client_ecs.DescribeServicesCommand({
       cluster: clusterArn,
       services: [serviceName]
     }));
-    const service = serviceDetails.services?.[0];
-    if (!service) return null;
-    const inRange = isCurrentTimeInRange(
-      schedule.starttime,
-      schedule.endtime,
-      schedule.timezone,
-      schedule.days
-    );
-    const desiredCount = inRange ? 1 : 0;
-    if (service.desiredCount === desiredCount) {
-      log.debug(`ECS service ${serviceName} already at desired count ${desiredCount}`);
-      return { resourceId: serviceName, resourceType: "ecs", action: "skip", success: true };
+    const service = describeResponse.services?.[0];
+    if (!service) {
+      throw new Error(`ECS service ${serviceName} not found in cluster ${clusterArn}`);
     }
-    await ecsClient.send(new import_client_ecs.UpdateServiceCommand({
-      cluster: clusterArn,
-      service: serviceName,
-      desiredCount
-    }));
-    log.info(`Updated ECS service ${serviceName} to count ${desiredCount}`);
+    const currentDesiredCount = service.desiredCount ?? 0;
+    const runningCount = service.runningCount ?? 0;
+    const pendingCount = service.pendingCount ?? 0;
+    const serviceStatus = service.status ?? "unknown";
+    log.debug(`ECS ${serviceName}: desiredCount=${currentDesiredCount}, runningCount=${runningCount}, action=${action}`);
+    if (action === "stop" && currentDesiredCount > 0) {
+      await ecsClient.send(new import_client_ecs.UpdateServiceCommand({
+        cluster: clusterArn,
+        service: serviceName,
+        desiredCount: 0
+      }));
+      log.info(`Stopped ECS service ${serviceName} (was desiredCount=${currentDesiredCount})`);
+      await createAuditLog({
+        type: "audit_log",
+        eventType: "scheduler.ecs.stop",
+        action: "stop",
+        user: "system",
+        userType: "system",
+        resourceType: "ecs-service",
+        resourceId: serviceName,
+        status: "success",
+        details: `Stopped ECS service ${serviceName} for schedule ${schedule.name}. Previous desiredCount: ${currentDesiredCount}`,
+        severity: "medium",
+        accountId: metadata.account.accountId,
+        region: metadata.region
+      });
+      return {
+        arn: resource.arn,
+        resourceId: resource.id,
+        clusterArn,
+        action: "stop",
+        status: "success",
+        last_state: {
+          desiredCount: currentDesiredCount,
+          // Save this for restoration!
+          runningCount,
+          pendingCount,
+          status: serviceStatus
+        }
+      };
+    } else if (action === "start" && currentDesiredCount === 0) {
+      const targetDesiredCount = lastDesiredCount && lastDesiredCount > 0 ? lastDesiredCount : 1;
+      await ecsClient.send(new import_client_ecs.UpdateServiceCommand({
+        cluster: clusterArn,
+        service: serviceName,
+        desiredCount: targetDesiredCount
+      }));
+      log.info(`Started ECS service ${serviceName} with desiredCount=${targetDesiredCount}`);
+      await createAuditLog({
+        type: "audit_log",
+        eventType: "scheduler.ecs.start",
+        action: "start",
+        user: "system",
+        userType: "system",
+        resourceType: "ecs-service",
+        resourceId: serviceName,
+        status: "success",
+        details: `Started ECS service ${serviceName} for schedule ${schedule.name}. Restored desiredCount: ${targetDesiredCount}`,
+        severity: "medium",
+        accountId: metadata.account.accountId,
+        region: metadata.region
+      });
+      return {
+        arn: resource.arn,
+        resourceId: resource.id,
+        clusterArn,
+        action: "start",
+        status: "success",
+        last_state: {
+          desiredCount: currentDesiredCount,
+          // Was 0 before start
+          runningCount,
+          pendingCount,
+          status: serviceStatus
+        }
+      };
+    } else {
+      log.debug(`ECS ${serviceName} already in desired state, skipping`);
+      return {
+        arn: resource.arn,
+        resourceId: resource.id,
+        clusterArn,
+        action: "skip",
+        status: "success",
+        last_state: {
+          desiredCount: currentDesiredCount,
+          runningCount,
+          pendingCount,
+          status: serviceStatus
+        }
+      };
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error(`Failed to process ECS service ${serviceName}`, error);
     await createAuditLog({
       type: "audit_log",
-      eventType: "scheduler.ecs.service.update",
-      action: desiredCount > 0 ? "start" : "stop",
+      eventType: "scheduler.ecs.error",
+      action,
       user: "system",
       userType: "system",
       resourceType: "ecs-service",
       resourceId: serviceName,
-      status: "success",
-      details: `Updated ECS service ${serviceName} to count ${desiredCount}`,
-      severity: "medium",
+      status: "error",
+      details: `Failed to ${action} ECS service ${serviceName}: ${errorMessage}`,
+      severity: "high",
       accountId: metadata.account.accountId,
       region: metadata.region
     });
     return {
-      resourceId: serviceName,
-      resourceType: "ecs",
-      action: desiredCount > 0 ? "start" : "stop",
-      success: true
-    };
-  } catch (error) {
-    const serviceName = serviceArn.split("/").pop();
-    log.error(`Error processing ECS service ${serviceName}`, error);
-    return {
-      resourceId: serviceName,
-      resourceType: "ecs",
-      action: "stop",
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
-    };
-  }
-}
-async function processClusterASGs(clusterArn, desiredCapacity, ecsClient, asgClient, log, metadata) {
-  const results = [];
-  try {
-    const clusterDetails = await ecsClient.send(new import_client_ecs.DescribeClustersCommand({
-      clusters: [clusterArn]
-    }));
-    const cluster = clusterDetails.clusters?.[0];
-    const capacityProviders = cluster?.capacityProviders || [];
-    if (capacityProviders.length === 0) return results;
-    const cpDetails = await ecsClient.send(new import_client_ecs.DescribeCapacityProvidersCommand({
-      capacityProviders
-    }));
-    for (const cp of cpDetails.capacityProviders || []) {
-      const asgArn = cp.autoScalingGroupProvider?.autoScalingGroupArn;
-      if (!asgArn) continue;
-      const asgName = asgArn.split("/").pop();
-      const result = await updateASG(asgName, desiredCapacity, asgClient, log, metadata);
-      if (result) {
-        results.push(result);
+      arn: resource.arn,
+      resourceId: resource.id,
+      clusterArn,
+      action,
+      status: "failed",
+      error: errorMessage,
+      last_state: {
+        desiredCount: 0,
+        runningCount: 0
       }
-    }
-  } catch (error) {
-    log.error(`Error processing ASGs for cluster ${clusterArn}`, error);
+    };
   }
-  return results;
 }
-async function updateASG(asgName, desiredCapacity, asgClient, log, metadata) {
-  try {
-    const asgResponse = await asgClient.send(new import_client_auto_scaling.DescribeAutoScalingGroupsCommand({
-      AutoScalingGroupNames: [asgName]
-    }));
-    const asg = asgResponse.AutoScalingGroups?.[0];
-    if (!asg || asg.DesiredCapacity === desiredCapacity) {
-      return { resourceId: asgName, resourceType: "asg", action: "skip", success: true };
+function extractServiceName(arn) {
+  const match = arn.match(/service\/[^/]+\/(.+)$/);
+  if (!match) {
+    const altMatch = arn.match(/service\/(.+)$/);
+    if (!altMatch) {
+      throw new Error(`Invalid ECS service ARN format: ${arn}`);
     }
-    await asgClient.send(new import_client_auto_scaling.UpdateAutoScalingGroupCommand({
-      AutoScalingGroupName: asgName,
-      DesiredCapacity: desiredCapacity,
-      MinSize: desiredCapacity
-    }));
-    log.info(`Updated ASG ${asgName} to capacity ${desiredCapacity}`);
-    await createAuditLog({
-      type: "audit_log",
-      eventType: "scheduler.asg.update",
-      action: desiredCapacity > 0 ? "start" : "stop",
-      user: "system",
-      userType: "system",
-      resourceType: "asg",
-      resourceId: asgName,
-      status: "success",
-      details: `Updated ASG ${asgName} to capacity ${desiredCapacity}`,
-      severity: "medium",
-      accountId: metadata.account.accountId,
-      region: metadata.region
-    });
-    return {
-      resourceId: asgName,
-      resourceType: "asg",
-      action: desiredCapacity > 0 ? "start" : "stop",
-      success: true
-    };
-  } catch (error) {
-    log.error(`Error updating ASG ${asgName}`, error);
-    return {
-      resourceId: asgName,
-      resourceType: "asg",
-      action: "stop",
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
-    };
+    return altMatch[1];
   }
+  return match[1];
+}
+function extractClusterName(arn) {
+  const match = arn.match(/service\/([^/]+)\/[^/]+$/);
+  if (!match) {
+    return null;
+  }
+  return match[1];
 }
 
 // src/services/scheduler-service.ts
@@ -1419,36 +1400,45 @@ async function runFullScan(triggeredBy = "system") {
   const startTime = Date.now();
   logger.setContext({ executionId, mode: "full" });
   logger.info("Starting full scan");
-  await createAuditLog({
-    type: "audit_log",
-    eventType: "scheduler.start",
-    action: "full_scan",
-    user: "system",
-    userType: "system",
-    resourceType: "scheduler",
-    resourceId: executionId,
-    status: "info",
-    details: `Full scheduler scan started: ${executionId}`,
-    severity: "info"
-  });
   const schedules = await fetchActiveSchedules();
   const accounts = await fetchActiveAccounts();
-  logger.info(`Found ${schedules.length} schedules and ${accounts.length} accounts`);
-  if (schedules.length === 0 || accounts.length === 0) {
-    logger.info("No schedules or accounts to process");
+  logger.info(`Found ${schedules.length} active schedules and ${accounts.length} active accounts`);
+  if (schedules.length === 0) {
+    logger.info("No active schedules to process");
     return createResult(executionId, "full", startTime, 0, 0, 0, 0);
   }
-  const allResults = [];
-  const accountPromises = accounts.map(
-    (account) => processAccount(account, schedules, executionId, triggeredBy)
-  );
-  const accountResults = await Promise.allSettled(accountPromises);
-  for (const result of accountResults) {
-    if (result.status === "fulfilled") {
-      allResults.push(...result.value);
+  let totalStarted = 0;
+  let totalStopped = 0;
+  let totalFailed = 0;
+  const processedSchedules = [];
+  for (const schedule of schedules) {
+    try {
+      const result = await processSchedule(schedule, accounts, triggeredBy);
+      totalStarted += result.started;
+      totalStopped += result.stopped;
+      totalFailed += result.failed;
+      processedSchedules.push({
+        scheduleId: schedule.scheduleId,
+        scheduleName: schedule.name,
+        started: result.started,
+        stopped: result.stopped,
+        failed: result.failed,
+        status: result.failed > 0 ? "partial" : "success"
+      });
+    } catch (error) {
+      logger.error(`Error processing schedule ${schedule.scheduleId}`, error);
+      totalFailed++;
+      processedSchedules.push({
+        scheduleId: schedule.scheduleId,
+        scheduleName: schedule.name,
+        started: 0,
+        stopped: 0,
+        failed: 1,
+        status: "error"
+      });
     }
   }
-  const summary = summarizeResults(allResults);
+  const overallStatus = totalFailed > 0 ? totalStarted + totalStopped > 0 ? "warning" : "error" : "success";
   await createAuditLog({
     type: "audit_log",
     eventType: "scheduler.complete",
@@ -1457,19 +1447,26 @@ async function runFullScan(triggeredBy = "system") {
     userType: "system",
     resourceType: "scheduler",
     resourceId: executionId,
-    status: "success",
-    details: `Full scan completed: ${summary.started} started, ${summary.stopped} stopped, ${summary.failed} failed`,
-    severity: "info"
+    status: overallStatus,
+    details: `Full scan completed: ${totalStarted} started, ${totalStopped} stopped, ${totalFailed} failed`,
+    severity: totalFailed > 0 ? "medium" : "info",
+    metadata: {
+      schedulesProcessed: schedules.length,
+      resourcesStarted: totalStarted,
+      resourcesStopped: totalStopped,
+      resourcesFailed: totalFailed,
+      scheduleDetails: processedSchedules
+    }
   });
-  logger.info("Full scan completed", summary);
+  logger.info("Full scan completed", { totalStarted, totalStopped, totalFailed });
   return createResult(
     executionId,
     "full",
     startTime,
     schedules.length,
-    summary.started,
-    summary.stopped,
-    summary.failed
+    totalStarted,
+    totalStopped,
+    totalFailed
   );
 }
 async function runPartialScan(event, triggeredBy = "web-ui") {
@@ -1481,16 +1478,43 @@ async function runPartialScan(event, triggeredBy = "web-ui") {
   }
   logger.setContext({ executionId, mode: "partial", scheduleId });
   logger.info(`Starting partial scan for schedule: ${scheduleId}`);
-  const schedule = await fetchScheduleById(scheduleId);
+  const schedule = await fetchScheduleById(scheduleId, event.tenantId);
   if (!schedule) {
     throw new Error(`Schedule not found: ${scheduleId}`);
   }
   const accounts = await fetchActiveAccounts();
-  const targetAccounts = schedule.accountId ? accounts.filter((a) => a.accountId === schedule.accountId) : accounts;
-  if (targetAccounts.length === 0) {
-    logger.warn("No matching accounts found for schedule");
-    return createResult(executionId, "partial", startTime, 1, 0, 0, 0);
+  try {
+    const result = await processSchedule(schedule, accounts, triggeredBy);
+    logger.info("Partial scan completed", result);
+    return createResult(
+      executionId,
+      "partial",
+      startTime,
+      1,
+      result.started,
+      result.stopped,
+      result.failed
+    );
+  } catch (error) {
+    logger.error(`Partial scan failed for schedule ${scheduleId}`, error);
+    throw error;
   }
+}
+async function processSchedule(schedule, accounts, triggeredBy) {
+  const resources = schedule.resources || [];
+  logger.info(`Processing schedule: ${schedule.name} (${schedule.scheduleId}) with ${resources.length} resources`);
+  if (resources.length === 0) {
+    logger.info(`Schedule ${schedule.name} has no resources, skipping`);
+    return { started: 0, stopped: 0, failed: 0 };
+  }
+  const inRange = isCurrentTimeInRange(
+    schedule.starttime,
+    schedule.endtime,
+    schedule.timezone,
+    schedule.days
+  );
+  const action = inRange ? "start" : "stop";
+  logger.info(`Schedule ${schedule.name}: inRange=${inRange}, action=${action}`);
   const execParams = {
     scheduleId: schedule.scheduleId,
     scheduleName: schedule.name,
@@ -1499,101 +1523,132 @@ async function runPartialScan(event, triggeredBy = "web-ui") {
     triggeredBy
   };
   const execRecord = await createExecutionRecord(execParams);
-  const allResults = [];
-  const accountPromises = targetAccounts.map(
-    (account) => processAccount(account, [schedule], executionId, triggeredBy)
-  );
-  const accountResults = await Promise.allSettled(accountPromises);
-  for (const result of accountResults) {
-    if (result.status === "fulfilled") {
-      allResults.push(...result.value);
-    }
-  }
-  const summary = summarizeResults(allResults);
-  await updateExecutionRecord(execRecord, {
-    status: summary.failed > 0 ? "partial" : "success",
-    resourcesStarted: summary.started,
-    resourcesStopped: summary.stopped,
-    resourcesFailed: summary.failed
-  });
-  logger.info("Partial scan completed", summary);
-  return createResult(
-    executionId,
-    "partial",
-    startTime,
-    1,
-    summary.started,
-    summary.stopped,
-    summary.failed
-  );
-}
-async function processAccount(account, schedules, executionId, _triggeredBy) {
-  const results = [];
-  const accountDispName = account.accountName || account.name || account.accountId;
-  let regions = account.regions;
-  if (typeof regions === "string") {
-    regions = regions.split(",").map((r) => r.trim());
-  }
-  if (!Array.isArray(regions) || regions.length === 0) {
-    logger.warn(`No regions configured for account ${accountDispName}`);
-    return results;
-  }
-  const regionPromises = regions.map(async (region) => {
-    try {
-      const credentials = await assumeRole(account.roleArn, account.accountId, region);
-      const metadata = {
-        account: {
-          name: accountDispName,
-          accountId: account.accountId
-        },
-        region,
-        executionId
-      };
-      const [ec2Results, rdsResults, ecsResults] = await Promise.all([
-        processEC2Instances(schedules, credentials, metadata),
-        processRDSInstances(schedules, credentials, metadata),
-        processECSResources(schedules, credentials, metadata)
-      ]);
-      return [...ec2Results, ...rdsResults, ...ecsResults];
-    } catch (error) {
-      logger.error(`Error processing account ${accountDispName} in ${region}`, error);
-      await createAuditLog({
-        type: "audit_log",
-        eventType: "scheduler.account.error",
-        action: "process",
-        user: "system",
-        userType: "system",
-        resourceType: "account",
-        resourceId: account.accountId,
-        status: "error",
-        details: `Error processing account ${accountDispName} in ${region}: ${error instanceof Error ? error.message : String(error)}`,
-        severity: "high",
-        accountId: account.accountId,
-        region
-      });
-      return [];
-    }
-  });
-  const regionResults = await Promise.all(regionPromises);
-  for (const regionResult of regionResults) {
-    results.push(...regionResult);
-  }
-  return results;
-}
-function summarizeResults(results) {
+  const resourcesByAccount = groupResourcesByAccount(resources, accounts);
+  const scheduleMetadata = {
+    ec2: [],
+    ecs: [],
+    rds: []
+  };
   let started = 0;
   let stopped = 0;
   let failed = 0;
-  for (const result of results) {
-    if (!result.success) {
-      failed++;
-    } else if (result.action === "start") {
-      started++;
-    } else if (result.action === "stop") {
-      stopped++;
+  for (const [accountId, accountResources] of resourcesByAccount) {
+    const account = accounts.find((a) => a.accountId === accountId);
+    if (!account) {
+      logger.warn(`Account ${accountId} not found in active accounts, skipping resources`);
+      failed += accountResources.resources.length;
+      continue;
+    }
+    const resourcesByRegion = groupResourcesByRegion(accountResources.resources);
+    for (const [region, regionResources] of resourcesByRegion) {
+      try {
+        const credentials = await assumeRole(account.roleArn, account.accountId, region, account.externalId);
+        const metadata = {
+          account: {
+            name: account.accountName || account.name || account.accountId,
+            accountId: account.accountId
+          },
+          region,
+          executionId: execRecord.executionId,
+          scheduleId: schedule.scheduleId,
+          scheduleName: schedule.name
+        };
+        for (const resource of regionResources) {
+          try {
+            if (resource.type === "ec2") {
+              const result = await processEC2Resource(resource, schedule, action, credentials, metadata);
+              scheduleMetadata.ec2.push(result);
+              updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
+            } else if (resource.type === "rds") {
+              const result = await processRDSResource(resource, schedule, action, credentials, metadata);
+              scheduleMetadata.rds.push(result);
+              updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
+            } else if (resource.type === "ecs") {
+              let lastDesiredCount;
+              if (action === "start") {
+                const lastState = await getLastECSServiceState(
+                  schedule.scheduleId,
+                  resource.arn,
+                  schedule.tenantId
+                );
+                lastDesiredCount = lastState?.desiredCount;
+              }
+              const result = await processECSResource(resource, schedule, action, credentials, metadata, lastDesiredCount);
+              scheduleMetadata.ecs.push(result);
+              updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
+            }
+          } catch (error) {
+            logger.error(`Error processing resource ${resource.arn}`, error);
+            failed++;
+          }
+        }
+      } catch (error) {
+        logger.error(`Failed to assume role for account ${accountId} in region ${region}`, error);
+        failed += regionResources.length;
+      }
     }
   }
+  await updateExecutionRecord(execRecord, {
+    status: failed > 0 ? "partial" : "success",
+    resourcesStarted: started,
+    resourcesStopped: stopped,
+    resourcesFailed: failed,
+    schedule_metadata: scheduleMetadata
+  });
   return { started, stopped, failed };
+}
+function groupResourcesByAccount(resources, _accounts) {
+  const map = /* @__PURE__ */ new Map();
+  for (const resource of resources || []) {
+    const accountId = extractAccountIdFromArn(resource.arn);
+    if (!accountId) {
+      logger.warn(`Could not extract account ID from ARN: ${resource.arn}`);
+      continue;
+    }
+    if (!map.has(accountId)) {
+      map.set(accountId, { resources: [] });
+    }
+    map.get(accountId).resources.push(resource);
+  }
+  return map;
+}
+function groupResourcesByRegion(resources) {
+  const map = /* @__PURE__ */ new Map();
+  for (const resource of resources) {
+    const region = extractRegionFromArn4(resource.arn);
+    if (!region) {
+      logger.warn(`Could not extract region from ARN: ${resource.arn}`);
+      continue;
+    }
+    if (!map.has(region)) {
+      map.set(region, []);
+    }
+    map.get(region).push(resource);
+  }
+  return map;
+}
+function extractAccountIdFromArn(arn) {
+  const parts = arn.split(":");
+  if (parts.length < 5) {
+    return null;
+  }
+  return parts[4];
+}
+function extractRegionFromArn4(arn) {
+  const parts = arn.split(":");
+  if (parts.length < 4) {
+    return null;
+  }
+  return parts[3];
+}
+function updateCounts(result, _action, counters) {
+  if (result.status === "failed") {
+    counters.failed();
+  } else if (result.action === "start") {
+    counters.started();
+  } else if (result.action === "stop") {
+    counters.stopped();
+  }
 }
 function createResult(executionId, mode, startTime, schedulesProcessed, resourcesStarted, resourcesStopped, resourcesFailed) {
   return {

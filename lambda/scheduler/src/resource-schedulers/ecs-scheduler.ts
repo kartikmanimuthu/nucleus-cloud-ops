@@ -1,42 +1,41 @@
-// ECS Scheduler - Scale ECS services and clusters based on schedules
+// ECS Scheduler - Scale ECS services based on schedule resources (ARN-driven)
+// Stores desiredCount before stopping and restores it when starting
 import {
     ECSClient,
-    ListClustersCommand,
-    DescribeClustersCommand,
-    ListServicesCommand,
     DescribeServicesCommand,
     UpdateServiceCommand,
-    ListTagsForResourceCommand,
-    DescribeCapacityProvidersCommand,
 } from '@aws-sdk/client-ecs';
-import {
-    AutoScalingClient,
-    DescribeAutoScalingGroupsCommand,
-    UpdateAutoScalingGroupCommand,
-} from '@aws-sdk/client-auto-scaling';
 import { logger } from '../utils/logger.js';
-import { isCurrentTimeInRange } from '../utils/time-utils.js';
 import { createAuditLog } from '../services/dynamodb-service.js';
-import type { Schedule, AssumedCredentials, SchedulerMetadata, ResourceActionResult } from '../types/index.js';
-
-const SCHEDULE_TAG = process.env.SCHEDULER_TAG || 'schedule';
+import type {
+    Schedule,
+    ScheduleResource,
+    AssumedCredentials,
+    SchedulerMetadata,
+    ECSResourceExecution,
+} from '../types/index.js';
 
 /**
- * Process ECS clusters and services for scheduling
+ * Process a single ECS service resource for scheduling (ARN-driven)
+ * When stopping: saves current desiredCount to last_state for later restoration
+ * When starting: uses lastDesiredCount to restore the service to its previous scale
+ * 
+ * @param resource - The ECS resource from the schedule
+ * @param schedule - The schedule configuration
+ * @param action - 'start' or 'stop' based on time window evaluation
+ * @param credentials - Assumed role credentials
+ * @param metadata - Execution metadata
+ * @param lastDesiredCount - The desiredCount from last stop execution (for restoration)
  */
-export async function processECSResources(
-    schedules: Schedule[],
+export async function processECSResource(
+    resource: ScheduleResource,
+    schedule: Schedule,
+    action: 'start' | 'stop',
     credentials: AssumedCredentials,
-    metadata: SchedulerMetadata
-): Promise<ResourceActionResult[]> {
-    const results: ResourceActionResult[] = [];
-
+    metadata: SchedulerMetadata,
+    lastDesiredCount?: number
+): Promise<ECSResourceExecution> {
     const ecsClient = new ECSClient({
-        credentials: credentials.credentials,
-        region: credentials.region,
-    });
-
-    const asgClient = new AutoScalingClient({
         credentials: credentials.credentials,
         region: credentials.region,
     });
@@ -46,335 +45,225 @@ export async function processECSResources(
         accountId: metadata.account.accountId,
         region: metadata.region,
         service: 'ecs',
+        resourceId: resource.id,
     });
 
-    log.info(`ECS Scheduler started for ${metadata.account.name}`);
-
-    try {
-        // List all ECS clusters
-        const clustersResponse = await ecsClient.send(new ListClustersCommand({}));
-        const clusterArns = clustersResponse.clusterArns || [];
-
-        log.debug(`Found ${clusterArns.length} ECS clusters`);
-
-        // Process each cluster
-        for (const clusterArn of clusterArns) {
-            const clusterResults = await processCluster(
-                clusterArn,
-                schedules,
-                ecsClient,
-                asgClient,
-                log,
-                metadata
-            );
-            results.push(...clusterResults);
+    // Extract cluster ARN/Name and service name from resource
+    let clusterArn = resource.clusterArn;
+    if (!clusterArn) {
+        const extractedCluster = extractClusterName(resource.arn);
+        if (extractedCluster) {
+            clusterArn = extractedCluster;
+            log.debug(`Extracted cluster name '${clusterArn}' from service ARN`);
         }
-
-        log.info(`ECS Scheduler completed - ${results.length} actions taken`);
-    } catch (error) {
-        log.error('ECS Scheduler error', error);
-        await createAuditLog({
-            type: 'audit_log',
-            eventType: 'scheduler.ecs.error',
-            action: 'scan',
-            user: 'system',
-            userType: 'system',
-            resourceType: 'ecs',
-            resourceId: metadata.account.accountId,
-            status: 'error',
-            details: `ECS Scheduler error: ${error instanceof Error ? error.message : String(error)}`,
-            severity: 'high',
-            accountId: metadata.account.accountId,
-            region: metadata.region,
-        });
     }
 
-    return results;
-}
-
-async function processCluster(
-    clusterArn: string,
-    schedules: Schedule[],
-    ecsClient: ECSClient,
-    asgClient: AutoScalingClient,
-    log: ReturnType<typeof logger.child>,
-    metadata: SchedulerMetadata
-): Promise<ResourceActionResult[]> {
-    const results: ResourceActionResult[] = [];
-
-    try {
-        // Get cluster tags
-        const tagsResponse = await ecsClient.send(new ListTagsForResourceCommand({
-            resourceArn: clusterArn,
-        }));
-        const tags = tagsResponse.tags || [];
-
-        const scheduleTagValue = tags.find(t => t.key === SCHEDULE_TAG)?.value;
-        if (!scheduleTagValue) {
-            log.debug(`Cluster ${clusterArn} has no schedule tag, skipping`);
-            return results;
-        }
-
-        const schedule = schedules.find(s => s.name === scheduleTagValue);
-        if (!schedule) {
-            log.debug(`Schedule "${scheduleTagValue}" not found for cluster ${clusterArn}`);
-            return results;
-        }
-
-        const inRange = isCurrentTimeInRange(
-            schedule.starttime,
-            schedule.endtime,
-            schedule.timezone,
-            schedule.days
-        );
-        const desiredCapacity = inRange ? 1 : 0;
-
-        // Process services in this cluster
-        const servicesResults = await processClusterServices(
-            clusterArn,
-            schedules,
-            ecsClient,
-            log,
-            metadata
-        );
-        results.push(...servicesResults);
-
-        // Process ASGs for this cluster
-        const asgResults = await processClusterASGs(
-            clusterArn,
-            desiredCapacity,
-            ecsClient,
-            asgClient,
-            log,
-            metadata
-        );
-        results.push(...asgResults);
-
-    } catch (error) {
-        log.error(`Error processing cluster ${clusterArn}`, error);
+    if (!clusterArn) {
+        const errorMessage = `ECS service ${resource.id} is missing clusterArn and it could not be extracted from ARN`;
+        log.error(errorMessage);
+        return {
+            arn: resource.arn,
+            resourceId: resource.id,
+            clusterArn: 'unknown',
+            action: action,
+            status: 'failed',
+            error: errorMessage,
+            last_state: {
+                desiredCount: 0,
+                runningCount: 0,
+            },
+        };
     }
 
-    return results;
-}
-
-async function processClusterServices(
-    clusterArn: string,
-    schedules: Schedule[],
-    ecsClient: ECSClient,
-    log: ReturnType<typeof logger.child>,
-    metadata: SchedulerMetadata
-): Promise<ResourceActionResult[]> {
-    const results: ResourceActionResult[] = [];
+    const serviceName = extractServiceName(resource.arn);
+    log.info(`Processing ECS service: ${serviceName} (${resource.name || 'unnamed'}) in cluster ${clusterArn}`);
 
     try {
-        const servicesResponse = await ecsClient.send(new ListServicesCommand({
-            cluster: clusterArn,
-        }));
-        const serviceArns = servicesResponse.serviceArns || [];
-
-        for (const serviceArn of serviceArns) {
-            const result = await processService(
-                clusterArn,
-                serviceArn,
-                schedules,
-                ecsClient,
-                log,
-                metadata
-            );
-            if (result) {
-                results.push(result);
-            }
-        }
-    } catch (error) {
-        log.error(`Error processing services for cluster ${clusterArn}`, error);
-    }
-
-    return results;
-}
-
-async function processService(
-    clusterArn: string,
-    serviceArn: string,
-    schedules: Schedule[],
-    ecsClient: ECSClient,
-    log: ReturnType<typeof logger.child>,
-    metadata: SchedulerMetadata
-): Promise<ResourceActionResult | null> {
-    try {
-        // Get service tags
-        const tagsResponse = await ecsClient.send(new ListTagsForResourceCommand({
-            resourceArn: serviceArn,
-        }));
-        const scheduleTagValue = tagsResponse.tags?.find(t => t.key === SCHEDULE_TAG)?.value;
-
-        if (!scheduleTagValue) return null;
-
-        const schedule = schedules.find(s => s.name === scheduleTagValue);
-        if (!schedule) return null;
-
-        // Get current service details
-        const serviceName = serviceArn.split('/').pop()!;
-        const serviceDetails = await ecsClient.send(new DescribeServicesCommand({
+        // Get current service state
+        const describeResponse = await ecsClient.send(new DescribeServicesCommand({
             cluster: clusterArn,
             services: [serviceName],
         }));
-        const service = serviceDetails.services?.[0];
-        if (!service) return null;
 
-        const inRange = isCurrentTimeInRange(
-            schedule.starttime,
-            schedule.endtime,
-            schedule.timezone,
-            schedule.days
-        );
-        const desiredCount = inRange ? 1 : 0;
-
-        if (service.desiredCount === desiredCount) {
-            log.debug(`ECS service ${serviceName} already at desired count ${desiredCount}`);
-            return { resourceId: serviceName, resourceType: 'ecs', action: 'skip', success: true };
+        const service = describeResponse.services?.[0];
+        if (!service) {
+            throw new Error(`ECS service ${serviceName} not found in cluster ${clusterArn}`);
         }
 
-        // Update service count
-        await ecsClient.send(new UpdateServiceCommand({
-            cluster: clusterArn,
-            service: serviceName,
-            desiredCount,
-        }));
+        const currentDesiredCount = service.desiredCount ?? 0;
+        const runningCount = service.runningCount ?? 0;
+        const pendingCount = service.pendingCount ?? 0;
+        const serviceStatus = service.status ?? 'unknown';
 
-        log.info(`Updated ECS service ${serviceName} to count ${desiredCount}`);
+        log.debug(`ECS ${serviceName}: desiredCount=${currentDesiredCount}, runningCount=${runningCount}, action=${action}`);
+
+        if (action === 'stop' && currentDesiredCount > 0) {
+            // Stop the service by setting desiredCount to 0
+            // IMPORTANT: Save current desiredCount in last_state for restoration
+            await ecsClient.send(new UpdateServiceCommand({
+                cluster: clusterArn,
+                service: serviceName,
+                desiredCount: 0,
+            }));
+            log.info(`Stopped ECS service ${serviceName} (was desiredCount=${currentDesiredCount})`);
+
+            await createAuditLog({
+                type: 'audit_log',
+                eventType: 'scheduler.ecs.stop',
+                action: 'stop',
+                user: 'system',
+                userType: 'system',
+                resourceType: 'ecs-service',
+                resourceId: serviceName,
+                status: 'success',
+                details: `Stopped ECS service ${serviceName} for schedule ${schedule.name}. Previous desiredCount: ${currentDesiredCount}`,
+                severity: 'medium',
+                accountId: metadata.account.accountId,
+                region: metadata.region,
+            });
+
+            return {
+                arn: resource.arn,
+                resourceId: resource.id,
+                clusterArn,
+                action: 'stop',
+                status: 'success',
+                last_state: {
+                    desiredCount: currentDesiredCount,  // Save this for restoration!
+                    runningCount,
+                    pendingCount,
+                    status: serviceStatus,
+                },
+            };
+
+        } else if (action === 'start' && currentDesiredCount === 0) {
+            // Start the service by restoring desiredCount
+            // Use lastDesiredCount from previous execution, or default to 1
+            const targetDesiredCount = lastDesiredCount && lastDesiredCount > 0 ? lastDesiredCount : 1;
+
+            await ecsClient.send(new UpdateServiceCommand({
+                cluster: clusterArn,
+                service: serviceName,
+                desiredCount: targetDesiredCount,
+            }));
+            log.info(`Started ECS service ${serviceName} with desiredCount=${targetDesiredCount}`);
+
+            await createAuditLog({
+                type: 'audit_log',
+                eventType: 'scheduler.ecs.start',
+                action: 'start',
+                user: 'system',
+                userType: 'system',
+                resourceType: 'ecs-service',
+                resourceId: serviceName,
+                status: 'success',
+                details: `Started ECS service ${serviceName} for schedule ${schedule.name}. Restored desiredCount: ${targetDesiredCount}`,
+                severity: 'medium',
+                accountId: metadata.account.accountId,
+                region: metadata.region,
+            });
+
+            return {
+                arn: resource.arn,
+                resourceId: resource.id,
+                clusterArn,
+                action: 'start',
+                status: 'success',
+                last_state: {
+                    desiredCount: currentDesiredCount,  // Was 0 before start
+                    runningCount,
+                    pendingCount,
+                    status: serviceStatus,
+                },
+            };
+
+        } else {
+            log.debug(`ECS ${serviceName} already in desired state, skipping`);
+            return {
+                arn: resource.arn,
+                resourceId: resource.id,
+                clusterArn,
+                action: 'skip',
+                status: 'success',
+                last_state: {
+                    desiredCount: currentDesiredCount,
+                    runningCount,
+                    pendingCount,
+                    status: serviceStatus,
+                },
+            };
+        }
+
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log.error(`Failed to process ECS service ${serviceName}`, error);
 
         await createAuditLog({
             type: 'audit_log',
-            eventType: 'scheduler.ecs.service.update',
-            action: desiredCount > 0 ? 'start' : 'stop',
+            eventType: 'scheduler.ecs.error',
+            action: action,
             user: 'system',
             userType: 'system',
             resourceType: 'ecs-service',
             resourceId: serviceName,
-            status: 'success',
-            details: `Updated ECS service ${serviceName} to count ${desiredCount}`,
-            severity: 'medium',
+            status: 'error',
+            details: `Failed to ${action} ECS service ${serviceName}: ${errorMessage}`,
+            severity: 'high',
             accountId: metadata.account.accountId,
             region: metadata.region,
         });
 
         return {
-            resourceId: serviceName,
-            resourceType: 'ecs',
-            action: desiredCount > 0 ? 'start' : 'stop',
-            success: true
-        };
-    } catch (error) {
-        const serviceName = serviceArn.split('/').pop()!;
-        log.error(`Error processing ECS service ${serviceName}`, error);
-        return {
-            resourceId: serviceName,
-            resourceType: 'ecs',
-            action: 'stop',
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
+            arn: resource.arn,
+            resourceId: resource.id,
+            clusterArn,
+            action: action,
+            status: 'failed',
+            error: errorMessage,
+            last_state: {
+                desiredCount: 0,
+                runningCount: 0,
+            },
         };
     }
 }
 
-async function processClusterASGs(
-    clusterArn: string,
-    desiredCapacity: number,
-    ecsClient: ECSClient,
-    asgClient: AutoScalingClient,
-    log: ReturnType<typeof logger.child>,
-    metadata: SchedulerMetadata
-): Promise<ResourceActionResult[]> {
-    const results: ResourceActionResult[] = [];
-
-    try {
-        // Get cluster capacity providers
-        const clusterDetails = await ecsClient.send(new DescribeClustersCommand({
-            clusters: [clusterArn],
-        }));
-        const cluster = clusterDetails.clusters?.[0];
-        const capacityProviders = cluster?.capacityProviders || [];
-
-        if (capacityProviders.length === 0) return results;
-
-        // Get ASG ARNs from capacity providers
-        const cpDetails = await ecsClient.send(new DescribeCapacityProvidersCommand({
-            capacityProviders,
-        }));
-
-        for (const cp of cpDetails.capacityProviders || []) {
-            const asgArn = cp.autoScalingGroupProvider?.autoScalingGroupArn;
-            if (!asgArn) continue;
-
-            const asgName = asgArn.split('/').pop()!;
-            const result = await updateASG(asgName, desiredCapacity, asgClient, log, metadata);
-            if (result) {
-                results.push(result);
-            }
+/**
+ * Extract service name from ECS service ARN
+ * ARN format: arn:aws:ecs:region:account:service/cluster-name/service-name
+ */
+export function extractServiceName(arn: string): string {
+    const match = arn.match(/service\/[^/]+\/(.+)$/);
+    if (!match) {
+        // Try alternate format: arn:aws:ecs:region:account:service/service-name
+        const altMatch = arn.match(/service\/(.+)$/);
+        if (!altMatch) {
+            throw new Error(`Invalid ECS service ARN format: ${arn}`);
         }
-    } catch (error) {
-        log.error(`Error processing ASGs for cluster ${clusterArn}`, error);
+        return altMatch[1];
     }
-
-    return results;
+    return match[1];
 }
 
-async function updateASG(
-    asgName: string,
-    desiredCapacity: number,
-    asgClient: AutoScalingClient,
-    log: ReturnType<typeof logger.child>,
-    metadata: SchedulerMetadata
-): Promise<ResourceActionResult | null> {
-    try {
-        // Get current ASG state
-        const asgResponse = await asgClient.send(new DescribeAutoScalingGroupsCommand({
-            AutoScalingGroupNames: [asgName],
-        }));
-        const asg = asgResponse.AutoScalingGroups?.[0];
-
-        if (!asg || asg.DesiredCapacity === desiredCapacity) {
-            return { resourceId: asgName, resourceType: 'asg', action: 'skip', success: true };
-        }
-
-        // Update ASG
-        await asgClient.send(new UpdateAutoScalingGroupCommand({
-            AutoScalingGroupName: asgName,
-            DesiredCapacity: desiredCapacity,
-            MinSize: desiredCapacity,
-        }));
-
-        log.info(`Updated ASG ${asgName} to capacity ${desiredCapacity}`);
-
-        await createAuditLog({
-            type: 'audit_log',
-            eventType: 'scheduler.asg.update',
-            action: desiredCapacity > 0 ? 'start' : 'stop',
-            user: 'system',
-            userType: 'system',
-            resourceType: 'asg',
-            resourceId: asgName,
-            status: 'success',
-            details: `Updated ASG ${asgName} to capacity ${desiredCapacity}`,
-            severity: 'medium',
-            accountId: metadata.account.accountId,
-            region: metadata.region,
-        });
-
-        return {
-            resourceId: asgName,
-            resourceType: 'asg',
-            action: desiredCapacity > 0 ? 'start' : 'stop',
-            success: true
-        };
-    } catch (error) {
-        log.error(`Error updating ASG ${asgName}`, error);
-        return {
-            resourceId: asgName,
-            resourceType: 'asg',
-            action: 'stop',
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-        };
+/**
+ * Extract cluster name from ECS service ARN
+ * ARN format: arn:aws:ecs:region:account:service/cluster-name/service-name
+ */
+export function extractClusterName(arn: string): string | null {
+    const match = arn.match(/service\/([^/]+)\/[^/]+$/);
+    if (!match) {
+        return null;
     }
+    return match[1];
+}
+
+/**
+ * Extract region from ECS ARN
+ */
+export function extractRegionFromArn(arn: string): string {
+    const parts = arn.split(':');
+    if (parts.length < 4) {
+        throw new Error(`Invalid ARN format: ${arn}`);
+    }
+    return parts[3];
 }

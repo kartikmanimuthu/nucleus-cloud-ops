@@ -4,14 +4,14 @@ import { ScheduleService } from "@/lib/schedule-service";
 
 export async function GET(
     request: NextRequest,
-    { params }: { params: Promise<{ scheduleId: string }> }
+    { params }: { params: Promise<{ scheduleId: string; executionId: string }> }
 ) {
     try {
-        const { scheduleId } = await params;
+        const { scheduleId, executionId } = await params;
 
-        if (!scheduleId) {
+        if (!scheduleId || !executionId) {
             return NextResponse.json(
-                { error: "Schedule ID is required" },
+                { error: "Schedule ID and Execution ID are required" },
                 { status: 400 }
             );
         }
@@ -25,30 +25,32 @@ export async function GET(
             );
         }
 
-        // Parse query parameters
-        const searchParams = request.nextUrl.searchParams;
-        const limit = parseInt(searchParams.get("limit") || "50", 10);
-
-
-        // Fetch execution history
-        const executions = await ScheduleExecutionService.getExecutionsForSchedule(
+        // Fetch single execution
+        const execution = await ScheduleExecutionService.getExecutionById(
             scheduleId,
-            (schedule.accounts && schedule.accounts[0]) || "unknown",
-            { limit },
+            executionId
         );
+
+        if (!execution) {
+            return NextResponse.json(
+                { error: "Execution not found" },
+                { status: 404 }
+            );
+        }
 
         return NextResponse.json({
             success: true,
-            scheduleId,
-            scheduleName: schedule.name,
-            executions,
-            total: executions.length
+            execution,
+            schedule: {
+                id: schedule.id,
+                name: schedule.name,
+            }
         });
 
     } catch (error: any) {
-        console.error("[API] Error fetching execution history:", error);
+        console.error("[API] Error fetching execution details:", error);
         return NextResponse.json(
-            { error: error.message || "Failed to fetch execution history" },
+            { error: error.message || "Failed to fetch execution details" },
             { status: 500 }
         );
     }

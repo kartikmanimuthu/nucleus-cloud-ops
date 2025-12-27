@@ -78,7 +78,7 @@ export function AuditLogDetailsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[60vh]">
+        <div className="flex-1 overflow-y-auto w-full rounded-md border p-4">
           <div className="space-y-6">
             {/* Basic Information */}
             <Card>
@@ -333,8 +333,24 @@ export function AuditLogDetailsDialog({
                 </CardContent>
               </Card>
             )}
+
+            {/* Raw DynamoDB Record */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Server className="h-4 w-4" />
+                  Raw DynamoDB Record
+                </CardTitle>
+                <CardDescription>Complete raw record from database</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-64">
+                  {JSON.stringify(log, null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   );

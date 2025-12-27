@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -27,8 +28,10 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle,
+  Loader2,
 } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
+import { ExecutionDetailsDialog } from "./execution-details-dialog";
 
 interface ScheduleDetailsDialogProps {
   schedule: any;
@@ -36,61 +39,61 @@ interface ScheduleDetailsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-// Mock execution history
-const mockExecutionHistory = [
-  {
-    id: "exec-001",
-    timestamp: "2024-01-15T22:00:00Z",
-    status: "success",
-    duration: 45,
-    resourcesAffected: 12,
-    savings: 85,
-    details: "Successfully stopped 12 RDS instances across 2 accounts",
-  },
-  {
-    id: "exec-002",
-    timestamp: "2024-01-14T22:00:00Z",
-    status: "success",
-    duration: 38,
-    resourcesAffected: 11,
-    savings: 78,
-    details: "Successfully stopped 11 RDS instances across 2 accounts",
-  },
-  {
-    id: "exec-003",
-    timestamp: "2024-01-13T22:00:00Z",
-    status: "partial",
-    duration: 52,
-    resourcesAffected: 10,
-    savings: 65,
-    details:
-      "Stopped 10 of 12 RDS instances. 2 instances had active connections.",
-  },
-  {
-    id: "exec-004",
-    timestamp: "2024-01-12T22:00:00Z",
-    status: "success",
-    duration: 41,
-    resourcesAffected: 12,
-    savings: 85,
-    details: "Successfully stopped 12 RDS instances across 2 accounts",
-  },
-  {
-    id: "exec-005",
-    timestamp: "2024-01-11T22:00:00Z",
-    status: "error",
-    duration: 15,
-    resourcesAffected: 0,
-    savings: 0,
-    details: "Failed to assume role in prod-account-2. Check IAM permissions.",
-  },
-];
+interface ExecutionRecord {
+  id: string;
+  executionId: string;
+  startTime: string;
+  endTime?: string;
+  status: string;
+  duration?: number;
+  resourcesStarted?: number;
+  resourcesStopped?: number;
+  resourcesFailed?: number;
+  errorMessage?: string;
+  schedule_metadata?: any;
+}
 
 export function ScheduleDetailsDialog({
   schedule,
   open,
   onOpenChange,
 }: ScheduleDetailsDialogProps) {
+  const [executionHistory, setExecutionHistory] = useState<ExecutionRecord[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [selectedExecution, setSelectedExecution] = useState<ExecutionRecord | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // Fetch execution history when dialog opens
+  useEffect(() => {
+    if (open && schedule?.scheduleId) {
+      fetchExecutionHistory(schedule.scheduleId);
+    }
+  }, [open, schedule?.scheduleId]);
+
+  const fetchExecutionHistory = async (scheduleId: string) => {
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const response = await fetch(`/api/schedules/${scheduleId}/history?limit=50`);
+      const data = await response.json();
+      if (data.success && data.executions) {
+        // Sort by startTime descending (latest first)
+        const sorted = [...data.executions].sort((a: ExecutionRecord, b: ExecutionRecord) =>
+          new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+        );
+        setExecutionHistory(sorted);
+      } else {
+        setHistoryError(data.error || "Failed to load execution history");
+      }
+    } catch (error) {
+      setHistoryError("Failed to fetch execution history");
+      console.error("Error fetching execution history:", error);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "success":
@@ -454,50 +457,80 @@ export function ScheduleDetailsDialog({
               <CardHeader>
                 <CardTitle>Execution History</CardTitle>
                 <CardDescription>
-                  Recent executions of this schedule
+                  Recent executions of this schedule (latest first)
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {mockExecutionHistory.map((execution) => (
-                    <div
-                      key={execution.id}
-                      className="flex items-start space-x-4 p-4 border rounded-lg"
-                    >
-                      <div className="flex-shrink-0 mt-1">
-                        {getStatusIcon(execution.status)}
-                      </div>
-                      <div className="flex-1 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
+                {loadingHistory ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-muted-foreground">Loading execution history...</span>
+                  </div>
+                ) : historyError ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <AlertTriangle className="h-6 w-6 mx-auto mb-2 text-yellow-500" />
+                    <p>{historyError}</p>
+                  </div>
+                ) : executionHistory.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Activity className="h-6 w-6 mx-auto mb-2" />
+                    <p>No execution history available</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {executionHistory.map((execution: ExecutionRecord) => (
+                      <div
+                        key={execution.id}
+                        className="flex items-start space-x-4 p-4 border rounded-lg hover:bg-accent/50 cursor-pointer transition-colors"
+                        onClick={() => {
+                          setSelectedExecution(execution);
+                          setDetailsOpen(true);
+                        }}
+                      >
+                        <div className="flex-shrink-0 mt-1">
+                          {getStatusIcon(execution.status)}
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
                             {getStatusBadge(execution.status)}
-                            <span className="text-sm font-medium">
-                              {formatDate(execution.timestamp, {
-                                includeTime: true,
-                              })}
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium">
+                                {formatDate(execution.startTime)}
+                              </span>
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {formatDate(execution.startTime, { includeTime: true }).split(' ')[1]}
+                              </span>
+                            </div>
+                          </div>
+                            <div className="text-sm text-muted-foreground bg-muted px-2 py-0.5 rounded text-xs font-mono">
+                              ID: {execution.id.split('-').pop()}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-sm text-muted-foreground">
+                            <span>
+                                {execution.errorMessage 
+                                    ? <span className="text-red-500 line-clamp-1">{execution.errorMessage}</span>
+                                    : `Resources: ${(execution.resourcesStarted || 0) + (execution.resourcesStopped || 0)} handled`
+                                }
                             </span>
+                            <span>{execution.duration || 0}s</span>
                           </div>
-                          <div className="text-sm text-muted-foreground">
-                            Duration: {execution.duration}s
-                          </div>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {execution.details}
-                        </p>
-                        <div className="flex items-center space-x-4 text-xs text-muted-foreground">
-                          <span>Resources: {execution.resourcesAffected}</span>
-                          <span>Savings: ${execution.savings}</span>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
+          {/* ... other tabs ... */}
+          
           <TabsContent value="performance" className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
+            {/* ... performance content ... */}
+             <div className="grid gap-4 md:grid-cols-3">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">
@@ -616,6 +649,12 @@ export function ScheduleDetailsDialog({
           </TabsContent>
         </Tabs>
       </DialogContent>
+      
+      <ExecutionDetailsDialog 
+        execution={selectedExecution}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
     </Dialog>
   );
 }

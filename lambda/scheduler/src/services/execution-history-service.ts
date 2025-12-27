@@ -1,5 +1,6 @@
 // Execution History Service
 // Records schedule executions to the app table with 30-day TTL
+// Includes schedule_metadata for per-resource execution details
 
 import {
     PutCommand,
@@ -10,7 +11,11 @@ import { getDynamoDBClient, APP_TABLE_NAME } from './dynamodb-service.js';
 import { logger } from '../utils/logger.js';
 import { calculateTTL } from '../utils/time-utils.js';
 import { v4 as uuidv4 } from 'uuid';
-import type { ExecutionRecord, ExecutionStatus } from '../types/index.js';
+import type {
+    ExecutionRecord,
+    ExecutionStatus,
+    ScheduleExecutionMetadata,
+} from '../types/index.js';
 
 // TTL in days for execution history
 const EXECUTION_TTL_DAYS = 30;
@@ -37,6 +42,7 @@ export interface UpdateExecutionParams {
     resourcesFailed?: number;
     errorMessage?: string;
     details?: Record<string, unknown>;
+    schedule_metadata?: ScheduleExecutionMetadata;
 }
 
 /**
@@ -103,10 +109,11 @@ export async function updateExecutionRecord(
     const updateExpressions: string[] = [
         'set #status = :status',
         'endTime = :endTime',
-        'duration = :duration',
+        '#duration = :duration',
     ];
     const expressionAttributeNames: Record<string, string> = {
         '#status': 'status',
+        '#duration': 'duration',
     };
     const expressionAttributeValues: Record<string, unknown> = {
         ':status': updates.status,
@@ -133,6 +140,10 @@ export async function updateExecutionRecord(
     if (updates.details) {
         updateExpressions.push('details = :details');
         expressionAttributeValues[':details'] = updates.details;
+    }
+    if (updates.schedule_metadata) {
+        updateExpressions.push('schedule_metadata = :schedule_metadata');
+        expressionAttributeValues[':schedule_metadata'] = updates.schedule_metadata;
     }
 
     try {
@@ -207,5 +218,44 @@ export async function getRecentExecutions(limit = 100): Promise<ExecutionRecord[
     } catch (error) {
         logger.error('Failed to fetch recent executions', error);
         return [];
+    }
+}
+
+/**
+ * Get the last saved ECS service state from previous execution history
+ * Used to restore ECS services to their previous desiredCount when starting
+ * 
+ * @param scheduleId - The schedule ID to search history for
+ * @param serviceArn - The ECS service ARN to find state for
+ * @param tenantId - Tenant ID (default: 'default')
+ * @returns The last desiredCount, or null if not found
+ */
+export async function getLastECSServiceState(
+    scheduleId: string,
+    serviceArn: string,
+    tenantId = 'default'
+): Promise<{ desiredCount: number } | null> {
+    try {
+        // Get recent execution history for this schedule
+        const executions = await getExecutionHistory(scheduleId, tenantId, 10);
+
+        // Look through executions to find the last time this ECS service was stopped
+        for (const execution of executions) {
+            if (execution.schedule_metadata?.ecs) {
+                const ecsResource = execution.schedule_metadata.ecs.find(
+                    (e) => e.arn === serviceArn && e.action === 'stop' && e.status === 'success'
+                );
+                if (ecsResource && ecsResource.last_state.desiredCount > 0) {
+                    logger.debug(`Found last ECS state for ${serviceArn}: desiredCount=${ecsResource.last_state.desiredCount}`);
+                    return { desiredCount: ecsResource.last_state.desiredCount };
+                }
+            }
+        }
+
+        logger.debug(`No previous ECS state found for ${serviceArn}`);
+        return null;
+    } catch (error) {
+        logger.error(`Failed to get last ECS service state for ${serviceArn}`, error);
+        return null;
     }
 }

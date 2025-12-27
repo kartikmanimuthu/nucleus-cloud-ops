@@ -1,4 +1,4 @@
-// Barrel export for resource schedulers
-export { processEC2Instances } from './ec2-scheduler.js';
-export { processRDSInstances } from './rds-scheduler.js';
-export { processECSResources } from './ecs-scheduler.js';
+// Resource schedulers barrel export (ARN-driven)
+export { processEC2Resource, extractEC2InstanceId, extractRegionFromArn as extractEC2Region } from './ec2-scheduler.js';
+export { processRDSResource, extractRDSIdentifier, extractRegionFromArn as extractRDSRegion } from './rds-scheduler.js';
+export { processECSResource, extractServiceName, extractClusterName, extractRegionFromArn as extractECSRegion } from './ecs-scheduler.js';

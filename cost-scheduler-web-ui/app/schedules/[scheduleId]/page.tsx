@@ -31,7 +31,7 @@ import {
   Server,
 } from "lucide-react";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
-import { formatDate } from "@/lib/date-utils";
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { UISchedule } from "@/lib/types";
 
 import { use } from "react";
@@ -211,7 +211,6 @@ export default function SchedulePage({ params }: SchedulePageProps) {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="execution">Execution History</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -435,12 +434,15 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                   <div className="space-y-4">
                     {executionHistory.map((execution: ExecutionHistoryItem, index: number) => (
                       <div key={execution.executionId}>
-                        <div className="flex items-center justify-between">
+                        <div 
+                          className="flex items-center justify-between p-3 rounded-lg hover:bg-accent/50 cursor-pointer transition-colors"
+                          onClick={() => router.push(`/schedules/${encodeURIComponent(schedule.id)}/history/${encodeURIComponent(execution.executionId)}`)}
+                        >
                           <div className="flex items-center space-x-3">
                             {getExecutionStatusIcon(execution.status)}
                             <div>
                               <p className="font-medium">
-                                {formatDate(execution.executionTime)}
+                                {formatDateTime(execution.executionTime)}
                               </p>
                               <p className="text-sm text-muted-foreground">
                                 {execution.errorMessage || `Started: ${execution.resourcesStarted}, Stopped: ${execution.resourcesStopped}, Failed: ${execution.resourcesFailed}`}
@@ -468,74 +470,6 @@ export default function SchedulePage({ params }: SchedulePageProps) {
             </Card>
           </TabsContent>
 
-          <TabsContent value="settings" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Advanced Settings</CardTitle>
-                <CardDescription>
-                  Additional configuration options for this schedule
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <Label className="text-sm font-medium">
-                      Next Execution
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.nextExecution
-                        ? formatDate(schedule.nextExecution)
-                        : "Not scheduled"}
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">
-                      Last Execution
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.lastExecution
-                        ? formatDate(schedule.lastExecution)
-                        : "Never executed"}
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">
-                      Resource Types
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.resourceTypes?.join(", ") || "All types"}
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">
-                      Target Accounts
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.accounts?.length || 0} accounts
-                    </p>
-                  </div>
-                </div>
-
-                {schedule.resourceTags && (
-                  <div>
-                    <Label className="text-sm font-medium">Resource Tags</Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.resourceTags}
-                    </p>
-                  </div>
-                )}
-
-                {schedule.excludeTags && (
-                  <div>
-                    <Label className="text-sm font-medium">Exclude Tags</Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.excludeTags}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
       </div>
     </div>

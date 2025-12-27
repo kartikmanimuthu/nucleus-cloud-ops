@@ -214,6 +214,11 @@ export default function AuditClientAPI({
       );
     }
     
+    // Sort by timestamp descending (most recent first)
+    result = [...result].sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+    
     setFilteredLogs(result);
   }, [searchTerm, auditLogs]);
 

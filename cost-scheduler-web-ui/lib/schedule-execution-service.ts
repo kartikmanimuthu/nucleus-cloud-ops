@@ -3,8 +3,8 @@ import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { getDynamoDBDocumentClient, APP_TABLE_NAME, handleDynamoDBError, DEFAULT_TENANT_ID } from './aws-config';
 
 // Helper to build PK/SK for executions
-const buildExecutionPK = (tenantId: string, accountId: string) => `TENANT#${tenantId}#ACCOUNT#${accountId}`;
-const buildExecutionSK = (scheduleId: string, timestamp: string) => `SCHEDULE#${scheduleId}#EXEC#${timestamp}`;
+const buildExecutionPK = (tenantId: string, scheduleId: string) => `TENANT#${tenantId}#SCHEDULE#${scheduleId}`;
+const buildExecutionSK = (timestamp: string, executionId: string) => `EXEC#${timestamp}#${executionId}`;
 
 export interface ScheduleExecution {
     executionId: string;
@@ -19,17 +19,19 @@ export interface ScheduleExecution {
     duration?: number; // in seconds
     errorMessage?: string;
     details?: Record<string, any>;
+    schedule_metadata?: any; // Add schedule_metadata for UI to display resource details
 }
 
 export interface UIScheduleExecution extends ScheduleExecution {
     id: string;
+    startTime?: string; // For compatibility with backend naming
 }
 
 export class ScheduleExecutionService {
     /**
      * Log a schedule execution result
-     * PK: TENANT#<tenantId>#ACCOUNT#<accountId>
-     * SK: SCHEDULE#<scheduleId>#EXEC#<timestamp>
+     * PK: TENANT#<tenantId>#SCHEDULE#<scheduleId>
+     * SK: EXEC#<timestamp>#<executionId>
      */
     static async logExecution(execution: Omit<ScheduleExecution, 'executionId'>): Promise<ScheduleExecution> {
         try {
@@ -42,8 +44,8 @@ export class ScheduleExecutionService {
 
             const dbItem = {
                 // Primary Keys (hierarchical design)
-                pk: buildExecutionPK(execution.tenantId, execution.accountId),
-                sk: buildExecutionSK(execution.scheduleId, now),
+                pk: buildExecutionPK(execution.tenantId, execution.scheduleId),
+                sk: buildExecutionSK(now, executionId),
 
                 // GSI1: TYPE#EXECUTION -> timestamp#executionId (list all executions)
                 gsi1pk: 'TYPE#EXECUTION',
@@ -74,6 +76,7 @@ export class ScheduleExecutionService {
                 duration: execution.duration,
                 errorMessage: execution.errorMessage,
                 details: execution.details,
+                schedule_metadata: execution.schedule_metadata,
             };
 
             const command = new PutCommand({
@@ -102,28 +105,40 @@ export class ScheduleExecutionService {
      */
     static async getExecutionsForSchedule(
         scheduleId: string,
-        accountId: string,
-        tenantId: string = DEFAULT_TENANT_ID,
+        accountId: string, // Kept for interface compatibility but not used in PK anymore
         options?: {
             limit?: number;
             startDate?: string;
             endDate?: string;
-        }
+        },
+        tenantId: string = DEFAULT_TENANT_ID,
+
     ): Promise<UIScheduleExecution[]> {
         try {
             const dynamoDBDocumentClient = await getDynamoDBDocumentClient();
 
             let keyConditionExpression = 'pk = :pk AND begins_with(sk, :skPrefix)';
             const expressionAttributeValues: Record<string, any> = {
-                ':pk': buildExecutionPK(tenantId, accountId),
-                ':skPrefix': `SCHEDULE#${scheduleId}#EXEC#`,
+                ':pk': buildExecutionPK(tenantId, scheduleId),
+                ':skPrefix': 'EXEC#',
             };
 
             // Add date range if provided
             if (options?.startDate && options?.endDate) {
                 keyConditionExpression = 'pk = :pk AND sk BETWEEN :skStart AND :skEnd';
-                expressionAttributeValues[':skStart'] = `SCHEDULE#${scheduleId}#EXEC#${options.startDate}`;
-                expressionAttributeValues[':skEnd'] = `SCHEDULE#${scheduleId}#EXEC#${options.endDate}`;
+                expressionAttributeValues[':skPrefix'] = undefined; // Remove if not needed with BETWEEN
+                expressionAttributeValues[':skStart'] = `EXEC#${options.startDate}`;
+                expressionAttributeValues[':skEnd'] = `EXEC#${options.endDate}#~`;
+
+                // If using BETWEEN, we don't need the begins_with part for the prefix unless we combine them (which is tricky in single SK)
+                // Since our SK is EXEC#timestamp#executionId, BETWEEN works directly on this string.
+                // We just need to make sure we don't include :skPrefix in the KeyConditionExpression logic if we swap to BETWEEN
+            }
+
+            // Refine key condition for date range
+            if (options?.startDate && options?.endDate) {
+                keyConditionExpression = 'pk = :pk AND sk BETWEEN :skStart AND :skEnd';
+                delete expressionAttributeValues[':skPrefix'];
             }
 
             const command = new QueryCommand({
@@ -141,6 +156,46 @@ export class ScheduleExecutionService {
             console.error('ScheduleExecutionService - Error fetching executions:', error);
             handleDynamoDBError(error, 'get executions');
             return [];
+        }
+    }
+
+    /**
+     * Get a single execution by ID
+     * Uses PK + SK prefix query and filters by executionId
+     */
+    static async getExecutionById(
+        scheduleId: string,
+        executionId: string,
+        tenantId: string = DEFAULT_TENANT_ID,
+    ): Promise<UIScheduleExecution | null> {
+        try {
+            const dynamoDBDocumentClient = await getDynamoDBDocumentClient();
+
+            // Note: FilterExpression is applied AFTER Limit in DynamoDB, so we need 
+            // to query more items and filter in application code, or not use Limit
+            const command = new QueryCommand({
+                TableName: APP_TABLE_NAME,
+                KeyConditionExpression: 'pk = :pk AND begins_with(sk, :skPrefix)',
+                FilterExpression: 'executionId = :execId',
+                ExpressionAttributeValues: {
+                    ':pk': buildExecutionPK(tenantId, scheduleId),
+                    ':skPrefix': 'EXEC#',
+                    ':execId': executionId,
+                },
+                // Don't use Limit with FilterExpression - it's applied before filtering
+            });
+
+            const response = await dynamoDBDocumentClient.send(command);
+
+            if (response.Items && response.Items.length > 0) {
+                return this.transformToUIExecution(response.Items[0]);
+            }
+
+            return null;
+        } catch (error: any) {
+            console.error('ScheduleExecutionService - Error fetching execution by ID:', error);
+            handleDynamoDBError(error, 'get execution by ID');
+            return null;
         }
     }
 
@@ -186,13 +241,14 @@ export class ScheduleExecutionService {
      * Transform DynamoDB item to UI execution format
      */
     private static transformToUIExecution(item: any): UIScheduleExecution {
+        const time = item.executionTime || item.startTime;
         return {
             id: item.executionId,
             executionId: item.executionId,
             tenantId: item.tenantId,
             accountId: item.accountId,
             scheduleId: item.scheduleId,
-            executionTime: item.executionTime,
+            executionTime: time,
             status: item.status,
             resourcesStarted: item.resourcesStarted,
             resourcesStopped: item.resourcesStopped,
@@ -200,6 +256,8 @@ export class ScheduleExecutionService {
             duration: item.duration,
             errorMessage: item.errorMessage,
             details: item.details,
+            schedule_metadata: item.schedule_metadata,
+            startTime: time,
         };
     }
 }

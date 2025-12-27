@@ -12,6 +12,8 @@ export interface SchedulerEvent {
     force?: boolean;
     /** Source of the invocation */
     triggeredBy?: 'system' | 'web-ui';
+    /** Optional tenant ID for partial scan */
+    tenantId?: string;
 }
 
 export interface SchedulerResult {
@@ -49,7 +51,8 @@ export interface ScheduleResource {
     id: string;
     type: 'ec2' | 'ecs' | 'rds';
     name?: string;
-    arn?: string;
+    arn: string;
+    clusterArn?: string;  // Required for ECS services
 }
 
 export interface Account {
@@ -80,10 +83,57 @@ export interface ExecutionRecord {
     resourcesFailed: number;
     errorMessage?: string;
     details?: Record<string, unknown>;
+    schedule_metadata?: ScheduleExecutionMetadata;
     ttl: number;
 }
 
 export type ExecutionStatus = 'pending' | 'running' | 'success' | 'failed' | 'partial';
+
+// Schedule Execution Metadata - grouped by resource type
+export interface ScheduleExecutionMetadata {
+    ec2: EC2ResourceExecution[];
+    ecs: ECSResourceExecution[];
+    rds: RDSResourceExecution[];
+}
+
+export interface EC2ResourceExecution {
+    arn: string;
+    resourceId: string;
+    action: 'start' | 'stop' | 'skip';
+    status: 'success' | 'failed';
+    error?: string;
+    last_state: {
+        instanceState: string;
+        instanceType?: string;
+    };
+}
+
+export interface ECSResourceExecution {
+    arn: string;
+    resourceId: string;
+    clusterArn: string;
+    action: 'start' | 'stop' | 'skip';
+    status: 'success' | 'failed';
+    error?: string;
+    last_state: {
+        desiredCount: number;
+        runningCount: number;
+        pendingCount?: number;
+        status?: string;
+    };
+}
+
+export interface RDSResourceExecution {
+    arn: string;
+    resourceId: string;
+    action: 'start' | 'stop' | 'skip';
+    status: 'success' | 'failed';
+    error?: string;
+    last_state: {
+        dbInstanceStatus: string;
+        dbInstanceClass?: string;
+    };
+}
 
 // Audit Log
 export interface AuditLogEntry {
@@ -99,6 +149,7 @@ export interface AuditLogEntry {
     severity: 'low' | 'medium' | 'high' | 'info';
     accountId?: string;
     region?: string;
+    metadata?: Record<string, unknown>;
 }
 
 // STS Credentials
@@ -119,15 +170,20 @@ export interface SchedulerMetadata {
     };
     region: string;
     executionId: string;
+    scheduleId?: string;
+    scheduleName?: string;
 }
 
 // Resource action result
 export interface ResourceActionResult {
     resourceId: string;
+    resourceArn?: string;
     resourceType: 'ec2' | 'rds' | 'ecs' | 'asg';
     action: 'start' | 'stop' | 'skip';
     success: boolean;
     error?: string;
+    scheduleId?: string;
+    scheduleName?: string;
 }
 
 // Handler type

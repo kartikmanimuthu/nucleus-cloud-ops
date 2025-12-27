@@ -34,18 +34,20 @@ for (const arg of args) {
 const mode = argsMap.get('mode') || 'full';
 const scheduleId = argsMap.get('scheduleId');
 const scheduleName = argsMap.get('scheduleName');
+const tenantId = argsMap.get('tenantId');
 
 // Build event based on mode
 function buildEvent(): SchedulerEvent {
     if (mode === 'partial') {
         if (!scheduleId && !scheduleName) {
             console.error('Error: --scheduleId or --scheduleName required for partial mode');
-            console.log('Usage: npm run dev -- --mode=partial --scheduleId=YOUR_SCHEDULE_ID');
+            console.log('Usage: npm run dev -- --mode=partial --scheduleId=YOUR_SCHEDULE_ID [--tenantId=org-default]');
             process.exit(1);
         }
         return {
             scheduleId,
             scheduleName,
+            tenantId,
             triggeredBy: 'web-ui',
         };
     }

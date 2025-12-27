@@ -1,27 +1,35 @@
-// EC2 Scheduler - Start/Stop EC2 instances based on schedules
+// EC2 Scheduler - Start/Stop EC2 instances based on schedule resources (ARN-driven)
 import {
     EC2Client,
     DescribeInstancesCommand,
     StartInstancesCommand,
     StopInstancesCommand,
-    type Instance,
 } from '@aws-sdk/client-ec2';
 import { logger } from '../utils/logger.js';
-import { isCurrentTimeInRange } from '../utils/time-utils.js';
 import { createAuditLog } from '../services/dynamodb-service.js';
-import type { Schedule, AssumedCredentials, SchedulerMetadata, ResourceActionResult } from '../types/index.js';
-
-const SCHEDULE_TAG = process.env.SCHEDULER_TAG || 'schedule';
+import type {
+    Schedule,
+    ScheduleResource,
+    AssumedCredentials,
+    SchedulerMetadata,
+    EC2ResourceExecution,
+} from '../types/index.js';
 
 /**
- * Process EC2 instances for scheduling
+ * Process a single EC2 resource for scheduling (ARN-driven)
+ * @param resource - The EC2 resource from the schedule
+ * @param schedule - The schedule configuration
+ * @param action - 'start' or 'stop' based on time window evaluation
+ * @param credentials - Assumed role credentials
+ * @param metadata - Execution metadata
  */
-export async function processEC2Instances(
-    schedules: Schedule[],
+export async function processEC2Resource(
+    resource: ScheduleResource,
+    schedule: Schedule,
+    action: 'start' | 'stop',
     credentials: AssumedCredentials,
     metadata: SchedulerMetadata
-): Promise<ResourceActionResult[]> {
-    const results: ResourceActionResult[] = [];
+): Promise<EC2ResourceExecution> {
     const ec2Client = new EC2Client({
         credentials: credentials.credentials,
         region: credentials.region,
@@ -32,89 +40,32 @@ export async function processEC2Instances(
         accountId: metadata.account.accountId,
         region: metadata.region,
         service: 'ec2',
+        resourceId: resource.id,
     });
 
-    log.info(`EC2 Scheduler started for ${metadata.account.name}`);
+    log.info(`Processing EC2 resource: ${resource.id} (${resource.name || 'unnamed'})`);
 
     try {
-        // Fetch all EC2 instances
-        const response = await ec2Client.send(new DescribeInstancesCommand({}));
-        const instances: Instance[] = response.Reservations?.flatMap(r => r.Instances || []) || [];
+        // Get current instance state
+        const describeResponse = await ec2Client.send(new DescribeInstancesCommand({
+            InstanceIds: [resource.id],
+        }));
 
-        // Filter instances with schedule tag, excluding ECS-managed instances
-        const scheduledInstances = instances.filter(instance => {
-            const hasScheduleTag = instance.Tags?.some(tag => tag.Key === SCHEDULE_TAG);
-            const isECSManaged = instance.Tags?.some(
-                tag => tag.Key === 'AmazonECSManaged' && tag.Value === 'true'
-            );
-            return hasScheduleTag && !isECSManaged;
-        });
-
-        log.debug(`Found ${scheduledInstances.length} scheduled EC2 instances`);
-
-        // Process each instance
-        for (const instance of scheduledInstances) {
-            const result = await processInstance(instance, schedules, ec2Client, log, metadata);
-            if (result) {
-                results.push(result);
-            }
+        const instance = describeResponse.Reservations?.[0]?.Instances?.[0];
+        if (!instance) {
+            throw new Error(`EC2 instance ${resource.id} not found`);
         }
 
-        log.info(`EC2 Scheduler completed - ${results.length} actions taken`);
-    } catch (error) {
-        log.error('EC2 Scheduler error', error);
-        await createAuditLog({
-            type: 'audit_log',
-            eventType: 'scheduler.ec2.error',
-            action: 'scan',
-            user: 'system',
-            userType: 'system',
-            resourceType: 'ec2',
-            resourceId: metadata.account.accountId,
-            status: 'error',
-            details: `EC2 Scheduler error: ${error instanceof Error ? error.message : String(error)}`,
-            severity: 'high',
-            accountId: metadata.account.accountId,
-            region: metadata.region,
-        });
-    }
+        const currentState = instance.State?.Name || 'unknown';
+        const instanceType = instance.InstanceType || 'unknown';
 
-    return results;
-}
+        log.debug(`EC2 ${resource.id}: currentState=${currentState}, desiredAction=${action}`);
 
-async function processInstance(
-    instance: Instance,
-    schedules: Schedule[],
-    ec2Client: EC2Client,
-    log: ReturnType<typeof logger.child>,
-    metadata: SchedulerMetadata
-): Promise<ResourceActionResult | null> {
-    const instanceId = instance.InstanceId!;
-    const scheduleTagValue = instance.Tags?.find(t => t.Key === SCHEDULE_TAG)?.Value;
-
-    if (!scheduleTagValue) return null;
-
-    const schedule = schedules.find(s => s.name === scheduleTagValue);
-    if (!schedule) {
-        log.debug(`Schedule "${scheduleTagValue}" not found for instance ${instanceId}`);
-        return null;
-    }
-
-    const inRange = isCurrentTimeInRange(
-        schedule.starttime,
-        schedule.endtime,
-        schedule.timezone,
-        schedule.days
-    );
-    const currentState = instance.State?.Name;
-
-    log.debug(`Processing EC2 ${instanceId}: schedule=${scheduleTagValue}, inRange=${inRange}, state=${currentState}`);
-
-    try {
-        if (inRange && currentState !== 'running') {
-            // Should be running but isn't - start it
-            await ec2Client.send(new StartInstancesCommand({ InstanceIds: [instanceId] }));
-            log.info(`Started EC2 instance ${instanceId}`);
+        // Determine if action is needed
+        if (action === 'start' && currentState !== 'running' && currentState !== 'pending') {
+            // Start the instance
+            await ec2Client.send(new StartInstancesCommand({ InstanceIds: [resource.id] }));
+            log.info(`Started EC2 instance ${resource.id}`);
 
             await createAuditLog({
                 type: 'audit_log',
@@ -123,20 +74,29 @@ async function processInstance(
                 user: 'system',
                 userType: 'system',
                 resourceType: 'ec2',
-                resourceId: instanceId,
+                resourceId: resource.id,
                 status: 'success',
-                details: `Started EC2 instance ${instanceId}`,
+                details: `Started EC2 instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
                 severity: 'medium',
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
 
-            return { resourceId: instanceId, resourceType: 'ec2', action: 'start', success: true };
+            return {
+                arn: resource.arn,
+                resourceId: resource.id,
+                action: 'start',
+                status: 'success',
+                last_state: {
+                    instanceState: currentState,
+                    instanceType,
+                },
+            };
 
-        } else if (!inRange && currentState === 'running') {
-            // Should be stopped but is running - stop it
-            await ec2Client.send(new StopInstancesCommand({ InstanceIds: [instanceId] }));
-            log.info(`Stopped EC2 instance ${instanceId}`);
+        } else if (action === 'stop' && currentState === 'running') {
+            // Stop the instance
+            await ec2Client.send(new StopInstancesCommand({ InstanceIds: [resource.id] }));
+            log.info(`Stopped EC2 instance ${resource.id}`);
 
             await createAuditLog({
                 type: 'audit_log',
@@ -145,28 +105,91 @@ async function processInstance(
                 user: 'system',
                 userType: 'system',
                 resourceType: 'ec2',
-                resourceId: instanceId,
+                resourceId: resource.id,
                 status: 'success',
-                details: `Stopped EC2 instance ${instanceId}`,
+                details: `Stopped EC2 instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
                 severity: 'medium',
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
 
-            return { resourceId: instanceId, resourceType: 'ec2', action: 'stop', success: true };
+            return {
+                arn: resource.arn,
+                resourceId: resource.id,
+                action: 'stop',
+                status: 'success',
+                last_state: {
+                    instanceState: currentState,
+                    instanceType,
+                },
+            };
 
         } else {
-            log.debug(`EC2 ${instanceId} already in desired state`);
-            return { resourceId: instanceId, resourceType: 'ec2', action: 'skip', success: true };
+            log.debug(`EC2 ${resource.id} already in desired state, skipping`);
+            return {
+                arn: resource.arn,
+                resourceId: resource.id,
+                action: 'skip',
+                status: 'success',
+                last_state: {
+                    instanceState: currentState,
+                    instanceType,
+                },
+            };
         }
+
     } catch (error) {
-        log.error(`Failed to process EC2 instance ${instanceId}`, error);
-        return {
-            resourceId: instanceId,
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log.error(`Failed to process EC2 instance ${resource.id}`, error);
+
+        await createAuditLog({
+            type: 'audit_log',
+            eventType: 'scheduler.ec2.error',
+            action: action,
+            user: 'system',
+            userType: 'system',
             resourceType: 'ec2',
-            action: inRange ? 'start' : 'stop',
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
+            resourceId: resource.id,
+            status: 'error',
+            details: `Failed to ${action} EC2 instance ${resource.id}: ${errorMessage}`,
+            severity: 'high',
+            accountId: metadata.account.accountId,
+            region: metadata.region,
+        });
+
+        return {
+            arn: resource.arn,
+            resourceId: resource.id,
+            action: action,
+            status: 'failed',
+            error: errorMessage,
+            last_state: {
+                instanceState: 'unknown',
+            },
         };
     }
+}
+
+/**
+ * Extract instance ID from EC2 ARN
+ * ARN format: arn:aws:ec2:region:account:instance/instance-id
+ */
+export function extractEC2InstanceId(arn: string): string {
+    const match = arn.match(/instance\/(.+)$/);
+    if (!match) {
+        throw new Error(`Invalid EC2 ARN format: ${arn}`);
+    }
+    return match[1];
+}
+
+/**
+ * Extract region from EC2 ARN
+ * ARN format: arn:aws:ec2:region:account:instance/instance-id
+ */
+export function extractRegionFromArn(arn: string): string {
+    const parts = arn.split(':');
+    if (parts.length < 4) {
+        throw new Error(`Invalid ARN format: ${arn}`);
+    }
+    return parts[3];
 }
