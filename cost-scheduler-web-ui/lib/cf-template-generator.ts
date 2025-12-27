@@ -66,6 +66,8 @@ export const generateOnboardingTemplate = (hubAccountId: string, externalId: str
                                             "ecs:ListServices",
                                             "ecs:DescribeServices",
                                             "ecs:UpdateService",
+                                            "ecs:ListTagsForResource",
+                                            "rds:ListTagsForResource",
                                             "autoscaling:DescribeAutoScalingGroups",
                                             "autoscaling:UpdateAutoScalingGroup"
                                         ],
@@ -139,6 +141,8 @@ Resources:
                   - ecs:ListServices
                   - ecs:DescribeServices
                   - ecs:UpdateService
+                  - ecs:ListTagsForResource
+                  - rds:ListTagsForResource
                   - autoscaling:DescribeAutoScalingGroups
                   - autoscaling:UpdateAutoScalingGroup
                 Resource: '*'

@@ -43,36 +43,17 @@ interface SchedulePageProps {
 }
 
 
-// Mock execution history for now - this could be extended to fetch from DynamoDB
-const mockExecutionHistory = [
-  {
-    id: "exec-001",
-    timestamp: "2024-01-15T22:00:00Z",
-    status: "success",
-    duration: 45,
-    resourcesAffected: 12,
-    savings: 85,
-    details: "Successfully stopped 12 RDS instances across 2 accounts",
-  },
-  {
-    id: "exec-002",
-    timestamp: "2024-01-14T22:00:00Z",
-    status: "success",
-    duration: 38,
-    resourcesAffected: 10,
-    savings: 72,
-    details: "Successfully stopped 10 EC2 instances across 3 accounts",
-  },
-  {
-    id: "exec-003",
-    timestamp: "2024-01-13T22:00:00Z",
-    status: "partial",
-    duration: 52,
-    resourcesAffected: 8,
-    savings: 45,
-    details: "Stopped 8 of 10 resources. 2 failed due to dependencies.",
-  },
-];
+// Execution history type
+interface ExecutionHistoryItem {
+  executionId: string;
+  executionTime: string;
+  status: string;
+  duration?: number;
+  resourcesStarted: number;
+  resourcesStopped: number;
+  resourcesFailed: number;
+  errorMessage?: string;
+}
 
 export default function SchedulePage({ params }: SchedulePageProps) {
   const { scheduleId } = use(params);
@@ -80,6 +61,8 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   const [schedule, setSchedule] = useState<UISchedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [executionHistory, setExecutionHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     const fetchSchedule = async () => {
@@ -114,6 +97,26 @@ export default function SchedulePage({ params }: SchedulePageProps) {
 
     fetchSchedule();
   }, [scheduleId, router]);
+
+  // Fetch execution history when schedule is loaded
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (!schedule) return;
+      try {
+        setHistoryLoading(true);
+        const response = await fetch(`/api/schedules/${encodeURIComponent(schedule.id)}/history`);
+        if (response.ok) {
+          const data = await response.json();
+          setExecutionHistory(data.executions || []);
+        }
+      } catch (err) {
+        console.error('Error fetching execution history:', err);
+      } finally {
+        setHistoryLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [schedule]);
 
   if (loading) {
     return (
@@ -417,35 +420,50 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {mockExecutionHistory.map((execution, index) => (
-                    <div key={execution.id}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          {getExecutionStatusIcon(execution.status)}
-                          <div>
-                            <p className="font-medium">
-                              {formatDate(execution.timestamp)}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {execution.details}
+                {historyLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    <span>Loading execution history...</span>
+                  </div>
+                ) : executionHistory.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>No execution history found</p>
+                    <p className="text-sm">Executions will appear here after the schedule runs</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {executionHistory.map((execution: ExecutionHistoryItem, index: number) => (
+                      <div key={execution.executionId}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            {getExecutionStatusIcon(execution.status)}
+                            <div>
+                              <p className="font-medium">
+                                {formatDate(execution.executionTime)}
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                {execution.errorMessage || `Started: ${execution.resourcesStarted}, Stopped: ${execution.resourcesStopped}, Failed: ${execution.resourcesFailed}`}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge variant={execution.status === 'success' ? 'default' : execution.status === 'failed' ? 'destructive' : 'secondary'}>
+                              {execution.status}
+                            </Badge>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {execution.duration ? `${Math.round(execution.duration / 1000)}s` : 'N/A'} •{" "}
+                              {execution.resourcesStarted + execution.resourcesStopped} resources
                             </p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-medium">${execution.savings}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {execution.duration}s •{" "}
-                            {execution.resourcesAffected} resources
-                          </p>
-                        </div>
+                        {index < executionHistory.length - 1 && (
+                          <Separator className="mt-4" />
+                        )}
                       </div>
-                      {index < mockExecutionHistory.length - 1 && (
-                        <Separator className="mt-4" />
-                      )}
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

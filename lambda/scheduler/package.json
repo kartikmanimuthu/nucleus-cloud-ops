@@ -1,22 +1,45 @@
 {
-  "name": "scheduler",
-  "version": "1.0.0",
-  "description": "To achieve synchronization between downsizing your ASG and scaling down ECS services, you can use AWS Lambda functions in conjunction with CloudWatch Events. Here's a general approach:",
-  "main": "index.js",
+  "name": "cost-scheduler-lambda",
+  "version": "2.0.0",
+  "description": "AWS resource scheduler for cost optimization - starts/stops EC2, RDS, ECS based on schedule configurations",
+  "main": "dist/index.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/index.js --external:@aws-sdk/*",
+    "dev": "AWS_SDK_LOAD_CONFIG=1 tsx src/local-runner.ts",
+    "dev:full": "AWS_SDK_LOAD_CONFIG=1 tsx src/local-runner.ts --mode=full",
+    "dev:partial": "AWS_SDK_LOAD_CONFIG=1 tsx src/local-runner.ts --mode=partial --scheduleId=",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/**/*.ts",
+    "typecheck": "tsc --noEmit"
   },
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.485.0",
-    "@aws-sdk/lib-dynamodb": "^3.485.0",
-    "aws-sdk": "^2.1532.0",
-    "dotenv": "^16.4.5",
-    "moment-timezone": "^0.5.44",
-    "node-schedule": "^2.1.1",
-    "pino": "^9.4.0",
-    "pino-pretty": "^11.2.2",
-    "uuid": "^9.0.1"
+    "@aws-sdk/client-auto-scaling": "^3.700.0",
+    "@aws-sdk/client-dynamodb": "^3.700.0",
+    "@aws-sdk/client-ec2": "^3.700.0",
+    "@aws-sdk/client-ecs": "^3.700.0",
+    "@aws-sdk/client-rds": "^3.700.0",
+    "@aws-sdk/client-sns": "^3.700.0",
+    "@aws-sdk/client-sts": "^3.700.0",
+    "@aws-sdk/credential-provider-node": "^3.958.0",
+    "@aws-sdk/lib-dynamodb": "^3.700.0",
+    "dayjs": "^1.11.13",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.10.2",
+    "@types/uuid": "^10.0.0",
+    "dotenv": "^16.4.7",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }
