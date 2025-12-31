@@ -22,13 +22,15 @@ import type {
  * @param action - 'start' or 'stop' based on time window evaluation
  * @param credentials - Assumed role credentials
  * @param metadata - Execution metadata
+ * @param lastState - The last recorded state from previous execution (for start restoration)
  */
 export async function processEC2Resource(
     resource: ScheduleResource,
     schedule: Schedule,
     action: 'start' | 'stop',
     credentials: AssumedCredentials,
-    metadata: SchedulerMetadata
+    metadata: SchedulerMetadata,
+    lastState?: { instanceState: string; instanceType?: string }
 ): Promise<EC2ResourceExecution> {
     const ec2Client = new EC2Client({
         credentials: credentials.credentials,
@@ -59,10 +61,17 @@ export async function processEC2Resource(
         const currentState = instance.State?.Name || 'unknown';
         const instanceType = instance.InstanceType || 'unknown';
 
-        log.debug(`EC2 ${resource.id}: currentState=${currentState}, desiredAction=${action}`);
+        log.debug(`EC2 ${resource.id}: currentState=${currentState}, desiredAction=${action}, lastState=${lastState?.instanceState || 'none'}`);
 
         // Determine if action is needed
         if (action === 'start' && currentState !== 'running' && currentState !== 'pending') {
+            // For start action, verify the instance was previously managed by the scheduler
+            // by checking if we have a last recorded state (indicating scheduler stopped it previously)
+            // If no lastState, still proceed (first-time management or new resource added)
+            if (lastState) {
+                log.info(`EC2 ${resource.id}: Restoring from scheduler-managed state (was ${lastState.instanceState})`);
+            }
+
             // Start the instance
             await ec2Client.send(new StartInstancesCommand({ InstanceIds: [resource.id] }));
             log.info(`Started EC2 instance ${resource.id}`);
@@ -94,9 +103,9 @@ export async function processEC2Resource(
             };
 
         } else if (action === 'stop' && currentState === 'running') {
-            // Stop the instance
+            // Stop the instance - capture current state for later restoration
             await ec2Client.send(new StopInstancesCommand({ InstanceIds: [resource.id] }));
-            log.info(`Stopped EC2 instance ${resource.id}`);
+            log.info(`Stopped EC2 instance ${resource.id} (saving state: instanceState=${currentState}, instanceType=${instanceType})`);
 
             await createAuditLog({
                 type: 'audit_log',

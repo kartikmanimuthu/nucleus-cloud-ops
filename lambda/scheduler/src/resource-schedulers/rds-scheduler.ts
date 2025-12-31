@@ -22,13 +22,15 @@ import type {
  * @param action - 'start' or 'stop' based on time window evaluation
  * @param credentials - Assumed role credentials
  * @param metadata - Execution metadata
+ * @param lastState - The last recorded state from previous execution (for start restoration)
  */
 export async function processRDSResource(
     resource: ScheduleResource,
     schedule: Schedule,
     action: 'start' | 'stop',
     credentials: AssumedCredentials,
-    metadata: SchedulerMetadata
+    metadata: SchedulerMetadata,
+    lastState?: { dbInstanceStatus: string; dbInstanceClass?: string }
 ): Promise<RDSResourceExecution> {
     const rdsClient = new RDSClient({
         credentials: credentials.credentials,
@@ -59,10 +61,17 @@ export async function processRDSResource(
         const currentStatus = instance.DBInstanceStatus || 'unknown';
         const dbInstanceClass = instance.DBInstanceClass || 'unknown';
 
-        log.debug(`RDS ${resource.id}: currentStatus=${currentStatus}, desiredAction=${action}`);
+        log.debug(`RDS ${resource.id}: currentStatus=${currentStatus}, desiredAction=${action}, lastState=${lastState?.dbInstanceStatus || 'none'}`);
 
         // Determine if action is needed
         if (action === 'start' && currentStatus !== 'available' && currentStatus !== 'starting') {
+            // For start action, verify the instance was previously managed by the scheduler
+            // by checking if we have a last recorded state (indicating scheduler stopped it previously)
+            // If no lastState, still proceed (first-time management or new resource added)
+            if (lastState) {
+                log.info(`RDS ${resource.id}: Restoring from scheduler-managed state (was ${lastState.dbInstanceStatus})`);
+            }
+
             // Start the instance
             await rdsClient.send(new StartDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
             log.info(`Started RDS instance ${resource.id}`);
@@ -94,9 +103,9 @@ export async function processRDSResource(
             };
 
         } else if (action === 'stop' && currentStatus === 'available') {
-            // Stop the instance
+            // Stop the instance - capture current state for later restoration
             await rdsClient.send(new StopDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
-            log.info(`Stopped RDS instance ${resource.id}`);
+            log.info(`Stopped RDS instance ${resource.id} (saving state: dbInstanceStatus=${currentStatus}, dbInstanceClass=${dbInstanceClass})`);
 
             await createAuditLog({
                 type: 'audit_log',

@@ -259,3 +259,88 @@ export async function getLastECSServiceState(
         return null;
     }
 }
+
+/**
+ * Get the last saved EC2 instance state from previous execution history
+ * Used to verify the resource was managed by the scheduler before taking action
+ * 
+ * @param scheduleId - The schedule ID to search history for
+ * @param instanceArn - The EC2 instance ARN to find state for
+ * @param tenantId - Tenant ID (default: 'default')
+ * @returns The last instance state, or null if not found
+ */
+export async function getLastEC2InstanceState(
+    scheduleId: string,
+    instanceArn: string,
+    tenantId = 'default'
+): Promise<{ instanceState: string; instanceType?: string } | null> {
+    try {
+        // Get recent execution history for this schedule
+        const executions = await getExecutionHistory(scheduleId, tenantId, 10);
+
+        // Look through executions to find the last time this EC2 instance was stopped
+        for (const execution of executions) {
+            if (execution.schedule_metadata?.ec2) {
+                const ec2Resource = execution.schedule_metadata.ec2.find(
+                    (e) => e.arn === instanceArn && e.action === 'stop' && e.status === 'success'
+                );
+                if (ec2Resource) {
+                    logger.debug(`Found last EC2 state for ${instanceArn}: instanceState=${ec2Resource.last_state.instanceState}`);
+                    return {
+                        instanceState: ec2Resource.last_state.instanceState,
+                        instanceType: ec2Resource.last_state.instanceType,
+                    };
+                }
+            }
+        }
+
+        logger.debug(`No previous EC2 state found for ${instanceArn}`);
+        return null;
+    } catch (error) {
+        logger.error(`Failed to get last EC2 instance state for ${instanceArn}`, error);
+        return null;
+    }
+}
+
+/**
+ * Get the last saved RDS instance state from previous execution history
+ * Used to verify the resource was managed by the scheduler before taking action
+ * 
+ * @param scheduleId - The schedule ID to search history for
+ * @param instanceArn - The RDS instance ARN to find state for
+ * @param tenantId - Tenant ID (default: 'default')
+ * @returns The last instance state, or null if not found
+ */
+export async function getLastRDSInstanceState(
+    scheduleId: string,
+    instanceArn: string,
+    tenantId = 'default'
+): Promise<{ dbInstanceStatus: string; dbInstanceClass?: string } | null> {
+    try {
+        // Get recent execution history for this schedule
+        const executions = await getExecutionHistory(scheduleId, tenantId, 10);
+
+        // Look through executions to find the last time this RDS instance was stopped
+        for (const execution of executions) {
+            if (execution.schedule_metadata?.rds) {
+                const rdsResource = execution.schedule_metadata.rds.find(
+                    (e) => e.arn === instanceArn && e.action === 'stop' && e.status === 'success'
+                );
+                if (rdsResource) {
+                    logger.debug(`Found last RDS state for ${instanceArn}: dbInstanceStatus=${rdsResource.last_state.dbInstanceStatus}`);
+                    return {
+                        dbInstanceStatus: rdsResource.last_state.dbInstanceStatus,
+                        dbInstanceClass: rdsResource.last_state.dbInstanceClass,
+                    };
+                }
+            }
+        }
+
+        logger.debug(`No previous RDS state found for ${instanceArn}`);
+        return null;
+    } catch (error) {
+        logger.error(`Failed to get last RDS instance state for ${instanceArn}`, error);
+        return null;
+    }
+}
+

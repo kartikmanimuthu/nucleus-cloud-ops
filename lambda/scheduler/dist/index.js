@@ -1,4 +1,4 @@
-"use strict";
+import { createRequire } from 'module'; const require = createRequire(import.meta.url);
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -7,10 +7,6 @@ var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -28,14 +24,13 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // node_modules/dayjs/dayjs.min.js
 var require_dayjs_min = __commonJS({
-  "node_modules/dayjs/dayjs.min.js"(exports2, module2) {
+  "node_modules/dayjs/dayjs.min.js"(exports, module) {
     !function(t, e) {
-      "object" == typeof exports2 && "undefined" != typeof module2 ? module2.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs = e();
-    }(exports2, function() {
+      "object" == typeof exports && "undefined" != typeof module ? module.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs = e();
+    }(exports, function() {
       "use strict";
       var t = 1e3, e = 6e4, n = 36e5, r = "millisecond", i = "second", s = "minute", u = "hour", a = "day", o = "week", c = "month", f = "quarter", h = "year", d = "date", l = "Invalid Date", $ = /^(\d{4})[-/]?(\d{1,2})?[-/]?(\d{0,2})[Tt\s]*(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?[.:]?(\d+)?$/, y = /\[([^\]]+)]|Y{1,4}|M{1,4}|D{1,2}|d{1,4}|H{1,2}|h{1,2}|a|A|m{1,2}|s{1,2}|Z{1,2}|SSS/g, M = { name: "en", weekdays: "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday".split("_"), months: "January_February_March_April_May_June_July_August_September_October_November_December".split("_"), ordinal: function(t2) {
         var e2 = ["th", "st", "nd", "rd"], n2 = t2 % 100;
@@ -312,10 +307,10 @@ var require_dayjs_min = __commonJS({
 
 // node_modules/dayjs/plugin/utc.js
 var require_utc = __commonJS({
-  "node_modules/dayjs/plugin/utc.js"(exports2, module2) {
+  "node_modules/dayjs/plugin/utc.js"(exports, module) {
     !function(t, i) {
-      "object" == typeof exports2 && "undefined" != typeof module2 ? module2.exports = i() : "function" == typeof define && define.amd ? define(i) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs_plugin_utc = i();
-    }(exports2, function() {
+      "object" == typeof exports && "undefined" != typeof module ? module.exports = i() : "function" == typeof define && define.amd ? define(i) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs_plugin_utc = i();
+    }(exports, function() {
       "use strict";
       var t = "minute", i = /[+-]\d\d(?::?\d\d)?/g, e = /([+-]|\d\d)/g;
       return function(s, f, n) {
@@ -389,10 +384,10 @@ var require_utc = __commonJS({
 
 // node_modules/dayjs/plugin/timezone.js
 var require_timezone = __commonJS({
-  "node_modules/dayjs/plugin/timezone.js"(exports2, module2) {
+  "node_modules/dayjs/plugin/timezone.js"(exports, module) {
     !function(t, e) {
-      "object" == typeof exports2 && "undefined" != typeof module2 ? module2.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs_plugin_timezone = e();
-    }(exports2, function() {
+      "object" == typeof exports && "undefined" != typeof module ? module.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs_plugin_timezone = e();
+    }(exports, function() {
       "use strict";
       var t = { year: 0, month: 1, day: 2, hour: 3, minute: 4, second: 5 }, e = {};
       return function(n, i, o) {
@@ -451,14 +446,6 @@ var require_timezone = __commonJS({
     });
   }
 });
-
-// src/index.ts
-var index_exports = {};
-__export(index_exports, {
-  default: () => index_default,
-  handler: () => handler
-});
-module.exports = __toCommonJS(index_exports);
 
 // src/utils/logger.ts
 var Logger = class _Logger {
@@ -534,9 +521,13 @@ var logLevel = process.env.LOG_LEVEL || "info";
 var logger = new Logger(logLevel);
 
 // src/services/dynamodb-service.ts
-var import_client_dynamodb = require("@aws-sdk/client-dynamodb");
-var import_credential_provider_node = require("@aws-sdk/credential-provider-node");
-var import_lib_dynamodb = require("@aws-sdk/lib-dynamodb");
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { defaultProvider } from "@aws-sdk/credential-provider-node";
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  QueryCommand
+} from "@aws-sdk/lib-dynamodb";
 
 // node_modules/uuid/dist/esm/stringify.js
 var byteToHex = [];
@@ -548,20 +539,20 @@ function unsafeStringify(arr, offset = 0) {
 }
 
 // node_modules/uuid/dist/esm/rng.js
-var import_crypto = require("crypto");
+import { randomFillSync } from "crypto";
 var rnds8Pool = new Uint8Array(256);
 var poolPtr = rnds8Pool.length;
 function rng() {
   if (poolPtr > rnds8Pool.length - 16) {
-    (0, import_crypto.randomFillSync)(rnds8Pool);
+    randomFillSync(rnds8Pool);
     poolPtr = 0;
   }
   return rnds8Pool.slice(poolPtr, poolPtr += 16);
 }
 
 // node_modules/uuid/dist/esm/native.js
-var import_crypto2 = require("crypto");
-var native_default = { randomUUID: import_crypto2.randomUUID };
+import { randomUUID } from "crypto";
+var native_default = { randomUUID };
 
 // node_modules/uuid/dist/esm/v4.js
 function v4(options, buf, offset) {
@@ -624,11 +615,11 @@ var docClient = null;
 function getDynamoDBClient() {
   if (!docClient) {
     const clientConfig = { region: AWS_REGION };
-    clientConfig.credentials = (0, import_credential_provider_node.defaultProvider)({
+    clientConfig.credentials = defaultProvider({
       profile: process.env.AWS_PROFILE
     });
-    const client = new import_client_dynamodb.DynamoDBClient(clientConfig);
-    docClient = import_lib_dynamodb.DynamoDBDocumentClient.from(client, {
+    const client = new DynamoDBClient(clientConfig);
+    docClient = DynamoDBDocumentClient.from(client, {
       marshallOptions: {
         removeUndefinedValues: true
       }
@@ -647,7 +638,7 @@ async function fetchActiveSchedules() {
     }
   };
   try {
-    const response = await client.send(new import_lib_dynamodb.QueryCommand(params));
+    const response = await client.send(new QueryCommand(params));
     logger.debug(`Fetched ${response.Items?.length || 0} active schedules via GSI3`);
     return response.Items || [];
   } catch (error) {
@@ -663,7 +654,7 @@ async function fetchActiveSchedules() {
           ":activeVal": true
         }
       };
-      const fallbackResponse = await client.send(new import_lib_dynamodb.QueryCommand(fallbackParams));
+      const fallbackResponse = await client.send(new QueryCommand(fallbackParams));
       logger.warn("Fallback: Fetched schedules via GSI1");
       return fallbackResponse.Items || [];
     } catch (fallbackError) {
@@ -677,7 +668,7 @@ async function fetchScheduleById(scheduleId, tenantId = "default") {
   const statuses = ["active", "inactive"];
   for (const status of statuses) {
     try {
-      const response = await client.send(new import_lib_dynamodb.QueryCommand({
+      const response = await client.send(new QueryCommand({
         TableName: APP_TABLE_NAME,
         IndexName: "GSI3",
         KeyConditionExpression: "gsi3pk = :gsi3pk AND gsi3sk = :gsi3sk",
@@ -712,7 +703,7 @@ async function fetchActiveAccounts() {
     }
   };
   try {
-    const response = await client.send(new import_lib_dynamodb.QueryCommand(params));
+    const response = await client.send(new QueryCommand(params));
     logger.debug(`Fetched ${response.Items?.length || 0} active accounts via GSI3`);
     return response.Items || [];
   } catch (error) {
@@ -728,7 +719,7 @@ async function fetchActiveAccounts() {
           ":activeVal": true
         }
       };
-      const response = await client.send(new import_lib_dynamodb.QueryCommand(fallbackParams));
+      const response = await client.send(new QueryCommand(fallbackParams));
       return response.Items || [];
     } catch (fallbackError) {
       logger.error("Fallback account fetch failed", fallbackError);
@@ -756,7 +747,7 @@ async function createAuditLog(entry) {
     ...entry
   };
   try {
-    await client.send(new import_lib_dynamodb.PutCommand({
+    await client.send(new PutCommand({
       TableName: AUDIT_TABLE_NAME,
       Item: item
     }));
@@ -765,9 +756,75 @@ async function createAuditLog(entry) {
     logger.error("Failed to create audit log", error);
   }
 }
+async function createExecutionAuditLog(executionId, schedule, metadata, summary) {
+  if (!AUDIT_TABLE_NAME) {
+    logger.warn("AUDIT_TABLE_NAME not configured, skipping execution audit log");
+    return;
+  }
+  const ec2Summary = {
+    started: metadata.ec2.filter((r) => r.action === "start" && r.status === "success").length,
+    stopped: metadata.ec2.filter((r) => r.action === "stop" && r.status === "success").length,
+    failed: metadata.ec2.filter((r) => r.status === "failed").length,
+    skipped: metadata.ec2.filter((r) => r.action === "skip").length
+  };
+  const ecsSummary = {
+    started: metadata.ecs.filter((r) => r.action === "start" && r.status === "success").length,
+    stopped: metadata.ecs.filter((r) => r.action === "stop" && r.status === "success").length,
+    failed: metadata.ecs.filter((r) => r.status === "failed").length,
+    skipped: metadata.ecs.filter((r) => r.action === "skip").length
+  };
+  const rdsSummary = {
+    started: metadata.rds.filter((r) => r.action === "start" && r.status === "success").length,
+    stopped: metadata.rds.filter((r) => r.action === "stop" && r.status === "success").length,
+    failed: metadata.rds.filter((r) => r.status === "failed").length,
+    skipped: metadata.rds.filter((r) => r.action === "skip").length
+  };
+  const overallStatus = summary.resourcesFailed > 0 ? summary.resourcesStarted + summary.resourcesStopped > 0 ? "warning" : "error" : "success";
+  const details = [
+    `Execution ${executionId} for schedule "${schedule.name}" completed.`,
+    `EC2: ${ec2Summary.started} started, ${ec2Summary.stopped} stopped, ${ec2Summary.failed} failed, ${ec2Summary.skipped} skipped.`,
+    `ECS: ${ecsSummary.started} started, ${ecsSummary.stopped} stopped, ${ecsSummary.failed} failed, ${ecsSummary.skipped} skipped.`,
+    `RDS: ${rdsSummary.started} started, ${rdsSummary.stopped} stopped, ${rdsSummary.failed} failed, ${rdsSummary.skipped} skipped.`,
+    `Duration: ${summary.duration}ms`
+  ].join(" ");
+  await createAuditLog({
+    type: "audit_log",
+    eventType: "scheduler.execution.complete",
+    action: "execution_complete",
+    user: "system",
+    userType: "system",
+    resourceType: "scheduler",
+    resourceId: executionId,
+    status: overallStatus,
+    details,
+    severity: summary.resourcesFailed > 0 ? "medium" : "info",
+    metadata: {
+      executionId,
+      scheduleId: schedule.scheduleId,
+      scheduleName: schedule.name,
+      duration: summary.duration,
+      summary: {
+        total: {
+          started: summary.resourcesStarted,
+          stopped: summary.resourcesStopped,
+          failed: summary.resourcesFailed
+        },
+        ec2: ec2Summary,
+        ecs: ecsSummary,
+        rds: rdsSummary
+      },
+      schedule_metadata: metadata
+    }
+  });
+  logger.info("Execution audit log created", { executionId, scheduleId: schedule.scheduleId });
+}
 
 // src/services/execution-history-service.ts
-var import_lib_dynamodb2 = require("@aws-sdk/lib-dynamodb");
+import {
+  PutCommand as PutCommand2,
+  QueryCommand as QueryCommand2,
+  UpdateCommand
+} from "@aws-sdk/lib-dynamodb";
 var EXECUTION_TTL_DAYS = 30;
 var buildExecutionPK = (tenantId, scheduleId) => `TENANT#${tenantId}#SCHEDULE#${scheduleId}`;
 var buildExecutionSK = (timestamp, executionId) => `EXEC#${timestamp}#${executionId}`;
@@ -800,7 +857,7 @@ async function createExecutionRecord(params) {
     ...record
   };
   try {
-    await client.send(new import_lib_dynamodb2.PutCommand({
+    await client.send(new PutCommand2({
       TableName: APP_TABLE_NAME,
       Item: item
     }));
@@ -857,7 +914,7 @@ async function updateExecutionRecord(record, updates) {
     expressionAttributeValues[":schedule_metadata"] = updates.schedule_metadata;
   }
   try {
-    await client.send(new import_lib_dynamodb2.UpdateCommand({
+    await client.send(new UpdateCommand({
       TableName: APP_TABLE_NAME,
       Key: {
         pk: buildExecutionPK(record.tenantId, record.scheduleId),
@@ -879,7 +936,7 @@ async function updateExecutionRecord(record, updates) {
 async function getExecutionHistory(scheduleId, tenantId = "default", limit = 50) {
   const client = getDynamoDBClient();
   try {
-    const response = await client.send(new import_lib_dynamodb2.QueryCommand({
+    const response = await client.send(new QueryCommand2({
       TableName: APP_TABLE_NAME,
       KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
       ExpressionAttributeValues: {
@@ -917,14 +974,62 @@ async function getLastECSServiceState(scheduleId, serviceArn, tenantId = "defaul
     return null;
   }
 }
+async function getLastEC2InstanceState(scheduleId, instanceArn, tenantId = "default") {
+  try {
+    const executions = await getExecutionHistory(scheduleId, tenantId, 10);
+    for (const execution of executions) {
+      if (execution.schedule_metadata?.ec2) {
+        const ec2Resource = execution.schedule_metadata.ec2.find(
+          (e) => e.arn === instanceArn && e.action === "stop" && e.status === "success"
+        );
+        if (ec2Resource) {
+          logger.debug(`Found last EC2 state for ${instanceArn}: instanceState=${ec2Resource.last_state.instanceState}`);
+          return {
+            instanceState: ec2Resource.last_state.instanceState,
+            instanceType: ec2Resource.last_state.instanceType
+          };
+        }
+      }
+    }
+    logger.debug(`No previous EC2 state found for ${instanceArn}`);
+    return null;
+  } catch (error) {
+    logger.error(`Failed to get last EC2 instance state for ${instanceArn}`, error);
+    return null;
+  }
+}
+async function getLastRDSInstanceState(scheduleId, instanceArn, tenantId = "default") {
+  try {
+    const executions = await getExecutionHistory(scheduleId, tenantId, 10);
+    for (const execution of executions) {
+      if (execution.schedule_metadata?.rds) {
+        const rdsResource = execution.schedule_metadata.rds.find(
+          (e) => e.arn === instanceArn && e.action === "stop" && e.status === "success"
+        );
+        if (rdsResource) {
+          logger.debug(`Found last RDS state for ${instanceArn}: dbInstanceStatus=${rdsResource.last_state.dbInstanceStatus}`);
+          return {
+            dbInstanceStatus: rdsResource.last_state.dbInstanceStatus,
+            dbInstanceClass: rdsResource.last_state.dbInstanceClass
+          };
+        }
+      }
+    }
+    logger.debug(`No previous RDS state found for ${instanceArn}`);
+    return null;
+  } catch (error) {
+    logger.error(`Failed to get last RDS instance state for ${instanceArn}`, error);
+    return null;
+  }
+}
 
 // src/services/sts-service.ts
-var import_client_sts = require("@aws-sdk/client-sts");
+import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
 var AWS_REGION2 = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "ap-south-1";
 var stsClient = null;
 function getSTSClient() {
   if (!stsClient) {
-    stsClient = new import_client_sts.STSClient({ region: AWS_REGION2 });
+    stsClient = new STSClient({ region: AWS_REGION2 });
   }
   return stsClient;
 }
@@ -933,7 +1038,7 @@ async function assumeRole(roleArn, accountId, region, externalId) {
   const roleSessionName = `scheduler-session-${accountId}-${region}`;
   logger.debug(`Assuming role ${roleArn} for account ${accountId}`, { accountId, region });
   try {
-    const response = await client.send(new import_client_sts.AssumeRoleCommand({
+    const response = await client.send(new AssumeRoleCommand({
       RoleArn: roleArn,
       RoleSessionName: roleSessionName,
       DurationSeconds: 3600,
@@ -958,9 +1063,14 @@ async function assumeRole(roleArn, accountId, region, externalId) {
 }
 
 // src/resource-schedulers/ec2-scheduler.ts
-var import_client_ec2 = require("@aws-sdk/client-ec2");
-async function processEC2Resource(resource, schedule, action, credentials, metadata) {
-  const ec2Client = new import_client_ec2.EC2Client({
+import {
+  EC2Client,
+  DescribeInstancesCommand,
+  StartInstancesCommand,
+  StopInstancesCommand
+} from "@aws-sdk/client-ec2";
+async function processEC2Resource(resource, schedule, action, credentials, metadata, lastState) {
+  const ec2Client = new EC2Client({
     credentials: credentials.credentials,
     region: credentials.region
   });
@@ -973,7 +1083,7 @@ async function processEC2Resource(resource, schedule, action, credentials, metad
   });
   log.info(`Processing EC2 resource: ${resource.id} (${resource.name || "unnamed"})`);
   try {
-    const describeResponse = await ec2Client.send(new import_client_ec2.DescribeInstancesCommand({
+    const describeResponse = await ec2Client.send(new DescribeInstancesCommand({
       InstanceIds: [resource.id]
     }));
     const instance = describeResponse.Reservations?.[0]?.Instances?.[0];
@@ -982,9 +1092,12 @@ async function processEC2Resource(resource, schedule, action, credentials, metad
     }
     const currentState = instance.State?.Name || "unknown";
     const instanceType = instance.InstanceType || "unknown";
-    log.debug(`EC2 ${resource.id}: currentState=${currentState}, desiredAction=${action}`);
+    log.debug(`EC2 ${resource.id}: currentState=${currentState}, desiredAction=${action}, lastState=${lastState?.instanceState || "none"}`);
     if (action === "start" && currentState !== "running" && currentState !== "pending") {
-      await ec2Client.send(new import_client_ec2.StartInstancesCommand({ InstanceIds: [resource.id] }));
+      if (lastState) {
+        log.info(`EC2 ${resource.id}: Restoring from scheduler-managed state (was ${lastState.instanceState})`);
+      }
+      await ec2Client.send(new StartInstancesCommand({ InstanceIds: [resource.id] }));
       log.info(`Started EC2 instance ${resource.id}`);
       await createAuditLog({
         type: "audit_log",
@@ -1011,8 +1124,8 @@ async function processEC2Resource(resource, schedule, action, credentials, metad
         }
       };
     } else if (action === "stop" && currentState === "running") {
-      await ec2Client.send(new import_client_ec2.StopInstancesCommand({ InstanceIds: [resource.id] }));
-      log.info(`Stopped EC2 instance ${resource.id}`);
+      await ec2Client.send(new StopInstancesCommand({ InstanceIds: [resource.id] }));
+      log.info(`Stopped EC2 instance ${resource.id} (saving state: instanceState=${currentState}, instanceType=${instanceType})`);
       await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.ec2.stop",
@@ -1081,9 +1194,14 @@ async function processEC2Resource(resource, schedule, action, credentials, metad
 }
 
 // src/resource-schedulers/rds-scheduler.ts
-var import_client_rds = require("@aws-sdk/client-rds");
-async function processRDSResource(resource, schedule, action, credentials, metadata) {
-  const rdsClient = new import_client_rds.RDSClient({
+import {
+  RDSClient,
+  DescribeDBInstancesCommand,
+  StartDBInstanceCommand,
+  StopDBInstanceCommand
+} from "@aws-sdk/client-rds";
+async function processRDSResource(resource, schedule, action, credentials, metadata, lastState) {
+  const rdsClient = new RDSClient({
     credentials: credentials.credentials,
     region: credentials.region
   });
@@ -1096,7 +1214,7 @@ async function processRDSResource(resource, schedule, action, credentials, metad
   });
   log.info(`Processing RDS resource: ${resource.id} (${resource.name || "unnamed"})`);
   try {
-    const describeResponse = await rdsClient.send(new import_client_rds.DescribeDBInstancesCommand({
+    const describeResponse = await rdsClient.send(new DescribeDBInstancesCommand({
       DBInstanceIdentifier: resource.id
     }));
     const instance = describeResponse.DBInstances?.[0];
@@ -1105,9 +1223,12 @@ async function processRDSResource(resource, schedule, action, credentials, metad
     }
     const currentStatus = instance.DBInstanceStatus || "unknown";
     const dbInstanceClass = instance.DBInstanceClass || "unknown";
-    log.debug(`RDS ${resource.id}: currentStatus=${currentStatus}, desiredAction=${action}`);
+    log.debug(`RDS ${resource.id}: currentStatus=${currentStatus}, desiredAction=${action}, lastState=${lastState?.dbInstanceStatus || "none"}`);
     if (action === "start" && currentStatus !== "available" && currentStatus !== "starting") {
-      await rdsClient.send(new import_client_rds.StartDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
+      if (lastState) {
+        log.info(`RDS ${resource.id}: Restoring from scheduler-managed state (was ${lastState.dbInstanceStatus})`);
+      }
+      await rdsClient.send(new StartDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
       log.info(`Started RDS instance ${resource.id}`);
       await createAuditLog({
         type: "audit_log",
@@ -1134,8 +1255,8 @@ async function processRDSResource(resource, schedule, action, credentials, metad
         }
       };
     } else if (action === "stop" && currentStatus === "available") {
-      await rdsClient.send(new import_client_rds.StopDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
-      log.info(`Stopped RDS instance ${resource.id}`);
+      await rdsClient.send(new StopDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
+      log.info(`Stopped RDS instance ${resource.id} (saving state: dbInstanceStatus=${currentStatus}, dbInstanceClass=${dbInstanceClass})`);
       await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.rds.stop",
@@ -1204,9 +1325,13 @@ async function processRDSResource(resource, schedule, action, credentials, metad
 }
 
 // src/resource-schedulers/ecs-scheduler.ts
-var import_client_ecs = require("@aws-sdk/client-ecs");
+import {
+  ECSClient,
+  DescribeServicesCommand,
+  UpdateServiceCommand
+} from "@aws-sdk/client-ecs";
 async function processECSResource(resource, schedule, action, credentials, metadata, lastDesiredCount) {
-  const ecsClient = new import_client_ecs.ECSClient({
+  const ecsClient = new ECSClient({
     credentials: credentials.credentials,
     region: credentials.region
   });
@@ -1244,7 +1369,7 @@ async function processECSResource(resource, schedule, action, credentials, metad
   const serviceName = extractServiceName(resource.arn);
   log.info(`Processing ECS service: ${serviceName} (${resource.name || "unnamed"}) in cluster ${clusterArn}`);
   try {
-    const describeResponse = await ecsClient.send(new import_client_ecs.DescribeServicesCommand({
+    const describeResponse = await ecsClient.send(new DescribeServicesCommand({
       cluster: clusterArn,
       services: [serviceName]
     }));
@@ -1258,7 +1383,7 @@ async function processECSResource(resource, schedule, action, credentials, metad
     const serviceStatus = service.status ?? "unknown";
     log.debug(`ECS ${serviceName}: desiredCount=${currentDesiredCount}, runningCount=${runningCount}, action=${action}`);
     if (action === "stop" && currentDesiredCount > 0) {
-      await ecsClient.send(new import_client_ecs.UpdateServiceCommand({
+      await ecsClient.send(new UpdateServiceCommand({
         cluster: clusterArn,
         service: serviceName,
         desiredCount: 0
@@ -1294,7 +1419,7 @@ async function processECSResource(resource, schedule, action, credentials, metad
       };
     } else if (action === "start" && currentDesiredCount === 0) {
       const targetDesiredCount = lastDesiredCount && lastDesiredCount > 0 ? lastDesiredCount : 1;
-      await ecsClient.send(new import_client_ecs.UpdateServiceCommand({
+      await ecsClient.send(new UpdateServiceCommand({
         cluster: clusterArn,
         service: serviceName,
         desiredCount: targetDesiredCount
@@ -1502,6 +1627,7 @@ async function runPartialScan(event, triggeredBy = "web-ui") {
 }
 async function processSchedule(schedule, accounts, triggeredBy) {
   const resources = schedule.resources || [];
+  const scheduleStartTime = Date.now();
   logger.info(`Processing schedule: ${schedule.name} (${schedule.scheduleId}) with ${resources.length} resources`);
   if (resources.length === 0) {
     logger.info(`Schedule ${schedule.name} has no resources, skipping`);
@@ -1522,7 +1648,7 @@ async function processSchedule(schedule, accounts, triggeredBy) {
     accountId: schedule.accountId || "system",
     triggeredBy
   };
-  const execRecord = await createExecutionRecord(execParams);
+  const executionId = v4_default();
   const resourcesByAccount = groupResourcesByAccount(resources, accounts);
   const scheduleMetadata = {
     ec2: [],
@@ -1549,18 +1675,42 @@ async function processSchedule(schedule, accounts, triggeredBy) {
             accountId: account.accountId
           },
           region,
-          executionId: execRecord.executionId,
+          executionId,
           scheduleId: schedule.scheduleId,
           scheduleName: schedule.name
         };
         for (const resource of regionResources) {
           try {
             if (resource.type === "ec2") {
-              const result = await processEC2Resource(resource, schedule, action, credentials, metadata);
+              let lastState;
+              if (action === "start") {
+                const savedState = await getLastEC2InstanceState(
+                  schedule.scheduleId,
+                  resource.arn,
+                  schedule.tenantId
+                );
+                lastState = savedState || void 0;
+                if (lastState) {
+                  logger.debug(`EC2 ${resource.id}: Found last state - instanceState=${lastState.instanceState}`);
+                }
+              }
+              const result = await processEC2Resource(resource, schedule, action, credentials, metadata, lastState);
               scheduleMetadata.ec2.push(result);
               updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
             } else if (resource.type === "rds") {
-              const result = await processRDSResource(resource, schedule, action, credentials, metadata);
+              let lastState;
+              if (action === "start") {
+                const savedState = await getLastRDSInstanceState(
+                  schedule.scheduleId,
+                  resource.arn,
+                  schedule.tenantId
+                );
+                lastState = savedState || void 0;
+                if (lastState) {
+                  logger.debug(`RDS ${resource.id}: Found last state - dbInstanceStatus=${lastState.dbInstanceStatus}`);
+                }
+              }
+              const result = await processRDSResource(resource, schedule, action, credentials, metadata, lastState);
               scheduleMetadata.rds.push(result);
               updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
             } else if (resource.type === "ecs") {
@@ -1588,13 +1738,27 @@ async function processSchedule(schedule, accounts, triggeredBy) {
       }
     }
   }
-  await updateExecutionRecord(execRecord, {
-    status: failed > 0 ? "partial" : "success",
-    resourcesStarted: started,
-    resourcesStopped: stopped,
-    resourcesFailed: failed,
-    schedule_metadata: scheduleMetadata
-  });
+  const hasActions = started > 0 || stopped > 0 || failed > 0;
+  if (hasActions) {
+    const execRecord = await createExecutionRecord(execParams);
+    const duration = Date.now() - scheduleStartTime;
+    await updateExecutionRecord(execRecord, {
+      status: failed > 0 ? "partial" : "success",
+      resourcesStarted: started,
+      resourcesStopped: stopped,
+      resourcesFailed: failed,
+      schedule_metadata: scheduleMetadata
+    });
+    await createExecutionAuditLog(execRecord.executionId, schedule, scheduleMetadata, {
+      resourcesStarted: started,
+      resourcesStopped: stopped,
+      resourcesFailed: failed,
+      duration
+    });
+    logger.info(`Schedule ${schedule.name} execution recorded: ${started} started, ${stopped} stopped, ${failed} failed`);
+  } else {
+    logger.info(`Schedule ${schedule.name}: No actions performed (all resources in desired state), skipping execution record`);
+  }
   return { started, stopped, failed };
 }
 function groupResourcesByAccount(resources, _accounts) {
@@ -1695,7 +1859,7 @@ var handler = async (event) => {
   }
 };
 var index_default = handler;
-// Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
+export {
+  index_default as default,
   handler
-});
+};

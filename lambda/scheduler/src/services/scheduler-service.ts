@@ -7,11 +7,14 @@ import {
     fetchActiveAccounts,
     fetchScheduleById,
     createAuditLog,
+    createExecutionAuditLog,
 } from './dynamodb-service.js';
 import {
     createExecutionRecord,
     updateExecutionRecord,
     getLastECSServiceState,
+    getLastEC2InstanceState,
+    getLastRDSInstanceState,
     type CreateExecutionParams,
 } from './execution-history-service.js';
 import { assumeRole } from './sts-service.js';
@@ -178,6 +181,11 @@ export async function runPartialScan(
 
 /**
  * Process a single schedule and all its resources
+ * 
+ * Key behaviors:
+ * - Creates execution record only if actual actions (start/stop) are performed
+ * - Retrieves and uses last recorded state for intelligent state restoration
+ * - Creates a summarized audit log entry for the execution
  */
 async function processSchedule(
     schedule: Schedule,
@@ -185,6 +193,7 @@ async function processSchedule(
     triggeredBy: 'system' | 'web-ui'
 ): Promise<{ started: number; stopped: number; failed: number }> {
     const resources = schedule.resources || [];
+    const scheduleStartTime = Date.now();
 
     logger.info(`Processing schedule: ${schedule.name} (${schedule.scheduleId}) with ${resources.length} resources`);
 
@@ -204,7 +213,7 @@ async function processSchedule(
 
     logger.info(`Schedule ${schedule.name}: inRange=${inRange}, action=${action}`);
 
-    // Create execution record
+    // Prepare execution params (but don't create record yet)
     const execParams: CreateExecutionParams = {
         scheduleId: schedule.scheduleId,
         scheduleName: schedule.name,
@@ -212,7 +221,9 @@ async function processSchedule(
         accountId: schedule.accountId || 'system',
         triggeredBy,
     };
-    const execRecord = await createExecutionRecord(execParams);
+
+    // Generate execution ID upfront for metadata consistency
+    const executionId = uuidv4();
 
     // Group resources by account (extract from ARN)
     const resourcesByAccount = groupResourcesByAccount(resources, accounts);
@@ -249,7 +260,7 @@ async function processSchedule(
                         accountId: account.accountId,
                     },
                     region,
-                    executionId: execRecord.executionId,
+                    executionId: executionId,
                     scheduleId: schedule.scheduleId,
                     scheduleName: schedule.name,
                 };
@@ -258,11 +269,37 @@ async function processSchedule(
                 for (const resource of regionResources) {
                     try {
                         if (resource.type === 'ec2') {
-                            const result = await processEC2Resource(resource, schedule, action, credentials, metadata);
+                            // For EC2 start, get last state to verify resource was managed by scheduler
+                            let lastState: { instanceState: string; instanceType?: string } | undefined;
+                            if (action === 'start') {
+                                const savedState = await getLastEC2InstanceState(
+                                    schedule.scheduleId,
+                                    resource.arn,
+                                    schedule.tenantId
+                                );
+                                lastState = savedState || undefined;
+                                if (lastState) {
+                                    logger.debug(`EC2 ${resource.id}: Found last state - instanceState=${lastState.instanceState}`);
+                                }
+                            }
+                            const result = await processEC2Resource(resource, schedule, action, credentials, metadata, lastState);
                             scheduleMetadata.ec2.push(result);
                             updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
                         } else if (resource.type === 'rds') {
-                            const result = await processRDSResource(resource, schedule, action, credentials, metadata);
+                            // For RDS start, get last state to verify resource was managed by scheduler
+                            let lastState: { dbInstanceStatus: string; dbInstanceClass?: string } | undefined;
+                            if (action === 'start') {
+                                const savedState = await getLastRDSInstanceState(
+                                    schedule.scheduleId,
+                                    resource.arn,
+                                    schedule.tenantId
+                                );
+                                lastState = savedState || undefined;
+                                if (lastState) {
+                                    logger.debug(`RDS ${resource.id}: Found last state - dbInstanceStatus=${lastState.dbInstanceStatus}`);
+                                }
+                            }
+                            const result = await processRDSResource(resource, schedule, action, credentials, metadata, lastState);
                             scheduleMetadata.rds.push(result);
                             updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
                         } else if (resource.type === 'ecs') {
@@ -292,14 +329,35 @@ async function processSchedule(
         }
     }
 
-    // Update execution record with final results and metadata
-    await updateExecutionRecord(execRecord, {
-        status: failed > 0 ? 'partial' : 'success',
-        resourcesStarted: started,
-        resourcesStopped: stopped,
-        resourcesFailed: failed,
-        schedule_metadata: scheduleMetadata,
-    });
+    // Only create and update execution record if actions were actually performed
+    const hasActions = started > 0 || stopped > 0 || failed > 0;
+
+    if (hasActions) {
+        // Create execution record now that we know actions were performed
+        const execRecord = await createExecutionRecord(execParams);
+
+        // Update execution record with final results and metadata
+        const duration = Date.now() - scheduleStartTime;
+        await updateExecutionRecord(execRecord, {
+            status: failed > 0 ? 'partial' : 'success',
+            resourcesStarted: started,
+            resourcesStopped: stopped,
+            resourcesFailed: failed,
+            schedule_metadata: scheduleMetadata,
+        });
+
+        // Create summarized audit log for this execution
+        await createExecutionAuditLog(execRecord.executionId, schedule, scheduleMetadata, {
+            resourcesStarted: started,
+            resourcesStopped: stopped,
+            resourcesFailed: failed,
+            duration,
+        });
+
+        logger.info(`Schedule ${schedule.name} execution recorded: ${started} started, ${stopped} stopped, ${failed} failed`);
+    } else {
+        logger.info(`Schedule ${schedule.name}: No actions performed (all resources in desired state), skipping execution record`);
+    }
 
     return { started, stopped, failed };
 }

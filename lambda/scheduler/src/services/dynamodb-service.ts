@@ -10,7 +10,12 @@ import {
     type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { logger } from '../utils/logger.js';
-import type { Schedule, Account, AuditLogEntry } from '../types/index.js';
+import type {
+    Schedule,
+    Account,
+    AuditLogEntry,
+    ScheduleExecutionMetadata,
+} from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { calculateTTL } from '../utils/time-utils.js';
 
@@ -206,4 +211,92 @@ export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
     }
 }
 
+/**
+ * Create a summarized execution audit log entry
+ * This provides a single audit record for the entire execution with complete metadata
+ */
+export async function createExecutionAuditLog(
+    executionId: string,
+    schedule: Schedule,
+    metadata: ScheduleExecutionMetadata,
+    summary: {
+        resourcesStarted: number;
+        resourcesStopped: number;
+        resourcesFailed: number;
+        duration: number;
+    }
+): Promise<void> {
+    if (!AUDIT_TABLE_NAME) {
+        logger.warn('AUDIT_TABLE_NAME not configured, skipping execution audit log');
+        return;
+    }
+
+    // Calculate summary counts per resource type
+    const ec2Summary = {
+        started: metadata.ec2.filter(r => r.action === 'start' && r.status === 'success').length,
+        stopped: metadata.ec2.filter(r => r.action === 'stop' && r.status === 'success').length,
+        failed: metadata.ec2.filter(r => r.status === 'failed').length,
+        skipped: metadata.ec2.filter(r => r.action === 'skip').length,
+    };
+
+    const ecsSummary = {
+        started: metadata.ecs.filter(r => r.action === 'start' && r.status === 'success').length,
+        stopped: metadata.ecs.filter(r => r.action === 'stop' && r.status === 'success').length,
+        failed: metadata.ecs.filter(r => r.status === 'failed').length,
+        skipped: metadata.ecs.filter(r => r.action === 'skip').length,
+    };
+
+    const rdsSummary = {
+        started: metadata.rds.filter(r => r.action === 'start' && r.status === 'success').length,
+        stopped: metadata.rds.filter(r => r.action === 'stop' && r.status === 'success').length,
+        failed: metadata.rds.filter(r => r.status === 'failed').length,
+        skipped: metadata.rds.filter(r => r.action === 'skip').length,
+    };
+
+    const overallStatus = summary.resourcesFailed > 0
+        ? (summary.resourcesStarted + summary.resourcesStopped > 0 ? 'warning' : 'error')
+        : 'success';
+
+    const details = [
+        `Execution ${executionId} for schedule "${schedule.name}" completed.`,
+        `EC2: ${ec2Summary.started} started, ${ec2Summary.stopped} stopped, ${ec2Summary.failed} failed, ${ec2Summary.skipped} skipped.`,
+        `ECS: ${ecsSummary.started} started, ${ecsSummary.stopped} stopped, ${ecsSummary.failed} failed, ${ecsSummary.skipped} skipped.`,
+        `RDS: ${rdsSummary.started} started, ${rdsSummary.stopped} stopped, ${rdsSummary.failed} failed, ${rdsSummary.skipped} skipped.`,
+        `Duration: ${summary.duration}ms`,
+    ].join(' ');
+
+    await createAuditLog({
+        type: 'audit_log',
+        eventType: 'scheduler.execution.complete',
+        action: 'execution_complete',
+        user: 'system',
+        userType: 'system',
+        resourceType: 'scheduler',
+        resourceId: executionId,
+        status: overallStatus,
+        details,
+        severity: summary.resourcesFailed > 0 ? 'medium' : 'info',
+        metadata: {
+            executionId,
+            scheduleId: schedule.scheduleId,
+            scheduleName: schedule.name,
+            duration: summary.duration,
+            summary: {
+                total: {
+                    started: summary.resourcesStarted,
+                    stopped: summary.resourcesStopped,
+                    failed: summary.resourcesFailed,
+                },
+                ec2: ec2Summary,
+                ecs: ecsSummary,
+                rds: rdsSummary,
+            },
+            schedule_metadata: metadata,
+        },
+    });
+
+    logger.info('Execution audit log created', { executionId, scheduleId: schedule.scheduleId });
+}
+
 export { APP_TABLE_NAME, AUDIT_TABLE_NAME, AWS_REGION };
+

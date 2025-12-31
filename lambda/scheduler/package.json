@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/index.js --external:@aws-sdk/*",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --external:@aws-sdk/* --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
     "dev": "AWS_SDK_LOAD_CONFIG=1 tsx src/local-runner.ts",
     "dev:full": "AWS_SDK_LOAD_CONFIG=1 tsx src/local-runner.ts --mode=full",
     "dev:partial": "AWS_SDK_LOAD_CONFIG=1 tsx src/local-runner.ts --mode=partial --scheduleId=",

@@ -162,7 +162,7 @@ export class CdkStack extends cdk.Stack {
     const lambdaFunction = new lambda.Function(this, 'Lambda', {
       functionName: `${stackName}-function`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
+      handler: 'dist/index.handler',
       code: lambda.Code.fromAsset('lambda/scheduler'),
       environment: {
         APP_TABLE_NAME: appTable.tableName,
@@ -197,84 +197,6 @@ export class CdkStack extends cdk.Stack {
     // Grant Lambda permission to publish to SNS topic
     snsTopic.grantPublish(lambdaFunction);
 
-
-    // *******************************************************************
-    // Seeder Logic - COMMENTED OUT FOR REFACTOR
-    // *******************************************************************
-
-    /*
-    // Load scheduler metadata from JSON files
-    const schedulerMetadataPath = path.join(__dirname, "/../", 'scheduler_metadata.json');
-    const accountMetadataPath = path.join(__dirname, "/../", 'account_metadata.json');
-
-    const schedulerMetadataContent = fs.readFileSync(schedulerMetadataPath, 'utf8');
-    const accountMetadataContent = fs.readFileSync(accountMetadataPath, 'utf8');
-
-    const schedulerMetadata = JSON.parse(schedulerMetadataContent);
-    const accountMetadata = JSON.parse(accountMetadataContent);
-
-    // Merge the two metadata arrays
-    const mergedMetadata = [...schedulerMetadata, ...accountMetadata];
-
-    // Calculate hash of merged metadata
-    const metadataHash = crypto.createHash('md5').update(JSON.stringify(mergedMetadata)).digest('hex');
-
-    // Rest of the code remains the same
-    const tableSeederFunction = new lambda.Function(this, 'TableSeederFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/metadata-seeder'),
-      environment: {
-        DYNAMODB_TABLE_NAME: table.tableName,
-      },
-      timeout: cdk.Duration.minutes(15), // Set timeout to 15 minutes (maximum allowed)
-    });
-
-    // Grant the Lambda function permission to read and write to the DynamoDB table
-    table.grantReadWriteData(tableSeederFunction);
-
-    // Create a custom resource that will trigger the Lambda function
-    const customResourceRandomSuffix = crypto.randomBytes(4).toString('hex');
-    const customResourceRoleName = `${stackName}-custom-resource-role-${customResourceRandomSuffix}`;
-
-    const customResourceRole = new iam.Role(this, 'CustomResourceRole', {
-      roleName: customResourceRoleName,
-      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
-    });
-
-    tableSeederFunction.grantInvoke(customResourceRole);
-
-    new cr.AwsCustomResource(this, 'TableSeederCustomResource', {
-      onUpdate: {
-        service: 'Lambda',
-        action: 'invoke',
-        parameters: {
-          FunctionName: tableSeederFunction.functionName,
-          Payload: JSON.stringify({
-            metadata: mergedMetadata,
-            metadataHash: metadataHash,
-          }),
-        },
-        physicalResourceId: cr.PhysicalResourceId.of(metadataHash),
-      },
-      policy: cr.AwsCustomResourcePolicy.fromStatements([
-        new iam.PolicyStatement({
-          actions: ['lambda:InvokeFunction'],
-          resources: [tableSeederFunction.functionArn],
-        }),
-      ]),
-      role: customResourceRole,
-    });
-
-
-    // Apply removal policy to the Table Seeder Lambda function
-    (tableSeederFunction.node.defaultChild as cdk.CfnResource).applyRemovalPolicy(RemovalPolicy.DESTROY);
-
-    // Ensure the Custom Resource Role is deleted when the stack is destroyed
-    customResourceRole.applyRemovalPolicy(RemovalPolicy.DESTROY);
-
-    tableSeederFunction.grantInvoke(customResourceRole);
-    */
 
     // *******************************************************************
     // Outputs
