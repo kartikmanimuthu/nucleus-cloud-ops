@@ -32,9 +32,9 @@ const Confirmation = React.forwardRef<HTMLDivElement, ConfirmationProps>(
           ref={ref}
           className={cn(
             "rounded-lg border p-4",
-            contextState === 'approved' && "border-green-500/20 bg-green-500/5",
+            contextState === 'approved' && "border-green-500/20 bg-success/100/5",
             contextState === 'rejected' && "border-destructive/20 bg-destructive/5",
-            contextState === 'pending' && "border-yellow-500/20 bg-yellow-500/5",
+            contextState === 'pending' && "border-yellow-500/20 bg-warning/100/5",
             className
           )}
           {...props}
@@ -61,8 +61,8 @@ const ConfirmationRequest = React.forwardRef<
       className={cn("flex items-start gap-3", className)}
       {...props}
     >
-      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-yellow-500/10">
-        <AlertTriangle className="h-4 w-4 text-yellow-600" />
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-warning/100/10">
+        <AlertTriangle className="h-4 w-4 text-warning" />
       </div>
       <div className="flex-1 space-y-1">
         <p className="text-sm font-medium text-yellow-700">Approval Required</p>
@@ -84,7 +84,7 @@ const ConfirmationAccepted = React.forwardRef<
   return (
     <div
       ref={ref}
-      className={cn("flex items-center gap-2 text-green-600", className)}
+      className={cn("flex items-center gap-2 text-success", className)}
       {...props}
     >
       <Check className="h-4 w-4" />

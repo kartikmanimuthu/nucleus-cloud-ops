@@ -47,14 +47,14 @@ export function ExecutionDetailsDialog({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case "error":
       case "failed":
-        return <AlertTriangle className="h-4 w-4 text-red-500" />;
+        return <AlertTriangle className="h-4 w-4 text-destructive" />;
       case "partial":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+        return <AlertTriangle className="h-4 w-4 text-warning" />;
       default:
-        return <Activity className="h-4 w-4 text-gray-400" />;
+        return <Activity className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -64,7 +64,7 @@ export function ExecutionDetailsDialog({
         return (
           <Badge
             variant="default"
-            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+            className="bg-success/10 text-green-800"
           >
             Success
           </Badge>
@@ -76,7 +76,7 @@ export function ExecutionDetailsDialog({
         return (
           <Badge
             variant="secondary"
-            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100"
+            className="bg-warning/10 text-yellow-800"
           >
             Partial
           </Badge>
@@ -139,7 +139,7 @@ export function ExecutionDetailsDialog({
                   </div>
                 </div>
                 {execution.errorMessage && (
-                  <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-300 rounded-md text-sm flex items-start space-x-2">
+                  <div className="mt-4 p-3 bg-destructive/10 text-red-700 rounded-md text-sm flex items-start space-x-2">
                     <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                     <span>{execution.errorMessage}</span>
                   </div>
@@ -273,7 +273,7 @@ function ResourceSection({
                   {res.arn}
                 </div>
                 {res.error && (
-                  <p className="text-xs text-red-500 mt-1">{res.error}</p>
+                  <p className="text-xs text-destructive mt-1">{res.error}</p>
                 )}
                 {type === "ecs" && res.last_state && (
                     <div className="text-xs text-muted-foreground mt-1">
@@ -285,7 +285,7 @@ function ResourceSection({
                 {res.status === "success" ? (
                   <Badge
                     variant="default"
-                    className="bg-green-100 text-green-800 hover:bg-green-100"
+                    className="bg-success/10 text-green-800 hover:bg-success/10"
                   >
                     Success
                   </Badge>

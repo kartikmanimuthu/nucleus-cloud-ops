@@ -158,15 +158,15 @@ export function AccountsGrid({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "connected":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case "error":
-        return <XCircle className="h-4 w-4 text-red-500" />;
+        return <XCircle className="h-4 w-4 text-destructive" />;
       case "warning":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+        return <AlertTriangle className="h-4 w-4 text-warning" />;
        case "validating":
-        return <RefreshCw className="h-4 w-4 text-blue-500 animate-spin" />;
+        return <RefreshCw className="h-4 w-4 text-info animate-spin" />;
       default:
-        return <AlertTriangle className="h-4 w-4 text-gray-400" />;
+        return <AlertTriangle className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -176,7 +176,7 @@ export function AccountsGrid({
         return (
           <Badge
             variant="default"
-            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+            className="bg-success/10 text-green-800"
           >
             Connected
           </Badge>
@@ -187,13 +187,13 @@ export function AccountsGrid({
         return (
           <Badge
             variant="secondary"
-            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100"
+            className="bg-warning/10 text-yellow-800"
           >
             Warning
           </Badge>
         );
       case "validating":
-        return <Badge variant="outline" className="border-blue-500 text-blue-500">Validating...</Badge>;
+        return <Badge variant="outline" className="border-blue-500 text-info">Validating...</Badge>;
       default:
         return <Badge variant="outline">Unknown</Badge>;
     }
@@ -262,7 +262,7 @@ export function AccountsGrid({
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => setDeletingAccount(account)}
-                        className="text-red-600"
+                        className="text-destructive"
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Delete
@@ -308,7 +308,7 @@ export function AccountsGrid({
                         <div className="text-sm font-medium text-muted-foreground">
                             Account Status
                         </div>
-                        <Badge variant={account.active ? "default" : "secondary"} className={account.active ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100" : ""}>
+                        <Badge variant={account.active ? "default" : "secondary"} className={account.active ? "bg-success/10 text-green-800" : ""}>
                             {account.active ? "Active" : "Inactive"}
                         </Badge>
                     </div>
@@ -323,7 +323,7 @@ export function AccountsGrid({
                             {getStatusBadge(connectionStatus)}
                         </div>
                         {account.connectionError && account.connectionError !== 'None' && (
-                           <p className="text-xs text-red-500 truncate max-w-[120px]" title={account.connectionError}>
+                           <p className="text-xs text-destructive truncate max-w-[120px]" title={account.connectionError}>
                               {account.connectionError}
                            </p>
                         )}

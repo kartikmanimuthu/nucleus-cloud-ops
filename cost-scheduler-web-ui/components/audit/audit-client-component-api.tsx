@@ -262,7 +262,7 @@ export default function AuditClientAPI({
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Success</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-500" />
+            <CheckCircle className="h-4 w-4 text-success" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.successCount}</div>
@@ -272,7 +272,7 @@ export default function AuditClientAPI({
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Warnings</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-yellow-500" />
+            <AlertTriangle className="h-4 w-4 text-warning" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.warningCount}</div>
@@ -282,7 +282,7 @@ export default function AuditClientAPI({
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Errors</CardTitle>
-            <XCircle className="h-4 w-4 text-red-500" />
+            <XCircle className="h-4 w-4 text-destructive" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.errorCount}</div>
@@ -390,19 +390,19 @@ export default function AuditClientAPI({
                 <SelectItem value="all">All Statuses</SelectItem>
                 <SelectItem value="success">
                   <div className="flex items-center space-x-2">
-                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <CheckCircle className="h-4 w-4 text-success" />
                     <span>Success</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="error">
                   <div className="flex items-center space-x-2">
-                    <XCircle className="h-4 w-4 text-red-500" />
+                    <XCircle className="h-4 w-4 text-destructive" />
                     <span>Error</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="warning">
                   <div className="flex items-center space-x-2">
-                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                    <AlertTriangle className="h-4 w-4 text-warning" />
                     <span>Warning</span>
                   </div>
                 </SelectItem>
@@ -463,7 +463,7 @@ export default function AuditClientAPI({
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
               ) : error ? (
-                <div className="text-center text-red-500 p-4">
+                <div className="text-center text-destructive p-4">
                   Error: {error}
                 </div>
               ) : (
@@ -507,7 +507,7 @@ export default function AuditClientAPI({
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
               ) : error ? (
-                <div className="text-center text-red-500 p-4">
+                <div className="text-center text-destructive p-4">
                   Error: {error}
                 </div>
               ) : (

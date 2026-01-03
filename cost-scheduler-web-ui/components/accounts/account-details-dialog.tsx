@@ -122,15 +122,15 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "connected":
-        return <CheckCircle className="h-4 w-4 text-green-500" />
+        return <CheckCircle className="h-4 w-4 text-success" />
       case "error":
-        return <XCircle className="h-4 w-4 text-red-500" />
+        return <XCircle className="h-4 w-4 text-destructive" />
       case "warning":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />
+        return <AlertTriangle className="h-4 w-4 text-warning" />
       case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />
+        return <CheckCircle className="h-4 w-4 text-success" />
       default:
-        return <AlertTriangle className="h-4 w-4 text-gray-400" />
+        return <AlertTriangle className="h-4 w-4 text-muted-foreground" />
     }
   }
 
@@ -138,7 +138,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
     switch (status) {
       case "connected":
         return (
-          <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+          <Badge variant="default" className="bg-success/10 text-green-800">
             Connected
           </Badge>
         )
@@ -146,13 +146,13 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
         return <Badge variant="destructive">Connection Error</Badge>
       case "warning":
         return (
-          <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100">
+          <Badge variant="secondary" className="bg-warning/10 text-yellow-800">
             Warning
           </Badge>
         )
       case "success":
         return (
-          <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+          <Badge variant="default" className="bg-success/10 text-green-800">
             Success
           </Badge>
         )
@@ -226,7 +226,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">${account.monthlySavings}</div>
+                  <div className="text-2xl font-bold text-success dark:text-success">${account.monthlySavings}</div>
                   <p className="text-xs text-muted-foreground">estimated</p>
                 </CardContent>
               </Card>
@@ -359,7 +359,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                       <div className="flex-shrink-0 mt-1">
                         <Badge
                           variant="outline"
-                          className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                          className="bg-info/10 text-blue-800"
                         >
                           {resource.type}
                         </Badge>
@@ -371,7 +371,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                             variant={resource.status === "running" ? "default" : "secondary"}
                             className={
                               resource.status === "running"
-                                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+                                ? "bg-success/10 text-green-800"
                                 : ""
                             }
                           >
@@ -419,7 +419,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                           <Badge
                             variant={schedule.active ? "default" : "secondary"}
                             className={
-                              schedule.active ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100" : ""
+                              schedule.active ? "bg-success/10 text-green-800" : ""
                             }
                           >
                             {schedule.active ? "Active" : "Inactive"}
@@ -437,7 +437,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                             <Badge
                               key={type}
                               variant="secondary"
-                              className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                              className="text-xs bg-info/10 text-blue-800"
                             >
                               {type}
                             </Badge>

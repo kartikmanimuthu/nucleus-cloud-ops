@@ -29,6 +29,14 @@
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
+
+    /* Semantic status colors - light mode */
+    --success: 142.1 76.2% 36.3%;
+    --success-foreground: 355.7 100% 97.3%;
+    --warning: 45.4 93.4% 47.5%;
+    --warning-foreground: 26 83.3% 14.1%;
+    --info: 221.2 83.2% 53.3%;
+    --info-foreground: 210 40% 98%;
   }
 
   .dark {
@@ -56,6 +64,14 @@
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+
+    /* Semantic status colors - dark mode */
+    --success: 142.1 70.6% 45.3%;
+    --success-foreground: 144.9 80.4% 10%;
+    --warning: 48 96.5% 53%;
+    --warning-foreground: 26 83.3% 14.1%;
+    --info: 217.2 91.2% 59.8%;
+    --info-foreground: 222.2 47.4% 11.2%;
   }
 }
 
@@ -64,6 +80,7 @@
     @apply border-border;
     box-sizing: border-box;
   }
+
   body {
     @apply bg-background text-foreground;
     margin: 0;

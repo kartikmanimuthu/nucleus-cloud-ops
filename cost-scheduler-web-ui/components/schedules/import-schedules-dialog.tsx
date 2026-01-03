@@ -268,9 +268,9 @@ export function ImportSchedulesDialog({ open, onOpenChange }: ImportSchedulesDia
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 {validationResult.valid ? (
-                  <CheckCircle className="h-5 w-5 text-green-500" />
+                  <CheckCircle className="h-5 w-5 text-success" />
                 ) : (
-                  <AlertTriangle className="h-5 w-5 text-red-500" />
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
                 )}
                 <span>Validation Results</span>
               </CardTitle>
@@ -278,7 +278,7 @@ export function ImportSchedulesDialog({ open, onOpenChange }: ImportSchedulesDia
             <CardContent>
               {validationResult.valid ? (
                 <div className="space-y-2">
-                  <p className="text-sm text-green-600 dark:text-green-400">✓ Valid format detected</p>
+                  <p className="text-sm text-success dark:text-success">✓ Valid format detected</p>
                   <p className="text-sm text-muted-foreground">
                     Found {validationResult.schedules} schedule{validationResult.schedules !== 1 ? "s" : ""} ready to
                     import
@@ -286,7 +286,7 @@ export function ImportSchedulesDialog({ open, onOpenChange }: ImportSchedulesDia
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <p className="text-sm text-red-600 dark:text-red-400">✗ Validation failed</p>
+                  <p className="text-sm text-destructive dark:text-destructive">✗ Validation failed</p>
                   <ul className="text-sm text-muted-foreground space-y-1">
                     {validationResult.errors.map((error, index) => (
                       <li key={index}>• {error}</li>

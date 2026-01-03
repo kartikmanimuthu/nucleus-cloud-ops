@@ -180,15 +180,15 @@ export function BulkActionsDialog({
           {selectedActionData && (
             <div
               className={`p-3 rounded-lg border ${selectedActionData.destructive
-                  ? "bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800"
-                  : "bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800"
+                  ? "bg-destructive/10 border-red-200 dark:bg-red-950 dark:border-red-800"
+                  : "bg-info/10 border-blue-200 dark:bg-blue-950 dark:border-blue-800"
                 }`}
             >
               <div className="flex items-center space-x-2 mb-1">
                 <selectedActionData.icon
                   className={`h-4 w-4 ${selectedActionData.destructive
-                      ? "text-red-600 dark:text-red-400"
-                      : "text-blue-600 dark:text-blue-400"
+                      ? "text-destructive dark:text-destructive"
+                      : "text-info dark:text-blue-400"
                     }`}
                 />
                 <span
@@ -202,14 +202,14 @@ export function BulkActionsDialog({
               </div>
               <p
                 className={`text-sm ${selectedActionData.destructive
-                    ? "text-red-700 dark:text-red-300"
-                    : "text-blue-700 dark:text-blue-300"
+                    ? "text-red-700"
+                    : "text-blue-700"
                   }`}
               >
                 {selectedActionData.description}
               </p>
               {selectedActionData.destructive && (
-                <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                <p className="text-xs text-destructive dark:text-destructive mt-2">
                   ⚠️ This action cannot be undone
                 </p>
               )}

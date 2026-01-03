@@ -97,13 +97,13 @@ export function ScheduleDetailsDialog({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case "error":
-        return <AlertTriangle className="h-4 w-4 text-red-500" />;
+        return <AlertTriangle className="h-4 w-4 text-destructive" />;
       case "partial":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+        return <AlertTriangle className="h-4 w-4 text-warning" />;
       default:
-        return <Activity className="h-4 w-4 text-gray-400" />;
+        return <Activity className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -113,7 +113,7 @@ export function ScheduleDetailsDialog({
         return (
           <Badge
             variant="default"
-            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+            className="bg-success/10 text-green-800"
           >
             Success
           </Badge>
@@ -124,7 +124,7 @@ export function ScheduleDetailsDialog({
         return (
           <Badge
             variant="secondary"
-            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100"
+            className="bg-warning/10 text-yellow-800"
           >
             Partial
           </Badge>
@@ -165,7 +165,7 @@ export function ScheduleDetailsDialog({
                     variant={schedule.active ? "default" : "secondary"}
                     className={
                       schedule.active
-                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+                        ? "bg-success/10 text-green-800"
                         : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
                     }
                   >
@@ -182,7 +182,7 @@ export function ScheduleDetailsDialog({
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                  <div className="text-2xl font-bold text-success dark:text-success">
                     {schedule.successRate}%
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -468,7 +468,7 @@ export function ScheduleDetailsDialog({
                   </div>
                 ) : historyError ? (
                   <div className="text-center py-8 text-muted-foreground">
-                    <AlertTriangle className="h-6 w-6 mx-auto mb-2 text-yellow-500" />
+                    <AlertTriangle className="h-6 w-6 mx-auto mb-2 text-warning" />
                     <p>{historyError}</p>
                   </div>
                 ) : executionHistory.length === 0 ? (
@@ -511,7 +511,7 @@ export function ScheduleDetailsDialog({
                           <div className="flex items-center justify-between text-sm text-muted-foreground">
                             <span>
                                 {execution.errorMessage 
-                                    ? <span className="text-red-500 line-clamp-1">{execution.errorMessage}</span>
+                                    ? <span className="text-destructive line-clamp-1">{execution.errorMessage}</span>
                                     : `Resources: ${(execution.resourcesStarted || 0) + (execution.resourcesStopped || 0)} handled`
                                 }
                             </span>
@@ -556,7 +556,7 @@ export function ScheduleDetailsDialog({
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                  <div className="text-2xl font-bold text-success dark:text-success">
                     {schedule.successRate}%
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -576,7 +576,7 @@ export function ScheduleDetailsDialog({
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                  <div className="text-2xl font-bold text-success dark:text-success">
                     ${(schedule.estimatedSavings * 3).toLocaleString()}
                   </div>
                   <p className="text-xs text-muted-foreground">last 3 months</p>

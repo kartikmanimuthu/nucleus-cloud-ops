@@ -45,15 +45,15 @@ export function AuditLogsTable({ logs }: AuditLogsTableProps) {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case "error":
-        return <XCircle className="h-4 w-4 text-red-500" />;
+        return <XCircle className="h-4 w-4 text-destructive" />;
       case "warning":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+        return <AlertTriangle className="h-4 w-4 text-warning" />;
       case "blocked":
-        return <Shield className="h-4 w-4 text-red-600" />;
+        return <Shield className="h-4 w-4 text-destructive" />;
       default:
-        return <Clock className="h-4 w-4 text-gray-400" />;
+        return <Clock className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -63,7 +63,7 @@ export function AuditLogsTable({ logs }: AuditLogsTableProps) {
         return (
           <Badge
             variant="default"
-            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+            className="bg-success/10 text-success"
           >
             Success
           </Badge>
@@ -74,7 +74,7 @@ export function AuditLogsTable({ logs }: AuditLogsTableProps) {
         return (
           <Badge
             variant="secondary"
-            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100"
+            className="bg-warning/10 text-warning"
           >
             Warning
           </Badge>
@@ -83,7 +83,7 @@ export function AuditLogsTable({ logs }: AuditLogsTableProps) {
         return (
           <Badge
             variant="destructive"
-            className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100"
+            className="bg-destructive/10 text-destructive"
           >
             Blocked
           </Badge>
@@ -99,7 +99,7 @@ export function AuditLogsTable({ logs }: AuditLogsTableProps) {
         return (
           <Badge
             variant="destructive"
-            className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100"
+            className="bg-destructive/10 text-destructive"
           >
             Critical
           </Badge>
@@ -117,7 +117,7 @@ export function AuditLogsTable({ logs }: AuditLogsTableProps) {
         return (
           <Badge
             variant="secondary"
-            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100"
+            className="bg-warning/10 text-warning"
           >
             Medium
           </Badge>
@@ -126,7 +126,7 @@ export function AuditLogsTable({ logs }: AuditLogsTableProps) {
         return (
           <Badge
             variant="outline"
-            className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+            className="bg-info/10 text-info"
           >
             Info
           </Badge>

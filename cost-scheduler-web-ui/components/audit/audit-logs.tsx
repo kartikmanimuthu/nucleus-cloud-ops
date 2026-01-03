@@ -81,13 +81,13 @@ export function AuditLogs({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case "error":
-        return <XCircle className="h-4 w-4 text-red-500" />;
+        return <XCircle className="h-4 w-4 text-destructive" />;
       case "warning":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+        return <AlertTriangle className="h-4 w-4 text-warning" />;
       default:
-        return <Clock className="h-4 w-4 text-gray-400" />;
+        return <Clock className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -97,7 +97,7 @@ export function AuditLogs({
         return (
           <Badge
             variant="default"
-            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+            className="bg-success/10 text-green-800"
           >
             Success
           </Badge>
@@ -108,7 +108,7 @@ export function AuditLogs({
         return (
           <Badge
             variant="secondary"
-            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100"
+            className="bg-warning/10 text-yellow-800"
           >
             Warning
           </Badge>
@@ -150,7 +150,7 @@ export function AuditLogs({
           </CardHeader>
           <CardContent>
             <div className="flex flex-col items-center justify-center h-32">
-              <AlertCircle className="h-8 w-8 text-red-500 mb-2" />
+              <AlertCircle className="h-8 w-8 text-destructive mb-2" />
               <p className="text-sm text-muted-foreground">{error}</p>
             </div>
           </CardContent>

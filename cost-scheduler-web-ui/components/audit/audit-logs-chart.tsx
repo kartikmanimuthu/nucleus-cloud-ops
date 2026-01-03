@@ -121,7 +121,7 @@ export function AuditLogsChart({ logs }: AuditLogsChartProps) {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+            <div className="text-2xl font-bold text-success dark:text-success">
               {(logs || []).length > 0
                 ? Math.round(
                     ((statusData.success || 0) / (logs || []).length) * 100
@@ -143,7 +143,7 @@ export function AuditLogsChart({ logs }: AuditLogsChartProps) {
             <AlertTriangle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+            <div className="text-2xl font-bold text-destructive dark:text-destructive">
               {severityData.critical || 0}
             </div>
             <p className="text-xs text-muted-foreground">requiring attention</p>

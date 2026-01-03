@@ -74,14 +74,14 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "success":
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
+        return <CheckCircle className="h-5 w-5 text-success" />;
       case "error":
       case "failed":
-        return <AlertTriangle className="h-5 w-5 text-red-500" />;
+        return <AlertTriangle className="h-5 w-5 text-destructive" />;
       case "partial":
-        return <AlertTriangle className="h-5 w-5 text-yellow-500" />;
+        return <AlertTriangle className="h-5 w-5 text-warning" />;
       default:
-        return <Activity className="h-5 w-5 text-gray-400" />;
+        return <Activity className="h-5 w-5 text-muted-foreground" />;
     }
   };
 
@@ -89,7 +89,7 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
     switch (status) {
       case "success":
         return (
-          <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+          <Badge className="bg-success/10 text-green-800">
             Success
           </Badge>
         );
@@ -98,7 +98,7 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
         return <Badge variant="destructive">Failed</Badge>;
       case "partial":
         return (
-          <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100">
+          <Badge className="bg-warning/10 text-yellow-800">
             Partial
           </Badge>
         );
@@ -201,7 +201,7 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
               </div>
             </div>
             {execution.errorMessage && (
-              <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-300 rounded-md text-sm flex items-start space-x-2">
+              <div className="mt-4 p-3 bg-destructive/10 text-red-700 rounded-md text-sm flex items-start space-x-2">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>{execution.errorMessage}</span>
               </div>
@@ -214,12 +214,12 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-green-500" />
+                <CheckCircle className="h-4 w-4 text-success" />
                 Resources Started
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="text-2xl font-bold text-success">
                 {execution.resourcesStarted || 0}
               </div>
             </CardContent>
@@ -227,12 +227,12 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Activity className="h-4 w-4 text-blue-500" />
+                <Activity className="h-4 w-4 text-info" />
                 Resources Stopped
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">
+              <div className="text-2xl font-bold text-info">
                 {execution.resourcesStopped || 0}
               </div>
             </CardContent>
@@ -240,12 +240,12 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-red-500" />
+                <AlertTriangle className="h-4 w-4 text-destructive" />
                 Resources Failed
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">
+              <div className="text-2xl font-bold text-destructive">
                 {execution.resourcesFailed || 0}
               </div>
             </CardContent>
@@ -389,7 +389,7 @@ function ResourceSection({
                 {res.arn}
               </div>
               {res.error && (
-                <p className="text-xs text-red-500 mt-1">{res.error}</p>
+                <p className="text-xs text-destructive mt-1">{res.error}</p>
               )}
               {type === "ecs" && res.last_state && (
                 <div className="text-xs text-muted-foreground mt-1">
@@ -400,7 +400,7 @@ function ResourceSection({
             </div>
             <div className="flex-shrink-0">
               {res.status === "success" ? (
-                <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                <Badge className="bg-success/10 text-green-800 hover:bg-success/10">
                   Success
                 </Badge>
               ) : (

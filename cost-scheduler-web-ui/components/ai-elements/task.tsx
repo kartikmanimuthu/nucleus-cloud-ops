@@ -48,7 +48,7 @@ const TaskTrigger = React.forwardRef<
   const statusIcon = {
     pending: <Circle className="h-4 w-4 text-muted-foreground" />,
     in_progress: <Loader2 className="h-4 w-4 text-primary animate-spin" />,
-    completed: <Check className="h-4 w-4 text-green-500" />,
+    completed: <Check className="h-4 w-4 text-success" />,
     failed: <Circle className="h-4 w-4 text-destructive" />,
   };
 
@@ -99,7 +99,7 @@ const TaskItem = React.forwardRef<HTMLDivElement, TaskItemProps>(
     const statusIcon = {
       pending: <Circle className="h-3 w-3 text-muted-foreground" />,
       in_progress: <Loader2 className="h-3 w-3 text-primary animate-spin" />,
-      completed: <Check className="h-3 w-3 text-green-500" />,
+      completed: <Check className="h-3 w-3 text-success" />,
       failed: <Circle className="h-3 w-3 text-destructive" />,
     };
 

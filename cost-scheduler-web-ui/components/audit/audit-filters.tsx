@@ -48,27 +48,27 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
     {
       value: "info",
       label: "Info",
-      icon: <Activity className="h-4 w-4 text-blue-500" />,
+      icon: <Activity className="h-4 w-4 text-info" />,
     },
     {
       value: "low",
       label: "Low",
-      icon: <Activity className="h-4 w-4 text-green-500" />,
+      icon: <Activity className="h-4 w-4 text-success" />,
     },
     {
       value: "medium",
       label: "Medium",
-      icon: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
+      icon: <AlertTriangle className="h-4 w-4 text-warning" />,
     },
     {
       value: "high",
       label: "High",
-      icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
+      icon: <AlertTriangle className="h-4 w-4 text-warning" />,
     },
     {
       value: "critical",
       label: "Critical",
-      icon: <XCircle className="h-4 w-4 text-red-500" />,
+      icon: <XCircle className="h-4 w-4 text-destructive" />,
     },
   ];
 

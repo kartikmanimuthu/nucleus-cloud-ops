@@ -311,8 +311,8 @@ export default function AuditClient({
         </div>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <AlertTriangle className="h-8 w-8 text-red-500 mx-auto mb-4" />
-            <p className="text-red-600 font-medium">{error}</p>
+            <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-4" />
+            <p className="text-destructive font-medium">{error}</p>
             <Button onClick={handleRefresh} className="mt-4">
               <RefreshCw className="h-4 w-4 mr-2" />
               Try Again
@@ -367,7 +367,7 @@ export default function AuditClient({
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+            <div className="text-2xl font-bold text-success dark:text-success">
               {stats.successCount}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -383,7 +383,7 @@ export default function AuditClient({
             <AlertTriangle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+            <div className="text-2xl font-bold text-warning dark:text-warning">
               {stats.warningCount}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -397,7 +397,7 @@ export default function AuditClient({
             <XCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+            <div className="text-2xl font-bold text-destructive dark:text-destructive">
               {stats.errorCount}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -492,25 +492,25 @@ export default function AuditClient({
                 <SelectItem value="all">All Statuses</SelectItem>
                 <SelectItem value="success">
                   <div className="flex items-center space-x-2">
-                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <CheckCircle className="h-4 w-4 text-success" />
                     <span>Success</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="error">
                   <div className="flex items-center space-x-2">
-                    <XCircle className="h-4 w-4 text-red-500" />
+                    <XCircle className="h-4 w-4 text-destructive" />
                     <span>Error</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="warning">
                   <div className="flex items-center space-x-2">
-                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                    <AlertTriangle className="h-4 w-4 text-warning" />
                     <span>Warning</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="info">
                   <div className="flex items-center space-x-2">
-                    <Activity className="h-4 w-4 text-blue-500" />
+                    <Activity className="h-4 w-4 text-info" />
                     <span>Info</span>
                   </div>
                 </SelectItem>

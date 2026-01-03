@@ -144,7 +144,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   }
 
   const getStatusColor = (status: boolean) => {
-    return status ? "bg-green-500" : "bg-red-500";
+    return status ? "bg-success/100" : "bg-destructive/100";
   };
 
   const getStatusText = (status: boolean) => {
@@ -167,11 +167,11 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   const getExecutionStatusIcon = (status: string) => {
     switch (status) {
       case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case "partial":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+        return <AlertTriangle className="h-4 w-4 text-warning" />;
       default:
-        return <AlertTriangle className="h-4 w-4 text-red-500" />;
+        return <AlertTriangle className="h-4 w-4 text-destructive" />;
     }
   };
   

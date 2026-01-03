@@ -68,7 +68,7 @@ export function DeleteAccountDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
-            <AlertTriangle className="h-5 w-5 text-red-500" />
+            <AlertTriangle className="h-5 w-5 text-destructive" />
             <span>Delete Account</span>
           </DialogTitle>
           <DialogDescription>
@@ -78,7 +78,7 @@ export function DeleteAccountDialog({
         </DialogHeader>
 
         <div className="py-4">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <div className="bg-destructive/10 border border-red-200 rounded-lg p-3">
             <p className="text-sm text-red-800">
               <strong>Warning:</strong> Deleting this account will:
             </p>

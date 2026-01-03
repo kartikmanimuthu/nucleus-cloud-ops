@@ -258,7 +258,7 @@ export default function SchedulesClient({
               <CardTitle className="text-sm font-medium">
                 Active Schedules
               </CardTitle>
-              <div className="h-4 w-4 rounded-full bg-green-100 flex items-center justify-center">
+              <div className="h-4 w-4 rounded-full bg-success/10 flex items-center justify-center">
                 <div className="h-2 w-2 rounded-full bg-green-600"></div>
               </div>
             </CardHeader>
@@ -278,7 +278,7 @@ export default function SchedulesClient({
               <CardTitle className="text-sm font-medium">
                 Monthly Savings
               </CardTitle>
-              <span className="text-green-600 dark:text-green-400">$</span>
+              <span className="text-success dark:text-success">$</span>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">

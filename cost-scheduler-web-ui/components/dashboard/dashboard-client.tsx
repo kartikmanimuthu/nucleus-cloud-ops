@@ -68,7 +68,7 @@ export function DashboardClient({
               {initialStats.totalSchedules}
             </div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-green-600 dark:text-green-400">
+              <span className="text-success dark:text-success">
                 {initialStats.activeSchedules} active
               </span>
             </p>
@@ -104,7 +104,7 @@ export function DashboardClient({
               ${initialStats.monthlySavings.toLocaleString()}
             </div>
             <p className="text-xs text-muted-foreground">
-              <TrendingDown className="inline h-3 w-3 text-green-600 dark:text-green-400" />{" "}
+              <TrendingDown className="inline h-3 w-3 text-success dark:text-success" />{" "}
               Estimated savings
             </p>
           </CardContent>

@@ -131,15 +131,15 @@ export function AccountsTable({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "connected":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case "error":
-        return <XCircle className="h-4 w-4 text-red-500" />;
+        return <XCircle className="h-4 w-4 text-destructive" />;
       case "warning":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+        return <AlertTriangle className="h-4 w-4 text-warning" />;
        case "validating":
-        return <RefreshCw className="h-4 w-4 text-blue-500 animate-spin" />;
+        return <RefreshCw className="h-4 w-4 text-info animate-spin" />;
       default:
-        return <AlertTriangle className="h-4 w-4 text-gray-400" />;
+        return <AlertTriangle className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -149,7 +149,7 @@ export function AccountsTable({
         return (
           <Badge
             variant="default"
-            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+            className="bg-success/10 text-success"
           >
             Connected
           </Badge>
@@ -160,13 +160,13 @@ export function AccountsTable({
         return (
           <Badge
             variant="secondary"
-            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100"
+            className="bg-warning/10 text-warning"
           >
             Warning
           </Badge>
         );
       case "validating":
-        return <Badge variant="outline" className="border-blue-500 text-blue-500">Validating...</Badge>;
+        return <Badge variant="outline" className="border-info text-info">Validating...</Badge>;
       default:
         return <Badge variant="outline">Unknown</Badge>;
     }
@@ -241,8 +241,8 @@ export function AccountsTable({
                         variant={account.active ? "default" : "secondary"}
                         className={
                           account.active
-                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
-                            : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
+                            ? "bg-success/10 text-success"
+                            : ""
                         }
                       >
                         {account.active ? "Active" : "Inactive"}
@@ -324,7 +324,7 @@ export function AccountsTable({
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setDeletingAccount(account)}
-                          className="text-red-600"
+                          className="text-destructive"
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           Delete

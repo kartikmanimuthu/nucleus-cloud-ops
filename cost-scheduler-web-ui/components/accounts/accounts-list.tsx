@@ -72,7 +72,7 @@ export function AccountsList({
         </CardHeader>
         <CardContent>
           <div className="flex flex-col items-center justify-center h-32">
-            <AlertCircle className="h-8 w-8 text-red-500 mb-2" />
+            <AlertCircle className="h-8 w-8 text-destructive mb-2" />
             <p className="text-sm text-muted-foreground">{error}</p>
           </div>
         </CardContent>
@@ -117,10 +117,10 @@ export function AccountsList({
                     variant="outline"
                     className={
                       account.connectionStatus === "connected"
-                        ? "text-green-600 border-green-300"
+                        ? "text-success border-green-300"
                         : account.connectionStatus === "error"
-                          ? "text-red-600 border-red-300"
-                          : "text-yellow-600 border-yellow-300"
+                          ? "text-destructive border-red-300"
+                          : "text-warning border-yellow-300"
                     }
                   >
                     {account.connectionStatus || "Unknown"}

@@ -136,10 +136,10 @@ export function SchedulesTable({
   };
 
   const getSuccessRateColor = (rate?: number) => {
-    if (!rate) return "text-gray-600 dark:text-gray-400";
-    if (rate >= 95) return "text-green-600 dark:text-green-400";
-    if (rate >= 85) return "text-yellow-600 dark:text-yellow-400";
-    return "text-red-600 dark:text-red-400";
+    if (!rate) return "text-gray-600 dark:text-muted-foreground";
+    if (rate >= 95) return "text-success dark:text-success";
+    if (rate >= 85) return "text-warning dark:text-warning";
+    return "text-destructive dark:text-destructive";
   };
 
   return (
@@ -232,7 +232,7 @@ export function SchedulesTable({
                         <Badge
                           key={type}
                           variant="secondary"
-                          className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                          className="text-xs bg-info/10 text-blue-800"
                         >
                           {type}
                         </Badge>
@@ -261,7 +261,7 @@ export function SchedulesTable({
                     <div className="text-xs text-muted-foreground">
                       {schedule.executionCount || 0} executions
                     </div>
-                    <div className="text-xs text-green-600 dark:text-green-400">
+                    <div className="text-xs text-success dark:text-success">
                       $
                       {schedule.estimatedSavings
                         ? schedule.estimatedSavings.toLocaleString()
@@ -276,7 +276,7 @@ export function SchedulesTable({
                       variant={schedule.active ? "default" : "secondary"}
                       className={
                         schedule.active
-                          ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+                          ? "bg-success/10 text-green-800"
                           : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
                       }
                     >
@@ -362,7 +362,7 @@ export function SchedulesTable({
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => deleteSchedule(schedule)}
-                        className="text-red-600"
+                        className="text-destructive"
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Delete

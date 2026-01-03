@@ -77,8 +77,8 @@ const phaseConfig: Record<AgentPhase, {
     icon: ListChecks, 
     label: 'PLANNING', 
     borderColor: 'border-blue-500', 
-    bgColor: 'bg-blue-500/5', 
-    textColor: 'text-blue-600' 
+    bgColor: 'bg-info/100/5', 
+    textColor: 'text-info' 
   },
   execution: { 
     icon: Cpu, 
@@ -105,8 +105,8 @@ const phaseConfig: Record<AgentPhase, {
     icon: Flag, 
     label: 'COMPLETE', 
     borderColor: 'border-green-500', 
-    bgColor: 'bg-green-500/5', 
-    textColor: 'text-green-600' 
+    bgColor: 'bg-success/100/5', 
+    textColor: 'text-success' 
   },
   text: { 
     icon: Bot, 
@@ -321,7 +321,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
             {toolName.toUpperCase()}
           </span>
           {autoApprove && (
-            <span className="ml-1 text-[10px] text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full font-medium">
+            <span className="ml-1 text-[10px] text-success bg-success/10 px-1.5 py-0.5 rounded-full font-medium">
               AUTO
             </span>
           )}
@@ -329,7 +329,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
             <Loader2 className="w-3 h-3 animate-spin ml-auto text-muted-foreground" />
           )}
           {result && result !== 'Approved' && result !== 'Cancelled by user' && (
-            <Check className="w-3 h-3 text-green-500 ml-auto" />
+            <Check className="w-3 h-3 text-success ml-auto" />
           )}
         </div>
 
@@ -408,11 +408,11 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
           <div>
             <h2 className="font-semibold flex items-center gap-2">
               Nucleus Reflection Agent
-              <Sparkles className="w-4 h-4 text-amber-500" />
+              <Sparkles className="w-4 h-4 text-warning" />
             </h2>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               Plan → Execute → Reflect → Revise
-              {autoApprove && <span className="text-green-600 ml-1">(Auto-Approve ON)</span>}
+              {autoApprove && <span className="text-success ml-1">(Auto-Approve ON)</span>}
             </p>
           </div>
         </div>

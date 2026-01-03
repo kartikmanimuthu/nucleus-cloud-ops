@@ -394,7 +394,7 @@ export function CreateAccountForm({ hubAccountId }: CreateAccountFormProps) {
                                 </span>
                                 <Button type="button" size="sm" variant="ghost" onClick={copyToClipboard} className="h-8">
                                     {copied ? (
-                                        <Check className="mr-2 h-3.5 w-3.5 text-green-500" />
+                                        <Check className="mr-2 h-3.5 w-3.5 text-success" />
                                     ) : (
                                         <Copy className="mr-2 h-3.5 w-3.5" />
                                     )}

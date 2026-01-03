@@ -182,17 +182,17 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "connected":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case "inactive":
-        return <XCircle className="h-4 w-4 text-gray-500" />;
+        return <XCircle className="h-4 w-4 text-muted-foreground" />;
       case "error":
-        return <XCircle className="h-4 w-4 text-red-500" />;
+        return <XCircle className="h-4 w-4 text-destructive" />;
       case "warning":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+        return <AlertTriangle className="h-4 w-4 text-warning" />;
       case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       default:
-        return <AlertTriangle className="h-4 w-4 text-gray-400" />;
+        return <AlertTriangle className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -202,7 +202,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
         return (
           <Badge
             variant="default"
-            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+            className="bg-success/10 text-green-800"
           >
             Connected
           </Badge>
@@ -213,7 +213,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
         return (
           <Badge
             variant="secondary"
-            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100"
+            className="bg-warning/10 text-yellow-800"
           >
             Warning
           </Badge>
@@ -222,7 +222,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
         return (
           <Badge
             variant="default"
-            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+            className="bg-success/10 text-green-800"
           >
             Success
           </Badge>
@@ -314,7 +314,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
           <Button
             variant="outline"
             onClick={() => setDeletingAccount(true)}
-            className="text-red-600 hover:text-red-700"
+            className="text-destructive hover:text-red-700"
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Delete
@@ -390,7 +390,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                 <DollarSign className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                <div className="text-2xl font-bold text-success dark:text-success">
                   ${account.monthlySavings}
                 </div>
                 <p className="text-xs text-muted-foreground">estimated</p>
@@ -451,8 +451,8 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                       </div>
                     </div>
                     {account.connectionError && account.connectionError !== 'None' && (
-                        <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
-                             <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                        <div className="mt-2 p-2 bg-destructive/10 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
+                             <p className="text-xs text-destructive dark:text-destructive font-mono">
                                 Error: {account.connectionError}
                              </p>
                         </div>
@@ -554,7 +554,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                     <div className="flex-shrink-0 mt-1">
                       <Badge
                         variant="outline"
-                        className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                        className="bg-info/10 text-blue-800"
                       >
                         {resource.type}
                       </Badge>
@@ -570,7 +570,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                           }
                           className={
                             resource.status === "running"
-                              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+                              ? "bg-success/10 text-green-800"
                               : ""
                           }
                         >
@@ -631,7 +631,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                           variant={schedule.active ? "default" : "secondary"}
                           className={
                             schedule.active
-                              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+                              ? "bg-success/10 text-green-800"
                               : ""
                           }
                         >
@@ -653,7 +653,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                           <Badge
                             key={type}
                             variant="secondary"
-                            className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                            className="text-xs bg-info/10 text-blue-800"
                           >
                             {type}
                           </Badge>

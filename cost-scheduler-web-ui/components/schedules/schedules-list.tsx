@@ -217,7 +217,7 @@ export function SchedulesList({ schedules, loading, error }: { schedules: UISche
                           <Badge
                             key={type}
                             variant="secondary"
-                            className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                            className="text-xs bg-blue-100 text-blue-800"
                           >
                             {type}
                           </Badge>
@@ -230,7 +230,7 @@ export function SchedulesList({ schedules, loading, error }: { schedules: UISche
                           variant={schedule.active ? "default" : "secondary"}
                           className={
                             schedule.active
-                              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+                              ? "bg-green-100 text-green-800"
                               : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
                           }
                         >

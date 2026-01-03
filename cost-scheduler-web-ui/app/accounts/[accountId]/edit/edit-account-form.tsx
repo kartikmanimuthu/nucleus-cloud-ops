@@ -440,7 +440,7 @@ export function EditAccountForm({ account, hubAccountId }: EditAccountFormProps)
                                     </span>
                                     <Button type="button" size="sm" variant="ghost" onClick={copyToClipboard} className="h-8">
                                         {copied ? (
-                                            <Check className="mr-2 h-3.5 w-3.5 text-green-500" />
+                                            <Check className="mr-2 h-3.5 w-3.5 text-success" />
                                         ) : (
                                             <Copy className="mr-2 h-3.5 w-3.5" />
                                         )}
@@ -576,8 +576,8 @@ export function EditAccountForm({ account, hubAccountId }: EditAccountFormProps)
                {validationResult && (
                     <div className={`flex items-center space-x-2 px-3 py-2 rounded-md border ${
                         validationResult.success 
-                        ? "bg-green-50 border-green-200 text-green-700" 
-                        : "bg-red-50 border-red-200 text-red-700"
+                        ? "bg-success/10 border-green-200 text-green-700" 
+                        : "bg-destructive/10 border-red-200 text-red-700"
                     }`}>
                         {validationResult.success ? (
                             <CheckCircle className="h-4 w-4" />
