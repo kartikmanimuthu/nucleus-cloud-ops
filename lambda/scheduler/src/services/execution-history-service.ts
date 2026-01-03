@@ -7,7 +7,7 @@ import {
     QueryCommand,
     UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { getDynamoDBClient, APP_TABLE_NAME } from './dynamodb-service.js';
+import { getDynamoDBClient, APP_TABLE_NAME, DEFAULT_TENANT_ID } from './dynamodb-service.js';
 import { logger } from '../utils/logger.js';
 import { calculateTTL } from '../utils/time-utils.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -52,7 +52,7 @@ export async function createExecutionRecord(params: CreateExecutionParams): Prom
     const client = getDynamoDBClient();
     const executionId = uuidv4();
     const startTime = new Date().toISOString();
-    const tenantId = params.tenantId || 'default';
+    const tenantId = params.tenantId || DEFAULT_TENANT_ID;
     const accountId = params.accountId || 'unknown';
 
     const record: ExecutionRecord = {
@@ -172,7 +172,7 @@ export async function updateExecutionRecord(
  */
 export async function getExecutionHistory(
     scheduleId: string,
-    tenantId = 'default',
+    tenantId = DEFAULT_TENANT_ID,
     limit = 50
 ): Promise<ExecutionRecord[]> {
     const client = getDynamoDBClient();
@@ -227,13 +227,13 @@ export async function getRecentExecutions(limit = 100): Promise<ExecutionRecord[
  * 
  * @param scheduleId - The schedule ID to search history for
  * @param serviceArn - The ECS service ARN to find state for
- * @param tenantId - Tenant ID (default: 'default')
+ * @param tenantId - Tenant ID (default: DEFAULT_TENANT_ID)
  * @returns The last desiredCount, or null if not found
  */
 export async function getLastECSServiceState(
     scheduleId: string,
     serviceArn: string,
-    tenantId = 'default'
+    tenantId = DEFAULT_TENANT_ID
 ): Promise<{ desiredCount: number } | null> {
     try {
         // Get recent execution history for this schedule
@@ -266,13 +266,13 @@ export async function getLastECSServiceState(
  * 
  * @param scheduleId - The schedule ID to search history for
  * @param instanceArn - The EC2 instance ARN to find state for
- * @param tenantId - Tenant ID (default: 'default')
+ * @param tenantId - Tenant ID (default: DEFAULT_TENANT_ID)
  * @returns The last instance state, or null if not found
  */
 export async function getLastEC2InstanceState(
     scheduleId: string,
     instanceArn: string,
-    tenantId = 'default'
+    tenantId = DEFAULT_TENANT_ID
 ): Promise<{ instanceState: string; instanceType?: string } | null> {
     try {
         // Get recent execution history for this schedule
@@ -308,13 +308,13 @@ export async function getLastEC2InstanceState(
  * 
  * @param scheduleId - The schedule ID to search history for
  * @param instanceArn - The RDS instance ARN to find state for
- * @param tenantId - Tenant ID (default: 'default')
+ * @param tenantId - Tenant ID (default: DEFAULT_TENANT_ID)
  * @returns The last instance state, or null if not found
  */
 export async function getLastRDSInstanceState(
     scheduleId: string,
     instanceArn: string,
-    tenantId = 'default'
+    tenantId = DEFAULT_TENANT_ID
 ): Promise<{ dbInstanceStatus: string; dbInstanceClass?: string } | null> {
     try {
         // Get recent execution history for this schedule

@@ -611,6 +611,7 @@ function calculateTTL(daysFromNow) {
 var APP_TABLE_NAME = process.env.APP_TABLE_NAME || "cost-optimization-scheduler-app-table";
 var AUDIT_TABLE_NAME = process.env.AUDIT_TABLE_NAME || "cost-optimization-scheduler-audit-table";
 var AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "ap-south-1";
+var DEFAULT_TENANT_ID = "org-default";
 var docClient = null;
 function getDynamoDBClient() {
   if (!docClient) {
@@ -663,7 +664,7 @@ async function fetchActiveSchedules() {
     }
   }
 }
-async function fetchScheduleById(scheduleId, tenantId = "default") {
+async function fetchScheduleById(scheduleId, tenantId = DEFAULT_TENANT_ID) {
   const client = getDynamoDBClient();
   const statuses = ["active", "inactive"];
   for (const status of statuses) {
@@ -681,7 +682,7 @@ async function fetchScheduleById(scheduleId, tenantId = "default") {
         return response.Items[0];
       }
     } catch (error) {
-      logger.error(`Error searching GSI3 for status: ${status}`, error, { scheduleId });
+      logger.error(`Error searching GSI3 for status: ${status}`, error, { scheduleId, tenantId });
     }
   }
   logger.warn("Schedule not found in GSI3", { scheduleId, tenantId });
@@ -756,7 +757,7 @@ async function createAuditLog(entry) {
     logger.error("Failed to create audit log", error);
   }
 }
-async function createExecutionAuditLog(executionId, schedule, metadata, summary) {
+async function createExecutionAuditLog(executionId, schedule, metadata, summary, userEmail) {
   if (!AUDIT_TABLE_NAME) {
     logger.warn("AUDIT_TABLE_NAME not configured, skipping execution audit log");
     return;
@@ -791,8 +792,8 @@ async function createExecutionAuditLog(executionId, schedule, metadata, summary)
     type: "audit_log",
     eventType: "scheduler.execution.complete",
     action: "execution_complete",
-    user: "system",
-    userType: "system",
+    user: userEmail || "system",
+    userType: userEmail ? "user" : "system",
     resourceType: "scheduler",
     resourceId: executionId,
     status: overallStatus,
@@ -832,7 +833,7 @@ async function createExecutionRecord(params) {
   const client = getDynamoDBClient();
   const executionId = v4_default();
   const startTime = (/* @__PURE__ */ new Date()).toISOString();
-  const tenantId = params.tenantId || "default";
+  const tenantId = params.tenantId || DEFAULT_TENANT_ID;
   const accountId = params.accountId || "unknown";
   const record = {
     executionId,
@@ -933,7 +934,7 @@ async function updateExecutionRecord(record, updates) {
     throw error;
   }
 }
-async function getExecutionHistory(scheduleId, tenantId = "default", limit = 50) {
+async function getExecutionHistory(scheduleId, tenantId = DEFAULT_TENANT_ID, limit = 50) {
   const client = getDynamoDBClient();
   try {
     const response = await client.send(new QueryCommand2({
@@ -953,7 +954,7 @@ async function getExecutionHistory(scheduleId, tenantId = "default", limit = 50)
     return [];
   }
 }
-async function getLastECSServiceState(scheduleId, serviceArn, tenantId = "default") {
+async function getLastECSServiceState(scheduleId, serviceArn, tenantId = DEFAULT_TENANT_ID) {
   try {
     const executions = await getExecutionHistory(scheduleId, tenantId, 10);
     for (const execution of executions) {
@@ -974,7 +975,7 @@ async function getLastECSServiceState(scheduleId, serviceArn, tenantId = "defaul
     return null;
   }
 }
-async function getLastEC2InstanceState(scheduleId, instanceArn, tenantId = "default") {
+async function getLastEC2InstanceState(scheduleId, instanceArn, tenantId = DEFAULT_TENANT_ID) {
   try {
     const executions = await getExecutionHistory(scheduleId, tenantId, 10);
     for (const execution of executions) {
@@ -998,7 +999,7 @@ async function getLastEC2InstanceState(scheduleId, instanceArn, tenantId = "defa
     return null;
   }
 }
-async function getLastRDSInstanceState(scheduleId, instanceArn, tenantId = "default") {
+async function getLastRDSInstanceState(scheduleId, instanceArn, tenantId = DEFAULT_TENANT_ID) {
   try {
     const executions = await getExecutionHistory(scheduleId, tenantId, 10);
     for (const execution of executions) {
@@ -1038,6 +1039,12 @@ async function assumeRole(roleArn, accountId, region, externalId) {
   const roleSessionName = `scheduler-session-${accountId}-${region}`;
   logger.debug(`Assuming role ${roleArn} for account ${accountId}`, { accountId, region });
   try {
+    logger.info(`Attempting to assume role: ${roleArn}`, {
+      accountId,
+      region,
+      roleSessionName,
+      hasExternalId: !!externalId
+    });
     const response = await client.send(new AssumeRoleCommand({
       RoleArn: roleArn,
       RoleSessionName: roleSessionName,
@@ -1598,18 +1605,57 @@ async function runPartialScan(event, triggeredBy = "web-ui") {
   const executionId = v4_default();
   const startTime = Date.now();
   const scheduleId = event.scheduleId || event.scheduleName;
+  const userEmail = event.userEmail;
   if (!scheduleId) {
     throw new Error("scheduleId or scheduleName is required for partial scan");
   }
-  logger.setContext({ executionId, mode: "partial", scheduleId });
+  logger.setContext({ executionId, mode: "partial", scheduleId, user: userEmail || "system" });
   logger.info(`Starting partial scan for schedule: ${scheduleId}`);
   const schedule = await fetchScheduleById(scheduleId, event.tenantId);
   if (!schedule) {
+    await createAuditLog({
+      type: "audit_log",
+      eventType: "scheduler.error",
+      action: "partial_scan",
+      user: userEmail || "system",
+      userType: userEmail ? "user" : "system",
+      resourceType: "scheduler",
+      resourceId: scheduleId,
+      status: "error",
+      details: `Partial scan failed: Schedule not found: ${scheduleId}`,
+      severity: "high",
+      metadata: {
+        scheduleId,
+        triggeredBy
+      }
+    });
     throw new Error(`Schedule not found: ${scheduleId}`);
   }
   const accounts = await fetchActiveAccounts();
   try {
-    const result = await processSchedule(schedule, accounts, triggeredBy);
+    const result = await processSchedule(schedule, accounts, triggeredBy, userEmail);
+    const overallStatus = result.failed > 0 ? result.started + result.stopped > 0 ? "warning" : "error" : "success";
+    await createAuditLog({
+      type: "audit_log",
+      eventType: "scheduler.complete",
+      action: "partial_scan",
+      user: userEmail || "system",
+      userType: userEmail ? "user" : "system",
+      resourceType: "scheduler",
+      resourceId: executionId,
+      resource: schedule.name,
+      status: overallStatus,
+      details: `Partial scan completed for "${schedule.name}": ${result.started} started, ${result.stopped} stopped, ${result.failed} failed`,
+      severity: result.failed > 0 ? "medium" : "info",
+      metadata: {
+        scheduleId: schedule.scheduleId,
+        scheduleName: schedule.name,
+        resourcesStarted: result.started,
+        resourcesStopped: result.stopped,
+        resourcesFailed: result.failed,
+        triggeredBy
+      }
+    });
     logger.info("Partial scan completed", result);
     return createResult(
       executionId,
@@ -1621,11 +1667,30 @@ async function runPartialScan(event, triggeredBy = "web-ui") {
       result.failed
     );
   } catch (error) {
+    await createAuditLog({
+      type: "audit_log",
+      eventType: "scheduler.error",
+      action: "partial_scan",
+      user: userEmail || "system",
+      userType: userEmail ? "user" : "system",
+      resourceType: "scheduler",
+      resourceId: executionId,
+      resource: schedule.name,
+      status: "error",
+      details: `Partial scan failed for "${schedule.name}": ${error instanceof Error ? error.message : String(error)}`,
+      severity: "high",
+      metadata: {
+        scheduleId: schedule.scheduleId,
+        scheduleName: schedule.name,
+        triggeredBy,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    });
     logger.error(`Partial scan failed for schedule ${scheduleId}`, error);
     throw error;
   }
 }
-async function processSchedule(schedule, accounts, triggeredBy) {
+async function processSchedule(schedule, accounts, triggeredBy, userEmail) {
   const resources = schedule.resources || [];
   const scheduleStartTime = Date.now();
   logger.info(`Processing schedule: ${schedule.name} (${schedule.scheduleId}) with ${resources.length} resources`);
@@ -1644,7 +1709,7 @@ async function processSchedule(schedule, accounts, triggeredBy) {
   const execParams = {
     scheduleId: schedule.scheduleId,
     scheduleName: schedule.name,
-    tenantId: schedule.tenantId || "default",
+    tenantId: schedule.tenantId || DEFAULT_TENANT_ID,
     accountId: schedule.accountId || "system",
     triggeredBy
   };
@@ -1754,7 +1819,7 @@ async function processSchedule(schedule, accounts, triggeredBy) {
       resourcesStopped: stopped,
       resourcesFailed: failed,
       duration
-    });
+    }, userEmail);
     logger.info(`Schedule ${schedule.name} execution recorded: ${started} started, ${stopped} stopped, ${failed} failed`);
   } else {
     logger.info(`Schedule ${schedule.name}: No actions performed (all resources in desired state), skipping execution record`);

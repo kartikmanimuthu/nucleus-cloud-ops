@@ -8,6 +8,7 @@ import {
     fetchScheduleById,
     createAuditLog,
     createExecutionAuditLog,
+    DEFAULT_TENANT_ID,
 } from './dynamodb-service.js';
 import {
     createExecutionRecord,
@@ -155,6 +156,23 @@ export async function runPartialScan(
     // Fetch the specific schedule
     const schedule = await fetchScheduleById(scheduleId, event.tenantId);
     if (!schedule) {
+        // Log audit for schedule not found error
+        await createAuditLog({
+            type: 'audit_log',
+            eventType: 'scheduler.error',
+            action: 'partial_scan',
+            user: userEmail || 'system',
+            userType: userEmail ? 'user' : 'system',
+            resourceType: 'scheduler',
+            resourceId: scheduleId,
+            status: 'error',
+            details: `Partial scan failed: Schedule not found: ${scheduleId}`,
+            severity: 'high',
+            metadata: {
+                scheduleId,
+                triggeredBy,
+            },
+        });
         throw new Error(`Schedule not found: ${scheduleId}`);
     }
 
@@ -162,6 +180,31 @@ export async function runPartialScan(
 
     try {
         const result = await processSchedule(schedule, accounts, triggeredBy, userEmail);
+
+        const overallStatus = result.failed > 0 ? (result.started + result.stopped > 0 ? 'warning' : 'error') : 'success';
+
+        // Log audit for partial scan completion (similar to full_scan)
+        await createAuditLog({
+            type: 'audit_log',
+            eventType: 'scheduler.complete',
+            action: 'partial_scan',
+            user: userEmail || 'system',
+            userType: userEmail ? 'user' : 'system',
+            resourceType: 'scheduler',
+            resourceId: executionId,
+            resource: schedule.name,
+            status: overallStatus,
+            details: `Partial scan completed for "${schedule.name}": ${result.started} started, ${result.stopped} stopped, ${result.failed} failed`,
+            severity: result.failed > 0 ? 'medium' : 'info',
+            metadata: {
+                scheduleId: schedule.scheduleId,
+                scheduleName: schedule.name,
+                resourcesStarted: result.started,
+                resourcesStopped: result.stopped,
+                resourcesFailed: result.failed,
+                triggeredBy,
+            },
+        });
 
         logger.info('Partial scan completed', result);
 
@@ -175,6 +218,26 @@ export async function runPartialScan(
             result.failed
         );
     } catch (error) {
+        // Log audit for partial scan failure
+        await createAuditLog({
+            type: 'audit_log',
+            eventType: 'scheduler.error',
+            action: 'partial_scan',
+            user: userEmail || 'system',
+            userType: userEmail ? 'user' : 'system',
+            resourceType: 'scheduler',
+            resourceId: executionId,
+            resource: schedule.name,
+            status: 'error',
+            details: `Partial scan failed for "${schedule.name}": ${error instanceof Error ? error.message : String(error)}`,
+            severity: 'high',
+            metadata: {
+                scheduleId: schedule.scheduleId,
+                scheduleName: schedule.name,
+                triggeredBy,
+                error: error instanceof Error ? error.message : String(error),
+            },
+        });
         logger.error(`Partial scan failed for schedule ${scheduleId}`, error);
         throw error;
     }
@@ -219,7 +282,7 @@ async function processSchedule(
     const execParams: CreateExecutionParams = {
         scheduleId: schedule.scheduleId,
         scheduleName: schedule.name,
-        tenantId: schedule.tenantId || 'default',
+        tenantId: schedule.tenantId || DEFAULT_TENANT_ID,
         accountId: schedule.accountId || 'system',
         triggeredBy,
     };
