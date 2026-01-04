@@ -78,7 +78,7 @@ const graphState: StateGraphArgs<ReflectionState>["channels"] = {
 // see 'lib/agent/graph-factory.ts' which behaves similarly but allows the model to be injected.
 // The API route (/api/chat) uses the factory, not this static instance.
 const model = new ChatBedrockConverse({
-    region: "us-east-1",
+    region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || "Null",
     // model: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     model: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     maxTokens: 4096,

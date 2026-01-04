@@ -19,7 +19,7 @@ const graphState: StateGraphArgs<AgentState>["channels"] = {
 
 // --- Model Initialization ---
 const model = new ChatBedrockConverse({
-    region: "us-east-1",
+    region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || "Null",
     // Use the latest US inference profile for Claude 3.5 Sonnet v2
     model: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     maxTokens: 4096,

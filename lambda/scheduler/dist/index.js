@@ -1,18 +1,11 @@
 import { createRequire } from 'module'; const require = createRequire(import.meta.url);
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-};
-var __commonJS = (cb, mod) => function __require2() {
+var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 var __copyProps = (to, from, except, desc) => {
@@ -23,678 +16,21 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// src/utils/logger.js
-var logger_exports = {};
-var Logger, logLevel;
-var init_logger = __esm({
-  "src/utils/logger.js"() {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.logger = void 0;
-    Logger = class _Logger {
-      constructor(level = "info") {
-        this.level = level;
-        this.context = {};
-      }
-      shouldLog(level) {
-        const levels = {
-          debug: 0,
-          info: 1,
-          warn: 2,
-          error: 3
-        };
-        return levels[level] >= levels[this.level];
-      }
-      formatMessage(level, message, extra) {
-        const logEntry = {
-          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-          level: level.toUpperCase(),
-          message,
-          ...this.context,
-          ...extra
-        };
-        return JSON.stringify(logEntry);
-      }
-      setContext(context) {
-        this.context = { ...this.context, ...context };
-      }
-      clearContext() {
-        this.context = {};
-      }
-      setLevel(level) {
-        this.level = level;
-      }
-      debug(message, extra) {
-        if (this.shouldLog("debug")) {
-          console.log(this.formatMessage("debug", message, extra));
-        }
-      }
-      info(message, extra) {
-        if (this.shouldLog("info")) {
-          console.log(this.formatMessage("info", message, extra));
-        }
-      }
-      warn(message, extra) {
-        if (this.shouldLog("warn")) {
-          console.warn(this.formatMessage("warn", message, extra));
-        }
-      }
-      error(message, error, extra) {
-        if (this.shouldLog("error")) {
-          const errorDetails = { ...extra };
-          if (error instanceof Error) {
-            errorDetails.errorMessage = error.message;
-            errorDetails.stack = error.stack;
-          } else if (error) {
-            errorDetails.errorMessage = String(error);
-          }
-          console.error(this.formatMessage("error", message, errorDetails));
-        }
-      }
-      // Create a child logger with additional context
-      child(context) {
-        const childLogger = new _Logger(this.level);
-        childLogger.context = { ...this.context, ...context };
-        return childLogger;
-      }
-    };
-    logLevel = process.env.LOG_LEVEL || "info";
-    exports.logger = new Logger(logLevel);
-    exports.default = exports.logger;
-  }
-});
-
-// node_modules/uuid/dist/cjs/max.js
-var require_max = __commonJS({
-  "node_modules/uuid/dist/cjs/max.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.default = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-  }
-});
-
-// node_modules/uuid/dist/cjs/nil.js
-var require_nil = __commonJS({
-  "node_modules/uuid/dist/cjs/nil.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.default = "00000000-0000-0000-0000-000000000000";
-  }
-});
-
-// node_modules/uuid/dist/cjs/regex.js
-var require_regex = __commonJS({
-  "node_modules/uuid/dist/cjs/regex.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.default = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
-  }
-});
-
-// node_modules/uuid/dist/cjs/validate.js
-var require_validate = __commonJS({
-  "node_modules/uuid/dist/cjs/validate.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var regex_js_1 = require_regex();
-    function validate(uuid) {
-      return typeof uuid === "string" && regex_js_1.default.test(uuid);
-    }
-    exports2.default = validate;
-  }
-});
-
-// node_modules/uuid/dist/cjs/parse.js
-var require_parse = __commonJS({
-  "node_modules/uuid/dist/cjs/parse.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var validate_js_1 = require_validate();
-    function parse(uuid) {
-      if (!(0, validate_js_1.default)(uuid)) {
-        throw TypeError("Invalid UUID");
-      }
-      let v;
-      return Uint8Array.of((v = parseInt(uuid.slice(0, 8), 16)) >>> 24, v >>> 16 & 255, v >>> 8 & 255, v & 255, (v = parseInt(uuid.slice(9, 13), 16)) >>> 8, v & 255, (v = parseInt(uuid.slice(14, 18), 16)) >>> 8, v & 255, (v = parseInt(uuid.slice(19, 23), 16)) >>> 8, v & 255, (v = parseInt(uuid.slice(24, 36), 16)) / 1099511627776 & 255, v / 4294967296 & 255, v >>> 24 & 255, v >>> 16 & 255, v >>> 8 & 255, v & 255);
-    }
-    exports2.default = parse;
-  }
-});
-
-// node_modules/uuid/dist/cjs/stringify.js
-var require_stringify = __commonJS({
-  "node_modules/uuid/dist/cjs/stringify.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.unsafeStringify = void 0;
-    var validate_js_1 = require_validate();
-    var byteToHex = [];
-    for (let i = 0; i < 256; ++i) {
-      byteToHex.push((i + 256).toString(16).slice(1));
-    }
-    function unsafeStringify(arr, offset = 0) {
-      return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
-    }
-    exports2.unsafeStringify = unsafeStringify;
-    function stringify(arr, offset = 0) {
-      const uuid = unsafeStringify(arr, offset);
-      if (!(0, validate_js_1.default)(uuid)) {
-        throw TypeError("Stringified UUID is invalid");
-      }
-      return uuid;
-    }
-    exports2.default = stringify;
-  }
-});
-
-// node_modules/uuid/dist/cjs/rng.js
-var require_rng = __commonJS({
-  "node_modules/uuid/dist/cjs/rng.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var crypto_1 = __require("crypto");
-    var rnds8Pool = new Uint8Array(256);
-    var poolPtr = rnds8Pool.length;
-    function rng() {
-      if (poolPtr > rnds8Pool.length - 16) {
-        (0, crypto_1.randomFillSync)(rnds8Pool);
-        poolPtr = 0;
-      }
-      return rnds8Pool.slice(poolPtr, poolPtr += 16);
-    }
-    exports2.default = rng;
-  }
-});
-
-// node_modules/uuid/dist/cjs/v1.js
-var require_v1 = __commonJS({
-  "node_modules/uuid/dist/cjs/v1.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.updateV1State = void 0;
-    var rng_js_1 = require_rng();
-    var stringify_js_1 = require_stringify();
-    var _state = {};
-    function v1(options, buf, offset) {
-      let bytes;
-      const isV6 = options?._v6 ?? false;
-      if (options) {
-        const optionsKeys = Object.keys(options);
-        if (optionsKeys.length === 1 && optionsKeys[0] === "_v6") {
-          options = void 0;
-        }
-      }
-      if (options) {
-        bytes = v1Bytes(options.random ?? options.rng?.() ?? (0, rng_js_1.default)(), options.msecs, options.nsecs, options.clockseq, options.node, buf, offset);
-      } else {
-        const now = Date.now();
-        const rnds = (0, rng_js_1.default)();
-        updateV1State(_state, now, rnds);
-        bytes = v1Bytes(rnds, _state.msecs, _state.nsecs, isV6 ? void 0 : _state.clockseq, isV6 ? void 0 : _state.node, buf, offset);
-      }
-      return buf ?? (0, stringify_js_1.unsafeStringify)(bytes);
-    }
-    function updateV1State(state, now, rnds) {
-      state.msecs ??= -Infinity;
-      state.nsecs ??= 0;
-      if (now === state.msecs) {
-        state.nsecs++;
-        if (state.nsecs >= 1e4) {
-          state.node = void 0;
-          state.nsecs = 0;
-        }
-      } else if (now > state.msecs) {
-        state.nsecs = 0;
-      } else if (now < state.msecs) {
-        state.node = void 0;
-      }
-      if (!state.node) {
-        state.node = rnds.slice(10, 16);
-        state.node[0] |= 1;
-        state.clockseq = (rnds[8] << 8 | rnds[9]) & 16383;
-      }
-      state.msecs = now;
-      return state;
-    }
-    exports2.updateV1State = updateV1State;
-    function v1Bytes(rnds, msecs, nsecs, clockseq, node, buf, offset = 0) {
-      if (rnds.length < 16) {
-        throw new Error("Random bytes length must be >= 16");
-      }
-      if (!buf) {
-        buf = new Uint8Array(16);
-        offset = 0;
-      } else {
-        if (offset < 0 || offset + 16 > buf.length) {
-          throw new RangeError(`UUID byte range ${offset}:${offset + 15} is out of buffer bounds`);
-        }
-      }
-      msecs ??= Date.now();
-      nsecs ??= 0;
-      clockseq ??= (rnds[8] << 8 | rnds[9]) & 16383;
-      node ??= rnds.slice(10, 16);
-      msecs += 122192928e5;
-      const tl = ((msecs & 268435455) * 1e4 + nsecs) % 4294967296;
-      buf[offset++] = tl >>> 24 & 255;
-      buf[offset++] = tl >>> 16 & 255;
-      buf[offset++] = tl >>> 8 & 255;
-      buf[offset++] = tl & 255;
-      const tmh = msecs / 4294967296 * 1e4 & 268435455;
-      buf[offset++] = tmh >>> 8 & 255;
-      buf[offset++] = tmh & 255;
-      buf[offset++] = tmh >>> 24 & 15 | 16;
-      buf[offset++] = tmh >>> 16 & 255;
-      buf[offset++] = clockseq >>> 8 | 128;
-      buf[offset++] = clockseq & 255;
-      for (let n = 0; n < 6; ++n) {
-        buf[offset++] = node[n];
-      }
-      return buf;
-    }
-    exports2.default = v1;
-  }
-});
-
-// node_modules/uuid/dist/cjs/v1ToV6.js
-var require_v1ToV6 = __commonJS({
-  "node_modules/uuid/dist/cjs/v1ToV6.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var parse_js_1 = require_parse();
-    var stringify_js_1 = require_stringify();
-    function v1ToV6(uuid) {
-      const v1Bytes = typeof uuid === "string" ? (0, parse_js_1.default)(uuid) : uuid;
-      const v6Bytes = _v1ToV6(v1Bytes);
-      return typeof uuid === "string" ? (0, stringify_js_1.unsafeStringify)(v6Bytes) : v6Bytes;
-    }
-    exports2.default = v1ToV6;
-    function _v1ToV6(v1Bytes) {
-      return Uint8Array.of((v1Bytes[6] & 15) << 4 | v1Bytes[7] >> 4 & 15, (v1Bytes[7] & 15) << 4 | (v1Bytes[4] & 240) >> 4, (v1Bytes[4] & 15) << 4 | (v1Bytes[5] & 240) >> 4, (v1Bytes[5] & 15) << 4 | (v1Bytes[0] & 240) >> 4, (v1Bytes[0] & 15) << 4 | (v1Bytes[1] & 240) >> 4, (v1Bytes[1] & 15) << 4 | (v1Bytes[2] & 240) >> 4, 96 | v1Bytes[2] & 15, v1Bytes[3], v1Bytes[8], v1Bytes[9], v1Bytes[10], v1Bytes[11], v1Bytes[12], v1Bytes[13], v1Bytes[14], v1Bytes[15]);
-    }
-  }
-});
-
-// node_modules/uuid/dist/cjs/md5.js
-var require_md5 = __commonJS({
-  "node_modules/uuid/dist/cjs/md5.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var crypto_1 = __require("crypto");
-    function md5(bytes) {
-      if (Array.isArray(bytes)) {
-        bytes = Buffer.from(bytes);
-      } else if (typeof bytes === "string") {
-        bytes = Buffer.from(bytes, "utf8");
-      }
-      return (0, crypto_1.createHash)("md5").update(bytes).digest();
-    }
-    exports2.default = md5;
-  }
-});
-
-// node_modules/uuid/dist/cjs/v35.js
-var require_v35 = __commonJS({
-  "node_modules/uuid/dist/cjs/v35.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.URL = exports2.DNS = exports2.stringToBytes = void 0;
-    var parse_js_1 = require_parse();
-    var stringify_js_1 = require_stringify();
-    function stringToBytes(str) {
-      str = unescape(encodeURIComponent(str));
-      const bytes = new Uint8Array(str.length);
-      for (let i = 0; i < str.length; ++i) {
-        bytes[i] = str.charCodeAt(i);
-      }
-      return bytes;
-    }
-    exports2.stringToBytes = stringToBytes;
-    exports2.DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
-    exports2.URL = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
-    function v35(version, hash, value, namespace, buf, offset) {
-      const valueBytes = typeof value === "string" ? stringToBytes(value) : value;
-      const namespaceBytes = typeof namespace === "string" ? (0, parse_js_1.default)(namespace) : namespace;
-      if (typeof namespace === "string") {
-        namespace = (0, parse_js_1.default)(namespace);
-      }
-      if (namespace?.length !== 16) {
-        throw TypeError("Namespace must be array-like (16 iterable integer values, 0-255)");
-      }
-      let bytes = new Uint8Array(16 + valueBytes.length);
-      bytes.set(namespaceBytes);
-      bytes.set(valueBytes, namespaceBytes.length);
-      bytes = hash(bytes);
-      bytes[6] = bytes[6] & 15 | version;
-      bytes[8] = bytes[8] & 63 | 128;
-      if (buf) {
-        offset = offset || 0;
-        for (let i = 0; i < 16; ++i) {
-          buf[offset + i] = bytes[i];
-        }
-        return buf;
-      }
-      return (0, stringify_js_1.unsafeStringify)(bytes);
-    }
-    exports2.default = v35;
-  }
-});
-
-// node_modules/uuid/dist/cjs/v3.js
-var require_v3 = __commonJS({
-  "node_modules/uuid/dist/cjs/v3.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.URL = exports2.DNS = void 0;
-    var md5_js_1 = require_md5();
-    var v35_js_1 = require_v35();
-    var v35_js_2 = require_v35();
-    Object.defineProperty(exports2, "DNS", { enumerable: true, get: function() {
-      return v35_js_2.DNS;
-    } });
-    Object.defineProperty(exports2, "URL", { enumerable: true, get: function() {
-      return v35_js_2.URL;
-    } });
-    function v3(value, namespace, buf, offset) {
-      return (0, v35_js_1.default)(48, md5_js_1.default, value, namespace, buf, offset);
-    }
-    v3.DNS = v35_js_1.DNS;
-    v3.URL = v35_js_1.URL;
-    exports2.default = v3;
-  }
-});
-
-// node_modules/uuid/dist/cjs/native.js
-var require_native = __commonJS({
-  "node_modules/uuid/dist/cjs/native.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var crypto_1 = __require("crypto");
-    exports2.default = { randomUUID: crypto_1.randomUUID };
-  }
-});
-
-// node_modules/uuid/dist/cjs/v4.js
-var require_v4 = __commonJS({
-  "node_modules/uuid/dist/cjs/v4.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var native_js_1 = require_native();
-    var rng_js_1 = require_rng();
-    var stringify_js_1 = require_stringify();
-    function v4(options, buf, offset) {
-      if (native_js_1.default.randomUUID && !buf && !options) {
-        return native_js_1.default.randomUUID();
-      }
-      options = options || {};
-      const rnds = options.random ?? options.rng?.() ?? (0, rng_js_1.default)();
-      if (rnds.length < 16) {
-        throw new Error("Random bytes length must be >= 16");
-      }
-      rnds[6] = rnds[6] & 15 | 64;
-      rnds[8] = rnds[8] & 63 | 128;
-      if (buf) {
-        offset = offset || 0;
-        if (offset < 0 || offset + 16 > buf.length) {
-          throw new RangeError(`UUID byte range ${offset}:${offset + 15} is out of buffer bounds`);
-        }
-        for (let i = 0; i < 16; ++i) {
-          buf[offset + i] = rnds[i];
-        }
-        return buf;
-      }
-      return (0, stringify_js_1.unsafeStringify)(rnds);
-    }
-    exports2.default = v4;
-  }
-});
-
-// node_modules/uuid/dist/cjs/sha1.js
-var require_sha1 = __commonJS({
-  "node_modules/uuid/dist/cjs/sha1.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var crypto_1 = __require("crypto");
-    function sha1(bytes) {
-      if (Array.isArray(bytes)) {
-        bytes = Buffer.from(bytes);
-      } else if (typeof bytes === "string") {
-        bytes = Buffer.from(bytes, "utf8");
-      }
-      return (0, crypto_1.createHash)("sha1").update(bytes).digest();
-    }
-    exports2.default = sha1;
-  }
-});
-
-// node_modules/uuid/dist/cjs/v5.js
-var require_v5 = __commonJS({
-  "node_modules/uuid/dist/cjs/v5.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.URL = exports2.DNS = void 0;
-    var sha1_js_1 = require_sha1();
-    var v35_js_1 = require_v35();
-    var v35_js_2 = require_v35();
-    Object.defineProperty(exports2, "DNS", { enumerable: true, get: function() {
-      return v35_js_2.DNS;
-    } });
-    Object.defineProperty(exports2, "URL", { enumerable: true, get: function() {
-      return v35_js_2.URL;
-    } });
-    function v5(value, namespace, buf, offset) {
-      return (0, v35_js_1.default)(80, sha1_js_1.default, value, namespace, buf, offset);
-    }
-    v5.DNS = v35_js_1.DNS;
-    v5.URL = v35_js_1.URL;
-    exports2.default = v5;
-  }
-});
-
-// node_modules/uuid/dist/cjs/v6.js
-var require_v6 = __commonJS({
-  "node_modules/uuid/dist/cjs/v6.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var stringify_js_1 = require_stringify();
-    var v1_js_1 = require_v1();
-    var v1ToV6_js_1 = require_v1ToV6();
-    function v6(options, buf, offset) {
-      options ??= {};
-      offset ??= 0;
-      let bytes = (0, v1_js_1.default)({ ...options, _v6: true }, new Uint8Array(16));
-      bytes = (0, v1ToV6_js_1.default)(bytes);
-      if (buf) {
-        for (let i = 0; i < 16; i++) {
-          buf[offset + i] = bytes[i];
-        }
-        return buf;
-      }
-      return (0, stringify_js_1.unsafeStringify)(bytes);
-    }
-    exports2.default = v6;
-  }
-});
-
-// node_modules/uuid/dist/cjs/v6ToV1.js
-var require_v6ToV1 = __commonJS({
-  "node_modules/uuid/dist/cjs/v6ToV1.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var parse_js_1 = require_parse();
-    var stringify_js_1 = require_stringify();
-    function v6ToV1(uuid) {
-      const v6Bytes = typeof uuid === "string" ? (0, parse_js_1.default)(uuid) : uuid;
-      const v1Bytes = _v6ToV1(v6Bytes);
-      return typeof uuid === "string" ? (0, stringify_js_1.unsafeStringify)(v1Bytes) : v1Bytes;
-    }
-    exports2.default = v6ToV1;
-    function _v6ToV1(v6Bytes) {
-      return Uint8Array.of((v6Bytes[3] & 15) << 4 | v6Bytes[4] >> 4 & 15, (v6Bytes[4] & 15) << 4 | (v6Bytes[5] & 240) >> 4, (v6Bytes[5] & 15) << 4 | v6Bytes[6] & 15, v6Bytes[7], (v6Bytes[1] & 15) << 4 | (v6Bytes[2] & 240) >> 4, (v6Bytes[2] & 15) << 4 | (v6Bytes[3] & 240) >> 4, 16 | (v6Bytes[0] & 240) >> 4, (v6Bytes[0] & 15) << 4 | (v6Bytes[1] & 240) >> 4, v6Bytes[8], v6Bytes[9], v6Bytes[10], v6Bytes[11], v6Bytes[12], v6Bytes[13], v6Bytes[14], v6Bytes[15]);
-    }
-  }
-});
-
-// node_modules/uuid/dist/cjs/v7.js
-var require_v7 = __commonJS({
-  "node_modules/uuid/dist/cjs/v7.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.updateV7State = void 0;
-    var rng_js_1 = require_rng();
-    var stringify_js_1 = require_stringify();
-    var _state = {};
-    function v7(options, buf, offset) {
-      let bytes;
-      if (options) {
-        bytes = v7Bytes(options.random ?? options.rng?.() ?? (0, rng_js_1.default)(), options.msecs, options.seq, buf, offset);
-      } else {
-        const now = Date.now();
-        const rnds = (0, rng_js_1.default)();
-        updateV7State(_state, now, rnds);
-        bytes = v7Bytes(rnds, _state.msecs, _state.seq, buf, offset);
-      }
-      return buf ?? (0, stringify_js_1.unsafeStringify)(bytes);
-    }
-    function updateV7State(state, now, rnds) {
-      state.msecs ??= -Infinity;
-      state.seq ??= 0;
-      if (now > state.msecs) {
-        state.seq = rnds[6] << 23 | rnds[7] << 16 | rnds[8] << 8 | rnds[9];
-        state.msecs = now;
-      } else {
-        state.seq = state.seq + 1 | 0;
-        if (state.seq === 0) {
-          state.msecs++;
-        }
-      }
-      return state;
-    }
-    exports2.updateV7State = updateV7State;
-    function v7Bytes(rnds, msecs, seq, buf, offset = 0) {
-      if (rnds.length < 16) {
-        throw new Error("Random bytes length must be >= 16");
-      }
-      if (!buf) {
-        buf = new Uint8Array(16);
-        offset = 0;
-      } else {
-        if (offset < 0 || offset + 16 > buf.length) {
-          throw new RangeError(`UUID byte range ${offset}:${offset + 15} is out of buffer bounds`);
-        }
-      }
-      msecs ??= Date.now();
-      seq ??= rnds[6] * 127 << 24 | rnds[7] << 16 | rnds[8] << 8 | rnds[9];
-      buf[offset++] = msecs / 1099511627776 & 255;
-      buf[offset++] = msecs / 4294967296 & 255;
-      buf[offset++] = msecs / 16777216 & 255;
-      buf[offset++] = msecs / 65536 & 255;
-      buf[offset++] = msecs / 256 & 255;
-      buf[offset++] = msecs & 255;
-      buf[offset++] = 112 | seq >>> 28 & 15;
-      buf[offset++] = seq >>> 20 & 255;
-      buf[offset++] = 128 | seq >>> 14 & 63;
-      buf[offset++] = seq >>> 6 & 255;
-      buf[offset++] = seq << 2 & 255 | rnds[10] & 3;
-      buf[offset++] = rnds[11];
-      buf[offset++] = rnds[12];
-      buf[offset++] = rnds[13];
-      buf[offset++] = rnds[14];
-      buf[offset++] = rnds[15];
-      return buf;
-    }
-    exports2.default = v7;
-  }
-});
-
-// node_modules/uuid/dist/cjs/version.js
-var require_version = __commonJS({
-  "node_modules/uuid/dist/cjs/version.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    var validate_js_1 = require_validate();
-    function version(uuid) {
-      if (!(0, validate_js_1.default)(uuid)) {
-        throw TypeError("Invalid UUID");
-      }
-      return parseInt(uuid.slice(14, 15), 16);
-    }
-    exports2.default = version;
-  }
-});
-
-// node_modules/uuid/dist/cjs/index.js
-var require_cjs = __commonJS({
-  "node_modules/uuid/dist/cjs/index.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.version = exports2.validate = exports2.v7 = exports2.v6ToV1 = exports2.v6 = exports2.v5 = exports2.v4 = exports2.v3 = exports2.v1ToV6 = exports2.v1 = exports2.stringify = exports2.parse = exports2.NIL = exports2.MAX = void 0;
-    var max_js_1 = require_max();
-    Object.defineProperty(exports2, "MAX", { enumerable: true, get: function() {
-      return max_js_1.default;
-    } });
-    var nil_js_1 = require_nil();
-    Object.defineProperty(exports2, "NIL", { enumerable: true, get: function() {
-      return nil_js_1.default;
-    } });
-    var parse_js_1 = require_parse();
-    Object.defineProperty(exports2, "parse", { enumerable: true, get: function() {
-      return parse_js_1.default;
-    } });
-    var stringify_js_1 = require_stringify();
-    Object.defineProperty(exports2, "stringify", { enumerable: true, get: function() {
-      return stringify_js_1.default;
-    } });
-    var v1_js_1 = require_v1();
-    Object.defineProperty(exports2, "v1", { enumerable: true, get: function() {
-      return v1_js_1.default;
-    } });
-    var v1ToV6_js_1 = require_v1ToV6();
-    Object.defineProperty(exports2, "v1ToV6", { enumerable: true, get: function() {
-      return v1ToV6_js_1.default;
-    } });
-    var v3_js_1 = require_v3();
-    Object.defineProperty(exports2, "v3", { enumerable: true, get: function() {
-      return v3_js_1.default;
-    } });
-    var v4_js_1 = require_v4();
-    Object.defineProperty(exports2, "v4", { enumerable: true, get: function() {
-      return v4_js_1.default;
-    } });
-    var v5_js_1 = require_v5();
-    Object.defineProperty(exports2, "v5", { enumerable: true, get: function() {
-      return v5_js_1.default;
-    } });
-    var v6_js_1 = require_v6();
-    Object.defineProperty(exports2, "v6", { enumerable: true, get: function() {
-      return v6_js_1.default;
-    } });
-    var v6ToV1_js_1 = require_v6ToV1();
-    Object.defineProperty(exports2, "v6ToV1", { enumerable: true, get: function() {
-      return v6ToV1_js_1.default;
-    } });
-    var v7_js_1 = require_v7();
-    Object.defineProperty(exports2, "v7", { enumerable: true, get: function() {
-      return v7_js_1.default;
-    } });
-    var validate_js_1 = require_validate();
-    Object.defineProperty(exports2, "validate", { enumerable: true, get: function() {
-      return validate_js_1.default;
-    } });
-    var version_js_1 = require_version();
-    Object.defineProperty(exports2, "version", { enumerable: true, get: function() {
-      return version_js_1.default;
-    } });
-  }
-});
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 
 // node_modules/dayjs/dayjs.min.js
 var require_dayjs_min = __commonJS({
-  "node_modules/dayjs/dayjs.min.js"(exports2, module) {
+  "node_modules/dayjs/dayjs.min.js"(exports, module) {
     !function(t, e) {
-      "object" == typeof exports2 && "undefined" != typeof module ? module.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs = e();
-    }(exports2, function() {
+      "object" == typeof exports && "undefined" != typeof module ? module.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs = e();
+    }(exports, function() {
       "use strict";
       var t = 1e3, e = 6e4, n = 36e5, r = "millisecond", i = "second", s = "minute", u = "hour", a = "day", o = "week", c = "month", f = "quarter", h = "year", d = "date", l = "Invalid Date", $ = /^(\d{4})[-/]?(\d{1,2})?[-/]?(\d{0,2})[Tt\s]*(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?[.:]?(\d+)?$/, y = /\[([^\]]+)]|Y{1,4}|M{1,4}|D{1,2}|d{1,4}|H{1,2}|h{1,2}|a|A|m{1,2}|s{1,2}|Z{1,2}|SSS/g, M = { name: "en", weekdays: "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday".split("_"), months: "January_February_March_April_May_June_July_August_September_October_November_December".split("_"), ordinal: function(t2) {
         var e2 = ["th", "st", "nd", "rd"], n2 = t2 % 100;
@@ -971,10 +307,10 @@ var require_dayjs_min = __commonJS({
 
 // node_modules/dayjs/plugin/utc.js
 var require_utc = __commonJS({
-  "node_modules/dayjs/plugin/utc.js"(exports2, module) {
+  "node_modules/dayjs/plugin/utc.js"(exports, module) {
     !function(t, i) {
-      "object" == typeof exports2 && "undefined" != typeof module ? module.exports = i() : "function" == typeof define && define.amd ? define(i) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs_plugin_utc = i();
-    }(exports2, function() {
+      "object" == typeof exports && "undefined" != typeof module ? module.exports = i() : "function" == typeof define && define.amd ? define(i) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs_plugin_utc = i();
+    }(exports, function() {
       "use strict";
       var t = "minute", i = /[+-]\d\d(?::?\d\d)?/g, e = /([+-]|\d\d)/g;
       return function(s, f, n) {
@@ -1048,10 +384,10 @@ var require_utc = __commonJS({
 
 // node_modules/dayjs/plugin/timezone.js
 var require_timezone = __commonJS({
-  "node_modules/dayjs/plugin/timezone.js"(exports2, module) {
+  "node_modules/dayjs/plugin/timezone.js"(exports, module) {
     !function(t, e) {
-      "object" == typeof exports2 && "undefined" != typeof module ? module.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs_plugin_timezone = e();
-    }(exports2, function() {
+      "object" == typeof exports && "undefined" != typeof module ? module.exports = e() : "function" == typeof define && define.amd ? define(e) : (t = "undefined" != typeof globalThis ? globalThis : t || self).dayjs_plugin_timezone = e();
+    }(exports, function() {
       "use strict";
       var t = { year: 0, month: 1, day: 2, hour: 3, minute: 4, second: 5 }, e = {};
       return function(n, i, o) {
@@ -1111,71 +447,180 @@ var require_timezone = __commonJS({
   }
 });
 
-// src/utils/time-utils.js
-var time_utils_exports = {};
+// src/utils/logger.ts
+var Logger = class _Logger {
+  level;
+  context;
+  constructor(level = "info") {
+    this.level = level;
+    this.context = {};
+  }
+  shouldLog(level) {
+    const levels = {
+      debug: 0,
+      info: 1,
+      warn: 2,
+      error: 3
+    };
+    return levels[level] >= levels[this.level];
+  }
+  formatMessage(level, message, extra) {
+    const logEntry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level: level.toUpperCase(),
+      message,
+      ...this.context,
+      ...extra
+    };
+    return JSON.stringify(logEntry);
+  }
+  setContext(context) {
+    this.context = { ...this.context, ...context };
+  }
+  clearContext() {
+    this.context = {};
+  }
+  setLevel(level) {
+    this.level = level;
+  }
+  debug(message, extra) {
+    if (this.shouldLog("debug")) {
+      console.log(this.formatMessage("debug", message, extra));
+    }
+  }
+  info(message, extra) {
+    if (this.shouldLog("info")) {
+      console.log(this.formatMessage("info", message, extra));
+    }
+  }
+  warn(message, extra) {
+    if (this.shouldLog("warn")) {
+      console.warn(this.formatMessage("warn", message, extra));
+    }
+  }
+  error(message, error, extra) {
+    if (this.shouldLog("error")) {
+      const errorDetails = { ...extra };
+      if (error instanceof Error) {
+        errorDetails.errorMessage = error.message;
+        errorDetails.stack = error.stack;
+      } else if (error) {
+        errorDetails.errorMessage = String(error);
+      }
+      console.error(this.formatMessage("error", message, errorDetails));
+    }
+  }
+  // Create a child logger with additional context
+  child(context) {
+    const childLogger = new _Logger(this.level);
+    childLogger.context = { ...this.context, ...context };
+    return childLogger;
+  }
+};
+var logLevel = process.env.LOG_LEVEL || "info";
+var logger = new Logger(logLevel);
+
+// src/services/dynamodb-service.ts
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { defaultProvider } from "@aws-sdk/credential-provider-node";
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  QueryCommand
+} from "@aws-sdk/lib-dynamodb";
+
+// node_modules/uuid/dist/esm/stringify.js
+var byteToHex = [];
+for (let i = 0; i < 256; ++i) {
+  byteToHex.push((i + 256).toString(16).slice(1));
+}
+function unsafeStringify(arr, offset = 0) {
+  return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
+}
+
+// node_modules/uuid/dist/esm/rng.js
+import { randomFillSync } from "crypto";
+var rnds8Pool = new Uint8Array(256);
+var poolPtr = rnds8Pool.length;
+function rng() {
+  if (poolPtr > rnds8Pool.length - 16) {
+    randomFillSync(rnds8Pool);
+    poolPtr = 0;
+  }
+  return rnds8Pool.slice(poolPtr, poolPtr += 16);
+}
+
+// node_modules/uuid/dist/esm/native.js
+import { randomUUID } from "crypto";
+var native_default = { randomUUID };
+
+// node_modules/uuid/dist/esm/v4.js
+function v4(options, buf, offset) {
+  if (native_default.randomUUID && !buf && !options) {
+    return native_default.randomUUID();
+  }
+  options = options || {};
+  const rnds = options.random ?? options.rng?.() ?? rng();
+  if (rnds.length < 16) {
+    throw new Error("Random bytes length must be >= 16");
+  }
+  rnds[6] = rnds[6] & 15 | 64;
+  rnds[8] = rnds[8] & 63 | 128;
+  if (buf) {
+    offset = offset || 0;
+    if (offset < 0 || offset + 16 > buf.length) {
+      throw new RangeError(`UUID byte range ${offset}:${offset + 15} is out of buffer bounds`);
+    }
+    for (let i = 0; i < 16; ++i) {
+      buf[offset + i] = rnds[i];
+    }
+    return buf;
+  }
+  return unsafeStringify(rnds);
+}
+var v4_default = v4;
+
+// src/utils/time-utils.ts
+var import_dayjs = __toESM(require_dayjs_min(), 1);
+var import_utc = __toESM(require_utc(), 1);
+var import_timezone = __toESM(require_timezone(), 1);
+import_dayjs.default.extend(import_utc.default);
+import_dayjs.default.extend(import_timezone.default);
 function isCurrentTimeInRange(startTime, endTime, tz, activeDays) {
-  const now = (0, dayjs_1.default)().tz(tz);
+  const now = (0, import_dayjs.default)().tz(tz);
   const currentDay = now.format("ddd");
-  const isActiveDay = activeDays.some((day) => day.toLowerCase() === currentDay.toLowerCase());
+  const isActiveDay = activeDays.some(
+    (day) => day.toLowerCase() === currentDay.toLowerCase()
+  );
   if (!isActiveDay) {
     return false;
   }
   const currentDate = now.format("YYYY-MM-DD");
-  const startTimeToday = dayjs_1.default.tz(`${currentDate} ${startTime}`, "YYYY-MM-DD HH:mm:ss", tz);
-  let endTimeToday = dayjs_1.default.tz(`${currentDate} ${endTime}`, "YYYY-MM-DD HH:mm:ss", tz);
+  const startTimeToday = import_dayjs.default.tz(`${currentDate} ${startTime}`, "YYYY-MM-DD HH:mm:ss", tz);
+  let endTimeToday = import_dayjs.default.tz(`${currentDate} ${endTime}`, "YYYY-MM-DD HH:mm:ss", tz);
   if (endTimeToday.isBefore(startTimeToday)) {
     endTimeToday = endTimeToday.add(1, "day");
   }
   return now.isAfter(startTimeToday) && now.isBefore(endTimeToday);
 }
-function parseTime(timeStr) {
-  const parts = timeStr.split(":");
-  return {
-    hours: parseInt(parts[0] || "0", 10),
-    minutes: parseInt(parts[1] || "0", 10),
-    seconds: parseInt(parts[2] || "0", 10)
-  };
-}
-function getCurrentTimeInTimezone(tz) {
-  return (0, dayjs_1.default)().tz(tz);
-}
-function formatDate(date, format = "YYYY-MM-DD HH:mm:ss") {
-  return (0, dayjs_1.default)(date).format(format);
-}
 function calculateTTL(daysFromNow) {
   return Math.floor(Date.now() / 1e3) + daysFromNow * 24 * 60 * 60;
 }
-var __importDefault, dayjs_1, utc_js_1, timezone_js_1;
-var init_time_utils = __esm({
-  "src/utils/time-utils.js"() {
-    "use strict";
-    __importDefault = function(mod) {
-      return mod && mod.__esModule ? mod : { "default": mod };
-    };
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.isCurrentTimeInRange = isCurrentTimeInRange;
-    exports.parseTime = parseTime;
-    exports.getCurrentTimeInTimezone = getCurrentTimeInTimezone;
-    exports.formatDate = formatDate;
-    exports.calculateTTL = calculateTTL;
-    dayjs_1 = __importDefault(require_dayjs_min());
-    utc_js_1 = __importDefault(require_utc());
-    timezone_js_1 = __importDefault(require_timezone());
-    dayjs_1.default.extend(utc_js_1.default);
-    dayjs_1.default.extend(timezone_js_1.default);
-  }
-});
 
-// src/services/dynamodb-service.js
-var dynamodb_service_exports = {};
+// src/services/dynamodb-service.ts
+var APP_TABLE_NAME = process.env.APP_TABLE_NAME || "cost-optimization-scheduler-app-table";
+var AUDIT_TABLE_NAME = process.env.AUDIT_TABLE_NAME || "cost-optimization-scheduler-audit-table";
+var AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "ap-south-1";
+var DEFAULT_TENANT_ID = "org-default";
+var docClient = null;
 function getDynamoDBClient() {
   if (!docClient) {
     const clientConfig = { region: AWS_REGION };
-    clientConfig.credentials = (0, credential_provider_node_1.defaultProvider)({
+    clientConfig.credentials = defaultProvider({
       profile: process.env.AWS_PROFILE
     });
-    const client = new client_dynamodb_1.DynamoDBClient(clientConfig);
-    docClient = lib_dynamodb_1.DynamoDBDocumentClient.from(client, {
+    const client = new DynamoDBClient(clientConfig);
+    docClient = DynamoDBDocumentClient.from(client, {
       marshallOptions: {
         removeUndefinedValues: true
       }
@@ -1194,11 +639,11 @@ async function fetchActiveSchedules() {
     }
   };
   try {
-    const response = await client.send(new lib_dynamodb_1.QueryCommand(params));
-    logger_js_1.logger.debug(`Fetched ${response.Items?.length || 0} active schedules via GSI3`);
+    const response = await client.send(new QueryCommand(params));
+    logger.debug(`Fetched ${response.Items?.length || 0} active schedules via GSI3`);
     return response.Items || [];
   } catch (error) {
-    logger_js_1.logger.error("Error fetching schedules from DynamoDB via GSI3", error);
+    logger.error("Error fetching schedules from DynamoDB via GSI3", error);
     try {
       const fallbackParams = {
         TableName: APP_TABLE_NAME,
@@ -1210,11 +655,11 @@ async function fetchActiveSchedules() {
           ":activeVal": true
         }
       };
-      const fallbackResponse = await client.send(new lib_dynamodb_1.QueryCommand(fallbackParams));
-      logger_js_1.logger.warn("Fallback: Fetched schedules via GSI1");
+      const fallbackResponse = await client.send(new QueryCommand(fallbackParams));
+      logger.warn("Fallback: Fetched schedules via GSI1");
       return fallbackResponse.Items || [];
     } catch (fallbackError) {
-      logger_js_1.logger.error("Fallback fetch also failed", fallbackError);
+      logger.error("Fallback fetch also failed", fallbackError);
       return [];
     }
   }
@@ -1224,7 +669,7 @@ async function fetchScheduleById(scheduleId, tenantId = DEFAULT_TENANT_ID) {
   const statuses = ["active", "inactive"];
   for (const status of statuses) {
     try {
-      const response = await client.send(new lib_dynamodb_1.QueryCommand({
+      const response = await client.send(new QueryCommand({
         TableName: APP_TABLE_NAME,
         IndexName: "GSI3",
         KeyConditionExpression: "gsi3pk = :gsi3pk AND gsi3sk = :gsi3sk",
@@ -1237,10 +682,10 @@ async function fetchScheduleById(scheduleId, tenantId = DEFAULT_TENANT_ID) {
         return response.Items[0];
       }
     } catch (error) {
-      logger_js_1.logger.error(`Error searching GSI3 for status: ${status}`, error, { scheduleId, tenantId });
+      logger.error(`Error searching GSI3 for status: ${status}`, error, { scheduleId, tenantId });
     }
   }
-  logger_js_1.logger.warn("Schedule not found in GSI3", { scheduleId, tenantId });
+  logger.warn("Schedule not found in GSI3", { scheduleId, tenantId });
   return null;
 }
 async function fetchActiveAccounts() {
@@ -1259,11 +704,11 @@ async function fetchActiveAccounts() {
     }
   };
   try {
-    const response = await client.send(new lib_dynamodb_1.QueryCommand(params));
-    logger_js_1.logger.debug(`Fetched ${response.Items?.length || 0} active accounts via GSI3`);
+    const response = await client.send(new QueryCommand(params));
+    logger.debug(`Fetched ${response.Items?.length || 0} active accounts via GSI3`);
     return response.Items || [];
   } catch (error) {
-    logger_js_1.logger.error("Error fetching accounts from DynamoDB via GSI3", error);
+    logger.error("Error fetching accounts from DynamoDB via GSI3", error);
     try {
       const fallbackParams = {
         TableName: APP_TABLE_NAME,
@@ -1275,23 +720,23 @@ async function fetchActiveAccounts() {
           ":activeVal": true
         }
       };
-      const response = await client.send(new lib_dynamodb_1.QueryCommand(fallbackParams));
+      const response = await client.send(new QueryCommand(fallbackParams));
       return response.Items || [];
     } catch (fallbackError) {
-      logger_js_1.logger.error("Fallback account fetch failed", fallbackError);
+      logger.error("Fallback account fetch failed", fallbackError);
       return [];
     }
   }
 }
 async function createAuditLog(entry) {
   if (!AUDIT_TABLE_NAME) {
-    logger_js_1.logger.warn("AUDIT_TABLE_NAME not configured, skipping audit log");
+    logger.warn("AUDIT_TABLE_NAME not configured, skipping audit log");
     return;
   }
   const client = getDynamoDBClient();
-  const id = (0, uuid_1.v4)();
+  const id = v4_default();
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  const ttl = (0, time_utils_js_1.calculateTTL)(90);
+  const ttl = calculateTTL(90);
   const item = {
     pk: `LOG#${id}`,
     sk: timestamp,
@@ -1303,18 +748,18 @@ async function createAuditLog(entry) {
     ...entry
   };
   try {
-    await client.send(new lib_dynamodb_1.PutCommand({
+    await client.send(new PutCommand({
       TableName: AUDIT_TABLE_NAME,
       Item: item
     }));
-    logger_js_1.logger.debug("Audit log created", { id, eventType: entry.eventType });
+    logger.debug("Audit log created", { id, eventType: entry.eventType });
   } catch (error) {
-    logger_js_1.logger.error("Failed to create audit log", error);
+    logger.error("Failed to create audit log", error);
   }
 }
 async function createExecutionAuditLog(executionId, schedule, metadata, summary, userEmail) {
   if (!AUDIT_TABLE_NAME) {
-    logger_js_1.logger.warn("AUDIT_TABLE_NAME not configured, skipping execution audit log");
+    logger.warn("AUDIT_TABLE_NAME not configured, skipping execution audit log");
     return;
   }
   const ec2Summary = {
@@ -1372,45 +817,23 @@ async function createExecutionAuditLog(executionId, schedule, metadata, summary,
       schedule_metadata: metadata
     }
   });
-  logger_js_1.logger.info("Execution audit log created", { executionId, scheduleId: schedule.scheduleId });
+  logger.info("Execution audit log created", { executionId, scheduleId: schedule.scheduleId });
 }
-var client_dynamodb_1, credential_provider_node_1, lib_dynamodb_1, logger_js_1, uuid_1, time_utils_js_1, APP_TABLE_NAME, AUDIT_TABLE_NAME, AWS_REGION, DEFAULT_TENANT_ID, docClient;
-var init_dynamodb_service = __esm({
-  "src/services/dynamodb-service.js"() {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.DEFAULT_TENANT_ID = exports.AWS_REGION = exports.AUDIT_TABLE_NAME = exports.APP_TABLE_NAME = void 0;
-    exports.getDynamoDBClient = getDynamoDBClient;
-    exports.fetchActiveSchedules = fetchActiveSchedules;
-    exports.fetchScheduleById = fetchScheduleById;
-    exports.fetchActiveAccounts = fetchActiveAccounts;
-    exports.createAuditLog = createAuditLog;
-    exports.createExecutionAuditLog = createExecutionAuditLog;
-    client_dynamodb_1 = __require("@aws-sdk/client-dynamodb");
-    credential_provider_node_1 = __require("@aws-sdk/credential-provider-node");
-    lib_dynamodb_1 = __require("@aws-sdk/lib-dynamodb");
-    logger_js_1 = (init_logger(), __toCommonJS(logger_exports));
-    uuid_1 = require_cjs();
-    time_utils_js_1 = (init_time_utils(), __toCommonJS(time_utils_exports));
-    APP_TABLE_NAME = process.env.APP_TABLE_NAME || "cost-optimization-scheduler-app-table";
-    exports.APP_TABLE_NAME = APP_TABLE_NAME;
-    AUDIT_TABLE_NAME = process.env.AUDIT_TABLE_NAME || "cost-optimization-scheduler-audit-table";
-    exports.AUDIT_TABLE_NAME = AUDIT_TABLE_NAME;
-    AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "ap-south-1";
-    exports.AWS_REGION = AWS_REGION;
-    DEFAULT_TENANT_ID = "org-default";
-    exports.DEFAULT_TENANT_ID = DEFAULT_TENANT_ID;
-    docClient = null;
-  }
-});
 
-// src/services/execution-history-service.js
-var execution_history_service_exports = {};
+// src/services/execution-history-service.ts
+import {
+  PutCommand as PutCommand2,
+  QueryCommand as QueryCommand2,
+  UpdateCommand
+} from "@aws-sdk/lib-dynamodb";
+var EXECUTION_TTL_DAYS = 30;
+var buildExecutionPK = (tenantId, scheduleId) => `TENANT#${tenantId}#SCHEDULE#${scheduleId}`;
+var buildExecutionSK = (timestamp, executionId) => `EXEC#${timestamp}#${executionId}`;
 async function createExecutionRecord(params) {
-  const client = (0, dynamodb_service_js_1.getDynamoDBClient)();
-  const executionId = (0, uuid_12.v4)();
+  const client = getDynamoDBClient();
+  const executionId = v4_default();
   const startTime = (/* @__PURE__ */ new Date()).toISOString();
-  const tenantId = params.tenantId || dynamodb_service_js_1.DEFAULT_TENANT_ID;
+  const tenantId = params.tenantId || DEFAULT_TENANT_ID;
   const accountId = params.accountId || "unknown";
   const record = {
     executionId,
@@ -1424,7 +847,7 @@ async function createExecutionRecord(params) {
     resourcesStarted: 0,
     resourcesStopped: 0,
     resourcesFailed: 0,
-    ttl: (0, time_utils_js_12.calculateTTL)(EXECUTION_TTL_DAYS)
+    ttl: calculateTTL(EXECUTION_TTL_DAYS)
   };
   const item = {
     pk: buildExecutionPK(tenantId, params.scheduleId),
@@ -1435,22 +858,22 @@ async function createExecutionRecord(params) {
     ...record
   };
   try {
-    await client.send(new lib_dynamodb_12.PutCommand({
-      TableName: dynamodb_service_js_1.APP_TABLE_NAME,
+    await client.send(new PutCommand2({
+      TableName: APP_TABLE_NAME,
       Item: item
     }));
-    logger_js_12.logger.info(`Execution record created: ${executionId}`, {
+    logger.info(`Execution record created: ${executionId}`, {
       scheduleId: params.scheduleId,
       executionId
     });
     return record;
   } catch (error) {
-    logger_js_12.logger.error("Failed to create execution record", error);
+    logger.error("Failed to create execution record", error);
     throw error;
   }
 }
 async function updateExecutionRecord(record, updates) {
-  const client = (0, dynamodb_service_js_1.getDynamoDBClient)();
+  const client = getDynamoDBClient();
   const endTime = (/* @__PURE__ */ new Date()).toISOString();
   const duration = new Date(endTime).getTime() - new Date(record.startTime).getTime();
   const updateExpressions = [
@@ -1492,8 +915,8 @@ async function updateExecutionRecord(record, updates) {
     expressionAttributeValues[":schedule_metadata"] = updates.schedule_metadata;
   }
   try {
-    await client.send(new lib_dynamodb_12.UpdateCommand({
-      TableName: dynamodb_service_js_1.APP_TABLE_NAME,
+    await client.send(new UpdateCommand({
+      TableName: APP_TABLE_NAME,
       Key: {
         pk: buildExecutionPK(record.tenantId, record.scheduleId),
         sk: buildExecutionSK(record.startTime, record.executionId)
@@ -1502,20 +925,20 @@ async function updateExecutionRecord(record, updates) {
       ExpressionAttributeNames: expressionAttributeNames,
       ExpressionAttributeValues: expressionAttributeValues
     }));
-    logger_js_12.logger.info(`Execution record updated: ${record.executionId}`, {
+    logger.info(`Execution record updated: ${record.executionId}`, {
       status: updates.status,
       duration
     });
   } catch (error) {
-    logger_js_12.logger.error("Failed to update execution record", error);
+    logger.error("Failed to update execution record", error);
     throw error;
   }
 }
-async function getExecutionHistory(scheduleId, tenantId = dynamodb_service_js_1.DEFAULT_TENANT_ID, limit = 50) {
-  const client = (0, dynamodb_service_js_1.getDynamoDBClient)();
+async function getExecutionHistory(scheduleId, tenantId = DEFAULT_TENANT_ID, limit = 50) {
+  const client = getDynamoDBClient();
   try {
-    const response = await client.send(new lib_dynamodb_12.QueryCommand({
-      TableName: dynamodb_service_js_1.APP_TABLE_NAME,
+    const response = await client.send(new QueryCommand2({
+      TableName: APP_TABLE_NAME,
       KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
       ExpressionAttributeValues: {
         ":pk": buildExecutionPK(tenantId, scheduleId),
@@ -1527,57 +950,41 @@ async function getExecutionHistory(scheduleId, tenantId = dynamodb_service_js_1.
     }));
     return response.Items || [];
   } catch (error) {
-    logger_js_12.logger.error("Failed to fetch execution history", error, { scheduleId });
+    logger.error("Failed to fetch execution history", error, { scheduleId });
     return [];
   }
 }
-async function getRecentExecutions(limit = 100) {
-  const client = (0, dynamodb_service_js_1.getDynamoDBClient)();
-  try {
-    const response = await client.send(new lib_dynamodb_12.QueryCommand({
-      TableName: dynamodb_service_js_1.APP_TABLE_NAME,
-      IndexName: "GSI1",
-      KeyConditionExpression: "gsi1pk = :pkVal",
-      ExpressionAttributeValues: {
-        ":pkVal": "TYPE#EXECUTION"
-      },
-      ScanIndexForward: false,
-      // newest first
-      Limit: limit
-    }));
-    return response.Items || [];
-  } catch (error) {
-    logger_js_12.logger.error("Failed to fetch recent executions", error);
-    return [];
-  }
-}
-async function getLastECSServiceState(scheduleId, serviceArn, tenantId = dynamodb_service_js_1.DEFAULT_TENANT_ID) {
+async function getLastECSServiceState(scheduleId, serviceArn, tenantId = DEFAULT_TENANT_ID) {
   try {
     const executions = await getExecutionHistory(scheduleId, tenantId, 10);
     for (const execution of executions) {
       if (execution.schedule_metadata?.ecs) {
-        const ecsResource = execution.schedule_metadata.ecs.find((e) => e.arn === serviceArn && e.action === "stop" && e.status === "success");
+        const ecsResource = execution.schedule_metadata.ecs.find(
+          (e) => e.arn === serviceArn && e.action === "stop" && e.status === "success"
+        );
         if (ecsResource && ecsResource.last_state.desiredCount > 0) {
-          logger_js_12.logger.debug(`Found last ECS state for ${serviceArn}: desiredCount=${ecsResource.last_state.desiredCount}`);
+          logger.debug(`Found last ECS state for ${serviceArn}: desiredCount=${ecsResource.last_state.desiredCount}`);
           return { desiredCount: ecsResource.last_state.desiredCount };
         }
       }
     }
-    logger_js_12.logger.debug(`No previous ECS state found for ${serviceArn}`);
+    logger.debug(`No previous ECS state found for ${serviceArn}`);
     return null;
   } catch (error) {
-    logger_js_12.logger.error(`Failed to get last ECS service state for ${serviceArn}`, error);
+    logger.error(`Failed to get last ECS service state for ${serviceArn}`, error);
     return null;
   }
 }
-async function getLastEC2InstanceState(scheduleId, instanceArn, tenantId = dynamodb_service_js_1.DEFAULT_TENANT_ID) {
+async function getLastEC2InstanceState(scheduleId, instanceArn, tenantId = DEFAULT_TENANT_ID) {
   try {
     const executions = await getExecutionHistory(scheduleId, tenantId, 10);
     for (const execution of executions) {
       if (execution.schedule_metadata?.ec2) {
-        const ec2Resource = execution.schedule_metadata.ec2.find((e) => e.arn === instanceArn && e.action === "stop" && e.status === "success");
+        const ec2Resource = execution.schedule_metadata.ec2.find(
+          (e) => e.arn === instanceArn && e.action === "stop" && e.status === "success"
+        );
         if (ec2Resource) {
-          logger_js_12.logger.debug(`Found last EC2 state for ${instanceArn}: instanceState=${ec2Resource.last_state.instanceState}`);
+          logger.debug(`Found last EC2 state for ${instanceArn}: instanceState=${ec2Resource.last_state.instanceState}`);
           return {
             instanceState: ec2Resource.last_state.instanceState,
             instanceType: ec2Resource.last_state.instanceType
@@ -1585,21 +992,23 @@ async function getLastEC2InstanceState(scheduleId, instanceArn, tenantId = dynam
         }
       }
     }
-    logger_js_12.logger.debug(`No previous EC2 state found for ${instanceArn}`);
+    logger.debug(`No previous EC2 state found for ${instanceArn}`);
     return null;
   } catch (error) {
-    logger_js_12.logger.error(`Failed to get last EC2 instance state for ${instanceArn}`, error);
+    logger.error(`Failed to get last EC2 instance state for ${instanceArn}`, error);
     return null;
   }
 }
-async function getLastRDSInstanceState(scheduleId, instanceArn, tenantId = dynamodb_service_js_1.DEFAULT_TENANT_ID) {
+async function getLastRDSInstanceState(scheduleId, instanceArn, tenantId = DEFAULT_TENANT_ID) {
   try {
     const executions = await getExecutionHistory(scheduleId, tenantId, 10);
     for (const execution of executions) {
       if (execution.schedule_metadata?.rds) {
-        const rdsResource = execution.schedule_metadata.rds.find((e) => e.arn === instanceArn && e.action === "stop" && e.status === "success");
+        const rdsResource = execution.schedule_metadata.rds.find(
+          (e) => e.arn === instanceArn && e.action === "stop" && e.status === "success"
+        );
         if (rdsResource) {
-          logger_js_12.logger.debug(`Found last RDS state for ${instanceArn}: dbInstanceStatus=${rdsResource.last_state.dbInstanceStatus}`);
+          logger.debug(`Found last RDS state for ${instanceArn}: dbInstanceStatus=${rdsResource.last_state.dbInstanceStatus}`);
           return {
             dbInstanceStatus: rdsResource.last_state.dbInstanceStatus,
             dbInstanceClass: rdsResource.last_state.dbInstanceClass
@@ -1607,56 +1016,36 @@ async function getLastRDSInstanceState(scheduleId, instanceArn, tenantId = dynam
         }
       }
     }
-    logger_js_12.logger.debug(`No previous RDS state found for ${instanceArn}`);
+    logger.debug(`No previous RDS state found for ${instanceArn}`);
     return null;
   } catch (error) {
-    logger_js_12.logger.error(`Failed to get last RDS instance state for ${instanceArn}`, error);
+    logger.error(`Failed to get last RDS instance state for ${instanceArn}`, error);
     return null;
   }
 }
-var lib_dynamodb_12, dynamodb_service_js_1, logger_js_12, time_utils_js_12, uuid_12, EXECUTION_TTL_DAYS, buildExecutionPK, buildExecutionSK;
-var init_execution_history_service = __esm({
-  "src/services/execution-history-service.js"() {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.createExecutionRecord = createExecutionRecord;
-    exports.updateExecutionRecord = updateExecutionRecord;
-    exports.getExecutionHistory = getExecutionHistory;
-    exports.getRecentExecutions = getRecentExecutions;
-    exports.getLastECSServiceState = getLastECSServiceState;
-    exports.getLastEC2InstanceState = getLastEC2InstanceState;
-    exports.getLastRDSInstanceState = getLastRDSInstanceState;
-    lib_dynamodb_12 = __require("@aws-sdk/lib-dynamodb");
-    dynamodb_service_js_1 = (init_dynamodb_service(), __toCommonJS(dynamodb_service_exports));
-    logger_js_12 = (init_logger(), __toCommonJS(logger_exports));
-    time_utils_js_12 = (init_time_utils(), __toCommonJS(time_utils_exports));
-    uuid_12 = require_cjs();
-    EXECUTION_TTL_DAYS = 30;
-    buildExecutionPK = (tenantId, scheduleId) => `TENANT#${tenantId}#SCHEDULE#${scheduleId}`;
-    buildExecutionSK = (timestamp, executionId) => `EXEC#${timestamp}#${executionId}`;
-  }
-});
 
-// src/services/sts-service.js
-var sts_service_exports = {};
+// src/services/sts-service.ts
+import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
+var AWS_REGION2 = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "ap-south-1";
+var stsClient = null;
 function getSTSClient() {
   if (!stsClient) {
-    stsClient = new client_sts_1.STSClient({ region: AWS_REGION2 });
+    stsClient = new STSClient({ region: AWS_REGION2 });
   }
   return stsClient;
 }
 async function assumeRole(roleArn, accountId, region, externalId) {
   const client = getSTSClient();
   const roleSessionName = `scheduler-session-${accountId}-${region}`;
-  logger_js_13.logger.debug(`Assuming role ${roleArn} for account ${accountId}`, { accountId, region });
+  logger.debug(`Assuming role ${roleArn} for account ${accountId}`, { accountId, region });
   try {
-    logger_js_13.logger.info(`Attempting to assume role: ${roleArn}`, {
+    logger.info(`Attempting to assume role: ${roleArn}`, {
       accountId,
       region,
       roleSessionName,
       hasExternalId: !!externalId
     });
-    const response = await client.send(new client_sts_1.AssumeRoleCommand({
+    const response = await client.send(new AssumeRoleCommand({
       RoleArn: roleArn,
       RoleSessionName: roleSessionName,
       DurationSeconds: 3600,
@@ -1675,31 +1064,24 @@ async function assumeRole(roleArn, accountId, region, externalId) {
       region
     };
   } catch (error) {
-    logger_js_13.logger.error(`Failed to assume role ${roleArn}`, error, { accountId, region });
+    logger.error(`Failed to assume role ${roleArn}`, error, { accountId, region });
     throw error;
   }
 }
-var client_sts_1, logger_js_13, AWS_REGION2, stsClient;
-var init_sts_service = __esm({
-  "src/services/sts-service.js"() {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.assumeRole = assumeRole;
-    client_sts_1 = __require("@aws-sdk/client-sts");
-    logger_js_13 = (init_logger(), __toCommonJS(logger_exports));
-    AWS_REGION2 = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "ap-south-1";
-    stsClient = null;
-  }
-});
 
-// src/resource-schedulers/ec2-scheduler.js
-var ec2_scheduler_exports = {};
+// src/resource-schedulers/ec2-scheduler.ts
+import {
+  EC2Client,
+  DescribeInstancesCommand,
+  StartInstancesCommand,
+  StopInstancesCommand
+} from "@aws-sdk/client-ec2";
 async function processEC2Resource(resource, schedule, action, credentials, metadata, lastState) {
-  const ec2Client = new client_ec2_1.EC2Client({
+  const ec2Client = new EC2Client({
     credentials: credentials.credentials,
     region: credentials.region
   });
-  const log = logger_js_14.logger.child({
+  const log = logger.child({
     executionId: metadata.executionId,
     accountId: metadata.account.accountId,
     region: metadata.region,
@@ -1708,7 +1090,7 @@ async function processEC2Resource(resource, schedule, action, credentials, metad
   });
   log.info(`Processing EC2 resource: ${resource.id} (${resource.name || "unnamed"})`);
   try {
-    const describeResponse = await ec2Client.send(new client_ec2_1.DescribeInstancesCommand({
+    const describeResponse = await ec2Client.send(new DescribeInstancesCommand({
       InstanceIds: [resource.id]
     }));
     const instance = describeResponse.Reservations?.[0]?.Instances?.[0];
@@ -1722,9 +1104,9 @@ async function processEC2Resource(resource, schedule, action, credentials, metad
       if (lastState) {
         log.info(`EC2 ${resource.id}: Restoring from scheduler-managed state (was ${lastState.instanceState})`);
       }
-      await ec2Client.send(new client_ec2_1.StartInstancesCommand({ InstanceIds: [resource.id] }));
+      await ec2Client.send(new StartInstancesCommand({ InstanceIds: [resource.id] }));
       log.info(`Started EC2 instance ${resource.id}`);
-      await (0, dynamodb_service_js_12.createAuditLog)({
+      await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.ec2.start",
         action: "start",
@@ -1749,9 +1131,9 @@ async function processEC2Resource(resource, schedule, action, credentials, metad
         }
       };
     } else if (action === "stop" && currentState === "running") {
-      await ec2Client.send(new client_ec2_1.StopInstancesCommand({ InstanceIds: [resource.id] }));
+      await ec2Client.send(new StopInstancesCommand({ InstanceIds: [resource.id] }));
       log.info(`Stopped EC2 instance ${resource.id} (saving state: instanceState=${currentState}, instanceType=${instanceType})`);
-      await (0, dynamodb_service_js_12.createAuditLog)({
+      await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.ec2.stop",
         action: "stop",
@@ -1791,7 +1173,7 @@ async function processEC2Resource(resource, schedule, action, credentials, metad
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error(`Failed to process EC2 instance ${resource.id}`, error);
-    await (0, dynamodb_service_js_12.createAuditLog)({
+    await createAuditLog({
       type: "audit_log",
       eventType: "scheduler.ec2.error",
       action,
@@ -1817,42 +1199,20 @@ async function processEC2Resource(resource, schedule, action, credentials, metad
     };
   }
 }
-function extractEC2InstanceId(arn) {
-  const match = arn.match(/instance\/(.+)$/);
-  if (!match) {
-    throw new Error(`Invalid EC2 ARN format: ${arn}`);
-  }
-  return match[1];
-}
-function extractRegionFromArn(arn) {
-  const parts = arn.split(":");
-  if (parts.length < 4) {
-    throw new Error(`Invalid ARN format: ${arn}`);
-  }
-  return parts[3];
-}
-var client_ec2_1, logger_js_14, dynamodb_service_js_12;
-var init_ec2_scheduler = __esm({
-  "src/resource-schedulers/ec2-scheduler.js"() {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.processEC2Resource = processEC2Resource;
-    exports.extractEC2InstanceId = extractEC2InstanceId;
-    exports.extractRegionFromArn = extractRegionFromArn;
-    client_ec2_1 = __require("@aws-sdk/client-ec2");
-    logger_js_14 = (init_logger(), __toCommonJS(logger_exports));
-    dynamodb_service_js_12 = (init_dynamodb_service(), __toCommonJS(dynamodb_service_exports));
-  }
-});
 
-// src/resource-schedulers/rds-scheduler.js
-var rds_scheduler_exports = {};
+// src/resource-schedulers/rds-scheduler.ts
+import {
+  RDSClient,
+  DescribeDBInstancesCommand,
+  StartDBInstanceCommand,
+  StopDBInstanceCommand
+} from "@aws-sdk/client-rds";
 async function processRDSResource(resource, schedule, action, credentials, metadata, lastState) {
-  const rdsClient = new client_rds_1.RDSClient({
+  const rdsClient = new RDSClient({
     credentials: credentials.credentials,
     region: credentials.region
   });
-  const log = logger_js_15.logger.child({
+  const log = logger.child({
     executionId: metadata.executionId,
     accountId: metadata.account.accountId,
     region: metadata.region,
@@ -1861,7 +1221,7 @@ async function processRDSResource(resource, schedule, action, credentials, metad
   });
   log.info(`Processing RDS resource: ${resource.id} (${resource.name || "unnamed"})`);
   try {
-    const describeResponse = await rdsClient.send(new client_rds_1.DescribeDBInstancesCommand({
+    const describeResponse = await rdsClient.send(new DescribeDBInstancesCommand({
       DBInstanceIdentifier: resource.id
     }));
     const instance = describeResponse.DBInstances?.[0];
@@ -1875,9 +1235,9 @@ async function processRDSResource(resource, schedule, action, credentials, metad
       if (lastState) {
         log.info(`RDS ${resource.id}: Restoring from scheduler-managed state (was ${lastState.dbInstanceStatus})`);
       }
-      await rdsClient.send(new client_rds_1.StartDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
+      await rdsClient.send(new StartDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
       log.info(`Started RDS instance ${resource.id}`);
-      await (0, dynamodb_service_js_13.createAuditLog)({
+      await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.rds.start",
         action: "start",
@@ -1902,9 +1262,9 @@ async function processRDSResource(resource, schedule, action, credentials, metad
         }
       };
     } else if (action === "stop" && currentStatus === "available") {
-      await rdsClient.send(new client_rds_1.StopDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
+      await rdsClient.send(new StopDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
       log.info(`Stopped RDS instance ${resource.id} (saving state: dbInstanceStatus=${currentStatus}, dbInstanceClass=${dbInstanceClass})`);
-      await (0, dynamodb_service_js_13.createAuditLog)({
+      await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.rds.stop",
         action: "stop",
@@ -1944,7 +1304,7 @@ async function processRDSResource(resource, schedule, action, credentials, metad
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error(`Failed to process RDS instance ${resource.id}`, error);
-    await (0, dynamodb_service_js_13.createAuditLog)({
+    await createAuditLog({
       type: "audit_log",
       eventType: "scheduler.rds.error",
       action,
@@ -1970,42 +1330,19 @@ async function processRDSResource(resource, schedule, action, credentials, metad
     };
   }
 }
-function extractRDSIdentifier(arn) {
-  const match = arn.match(/db:(.+)$/);
-  if (!match) {
-    throw new Error(`Invalid RDS ARN format: ${arn}`);
-  }
-  return match[1];
-}
-function extractRegionFromArn2(arn) {
-  const parts = arn.split(":");
-  if (parts.length < 4) {
-    throw new Error(`Invalid ARN format: ${arn}`);
-  }
-  return parts[3];
-}
-var client_rds_1, logger_js_15, dynamodb_service_js_13;
-var init_rds_scheduler = __esm({
-  "src/resource-schedulers/rds-scheduler.js"() {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.processRDSResource = processRDSResource;
-    exports.extractRDSIdentifier = extractRDSIdentifier;
-    exports.extractRegionFromArn = extractRegionFromArn2;
-    client_rds_1 = __require("@aws-sdk/client-rds");
-    logger_js_15 = (init_logger(), __toCommonJS(logger_exports));
-    dynamodb_service_js_13 = (init_dynamodb_service(), __toCommonJS(dynamodb_service_exports));
-  }
-});
 
-// src/resource-schedulers/ecs-scheduler.js
-var ecs_scheduler_exports = {};
+// src/resource-schedulers/ecs-scheduler.ts
+import {
+  ECSClient,
+  DescribeServicesCommand,
+  UpdateServiceCommand
+} from "@aws-sdk/client-ecs";
 async function processECSResource(resource, schedule, action, credentials, metadata, lastDesiredCount) {
-  const ecsClient = new client_ecs_1.ECSClient({
+  const ecsClient = new ECSClient({
     credentials: credentials.credentials,
     region: credentials.region
   });
-  const log = logger_js_16.logger.child({
+  const log = logger.child({
     executionId: metadata.executionId,
     accountId: metadata.account.accountId,
     region: metadata.region,
@@ -2039,7 +1376,7 @@ async function processECSResource(resource, schedule, action, credentials, metad
   const serviceName = extractServiceName(resource.arn);
   log.info(`Processing ECS service: ${serviceName} (${resource.name || "unnamed"}) in cluster ${clusterArn}`);
   try {
-    const describeResponse = await ecsClient.send(new client_ecs_1.DescribeServicesCommand({
+    const describeResponse = await ecsClient.send(new DescribeServicesCommand({
       cluster: clusterArn,
       services: [serviceName]
     }));
@@ -2053,13 +1390,13 @@ async function processECSResource(resource, schedule, action, credentials, metad
     const serviceStatus = service.status ?? "unknown";
     log.debug(`ECS ${serviceName}: desiredCount=${currentDesiredCount}, runningCount=${runningCount}, action=${action}`);
     if (action === "stop" && currentDesiredCount > 0) {
-      await ecsClient.send(new client_ecs_1.UpdateServiceCommand({
+      await ecsClient.send(new UpdateServiceCommand({
         cluster: clusterArn,
         service: serviceName,
         desiredCount: 0
       }));
       log.info(`Stopped ECS service ${serviceName} (was desiredCount=${currentDesiredCount})`);
-      await (0, dynamodb_service_js_14.createAuditLog)({
+      await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.ecs.stop",
         action: "stop",
@@ -2089,13 +1426,13 @@ async function processECSResource(resource, schedule, action, credentials, metad
       };
     } else if (action === "start" && currentDesiredCount === 0) {
       const targetDesiredCount = lastDesiredCount && lastDesiredCount > 0 ? lastDesiredCount : 1;
-      await ecsClient.send(new client_ecs_1.UpdateServiceCommand({
+      await ecsClient.send(new UpdateServiceCommand({
         cluster: clusterArn,
         service: serviceName,
         desiredCount: targetDesiredCount
       }));
       log.info(`Started ECS service ${serviceName} with desiredCount=${targetDesiredCount}`);
-      await (0, dynamodb_service_js_14.createAuditLog)({
+      await createAuditLog({
         type: "audit_log",
         eventType: "scheduler.ecs.start",
         action: "start",
@@ -2142,7 +1479,7 @@ async function processECSResource(resource, schedule, action, credentials, metad
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error(`Failed to process ECS service ${serviceName}`, error);
-    await (0, dynamodb_service_js_14.createAuditLog)({
+    await createAuditLog({
       type: "audit_log",
       eventType: "scheduler.ecs.error",
       action,
@@ -2188,96 +1525,18 @@ function extractClusterName(arn) {
   }
   return match[1];
 }
-function extractRegionFromArn3(arn) {
-  const parts = arn.split(":");
-  if (parts.length < 4) {
-    throw new Error(`Invalid ARN format: ${arn}`);
-  }
-  return parts[3];
-}
-var client_ecs_1, logger_js_16, dynamodb_service_js_14;
-var init_ecs_scheduler = __esm({
-  "src/resource-schedulers/ecs-scheduler.js"() {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.processECSResource = processECSResource;
-    exports.extractServiceName = extractServiceName;
-    exports.extractClusterName = extractClusterName;
-    exports.extractRegionFromArn = extractRegionFromArn3;
-    client_ecs_1 = __require("@aws-sdk/client-ecs");
-    logger_js_16 = (init_logger(), __toCommonJS(logger_exports));
-    dynamodb_service_js_14 = (init_dynamodb_service(), __toCommonJS(dynamodb_service_exports));
-  }
-});
 
-// src/resource-schedulers/index.js
-var resource_schedulers_exports = {};
-var ec2_scheduler_js_1, rds_scheduler_js_1, ecs_scheduler_js_1;
-var init_resource_schedulers = __esm({
-  "src/resource-schedulers/index.js"() {
-    "use strict";
-    Object.defineProperty(exports, "__esModule", { value: true });
-    exports.extractECSRegion = exports.extractClusterName = exports.extractServiceName = exports.processECSResource = exports.extractRDSRegion = exports.extractRDSIdentifier = exports.processRDSResource = exports.extractEC2Region = exports.extractEC2InstanceId = exports.processEC2Resource = void 0;
-    ec2_scheduler_js_1 = (init_ec2_scheduler(), __toCommonJS(ec2_scheduler_exports));
-    Object.defineProperty(exports, "processEC2Resource", { enumerable: true, get: function() {
-      return ec2_scheduler_js_1.processEC2Resource;
-    } });
-    Object.defineProperty(exports, "extractEC2InstanceId", { enumerable: true, get: function() {
-      return ec2_scheduler_js_1.extractEC2InstanceId;
-    } });
-    Object.defineProperty(exports, "extractEC2Region", { enumerable: true, get: function() {
-      return ec2_scheduler_js_1.extractRegionFromArn;
-    } });
-    rds_scheduler_js_1 = (init_rds_scheduler(), __toCommonJS(rds_scheduler_exports));
-    Object.defineProperty(exports, "processRDSResource", { enumerable: true, get: function() {
-      return rds_scheduler_js_1.processRDSResource;
-    } });
-    Object.defineProperty(exports, "extractRDSIdentifier", { enumerable: true, get: function() {
-      return rds_scheduler_js_1.extractRDSIdentifier;
-    } });
-    Object.defineProperty(exports, "extractRDSRegion", { enumerable: true, get: function() {
-      return rds_scheduler_js_1.extractRegionFromArn;
-    } });
-    ecs_scheduler_js_1 = (init_ecs_scheduler(), __toCommonJS(ecs_scheduler_exports));
-    Object.defineProperty(exports, "processECSResource", { enumerable: true, get: function() {
-      return ecs_scheduler_js_1.processECSResource;
-    } });
-    Object.defineProperty(exports, "extractServiceName", { enumerable: true, get: function() {
-      return ecs_scheduler_js_1.extractServiceName;
-    } });
-    Object.defineProperty(exports, "extractClusterName", { enumerable: true, get: function() {
-      return ecs_scheduler_js_1.extractClusterName;
-    } });
-    Object.defineProperty(exports, "extractECSRegion", { enumerable: true, get: function() {
-      return ecs_scheduler_js_1.extractRegionFromArn;
-    } });
-  }
-});
-
-// src/index.ts
-init_logger();
-
-// src/services/scheduler-service.js
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.runFullScan = runFullScan;
-exports.runPartialScan = runPartialScan;
-var logger_js_17 = (init_logger(), __toCommonJS(logger_exports));
-var dynamodb_service_js_15 = (init_dynamodb_service(), __toCommonJS(dynamodb_service_exports));
-var execution_history_service_js_1 = (init_execution_history_service(), __toCommonJS(execution_history_service_exports));
-var sts_service_js_1 = (init_sts_service(), __toCommonJS(sts_service_exports));
-var index_js_1 = (init_resource_schedulers(), __toCommonJS(resource_schedulers_exports));
-var time_utils_js_13 = (init_time_utils(), __toCommonJS(time_utils_exports));
-var uuid_13 = require_cjs();
+// src/services/scheduler-service.ts
 async function runFullScan(triggeredBy = "system") {
-  const executionId = (0, uuid_13.v4)();
+  const executionId = v4_default();
   const startTime = Date.now();
-  logger_js_17.logger.setContext({ executionId, mode: "full" });
-  logger_js_17.logger.info("Starting full scan");
-  const schedules = await (0, dynamodb_service_js_15.fetchActiveSchedules)();
-  const accounts = await (0, dynamodb_service_js_15.fetchActiveAccounts)();
-  logger_js_17.logger.info(`Found ${schedules.length} active schedules and ${accounts.length} active accounts`);
+  logger.setContext({ executionId, mode: "full" });
+  logger.info("Starting full scan");
+  const schedules = await fetchActiveSchedules();
+  const accounts = await fetchActiveAccounts();
+  logger.info(`Found ${schedules.length} active schedules and ${accounts.length} active accounts`);
   if (schedules.length === 0) {
-    logger_js_17.logger.info("No active schedules to process");
+    logger.info("No active schedules to process");
     return createResult(executionId, "full", startTime, 0, 0, 0, 0);
   }
   let totalStarted = 0;
@@ -2299,7 +1558,7 @@ async function runFullScan(triggeredBy = "system") {
         status: result.failed > 0 ? "partial" : "success"
       });
     } catch (error) {
-      logger_js_17.logger.error(`Error processing schedule ${schedule.scheduleId}`, error);
+      logger.error(`Error processing schedule ${schedule.scheduleId}`, error);
       totalFailed++;
       processedSchedules.push({
         scheduleId: schedule.scheduleId,
@@ -2312,7 +1571,7 @@ async function runFullScan(triggeredBy = "system") {
     }
   }
   const overallStatus = totalFailed > 0 ? totalStarted + totalStopped > 0 ? "warning" : "error" : "success";
-  await (0, dynamodb_service_js_15.createAuditLog)({
+  await createAuditLog({
     type: "audit_log",
     eventType: "scheduler.complete",
     action: "full_scan",
@@ -2331,22 +1590,30 @@ async function runFullScan(triggeredBy = "system") {
       scheduleDetails: processedSchedules
     }
   });
-  logger_js_17.logger.info("Full scan completed", { totalStarted, totalStopped, totalFailed });
-  return createResult(executionId, "full", startTime, schedules.length, totalStarted, totalStopped, totalFailed);
+  logger.info("Full scan completed", { totalStarted, totalStopped, totalFailed });
+  return createResult(
+    executionId,
+    "full",
+    startTime,
+    schedules.length,
+    totalStarted,
+    totalStopped,
+    totalFailed
+  );
 }
 async function runPartialScan(event, triggeredBy = "web-ui") {
-  const executionId = (0, uuid_13.v4)();
+  const executionId = v4_default();
   const startTime = Date.now();
   const scheduleId = event.scheduleId || event.scheduleName;
   const userEmail = event.userEmail;
   if (!scheduleId) {
     throw new Error("scheduleId or scheduleName is required for partial scan");
   }
-  logger_js_17.logger.setContext({ executionId, mode: "partial", scheduleId, user: userEmail || "system" });
-  logger_js_17.logger.info(`Starting partial scan for schedule: ${scheduleId}`);
-  const schedule = await (0, dynamodb_service_js_15.fetchScheduleById)(scheduleId, event.tenantId);
+  logger.setContext({ executionId, mode: "partial", scheduleId, user: userEmail || "system" });
+  logger.info(`Starting partial scan for schedule: ${scheduleId}`);
+  const schedule = await fetchScheduleById(scheduleId, event.tenantId);
   if (!schedule) {
-    await (0, dynamodb_service_js_15.createAuditLog)({
+    await createAuditLog({
       type: "audit_log",
       eventType: "scheduler.error",
       action: "partial_scan",
@@ -2364,11 +1631,11 @@ async function runPartialScan(event, triggeredBy = "web-ui") {
     });
     throw new Error(`Schedule not found: ${scheduleId}`);
   }
-  const accounts = await (0, dynamodb_service_js_15.fetchActiveAccounts)();
+  const accounts = await fetchActiveAccounts();
   try {
     const result = await processSchedule(schedule, accounts, triggeredBy, userEmail);
     const overallStatus = result.failed > 0 ? result.started + result.stopped > 0 ? "warning" : "error" : "success";
-    await (0, dynamodb_service_js_15.createAuditLog)({
+    await createAuditLog({
       type: "audit_log",
       eventType: "scheduler.complete",
       action: "partial_scan",
@@ -2389,10 +1656,18 @@ async function runPartialScan(event, triggeredBy = "web-ui") {
         triggeredBy
       }
     });
-    logger_js_17.logger.info("Partial scan completed", result);
-    return createResult(executionId, "partial", startTime, 1, result.started, result.stopped, result.failed);
+    logger.info("Partial scan completed", result);
+    return createResult(
+      executionId,
+      "partial",
+      startTime,
+      1,
+      result.started,
+      result.stopped,
+      result.failed
+    );
   } catch (error) {
-    await (0, dynamodb_service_js_15.createAuditLog)({
+    await createAuditLog({
       type: "audit_log",
       eventType: "scheduler.error",
       action: "partial_scan",
@@ -2411,29 +1686,34 @@ async function runPartialScan(event, triggeredBy = "web-ui") {
         error: error instanceof Error ? error.message : String(error)
       }
     });
-    logger_js_17.logger.error(`Partial scan failed for schedule ${scheduleId}`, error);
+    logger.error(`Partial scan failed for schedule ${scheduleId}`, error);
     throw error;
   }
 }
 async function processSchedule(schedule, accounts, triggeredBy, userEmail) {
   const resources = schedule.resources || [];
   const scheduleStartTime = Date.now();
-  logger_js_17.logger.info(`Processing schedule: ${schedule.name} (${schedule.scheduleId}) with ${resources.length} resources`);
+  logger.info(`Processing schedule: ${schedule.name} (${schedule.scheduleId}) with ${resources.length} resources`);
   if (resources.length === 0) {
-    logger_js_17.logger.info(`Schedule ${schedule.name} has no resources, skipping`);
+    logger.info(`Schedule ${schedule.name} has no resources, skipping`);
     return { started: 0, stopped: 0, failed: 0 };
   }
-  const inRange = (0, time_utils_js_13.isCurrentTimeInRange)(schedule.starttime, schedule.endtime, schedule.timezone, schedule.days);
+  const inRange = isCurrentTimeInRange(
+    schedule.starttime,
+    schedule.endtime,
+    schedule.timezone,
+    schedule.days
+  );
   const action = inRange ? "start" : "stop";
-  logger_js_17.logger.info(`Schedule ${schedule.name}: inRange=${inRange}, action=${action}`);
+  logger.info(`Schedule ${schedule.name}: inRange=${inRange}, action=${action}`);
   const execParams = {
     scheduleId: schedule.scheduleId,
     scheduleName: schedule.name,
-    tenantId: schedule.tenantId || dynamodb_service_js_15.DEFAULT_TENANT_ID,
+    tenantId: schedule.tenantId || DEFAULT_TENANT_ID,
     accountId: schedule.accountId || "system",
     triggeredBy
   };
-  const executionId = (0, uuid_13.v4)();
+  const executionId = v4_default();
   const resourcesByAccount = groupResourcesByAccount(resources, accounts);
   const scheduleMetadata = {
     ec2: [],
@@ -2446,14 +1726,14 @@ async function processSchedule(schedule, accounts, triggeredBy, userEmail) {
   for (const [accountId, accountResources] of resourcesByAccount) {
     const account = accounts.find((a) => a.accountId === accountId);
     if (!account) {
-      logger_js_17.logger.warn(`Account ${accountId} not found in active accounts, skipping resources`);
+      logger.warn(`Account ${accountId} not found in active accounts, skipping resources`);
       failed += accountResources.resources.length;
       continue;
     }
     const resourcesByRegion = groupResourcesByRegion(accountResources.resources);
     for (const [region, regionResources] of resourcesByRegion) {
       try {
-        const credentials = await (0, sts_service_js_1.assumeRole)(account.roleArn, account.accountId, region, account.externalId);
+        const credentials = await assumeRole(account.roleArn, account.accountId, region, account.externalId);
         const metadata = {
           account: {
             name: account.accountName || account.name || account.accountId,
@@ -2469,68 +1749,80 @@ async function processSchedule(schedule, accounts, triggeredBy, userEmail) {
             if (resource.type === "ec2") {
               let lastState;
               if (action === "start") {
-                const savedState = await (0, execution_history_service_js_1.getLastEC2InstanceState)(schedule.scheduleId, resource.arn, schedule.tenantId);
+                const savedState = await getLastEC2InstanceState(
+                  schedule.scheduleId,
+                  resource.arn,
+                  schedule.tenantId
+                );
                 lastState = savedState || void 0;
                 if (lastState) {
-                  logger_js_17.logger.debug(`EC2 ${resource.id}: Found last state - instanceState=${lastState.instanceState}`);
+                  logger.debug(`EC2 ${resource.id}: Found last state - instanceState=${lastState.instanceState}`);
                 }
               }
-              const result = await (0, index_js_1.processEC2Resource)(resource, schedule, action, credentials, metadata, lastState);
+              const result = await processEC2Resource(resource, schedule, action, credentials, metadata, lastState);
               scheduleMetadata.ec2.push(result);
               updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
             } else if (resource.type === "rds") {
               let lastState;
               if (action === "start") {
-                const savedState = await (0, execution_history_service_js_1.getLastRDSInstanceState)(schedule.scheduleId, resource.arn, schedule.tenantId);
+                const savedState = await getLastRDSInstanceState(
+                  schedule.scheduleId,
+                  resource.arn,
+                  schedule.tenantId
+                );
                 lastState = savedState || void 0;
                 if (lastState) {
-                  logger_js_17.logger.debug(`RDS ${resource.id}: Found last state - dbInstanceStatus=${lastState.dbInstanceStatus}`);
+                  logger.debug(`RDS ${resource.id}: Found last state - dbInstanceStatus=${lastState.dbInstanceStatus}`);
                 }
               }
-              const result = await (0, index_js_1.processRDSResource)(resource, schedule, action, credentials, metadata, lastState);
+              const result = await processRDSResource(resource, schedule, action, credentials, metadata, lastState);
               scheduleMetadata.rds.push(result);
               updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
             } else if (resource.type === "ecs") {
               let lastDesiredCount;
               if (action === "start") {
-                const lastState = await (0, execution_history_service_js_1.getLastECSServiceState)(schedule.scheduleId, resource.arn, schedule.tenantId);
+                const lastState = await getLastECSServiceState(
+                  schedule.scheduleId,
+                  resource.arn,
+                  schedule.tenantId
+                );
                 lastDesiredCount = lastState?.desiredCount;
               }
-              const result = await (0, index_js_1.processECSResource)(resource, schedule, action, credentials, metadata, lastDesiredCount);
+              const result = await processECSResource(resource, schedule, action, credentials, metadata, lastDesiredCount);
               scheduleMetadata.ecs.push(result);
               updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
             }
           } catch (error) {
-            logger_js_17.logger.error(`Error processing resource ${resource.arn}`, error);
+            logger.error(`Error processing resource ${resource.arn}`, error);
             failed++;
           }
         }
       } catch (error) {
-        logger_js_17.logger.error(`Failed to assume role for account ${accountId} in region ${region}`, error);
+        logger.error(`Failed to assume role for account ${accountId} in region ${region}`, error);
         failed += regionResources.length;
       }
     }
   }
   const hasActions = started > 0 || stopped > 0 || failed > 0;
   if (hasActions) {
-    const execRecord = await (0, execution_history_service_js_1.createExecutionRecord)(execParams);
+    const execRecord = await createExecutionRecord(execParams);
     const duration = Date.now() - scheduleStartTime;
-    await (0, execution_history_service_js_1.updateExecutionRecord)(execRecord, {
+    await updateExecutionRecord(execRecord, {
       status: failed > 0 ? "partial" : "success",
       resourcesStarted: started,
       resourcesStopped: stopped,
       resourcesFailed: failed,
       schedule_metadata: scheduleMetadata
     });
-    await (0, dynamodb_service_js_15.createExecutionAuditLog)(execRecord.executionId, schedule, scheduleMetadata, {
+    await createExecutionAuditLog(execRecord.executionId, schedule, scheduleMetadata, {
       resourcesStarted: started,
       resourcesStopped: stopped,
       resourcesFailed: failed,
       duration
     }, userEmail);
-    logger_js_17.logger.info(`Schedule ${schedule.name} execution recorded: ${started} started, ${stopped} stopped, ${failed} failed`);
+    logger.info(`Schedule ${schedule.name} execution recorded: ${started} started, ${stopped} stopped, ${failed} failed`);
   } else {
-    logger_js_17.logger.info(`Schedule ${schedule.name}: No actions performed (all resources in desired state), skipping execution record`);
+    logger.info(`Schedule ${schedule.name}: No actions performed (all resources in desired state), skipping execution record`);
   }
   return { started, stopped, failed };
 }
@@ -2539,7 +1831,7 @@ function groupResourcesByAccount(resources, _accounts) {
   for (const resource of resources || []) {
     const accountId = extractAccountIdFromArn(resource.arn);
     if (!accountId) {
-      logger_js_17.logger.warn(`Could not extract account ID from ARN: ${resource.arn}`);
+      logger.warn(`Could not extract account ID from ARN: ${resource.arn}`);
       continue;
     }
     if (!map.has(accountId)) {
@@ -2554,7 +1846,7 @@ function groupResourcesByRegion(resources) {
   for (const resource of resources) {
     const region = extractRegionFromArn4(resource.arn);
     if (!region) {
-      logger_js_17.logger.warn(`Could not extract region from ARN: ${resource.arn}`);
+      logger.warn(`Could not extract region from ARN: ${resource.arn}`);
       continue;
     }
     if (!map.has(region)) {
@@ -2602,22 +1894,22 @@ function createResult(executionId, mode, startTime, schedulesProcessed, resource
 
 // src/index.ts
 var handler = async (event) => {
-  (void 0).info("Lambda invoked", { event });
+  logger.info("Lambda invoked", { event });
   try {
     const isPartialScan = event?.scheduleId || event?.scheduleName;
     const triggeredBy = event?.triggeredBy || "system";
     if (isPartialScan) {
-      (void 0).info("Running partial scan", {
+      logger.info("Running partial scan", {
         scheduleId: event.scheduleId,
         scheduleName: event.scheduleName
       });
-      return await (void 0)(event, triggeredBy);
+      return await runPartialScan(event, triggeredBy);
     } else {
-      (void 0).info("Running full scan");
-      return await (void 0)(triggeredBy);
+      logger.info("Running full scan");
+      return await runFullScan(triggeredBy);
     }
   } catch (error) {
-    (void 0).error("Lambda execution failed", error);
+    logger.error("Lambda execution failed", error);
     return {
       success: false,
       executionId: "error",

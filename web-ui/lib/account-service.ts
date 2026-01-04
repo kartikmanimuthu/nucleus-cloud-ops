@@ -360,7 +360,7 @@ export class AccountService {
             console.log(`AccountService - Validating credentials for ${roleArn} in ${region}`);
 
             // 1. Assume Role
-            const stsClient = new STSClient({ region: 'us-east-1' });
+            const stsClient = new STSClient({ region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null' });
             const assumeRoleCommand = new AssumeRoleCommand({
                 RoleArn: roleArn,
                 RoleSessionName: 'NucleusValidationSession',
@@ -446,7 +446,7 @@ export class AccountService {
             const validationDetails = await this.validateCredentials({
                 roleArn: account.roleArn,
                 externalId: account.externalId,
-                region: account.regions?.[0] || 'us-east-1'
+                region: account.regions?.[0] || process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
             });
 
             // 3. Update Account Status based on result
@@ -557,10 +557,10 @@ export class AccountService {
                 throw new Error('Account or Role ARN not found');
             }
 
-            const region = account.regions?.[0] || 'us-east-1';
+            const region = account.regions?.[0] || process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null';
 
             // 1. Assume Role
-            const stsClient = new STSClient({ region: 'us-east-1' });
+            const stsClient = new STSClient({ region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null' });
             const assumeRoleCommand = new AssumeRoleCommand({
                 RoleArn: account.roleArn,
                 RoleSessionName: 'NucleusScanSession',

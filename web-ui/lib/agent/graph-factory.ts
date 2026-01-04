@@ -28,7 +28,7 @@ function getCheckpointer() {
         console.log("Using DynamoDB Checkpointer with tables:", process.env.DYNAMODB_CHECKPOINT_TABLE, process.env.DYNAMODB_WRITES_TABLE);
         return new DynamoDBSaver({
             clientConfig: {
-                region: 'us-east-1'
+                region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
             },
             checkpointsTableName: process.env.DYNAMODB_CHECKPOINT_TABLE,
             writesTableName: process.env.DYNAMODB_WRITES_TABLE
@@ -246,7 +246,7 @@ export function createReflectionGraph(config: GraphConfig) {
 
     // --- Model Initialization ---
     const model = new ChatBedrockConverse({
-        region: "us-east-1",
+        region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
         model: modelId,
         maxTokens: 4096,
         temperature: 0,
@@ -697,7 +697,7 @@ export function createFastGraph(config: GraphConfig) {
 
     // --- Model Initialization ---
     const model = new ChatBedrockConverse({
-        region: "us-east-1",
+        region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
         model: modelId,
         maxTokens: 4096,
         temperature: 0,
