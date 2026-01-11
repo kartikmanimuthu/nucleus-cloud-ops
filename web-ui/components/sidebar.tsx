@@ -72,7 +72,7 @@ export function Sidebar() {
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
               <Calendar className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="font-semibold text-lg text-foreground">Nucleus FinOps</span>
+            <span className="font-semibold text-lg text-foreground">Nucleus Ops</span>
           </div>
         )}
         <div className="flex items-center space-x-1">
