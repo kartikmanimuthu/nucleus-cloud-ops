@@ -4,6 +4,7 @@ import * as React from "react"
 import { ChevronDown, Brain, Clock } from "lucide-react"
 import { cn } from "@/lib/utils"
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible"
+import { MarkdownContent } from "@/components/ui/markdown-content"
 
 interface ReasoningContextValue {
   open: boolean;
@@ -122,12 +123,19 @@ ReasoningTrigger.displayName = "ReasoningTrigger";
 
 /**
  * Collapsible content area for reasoning text.
+ * Renders content using MarkdownContent for proper formatting.
  */
 const ReasoningContent = React.forwardRef<
   React.ElementRef<typeof CollapsiblePrimitive.CollapsibleContent>,
   React.ComponentPropsWithoutRef<typeof CollapsiblePrimitive.CollapsibleContent>
 >(({ className, children, ...props }, ref) => {
   const context = React.useContext(ReasoningContext);
+  
+  // Convert children to string for markdown rendering
+  const content = typeof children === 'string' ? children : 
+    React.Children.toArray(children).map(child => 
+      typeof child === 'string' ? child : ''
+    ).join('');
 
   return (
     <CollapsiblePrimitive.CollapsibleContent
@@ -143,9 +151,7 @@ const ReasoningContent = React.forwardRef<
           className
         )}
       >
-        <div className="whitespace-pre-wrap font-mono text-xs">
-          {children}
-        </div>
+        <MarkdownContent content={content} className="text-sm" />
       </div>
     </CollapsiblePrimitive.CollapsibleContent>
   );

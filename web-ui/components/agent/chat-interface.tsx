@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { MarkdownContent } from '@/components/ui/markdown-content';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
   Bot, User, Trash2, Loader2, Terminal, Send, 
@@ -43,10 +44,10 @@ import { UIAccount } from '@/lib/types';
 
 // Available models
 const AVAILABLE_MODELS = [
+  { id: 'global.anthropic.claude-haiku-4-5-20251001-v1:0', label: 'Claude 4.5 Haiku (Global)', provider: 'amazon' },
+  { id: 'global.anthropic.claude-opus-4-5-20251101-v1:0', label: 'Claude 4.5 Opus (Global)', provider: 'amazon' },
   { id: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude 4.5 Sonnet (Global)', provider: 'amazon' },
-  { id: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', label: 'Claude 4.5 Haiku (US)', provider: 'amazon' },
   { id: 'global.amazon.nova-2-lite-v1:0', label: 'Nova 2 Lite (Global)', provider: 'amazon' },
-  { id: 'us.deepseek.r1-v1:0', label: 'DeepSeek R1 (US)', provider: 'amazon' },
 ];
 
 // Phase types matching backend
@@ -137,6 +138,10 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
   const [isStreaming, setIsStreaming] = useState(false);
   const streamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastMessageContentRef = useRef<string>('');
+  
+  // Scroll control state - track if user has manually scrolled up
+  const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   
   // AWS Account selection state
   const [accounts, setAccounts] = useState<UIAccount[]>([]);
@@ -268,11 +273,25 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
   const [inputValue, setInputValue] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Handle scroll events to detect user scroll intent
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLDivElement;
+    const isAtBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 50;
+    
+    if (isAtBottom) {
+      setUserHasScrolledUp(false);
+    } else {
+      // User has scrolled up - don't auto-scroll
+      setUserHasScrolledUp(true);
+    }
+  };
+
+  // Auto-scroll to bottom only when user hasn't scrolled up
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && !userHasScrolledUp) {
       scrollRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [messages]);
+  }, [messages, userHasScrolledUp]);
 
   const handleClear = () => {
     setMessages([]);
@@ -299,6 +318,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
     setInputValue('');
     setHasStarted(true);
     setWasStopped(false);
+    setUserHasScrolledUp(false); // Reset scroll state on new message
     
     await sendMessage({
       content: value,
@@ -470,8 +490,8 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
             <Loader2 className="w-3 h-3 animate-spin ml-auto" />
           )}
         </div>
-        <div className="p-3 whitespace-pre-wrap text-muted-foreground/90 leading-relaxed text-sm">
-          {content}
+        <div className="p-3 text-muted-foreground/90 leading-relaxed text-sm">
+          <MarkdownContent content={content} />
         </div>
       </div>
     );
@@ -630,7 +650,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
 
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="flex-1 p-4" onScrollCapture={handleScroll}>
         <div className="space-y-4">
           {/* Loading history indicator */}
           {isLoadingHistory && (
@@ -699,8 +719,8 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
                       const text = part.text || "";
                       if (!text.trim()) return null;
                       return (
-                        <div key={`${message.id}-part-${index}`} className="whitespace-pre-wrap">
-                          {text}
+                        <div key={`${message.id}-part-${index}`}>
+                          <MarkdownContent content={text} />
                         </div>
                       );
                     }
@@ -721,7 +741,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
 
                   {/* Fallback for simple content */}
                   {!message.parts && message.content && (
-                    <div className="whitespace-pre-wrap">{message.content}</div>
+                    <MarkdownContent content={typeof message.content === 'string' ? message.content : JSON.stringify(message.content)} />
                   )}
                 </div>
 
