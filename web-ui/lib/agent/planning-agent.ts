@@ -1,4 +1,4 @@
-import { BaseMessage, AIMessage, SystemMessage } from "@langchain/core/messages";
+import { BaseMessage, AIMessage, SystemMessage, HumanMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ChatBedrockConverse } from "@langchain/aws";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
@@ -214,21 +214,34 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 
 Current Iteration: ${iterationCount}/${MAX_ITERATIONS}
 
-Tool Execution Results Summary:
-${toolResults.slice(-5).join('\n---\n')}
-
-Review the conversation history and tool outputs. Provide your analysis in the following JSON format:
+Review the execution results and provide your analysis in the following JSON format:
 {
     "analysis": "Brief analysis of what was done and the results",
     "issues": "Any issues or errors found, or 'None' if no issues",
     "suggestions": "Suggestions for improvement, or 'None' if no suggestions",
-    "isComplete": true or false
+    "isComplete": true or false (set to true ONLY if ALL plan steps are completed successfully)
 }
+
+IMPORTANT: Set isComplete to true ONLY when the original task has been fully accomplished.
+If there are remaining steps in the plan or the task is not fully done, set isComplete to false.
 
 Be specific and actionable in your feedback.
 Only return the JSON object, nothing else.`);
 
-        const response = await modelWithTools.invoke([reflectorSystemPrompt, ...getRecentMessages(messages, 12)]);
+        // Construct a clean input for the reflector to avoid tool-related validation issues
+        // This approach mirrors fast-agent.ts and prevents the reflector from trying to call tools
+        const summaryInput = new HumanMessage({
+            content: `Please analyze the following execution and provide your feedback in JSON format.
+
+Tool Results (most recent):
+${toolResults.slice(-5).join('\n---\n')}
+
+Plan Status:
+${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
+        });
+
+        // Use base model (no tools) to ensure the reflector focuses on analysis, not tool calls
+        const response = await model.invoke([reflectorSystemPrompt, summaryInput]);
 
         let analysis = "";
         let issues = "None";
@@ -246,25 +259,24 @@ Only return the JSON object, nothing else.`);
                 analysis = parsed.analysis || "";
                 issues = parsed.issues || "None";
                 suggestions = parsed.suggestions || "None";
+                // Only mark complete if explicitly true in parsed JSON
                 isComplete = parsed.isComplete === true;
             } else {
                 console.log("[Reflector] No JSON found, using raw content fallback");
                 analysis = content;
-                // Simple heuristic for completion if model doesn't follow JSON format
-                if (content.toLowerCase().includes("task complete") || content.toLowerCase().includes("no issues") || issues === "None") {
-                    isComplete = true; // Optimistic completion if it looks good
+                // Conservative heuristic: only mark complete if explicitly stated
+                if (content.toLowerCase().includes("task complete") || content.toLowerCase().includes("successfully completed")) {
+                    isComplete = true;
                 }
+                // If no clear completion signal, continue the loop (isComplete stays false)
             }
-
-            // Fallback for empty content or "None" issues even if parsed
-            if (issues === "None" && !isComplete) {
-                // Double check if analysis implies completion
-                isComplete = true;
-            }
+            // REMOVED: The overly aggressive "if (issues === 'None' && !isComplete)" fallback
+            // Completion should ONLY be determined by the model's explicit isComplete flag
         } catch (e) {
             console.error("[Reflector] Parsing failed:", e);
-            analysis = "Completed current iteration (Parsing Error)";
-            isComplete = iterationCount >= MAX_ITERATIONS;
+            analysis = "Reflection parsing failed. Continuing with next iteration.";
+            // Parsing errors should NOT complete the task prematurely - continue the loop
+            isComplete = false;
         }
 
         console.log(`\n🧐 [REFLECTOR] Analysis Complete:`);
