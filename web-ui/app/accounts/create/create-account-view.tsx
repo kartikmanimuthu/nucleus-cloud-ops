@@ -30,7 +30,7 @@ export default function CreateAccountView({ hubAccountId }: CreateAccountViewPro
           <div>
             <h1 className="text-2xl font-bold">Create AWS Account</h1>
             <p className="text-muted-foreground">
-              Add a new AWS account to the cost optimization scheduler
+              Add a new AWS account to the Nucleus Ops Platform
             </p>
           </div>
         </div>
