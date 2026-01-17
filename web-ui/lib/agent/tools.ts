@@ -4,6 +4,9 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { Readable } from 'stream';
+
 
 // Re-export AWS credentials tool
 export { getAwsCredentialsTool } from './aws-credentials-tool';
@@ -180,6 +183,106 @@ export const webSearchTool = tool(
         description: 'Search the web for information using Tavily. Returns an answer and relevant sources.',
         schema: z.object({
             query: z.string().describe('The search query'),
+        }),
+    }
+);
+
+// --- S3 File Tools ---
+
+const s3Client = new S3Client({});
+
+const getS3Key = (threadId: string, key: string) => {
+    // Sanitize threadId to prevent directory traversal or weird characters
+    const sanitizedThreadId = threadId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    // Remove leading slashes from key to avoid double slashes
+    const sanitizedKey = key.replace(/^\/+/, '');
+    return `${sanitizedThreadId}/${sanitizedKey}`;
+};
+
+export const writeFileToS3Tool = tool(
+    async ({ key, content, thread_id }: { key: string; content: string; thread_id: string }) => {
+        const bucketName = process.env.AGENT_TEMP_BUCKET;
+        if (!bucketName) {
+            return 'Error: AGENT_TEMP_BUCKET environment variable is not set.';
+        }
+
+        const s3Key = getS3Key(thread_id, key);
+        console.log(`[Tool] Writing file to S3: s3://${bucketName}/${s3Key}`);
+
+        try {
+            await s3Client.send(new PutObjectCommand({
+                Bucket: bucketName,
+                Key: s3Key,
+                Body: content,
+                ContentType: 'text/plain', // Default to text/plain
+            }));
+            const msg = `Successfully written to s3://${bucketName}/${s3Key}`;
+            console.log(`[Tool] ${msg}`);
+            return msg;
+        } catch (error: any) {
+            const errorMsg = `Error writing file to S3: ${error.message}`;
+            console.error(`[Tool] S3 Write Error:`, errorMsg);
+            return errorMsg;
+        }
+    },
+    {
+        name: 'write_file_to_s3',
+        description: 'Write content to a file in the temporary S3 storage. Requires a thread_id to namespace the file.',
+        schema: z.object({
+            key: z.string().describe('The filename or path within the thread namespace (e.g., "output.txt" or "logs/run1.log")'),
+            content: z.string().describe('The string content to write'),
+            thread_id: z.string().describe('The unique identifier for the conversation thread to namespace the file'),
+        }),
+    }
+);
+
+export const getFileFromS3Tool = tool(
+    async ({ key, thread_id }: { key: string; thread_id: string }) => {
+        const bucketName = process.env.AGENT_TEMP_BUCKET;
+        if (!bucketName) {
+            return 'Error: AGENT_TEMP_BUCKET environment variable is not set.';
+        }
+
+        const s3Key = getS3Key(thread_id, key);
+        console.log(`[Tool] Reading file from S3: s3://${bucketName}/${s3Key}`);
+
+        try {
+            const response = await s3Client.send(new GetObjectCommand({
+                Bucket: bucketName,
+                Key: s3Key,
+            }));
+
+            if (!response.Body) {
+                return 'Error: Empty response body from S3.';
+            }
+
+            // Convert stream to string
+            const streamToString = (stream: Readable): Promise<string> =>
+                new Promise((resolve, reject) => {
+                    const chunks: Buffer[] = [];
+                    stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+                    stream.on("error", (err) => reject(err));
+                    stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+                });
+
+            // Handle different body types (Node.js readable stream vs browser stream)
+            // In AWS SDK v3 for Node, Body is IncomingMessage (ReadableStream)
+            const content = await streamToString(response.Body as Readable);
+
+            console.log(`[Tool] S3 file read successfully, length: ${content.length}`);
+            return content;
+        } catch (error: any) {
+            const errorMsg = `Error reading file from S3: ${error.message}`;
+            console.error(`[Tool] S3 Read Error:`, errorMsg);
+            return errorMsg;
+        }
+    },
+    {
+        name: 'get_file_from_s3',
+        description: 'Read the contents of a file from the temporary S3 storage.',
+        schema: z.object({
+            key: z.string().describe('The filename or path within the thread namespace'),
+            thread_id: z.string().describe('The unique identifier for the conversation thread'),
         }),
     }
 );

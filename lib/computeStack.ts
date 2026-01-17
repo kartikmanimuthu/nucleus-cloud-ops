@@ -172,6 +172,21 @@ export class ComputeStack extends cdk.Stack {
         });
 
         // ============================================================================
+        // S3 BUCKET FOR AGENT TEMPORARY STORAGE
+        // ============================================================================
+
+        const agentTempBucket = new s3.Bucket(this, `${appName}-AgentTempBucket`, {
+            bucketName: `${appName}-agent-temp-${this.account}-${this.region}`,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            autoDeleteObjects: true,
+            lifecycleRules: [
+                {
+                    expiration: cdk.Duration.days(1), // Auto-expire temp files after due to temporary nature of storage
+                }
+            ]
+        });
+
+        // ============================================================================
         // SNS TOPIC (from cdkStack.ts)
         // ============================================================================
 
@@ -541,6 +556,7 @@ export class ComputeStack extends cdk.Stack {
                 DATA_DIR: '/tmp',
                 SCHEDULER_LAMBDA_ARN: lambdaFunction.functionArn,
                 EVENTBRIDGE_RULE_NAME: `${appName}-rule`,
+                AGENT_TEMP_BUCKET: agentTempBucket.bucketName,
             },
             portMappings: [{ containerPort: 3000, hostPort: 3000, protocol: ecs.Protocol.TCP }],
         });
@@ -715,6 +731,14 @@ export class ComputeStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'CheckpointBucketName', {
             value: checkpointBucket.bucketName,
             description: 'S3 Bucket for LangGraph Checkpoint Offloading',
+        });
+
+        // Grant access to agent temp bucket
+        agentTempBucket.grantReadWrite(ecsTaskRole);
+
+        new cdk.CfnOutput(this, 'AgentTempBucketName', {
+            value: agentTempBucket.bucketName,
+            description: 'S3 Bucket for Agent Temporary Storage',
         });
     }
 
