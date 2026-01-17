@@ -15,6 +15,7 @@ import * as ecr_assets from "aws-cdk-lib/aws-ecr-assets";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import * as path from "path";
 import * as crypto from "crypto";
 import { Construct } from "constructs";
@@ -153,6 +154,21 @@ export class ComputeStack extends cdk.Stack {
             sortKey: { name: 'task_id_idx', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
             removalPolicy: cdk.RemovalPolicy.DESTROY,
+        });
+
+        // ============================================================================
+        // S3 BUCKET FOR LANGGRAPH CHECKPOINT OFFLOADING
+        // ============================================================================
+
+        const checkpointBucket = new s3.Bucket(this, `${appName}-CheckpointBucket`, {
+            bucketName: `${appName}-checkpoints-bucket-${this.account}-${this.region}`,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            autoDeleteObjects: true,
+            lifecycleRules: [
+                {
+                    expiration: cdk.Duration.days(30), // Auto-expire old checkpoints
+                }
+            ]
         });
 
         // ============================================================================
@@ -399,6 +415,9 @@ export class ComputeStack extends cdk.Stack {
             resources: ['arn:aws:s3:::*'],
         }));
 
+        // Grant access to checkpoint bucket
+        checkpointBucket.grantReadWrite(ecsTaskRole);
+
         // Bedrock permissions
         ecsTaskRole.addToPolicy(new iam.PolicyStatement({
             actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream', 'bedrock:ListFoundationModels'],
@@ -495,6 +514,7 @@ export class ComputeStack extends cdk.Stack {
                 NEXT_PUBLIC_AUDIT_TABLE_NAME: auditTable.tableName,
                 DYNAMODB_CHECKPOINT_TABLE: checkpointTableName,
                 DYNAMODB_WRITES_TABLE: writesTableName,
+                CHECKPOINT_S3_BUCKET: checkpointBucket.bucketName,
                 DYNAMODB_USERS_TEAMS_TABLE: usersTeamsTable.tableName,
                 COGNITO_USER_POOL_ID: this.userPool.userPoolId,
                 NEXT_PUBLIC_COGNITO_USER_POOL_ID: this.userPool.userPoolId,
@@ -691,6 +711,10 @@ export class ComputeStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'OriginVerifySecret', {
             value: originVerifySecret,
             description: 'Secret header value for origin verification (for ALB configuration)',
+        });
+        new cdk.CfnOutput(this, 'CheckpointBucketName', {
+            value: checkpointBucket.bucketName,
+            description: 'S3 Bucket for LangGraph Checkpoint Offloading',
         });
     }
 

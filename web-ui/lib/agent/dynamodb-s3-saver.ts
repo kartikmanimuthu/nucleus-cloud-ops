@@ -1,0 +1,321 @@
+import { DynamoDBClient, PutItemCommand, GetItemCommand, DeleteItemCommand, AttributeValue, QueryCommand } from '@aws-sdk/client-dynamodb';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+import {
+    BaseCheckpointSaver,
+    Checkpoint,
+    CheckpointMetadata,
+    CheckpointTuple,
+    SerializerProtocol,
+    PendingWrite
+} from '@langchain/langgraph-checkpoint';
+import { RunnableConfig } from '@langchain/core/runnables';
+
+// Size threshold for offloading to S3 (300KB to be safe within 400KB limit)
+const S3_OFFLOAD_THRESHOLD = 300 * 1024;
+
+export interface DynamoDBS3SaverFields {
+    clientConfig?: any;
+    checkpointsTableName: string;
+    writesTableName: string;
+    s3BucketName: string;
+    s3ClientConfig?: any;
+}
+
+export class DynamoDBS3Saver extends BaseCheckpointSaver {
+    private client: DynamoDBClient;
+    private s3Client: S3Client;
+    private checkpointsTableName: string;
+    private writesTableName: string;
+    private s3BucketName: string;
+
+    constructor(fields: DynamoDBS3SaverFields, serde?: SerializerProtocol) {
+        super(serde);
+        this.client = new DynamoDBClient(fields.clientConfig || {});
+        this.s3Client = new S3Client(fields.s3ClientConfig || {});
+        this.checkpointsTableName = fields.checkpointsTableName;
+        this.writesTableName = fields.writesTableName;
+        this.s3BucketName = fields.s3BucketName;
+    }
+
+    async getTuple(config: RunnableConfig): Promise<CheckpointTuple | undefined> {
+        const { thread_id, checkpoint_id } = config.configurable || {};
+
+        if (!thread_id) {
+            return undefined;
+        }
+
+        console.log(`[DynamoDBS3Saver] getTuple called for thread: ${thread_id}, checkpoint_id: ${checkpoint_id}`);
+
+        const keys: Record<string, AttributeValue> = {
+            thread_id: { S: thread_id },
+        };
+
+        if (checkpoint_id) {
+            keys.checkpoint_id = { S: checkpoint_id };
+        }
+
+        // Determine if we need to query specifically by ID or get the latest
+        let item: any;
+        if (checkpoint_id) {
+            const result = await this.client.send(new GetItemCommand({
+                TableName: this.checkpointsTableName,
+                Key: keys,
+            }));
+            item = result.Item ? unmarshall(result.Item) : undefined;
+        } else {
+            // Get the latest checkpoint for the thread
+            // Since we use sort keys, we can query backwards
+            const result = await this.client.send(new QueryCommand({
+                TableName: this.checkpointsTableName,
+                KeyConditionExpression: 'thread_id = :tid',
+                ExpressionAttributeValues: {
+                    ':tid': { S: thread_id }
+                },
+                ScanIndexForward: false,
+                Limit: 1
+            }));
+            item = result.Items && result.Items.length > 0 ? unmarshall(result.Items[0]) : undefined;
+        }
+
+        if (!item) {
+            return undefined;
+        }
+
+        // Restore checkpoint content (handle S3 offloading)
+        let checkpoint = await this.loadData(item.checkpoint);
+        let metadata = await this.loadData(item.metadata);
+
+        // Process parent info if available
+        let parentConfig: RunnableConfig | undefined = undefined;
+        if (item.parent_checkpoint_id) {
+            parentConfig = {
+                configurable: {
+                    thread_id: item.thread_id,
+                    checkpoint_id: item.parent_checkpoint_id,
+                },
+            };
+        }
+
+        return {
+            config: {
+                configurable: {
+                    thread_id: item.thread_id,
+                    checkpoint_id: item.checkpoint_id,
+                    checkpoint_ns: item.checkpoint_ns,
+                },
+            },
+            checkpoint: (await this.serde.loadsTyped("json", JSON.stringify(checkpoint))) as Checkpoint,
+            metadata: (await this.serde.loadsTyped("json", JSON.stringify(metadata))) as CheckpointMetadata,
+            parentConfig,
+        };
+    }
+
+    async *list(config: RunnableConfig, options?: any): AsyncGenerator<CheckpointTuple> {
+        const { thread_id } = config.configurable || {};
+        if (!thread_id) return;
+
+        // Simple implementation for list (limited by DynamoDB Query constraints)
+        // For full list support, we'd need more complex query logic or GSI support
+        const result = await this.client.send(new QueryCommand({
+            TableName: this.checkpointsTableName,
+            KeyConditionExpression: 'thread_id = :tid',
+            ExpressionAttributeValues: {
+                ':tid': { S: thread_id }
+            },
+            ScanIndexForward: false,
+            // Use limits from options if provided
+            Limit: options?.limit,
+        }));
+
+        if (result.Items) {
+            for (const rawItem of result.Items) {
+                const item = unmarshall(rawItem);
+
+                // Restore contents
+                const checkpoint = await this.loadData(item.checkpoint);
+                const metadata = await this.loadData(item.metadata);
+
+                let parentConfig: RunnableConfig | undefined = undefined;
+                if (item.parent_checkpoint_id) {
+                    parentConfig = {
+                        configurable: {
+                            thread_id: item.thread_id,
+                            checkpoint_id: item.parent_checkpoint_id,
+                        },
+                    };
+                }
+
+                yield {
+                    config: {
+                        configurable: {
+                            thread_id: item.thread_id,
+                            checkpoint_id: item.checkpoint_id,
+                            checkpoint_ns: item.checkpoint_ns,
+                        },
+                    },
+                    checkpoint: (await this.serde.loadsTyped("json", JSON.stringify(checkpoint))) as Checkpoint,
+                    metadata: (await this.serde.loadsTyped("json", JSON.stringify(metadata))) as CheckpointMetadata,
+                    parentConfig,
+                };
+            }
+        }
+    }
+
+    async put(
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        newVersions: any
+    ): Promise<RunnableConfig> {
+        const thread_id = config.configurable?.thread_id;
+        const checkpoint_ns = config.configurable?.checkpoint_ns ?? '';
+        // IMPORTANT: Use checkpoint.id, not config.configurable.checkpoint_id
+        // The checkpoint_id comes from the checkpoint object itself
+        const checkpoint_id = checkpoint.id;
+        // The parent_checkpoint_id is the previous checkpoint (from config)
+        const parent_checkpoint_id = config.configurable?.checkpoint_id;
+
+        if (!thread_id) {
+            console.warn("[DynamoDBS3Saver.put] Missing thread_id in config, skipping save");
+            return config;
+        }
+
+        console.log(`[DynamoDBS3Saver] Saving checkpoint. Thread: ${thread_id}, Checkpoint: ${checkpoint_id}`);
+
+        // Serialize data
+        const checkpointDump = await this.serde.dumpsTyped(checkpoint);
+        const metadataDump = await this.serde.dumpsTyped(metadata);
+        const decoder = new TextDecoder();
+        const serializedCheckpoint = JSON.parse(decoder.decode(checkpointDump[1]));
+        const serializedMetadata = JSON.parse(decoder.decode(metadataDump[1]));
+
+        // Offload to S3 if needed
+        const storedCheckpoint = await this.storeData(serializedCheckpoint, `checkpoint/${thread_id}/${checkpoint_id}`);
+        const storedMetadata = await this.storeData(serializedMetadata, `metadata/${thread_id}/${checkpoint_id}`);
+
+        const item = {
+            thread_id,
+            checkpoint_id,
+            checkpoint_ns,
+            checkpoint: storedCheckpoint,
+            metadata: storedMetadata,
+            parent_checkpoint_id,
+            type: checkpointDump[0] // Use the serialization type from serde
+        };
+
+        await this.client.send(new PutItemCommand({
+            TableName: this.checkpointsTableName,
+            Item: marshall(item, { removeUndefinedValues: true, convertClassInstanceToMap: true }),
+        }));
+
+        return {
+            configurable: {
+                thread_id,
+                checkpoint_id,
+                checkpoint_ns,
+            },
+        };
+    }
+
+    async putWrites(config: RunnableConfig, writes: PendingWrite[], taskId: string): Promise<void> {
+        const { thread_id, checkpoint_id, checkpoint_ns } = config.configurable || {};
+
+        if (!thread_id || !checkpoint_id) {
+            console.warn("[DynamoDBS3Saver.putWrites] Missing thread_id or checkpoint_id in config, skipping writes");
+            return;
+        }
+
+        console.log(`[DynamoDBS3Saver] Saving writes. Thread: ${thread_id}, Checkpoint: ${checkpoint_id}, Writes: ${writes.length}`);
+
+        const writesItems = await Promise.all(writes.map(async (write, idx) => {
+            // Serialize write data using serde to handle LangChain message objects
+            // PendingWrite is usually [channel, value] tuple
+            let serializedWrite: any;
+            try {
+                const writeDump = await this.serde.dumpsTyped(write);
+                const decoder = new TextDecoder();
+                serializedWrite = JSON.parse(decoder.decode(writeDump[1]));
+            } catch (e) {
+                // Fallback: try to convert to plain object
+                console.warn(`[DynamoDBS3Saver.putWrites] Failed to serialize write ${idx}, using JSON fallback:`, e);
+                serializedWrite = JSON.parse(JSON.stringify(write));
+            }
+
+            const storedWrite = await this.storeData(
+                serializedWrite,
+                `writes/${thread_id}/${checkpoint_id}/${taskId}/${idx}`
+            );
+
+            return {
+                thread_id_checkpoint_id_checkpoint_ns: `${thread_id}#${checkpoint_id}#${checkpoint_ns || ''}`,
+                task_id_idx: `${taskId}#${idx}`,
+                write: storedWrite,
+                type: 'write'
+            };
+        }));
+
+        // Batch write items (DynamoDB limit is 25 items per batch)
+        // Using Promise.all for parallelism
+        await Promise.all(writesItems.map(item =>
+            this.client.send(new PutItemCommand({
+                TableName: this.writesTableName,
+                Item: marshall(item, { removeUndefinedValues: true, convertClassInstanceToMap: true }),
+            }))
+        ));
+    }
+
+    // --- Helper for S3 Offloading ---
+
+    private async storeData(data: any, keySuffix: string): Promise<any> {
+        const jsonString = JSON.stringify(data);
+        const size = Buffer.byteLength(jsonString);
+
+        console.log(`[DynamoDBS3Saver] Data size: ${size} bytes. Threshold: ${S3_OFFLOAD_THRESHOLD}`);
+
+        if (size > S3_OFFLOAD_THRESHOLD) {
+            const key = `${keySuffix}.json`;
+            console.log(`[DynamoDBS3Saver] Offloading data to S3. Size: ${size} bytes, Key: ${key}`);
+
+            // Upload to S3
+            await this.s3Client.send(new PutObjectCommand({
+                Bucket: this.s3BucketName,
+                Key: key,
+                Body: jsonString,
+                ContentType: 'application/json'
+            }));
+
+            // Return pointer
+            return {
+                __s3_ref__: {
+                    bucket: this.s3BucketName,
+                    key: key
+                }
+            };
+        }
+
+        return data;
+    }
+
+    private async loadData(data: any): Promise<any> {
+        if (data && data.__s3_ref__) {
+            const { bucket, key } = data.__s3_ref__;
+            console.log(`[DynamoDBS3Saver] Loading data from S3. Key: ${key}`);
+
+            // Fetch from S3
+            const response = await this.s3Client.send(new GetObjectCommand({
+                Bucket: bucket,
+                Key: key
+            }));
+
+            const bodyString = await response.Body?.transformToString();
+            if (!bodyString) {
+                throw new Error(`Empty body from S3 for key: ${key}`);
+            }
+
+            return JSON.parse(bodyString);
+        }
+
+        return data;
+    }
+}

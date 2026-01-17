@@ -2,6 +2,7 @@ import { BaseMessage, AIMessage, HumanMessage } from "@langchain/core/messages";
 import { StateGraphArgs } from "@langchain/langgraph";
 import { FileSaver } from "./file-saver";
 import { DynamoDBSaver } from "@rwai/langgraphjs-checkpoint-dynamodb";
+import { DynamoDBS3Saver } from "./dynamodb-s3-saver";
 import { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
 
 // --- Components & Interfaces ---
@@ -216,6 +217,23 @@ function getCheckpointer() {
 
     if (process.env.DYNAMODB_CHECKPOINT_TABLE && process.env.DYNAMODB_WRITES_TABLE) {
         console.log("Using DynamoDB Checkpointer with tables:", process.env.DYNAMODB_CHECKPOINT_TABLE, process.env.DYNAMODB_WRITES_TABLE);
+
+        // Use S3 offloading if bucket is configured
+        if (process.env.CHECKPOINT_S3_BUCKET) {
+            console.log("Using S3 offloading for checkpoints:", process.env.CHECKPOINT_S3_BUCKET);
+            return new DynamoDBS3Saver({
+                clientConfig: {
+                    region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
+                },
+                checkpointsTableName: process.env.DYNAMODB_CHECKPOINT_TABLE,
+                writesTableName: process.env.DYNAMODB_WRITES_TABLE,
+                s3BucketName: process.env.CHECKPOINT_S3_BUCKET,
+                s3ClientConfig: {
+                    region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
+                }
+            });
+        }
+
         return new DynamoDBSaver({
             clientConfig: {
                 region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'

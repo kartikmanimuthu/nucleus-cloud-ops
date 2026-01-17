@@ -21,6 +21,7 @@
     "@aws-sdk/client-eventbridge": "^3.962.0",
     "@aws-sdk/client-lambda": "^3.958.0",
     "@aws-sdk/client-rds": "^3.948.0",
+    "@aws-sdk/client-s3": "^3.971.0",
     "@aws-sdk/client-sts": "^3.821.0",
     "@aws-sdk/credential-providers": "^3.821.0",
     "@aws-sdk/lib-dynamodb": "^3.821.0",

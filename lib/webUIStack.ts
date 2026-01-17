@@ -112,6 +112,18 @@ export class WebUIStack extends cdk.Stack {
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
+        // Create S3 bucket for LangGraph large checkpoints
+        const checkpointBucket = new s3.Bucket(this, 'CheckpointBucket', {
+            bucketName: `${SCHEDULER_NAME}-checkpoints-bucket-${this.account}-${this.region}`,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            autoDeleteObjects: true,
+            lifecycleRules: [
+                {
+                    expiration: cdk.Duration.days(30), // Auto-expire old checkpoints
+                }
+            ]
+        });
+
         // ============================================================================
         // CREATE IAM ROLE FOR LAMBDA FUNCTION
         // ============================================================================
@@ -244,6 +256,9 @@ export class WebUIStack extends cdk.Stack {
                 ],
             })
         );
+
+        // Grant Lambda access to the checkpoint bucket
+        checkpointBucket.grantReadWrite(webUILambdaExecutionRole);
 
         // Add Bedrock permissions
         webUILambdaExecutionRole.addToPolicy(
@@ -496,6 +511,7 @@ export class WebUIStack extends cdk.Stack {
                 NEXT_PUBLIC_AUDIT_TABLE_NAME: auditTableName,
                 DYNAMODB_CHECKPOINT_TABLE: checkpointTableName,
                 DYNAMODB_WRITES_TABLE: writesTableName,
+                CHECKPOINT_S3_BUCKET: checkpointBucket.bucketName,
                 DYNAMODB_USERS_TEAMS_TABLE: usersTeamsTable.tableName,
                 // Cognito Configuration for NextAuth
                 COGNITO_USER_POOL_ID: this.userPool.userPoolId,
@@ -696,6 +712,11 @@ export class WebUIStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'WritesTableName', {
             value: writesTableName,
             description: 'LangGraph Writes Table Name',
+        });
+
+        new cdk.CfnOutput(this, 'CheckpointBucketName', {
+            value: checkpointBucket.bucketName,
+            description: 'LangGraph S3 Checkpoint Bucket Name',
         });
     }
 }

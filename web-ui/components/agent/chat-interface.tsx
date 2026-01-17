@@ -44,10 +44,10 @@ import { UIAccount } from '@/lib/types';
 
 // Available models
 const AVAILABLE_MODELS = [
+  { id: 'global.amazon.nova-2-lite-v1:0', label: 'Nova 2 Lite (Global)', provider: 'amazon' },
   { id: 'global.anthropic.claude-haiku-4-5-20251001-v1:0', label: 'Claude 4.5 Haiku (Global)', provider: 'amazon' },
   { id: 'global.anthropic.claude-opus-4-5-20251101-v1:0', label: 'Claude 4.5 Opus (Global)', provider: 'amazon' },
   { id: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude 4.5 Sonnet (Global)', provider: 'amazon' },
-  { id: 'global.amazon.nova-2-lite-v1:0', label: 'Nova 2 Lite (Global)', provider: 'amazon' },
 ];
 
 // Phase types matching backend
