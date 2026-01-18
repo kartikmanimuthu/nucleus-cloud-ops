@@ -659,7 +659,7 @@ export class ComputeStack extends cdk.Stack {
                 defaultBehavior: {
                     origin: new origins.HttpOrigin(alb.loadBalancerDnsName, {
                         protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
-                        readTimeout: cdk.Duration.seconds(180), // Maximum allowed by CloudFront (cannot exceed 180s)
+                        readTimeout: cdk.Duration.seconds(60), // Maximum default (180s requires AWS support limit increase)
                         connectionTimeout: cdk.Duration.seconds(10), // Maximum allowed by CloudFront
                         customHeaders: {
                             'X-Origin-Verify': originVerifySecret,
@@ -684,7 +684,7 @@ export class ComputeStack extends cdk.Stack {
                 defaultBehavior: {
                     origin: new origins.HttpOrigin(alb.loadBalancerDnsName, {
                         protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
-                        readTimeout: cdk.Duration.seconds(180), // Maximum allowed by CloudFront (cannot exceed 180s)
+                        readTimeout: cdk.Duration.seconds(60), // Maximum default (180s requires AWS support limit increase)
                         connectionTimeout: cdk.Duration.seconds(10), // Maximum allowed by CloudFront
                         customHeaders: {
                             'X-Origin-Verify': originVerifySecret,
