@@ -6,7 +6,10 @@ import {
     executeCommandTool,
     readFileTool,
     writeFileTool,
-    listDirectoryTool,
+    lsTool,
+    editFileTool,
+    globTool,
+    grepTool,
     webSearchTool,
     getAwsCredentialsTool
 } from "./tools";
@@ -34,7 +37,8 @@ export function createFastGraph(config: GraphConfig) {
     });
 
     // Include AWS credentials tool for account-aware operations
-    const tools = [executeCommandTool, readFileTool, writeFileTool, listDirectoryTool, webSearchTool, getAwsCredentialsTool];
+    // Include AWS credentials tool for account-aware operations
+    const tools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool];
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
 
@@ -53,7 +57,7 @@ export function createFastGraph(config: GraphConfig) {
         console.log(`================================================================================\n`);
 
         const systemPrompt = new SystemMessage(`You are a capable DevOps and Cloud Infrastructure assistant.
-You have access to tools: read_file, write_file, list_directory, execute_command, web_search, get_aws_credentials.
+You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials.
 You are proficient with AWS CLI, git, shell scripting, and infrastructure management.
 ${accountContext}
 

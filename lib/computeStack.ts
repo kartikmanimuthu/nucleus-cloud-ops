@@ -566,6 +566,7 @@ export class ComputeStack extends cdk.Stack {
             vpc: props.vpc,
             internetFacing: true,
             loadBalancerName: `${appName}-alb`,
+            idleTimeout: cdk.Duration.seconds(1200), // 20 minutes to support long streaming requests
         });
 
         // ECS Service
@@ -658,6 +659,8 @@ export class ComputeStack extends cdk.Stack {
                 defaultBehavior: {
                     origin: new origins.HttpOrigin(alb.loadBalancerDnsName, {
                         protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+                        readTimeout: cdk.Duration.seconds(180), // Maximum allowed by CloudFront (cannot exceed 180s)
+                        connectionTimeout: cdk.Duration.seconds(10), // Maximum allowed by CloudFront
                         customHeaders: {
                             'X-Origin-Verify': originVerifySecret,
                         },
@@ -681,6 +684,8 @@ export class ComputeStack extends cdk.Stack {
                 defaultBehavior: {
                     origin: new origins.HttpOrigin(alb.loadBalancerDnsName, {
                         protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+                        readTimeout: cdk.Duration.seconds(180), // Maximum allowed by CloudFront (cannot exceed 180s)
+                        connectionTimeout: cdk.Duration.seconds(10), // Maximum allowed by CloudFront
                         customHeaders: {
                             'X-Origin-Verify': originVerifySecret,
                         },

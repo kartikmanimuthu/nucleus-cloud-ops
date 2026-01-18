@@ -6,7 +6,10 @@ import {
     executeCommandTool,
     readFileTool,
     writeFileTool,
-    listDirectoryTool,
+    lsTool,
+    editFileTool,
+    globTool,
+    grepTool,
     webSearchTool,
     getAwsCredentialsTool
 } from "./tools";
@@ -35,7 +38,8 @@ export function createReflectionGraph(config: GraphConfig) {
     });
 
     // Include AWS credentials tool for account-aware operations
-    const tools = [executeCommandTool, readFileTool, writeFileTool, listDirectoryTool, webSearchTool, getAwsCredentialsTool];
+    // Include AWS credentials tool for account-aware operations
+    const tools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool];
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
 
@@ -61,9 +65,12 @@ export function createReflectionGraph(config: GraphConfig) {
         const plannerSystemPrompt = new SystemMessage(`You are an expert DevOps and Cloud Infrastructure planning agent.
 Given a task, create a clear step-by-step plan to accomplish it, utilizing your expertise in AWS, Docker, Kubernetes, and CI/CD.
 Focus on actionable steps that can be executed using available tools:
-- read_file: Read content from a file
-- write_file: Write content to a file  
-- list_directory: List contents of a directory
+- read_file: Read content from a file (supports line ranges)
+- write_file: Write content to a file
+- edit_file: Replace strings in a file
+- ls: List files in a directory with metadata
+- glob: Find files matching a pattern
+- grep: Search for patterns in files
 - execute_command: Execute shell commands
 - web_search: Search the web for information
 - get_aws_credentials: Get temporary AWS credentials for a specific account (REQUIRED before any AWS CLI commands)
@@ -139,13 +146,18 @@ Current Step: ${currentStep}
 Full Plan: ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 
 Available tools:
-- read_file(file_path): Read content from a file
+- read_file(file_path, start_line?, end_line?): Read content from a file
 - write_file(file_path, content): Write content to a file (creates directories if needed)
-- list_directory(path): List contents of a directory
+- edit_file(file_path, edits): Replace strings in a file
+- ls(path): List files in a directory with metadata
+- glob(pattern, path?): Find files matching a pattern
+- grep(pattern, args...): Search for patterns in files
 - execute_command(command): Execute a shell command
 - web_search(query): Search the web for information
 - get_aws_credentials(accountId): Get temporary AWS credentials for a specific account
 ${accountContext}
+
+NOTE: AWS Cost Explorer only provides historical data for the last 14 months. Do not request data older than 14 months.
 
 IMPORTANT: You should use tools to accomplish the task if necessary. If the task is a simple question or greeting that doesn't require tools, you may answer directly.
 After using tools (or if no tools are needed), provide a brief summary of what you accomplished or the answer.`);

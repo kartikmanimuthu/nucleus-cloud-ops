@@ -159,6 +159,10 @@ export async function POST(req: Request) {
         }
 
         if (stream) {
+            // Note: We intentionally DON'T pass req.signal to streamEvents.
+            // Passing the request's AbortSignal directly causes "Error: Aborted" 
+            // to be thrown when clients disconnect, which disrupts graph execution.
+            // Instead, we handle disconnection gracefully in safeEnqueue().
             // @ts-ignore
             const streamEvents = await graph.streamEvents(
                 input as any,
@@ -166,7 +170,6 @@ export async function POST(req: Request) {
                     version: "v2",
                     configurable: { thread_id: threadId },
                     recursionLimit: 100, // Higher limit for complex tasks with many tool calls
-                    signal: req.signal,
                 }
             );
 
@@ -479,9 +482,23 @@ function processStream(
                     }
                 }
             } catch (error) {
-                console.error("Main stream error:", error);
+                // Check if this is an abort error (which is expected when client disconnects)
+                const isAbortError = error instanceof Error &&
+                    (error.message === 'Aborted' || error.name === 'AbortError');
+
+                if (isAbortError) {
+                    console.log("Stream aborted (client disconnected or timeout)");
+                } else {
+                    console.error("Main stream error:", error);
+                }
+
                 try {
-                    controller.error(error);
+                    // For abort errors, just close cleanly; for real errors, signal error
+                    if (isAbortError) {
+                        controller.close();
+                    } else {
+                        controller.error(error);
+                    }
                 } catch (e) {
                     // Ignore if already closed
                 }
