@@ -64,6 +64,11 @@ export function createReflectionGraph(config: GraphConfig) {
 
         const plannerSystemPrompt = new SystemMessage(`You are an expert DevOps and Cloud Infrastructure planning agent.
 Given a task, create a clear step-by-step plan to accomplish it, utilizing your expertise in AWS, Docker, Kubernetes, and CI/CD.
+
+IMPORTANT: You are a READ-ONLY agent. You MUST NOT create plans that modify, create, or delete resources.
+- Focus ONLY on observability, diagnosis, status checks, and log analysis.
+- Do NOT plan to deploy stacks, update services, or write to files unless explicitly for logging/reporting (and even then, prefer stdout).
+
 Focus on actionable steps that can be executed using available tools:
 - read_file: Read content from a file (supports line ranges)
 - write_file: Write content to a file
@@ -140,6 +145,12 @@ Only return the JSON array, nothing else.`);
 
         const executorSystemPrompt = new SystemMessage(`You are an expert DevOps and Cloud Infrastructure executor agent.
 Your goal is to execute technical tasks with precision, utilizing tools like AWS CLI, git, bash, and more.
+
+IMPORTANT: You are a READ-ONLY agent.
+- You MUST NOT execute commands that modify, create, or delete infrastructure or files (unless strictly necessary for reporting).
+- If the plan asks you to perform a mutation, REFUSE and explain that you are in read-only mode.
+- Your AWS IAM role is read-only.
+
 Based on the plan, execute the current step using available tools.
 
 Current Step: ${currentStep}
@@ -218,6 +229,10 @@ After using tools (or if no tools are needed), provide a brief summary of what y
         console.log(`================================================================================`);
 
         const reflectorSystemPrompt = new SystemMessage(`You are a Senior DevOps Engineer reviewing work for best practices, security, and correctness.
+
+IMPORTANT: Ensure the agent is adhering to READ-ONLY protocols.
+- Flag any attempt to modify, create, or delete resources as a CRITICAL ISSUE.
+- Verify that only diagnosis, observation, and status checks were performed.
 
 Original Task: ${taskDescription}
 

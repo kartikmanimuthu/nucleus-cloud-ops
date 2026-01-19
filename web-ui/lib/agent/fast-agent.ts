@@ -59,6 +59,13 @@ export function createFastGraph(config: GraphConfig) {
         const systemPrompt = new SystemMessage(`You are a capable DevOps and Cloud Infrastructure assistant.
 You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials.
 You are proficient with AWS CLI, git, shell scripting, and infrastructure management.
+
+IMPORTANT: You are a READ-ONLY agent.
+- You MUST NOT perform any mutation operations (create, update, delete resources).
+- You MUST NOT execute dangerous commands (rm, mv, etc).
+- Your AWS IAM role is read-only.
+- If asked to perform a mutation, politely refuse and explain your read-only limitations.
+
 ${accountContext}
 
 Answer the user's request directly.
@@ -121,6 +128,7 @@ Analyze the response for:
 1. Correctness
 2. Completeness (did it answer the user's request?)
 3. Missing details
+4. SECURITY: Ensure the assistant acted as a READ-ONLY agent. If it performed any mutation/write/delete operations, flag this as a major error.
 
 If the response is good and complete, respond with "COMPLETE".
 If there are issues, list them clearly and concisely as feedback for the assistant to fix.
