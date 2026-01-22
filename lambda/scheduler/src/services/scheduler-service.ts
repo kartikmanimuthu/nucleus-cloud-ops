@@ -374,6 +374,7 @@ async function processSchedule(
                         } else if (resource.type === 'ecs') {
                             // For ECS start, get last desiredCount from previous execution
                             let lastDesiredCount: number | undefined;
+                            let lastAsgState: any;
                             if (action === 'start') {
                                 const lastState = await getLastECSServiceState(
                                     schedule.scheduleId,
@@ -381,8 +382,9 @@ async function processSchedule(
                                     schedule.tenantId
                                 );
                                 lastDesiredCount = lastState?.desiredCount;
+                                lastAsgState = lastState?.asg_state;
                             }
-                            const result = await processECSResource(resource, schedule, action, credentials, metadata, lastDesiredCount);
+                            const result = await processECSResource(resource, schedule, action, credentials, metadata, lastDesiredCount, lastAsgState);
                             scheduleMetadata.ecs.push(result);
                             updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
                         } else if (resource.type === 'asg') {

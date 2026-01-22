@@ -234,10 +234,13 @@ export async function getLastECSServiceState(
     scheduleId: string,
     serviceArn: string,
     tenantId = DEFAULT_TENANT_ID
-): Promise<{ desiredCount: number } | null> {
+): Promise<{ desiredCount: number; asg_state?: any } | null> {
     try {
         // Get recent execution history for this schedule
-        const executions = await getExecutionHistory(scheduleId, tenantId, 10);
+        const executions = await getExecutionHistory(scheduleId, tenantId, 15); // Increased limit slightly
+
+        let foundDesiredCount: number | undefined;
+        let foundAsgState: any | undefined;
 
         // Look through executions to find the last time this ECS service was stopped
         for (const execution of executions) {
@@ -245,11 +248,32 @@ export async function getLastECSServiceState(
                 const ecsResource = execution.schedule_metadata.ecs.find(
                     (e) => e.arn === serviceArn && e.action === 'stop' && e.status === 'success'
                 );
-                if (ecsResource && ecsResource.last_state.desiredCount > 0) {
-                    logger.debug(`Found last ECS state for ${serviceArn}: desiredCount=${ecsResource.last_state.desiredCount}`);
-                    return { desiredCount: ecsResource.last_state.desiredCount };
+
+                if (ecsResource) {
+                    // Capture desiredCount if not yet found and valid
+                    if (foundDesiredCount === undefined && ecsResource.last_state.desiredCount > 0) {
+                        foundDesiredCount = ecsResource.last_state.desiredCount;
+                    }
+
+                    // Capture asg_state if not yet found and valid
+                    if (foundAsgState === undefined && ecsResource.last_state.asg_state && ecsResource.last_state.asg_state.length > 0) {
+                        foundAsgState = ecsResource.last_state.asg_state;
+                    }
+
+                    // If we have both, we can stop searching
+                    if (foundDesiredCount !== undefined && foundAsgState !== undefined) {
+                        break;
+                    }
                 }
             }
+        }
+
+        if (foundDesiredCount !== undefined) {
+            logger.debug(`Found last ECS state for ${serviceArn}: desiredCount=${foundDesiredCount}, hasAsgState=${!!foundAsgState}`);
+            return {
+                desiredCount: foundDesiredCount,
+                asg_state: foundAsgState
+            };
         }
 
         logger.debug(`No previous ECS state found for ${serviceArn}`);

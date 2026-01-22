@@ -123,6 +123,12 @@ export interface ECSResourceExecution {
         runningCount: number;
         pendingCount?: number;
         status?: string;
+        asg_state?: {
+            name: string;
+            minSize: number;
+            maxSize: number;
+            desiredCapacity: number;
+        }[];
     };
 }
 
