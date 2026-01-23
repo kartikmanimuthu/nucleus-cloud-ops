@@ -182,7 +182,12 @@ export function SchedulesTable({
                 </TableCell>
                 <TableCell>
                   <div className="space-y-1">
-                    <div className="font-medium">{schedule.name}</div>
+                    <button
+                      onClick={() => router.push(`/schedules/${encodeURIComponent(schedule.id)}`)}
+                      className="font-medium text-left hover:text-primary hover:underline transition-colors cursor-pointer"
+                    >
+                      {schedule.name}
+                    </button>
                     <div className="text-sm text-muted-foreground line-clamp-2">
                       {schedule.description || "No description"}
                     </div>

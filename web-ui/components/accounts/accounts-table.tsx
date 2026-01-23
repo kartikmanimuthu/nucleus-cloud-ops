@@ -195,9 +195,12 @@ export function AccountsTable({
                 >
                   <TableCell>
                     <div className="space-y-1">
-                      <div className="font-medium">
+                      <button
+                        onClick={() => router.push(`/accounts/${encodeURIComponent(account.accountId)}`)}
+                        className="font-medium text-left hover:text-primary hover:underline transition-colors cursor-pointer"
+                      >
                         {account.name || "Unnamed Account"}
-                      </div>
+                      </button>
                       <div className="text-sm text-muted-foreground">
                         {account.accountId}
                       </div>
