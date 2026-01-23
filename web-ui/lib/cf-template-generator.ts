@@ -69,7 +69,12 @@ export const generateOnboardingTemplate = (hubAccountId: string, externalId: str
                                             "ecs:ListTagsForResource",
                                             "rds:ListTagsForResource",
                                             "autoscaling:DescribeAutoScalingGroups",
-                                            "autoscaling:UpdateAutoScalingGroup"
+                                            "autoscaling:UpdateAutoScalingGroup",
+                                            "kms:CreateGrant",
+                                            "kms:Decrypt",
+                                            "kms:DescribeKey",
+                                            "kms:GenerateDataKeyWithoutPlainText",
+                                            "kms:ReEncrypt"
                                         ],
                                         Resource: "*"
                                     }
@@ -149,6 +154,11 @@ Resources:
                   - rds:ListTagsForResource
                   - autoscaling:DescribeAutoScalingGroups
                   - autoscaling:UpdateAutoScalingGroup
+                  - kms:CreateGrant
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                  - kms:GenerateDataKeyWithoutPlainText
+                  - kms:ReEncrypt
                 Resource: '*'
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/ReadOnlyAccess
