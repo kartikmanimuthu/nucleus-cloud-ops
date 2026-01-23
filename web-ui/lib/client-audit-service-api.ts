@@ -11,6 +11,10 @@ export interface AuditLogFilters {
     resourceType?: string;
     user?: string;
     correlationId?: string;
+    executionId?: string;
+    resourceId?: string;
+    ipAddress?: string;
+    source?: string;
     searchTerm?: string;
     limit?: number;
     nextPageToken?: string;
@@ -42,7 +46,7 @@ export class ClientAuditService {
     /**
      * Fetch audit logs via API route
      */
-    static async getAuditLogs(filters: AuditLogFilters = {}): Promise<AuditLog[]> {
+    static async getAuditLogs(filters: AuditLogFilters = {}): Promise<AuditLogResponse> {
         try {
             console.log('ClientAuditService - Fetching audit logs via API route');
 
@@ -76,7 +80,10 @@ export class ClientAuditService {
             }
 
             console.log('ClientAuditService - Successfully fetched audit logs:', result.data.length);
-            return result.data;
+            return {
+                logs: result.data,
+                nextPageToken: result.nextPageToken
+            };
         } catch (error) {
             console.error('ClientAuditService - Error fetching audit logs:', error);
             throw error;

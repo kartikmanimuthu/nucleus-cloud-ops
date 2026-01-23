@@ -13,6 +13,10 @@ export interface AuditLogFilters {
     resourceType?: string;
     user?: string;
     correlationId?: string;
+    executionId?: string;
+    resourceId?: string;
+    ipAddress?: string;
+    source?: string;
     searchTerm?: string;
     limit?: number;
     nextPageToken?: string;
@@ -114,107 +118,129 @@ export class AuditService {
             const limit = filters?.limit || 20;
             const startKey = filters?.nextPageToken ? JSON.parse(Buffer.from(filters.nextPageToken, 'base64').toString('utf-8')) : undefined;
 
+            // Build FilterExpression for non-key attributes
+            const filterExpressions: string[] = [];
+            const expressionAttributeValues: Record<string, any> = {};
+            const expressionAttributeNames: Record<string, string> = {};
+
+            if (filters) {
+                if (filters.status && filters.status !== 'all') {
+                    filterExpressions.push('#status = :status');
+                    expressionAttributeNames['#status'] = 'status';
+                    expressionAttributeValues[':status'] = filters.status;
+                }
+                if (filters.severity && filters.severity !== 'all') {
+                    filterExpressions.push('#severity = :severity');
+                    expressionAttributeNames['#severity'] = 'severity';
+                    expressionAttributeValues[':severity'] = filters.severity;
+                }
+                if (filters.resourceType) {
+                    filterExpressions.push('#resourceType = :resourceType');
+                    expressionAttributeNames['#resourceType'] = 'resourceType';
+                    expressionAttributeValues[':resourceType'] = filters.resourceType;
+                }
+                if (filters.correlationId) {
+                    filterExpressions.push('correlationId = :correlationId');
+                    expressionAttributeValues[':correlationId'] = filters.correlationId;
+                }
+                if (filters.executionId) {
+                    filterExpressions.push('executionId = :executionId');
+                    expressionAttributeValues[':executionId'] = filters.executionId;
+                }
+                if (filters.resourceId) {
+                    filterExpressions.push('resourceId = :resourceId');
+                    expressionAttributeValues[':resourceId'] = filters.resourceId;
+                }
+                if (filters.ipAddress) {
+                    filterExpressions.push('ipAddress = :ipAddress');
+                    expressionAttributeValues[':ipAddress'] = filters.ipAddress;
+                }
+                if (filters.source && filters.source !== 'all') {
+                    filterExpressions.push('#source = :source');
+                    expressionAttributeNames['#source'] = 'source';
+                    expressionAttributeValues[':source'] = filters.source;
+                }
+            }
+
+            const baseQueryConfig = {
+                TableName: AUDIT_TABLE_NAME,
+                ScanIndexForward: false, // Descending (Newest first)
+                Limit: limit,
+                ExclusiveStartKey: startKey,
+                FilterExpression: filterExpressions.length > 0 ? filterExpressions.join(' AND ') : undefined,
+                ExpressionAttributeValues: Object.keys(expressionAttributeValues).length > 0 ? expressionAttributeValues : undefined,
+                ExpressionAttributeNames: Object.keys(expressionAttributeNames).length > 0 ? expressionAttributeNames : undefined
+            };
+
             // Strategy: Use specialized GSIs if specific filters are present, otherwise GSI1 (Global Time-based)
 
             // Case 1: Filter by User (GSI2)
             // USER#<user> -> timestamp
             if (filters?.user && filters.user !== 'all') {
                 command = new QueryCommand({
-                    TableName: AUDIT_TABLE_NAME,
+                    ...baseQueryConfig,
                     IndexName: 'GSI2',
                     KeyConditionExpression: filters.startDate && filters.endDate
                         ? 'gsi2pk = :pkVal AND gsi2sk BETWEEN :startDate AND :endDate'
                         : 'gsi2pk = :pkVal AND gsi2sk <= :endDate',
-
                     ExpressionAttributeValues: {
+                        ...baseQueryConfig.ExpressionAttributeValues,
                         ':pkVal': `USER#${filters.user}`,
                         ':endDate': filters.endDate || new Date().toISOString(),
                         ...(filters.startDate && filters.endDate ? { ':startDate': filters.startDate } : {})
-                    },
-                    ScanIndexForward: false, // Descending (Newest first)
-                    Limit: limit,
-                    ExclusiveStartKey: startKey
+                    }
                 });
             }
             // Case 2: Filter by EventType (GSI3)
             // EVENT#<eventType> -> timestamp
             else if (filters?.eventType && filters.eventType !== 'all') {
-
-                // Note: eventType in dropdown might be simple, but stored as 'resource.action'.
-                // We need to ensure exact match or partial. GSI is exact match on PK.
-                // Assuming the UI passes exact eventType string used in creation.
                 command = new QueryCommand({
-                    TableName: AUDIT_TABLE_NAME,
+                    ...baseQueryConfig,
                     IndexName: 'GSI3',
                     KeyConditionExpression: filters.startDate && filters.endDate
                         ? 'gsi3pk = :pkVal AND gsi3sk BETWEEN :startDate AND :endDate'
                         : 'gsi3pk = :pkVal AND gsi3sk <= :endDate',
                     ExpressionAttributeValues: {
+                        ...baseQueryConfig.ExpressionAttributeValues,
                         ':pkVal': `EVENT#${filters.eventType}`,
                         ':endDate': filters.endDate || new Date().toISOString(),
                         ...(filters.startDate && filters.endDate ? { ':startDate': filters.startDate } : {})
-                    },
-                    ScanIndexForward: false,
-                    Limit: limit,
-                    ExclusiveStartKey: startKey
+                    }
                 });
             }
             // Case 3: Global Time Range (GSI1)
             // TYPE#LOG -> timestamp
             else {
                 command = new QueryCommand({
-                    TableName: AUDIT_TABLE_NAME,
+                    ...baseQueryConfig,
                     IndexName: 'GSI1',
                     KeyConditionExpression: filters?.startDate && filters?.endDate
                         ? 'gsi1pk = :pkVal AND gsi1sk BETWEEN :startDate AND :endDate'
                         : 'gsi1pk = :pkVal AND gsi1sk <= :endDate',
                     ExpressionAttributeValues: {
+                        ...baseQueryConfig.ExpressionAttributeValues,
                         ':pkVal': 'TYPE#LOG',
                         ':endDate': filters?.endDate || new Date().toISOString(),
                         ...(filters?.startDate && filters?.endDate ? { ':startDate': filters.startDate } : {})
-                    },
-                    ScanIndexForward: false, // Newest first
-                    Limit: limit,
-                    ExclusiveStartKey: startKey
+                    }
                 });
             }
 
             const response = await getDynamoDBDocumentClient().send(command);
             let auditLogs = (response.Items || []).map(this.transformToAuditLog);
 
+            // Client-side filtering check (Search Term is hard to do with DynamoDB FilterExpression due to case sensitivity)
             // Filter out scheduler individual resource events (ec2/ecs/rds start/stop/error)
-            // These are already captured in the scheduler.complete event metadata
             const schedulerResourceEventPattern = /^scheduler\.(ec2|ecs|rds)\.(start|stop|error)$/;
             auditLogs = auditLogs.filter(l => !schedulerResourceEventPattern.test(l.eventType || ''));
 
-            // In-memory filtering for attributes NOT covered by Index keys (Severity, Status, ResourceType etc.)
-            // Note: Efficient pagination requires these to be FilterExpressions in the Query, but for complex combinations
-            // we often mix Query + Filter.
-            // Let's add FilterExpression to the Query if possible?
-            // DynamoDB Query FilterExpression is applied AFTER retrieval but BEFORE limit is applied?
-            // NO, it's applied after retrieval, consuming RCU for skipped items.
-            // For now, let's keep the backend logic simple and rely on client or "good enough" filtering
-            // OR apply in-memory filtering here, but that messes up pagination page size (might return < limit items).
-
-            // To be robust:
-            if (filters) {
-                if (filters.status && filters.status !== 'all') {
-                    auditLogs = auditLogs.filter(l => l.status === filters.status);
-                }
-                if (filters.severity) {
-                    auditLogs = auditLogs.filter(l => l.severity === filters.severity);
-                }
-                if (filters.resourceType) {
-                    auditLogs = auditLogs.filter(l => l.resourceType === filters.resourceType);
-                }
-                if (filters.searchTerm) {
-                    const term = filters.searchTerm.toLowerCase();
-                    auditLogs = auditLogs.filter(l =>
-                        (l.action?.toLowerCase() || '').includes(term) ||
-                        (l.details?.toLowerCase() || '').includes(term) ||
-                        (l.user?.toLowerCase() || '').includes(term)
-                    );
-                }
+            if (filters?.searchTerm) {
+                const term = filters.searchTerm.toLowerCase();
+                auditLogs = auditLogs.filter(l =>
+                    (l.action?.toLowerCase() || '').includes(term) ||
+                    (l.details?.toLowerCase() || '').includes(term) ||
+                    (l.user?.toLowerCase() || '').includes(term)
+                );
             }
 
             const nextPageToken = response.LastEvaluatedKey

@@ -31,6 +31,8 @@ import {
   XCircle,
   User,
   Server,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { AuditLogsTable } from "@/components/audit/audit-logs-table";
 import { AuditLogsChart } from "@/components/audit/audit-logs-chart";
@@ -38,9 +40,8 @@ import { ExportAuditDialog } from "@/components/audit/export-audit-dialog";
 import { AuditFilters } from "@/components/audit/audit-filters";
 import { addDays } from "date-fns";
 import { AuditLog } from "@/lib/types";
-import { AuditLogFilters } from "@/lib/client-audit-service";
+import { AuditLogFilters, ClientAuditService } from "@/lib/client-audit-service-api";
 import type { DateRange } from "react-day-picker";
-import { ClientAuditService } from "@/lib/client-audit-service-api";
 
 interface AuditStats {
   totalLogs: number;
@@ -90,7 +91,6 @@ export default function AuditClient({
         to: initialFilters.endDate ? new Date(initialFilters.endDate) : new Date(),
       };
     }
-    // Default to last 7 days
     return {
       from: addDays(new Date(), -7),
       to: new Date(),
@@ -98,6 +98,13 @@ export default function AuditClient({
   });
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  
+  // Pagination State
+  const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
+  const [currentToken, setCurrentToken] = useState<string | undefined>(undefined);
+  const [pageHistory, setPageHistory] = useState<string[]>([]);
+  const [advancedFilters, setAdvancedFilters] = useState<any>({});
+
   
   // Debounced search term setter
   // const debouncedSetSearchTerm = useDebouncedCallback((value: string) => {
@@ -119,7 +126,7 @@ export default function AuditClient({
   }, [selectedEventType, selectedStatus, selectedUser, dateRange]);
 
   // Fetch audit logs and stats
-  const fetchAuditData = useCallback(async () => {
+  const fetchAuditData = useCallback(async (pageToken?: string) => {
     try {
       setLoading(true);
       setError(null);
@@ -128,21 +135,30 @@ export default function AuditClient({
       updateUrlWithFilters();
 
       // Build filters
-      const filters: AuditLogFilters = {};
+      const filters: AuditLogFilters = {
+        ...advancedFilters // Merge advanced filters
+      };
+      
       if (selectedEventType !== "all") filters.eventType = selectedEventType;
       if (selectedStatus !== "all") filters.status = selectedStatus;
       if (selectedUser !== "all") filters.user = selectedUser;
       if (dateRange?.from) filters.startDate = dateRange.from.toISOString();
       if (dateRange?.to) filters.endDate = dateRange.to.toISOString();
+      
+      if (pageToken) {
+        filters.nextPageToken = pageToken;
+      }
 
       // Fetch logs and stats in parallel
-      const [logs, stats] = await Promise.all([
+      const [logsResponse, stats] = await Promise.all([
         ClientAuditService.getAuditLogs(filters),
         ClientAuditService.getAuditLogStats(filters),
       ]);
 
-      setAuditLogs(logs);
-      setFilteredLogs(logs);
+      setAuditLogs(logsResponse.logs);
+      setFilteredLogs(logsResponse.logs);
+      setNextPageToken(logsResponse.nextPageToken);
+      
       setStats({
         totalLogs: stats.totalLogs || 0,
         errorCount: stats.errorCount || 0,
@@ -155,7 +171,7 @@ export default function AuditClient({
     } finally {
       setLoading(false);
     }
-  }, [selectedEventType, selectedStatus, selectedUser, dateRange, updateUrlWithFilters]);
+  }, [selectedEventType, selectedStatus, selectedUser, dateRange, updateUrlWithFilters, advancedFilters]);
 
   // Track if this is the first render
   const isFirstRender = useIsFirstRender();
@@ -201,9 +217,12 @@ export default function AuditClient({
     
     // Fetch fresh data when filters change (skip on initial render)
     if (!isFirstRender) {
+      setPageHistory([]); // Reset history on filter change
+      setNextPageToken(undefined);
+      setCurrentToken(undefined);
       fetchAuditData();
     }
-  }, [selectedEventType, selectedStatus, selectedUser, dateRange, fetchAuditData, isFirstRender]);
+  }, [selectedEventType, selectedStatus, selectedUser, dateRange, advancedFilters, fetchAuditData, isFirstRender]);
   
   // Filter logs based on search term (client-side for performance)
   useEffect(() => {
@@ -226,6 +245,9 @@ export default function AuditClient({
 
 
   const handleRefresh = () => {
+    setPageHistory([]);
+    setNextPageToken(undefined);
+    setCurrentToken(undefined);
     fetchAuditData();
   };
 
@@ -238,6 +260,11 @@ export default function AuditClient({
       from: addDays(new Date(), -7),
       to: new Date(),
     });
+    setAdvancedFilters({}); // Clear advanced filters
+    setAdvancedFilters({}); // Clear advanced filters
+    setPageHistory([]);
+    setNextPageToken(undefined);
+    setCurrentToken(undefined);
   };
 
   const handleDateRangeChange = (range: DateRange | undefined) => {
@@ -275,6 +302,31 @@ export default function AuditClient({
   const getUserLabel = (value: string) => {
     if (value === "all") return "All Users";
     return value;
+  };
+
+  const handleAdvancedFiltersChange = (filters: any) => {
+    console.log("Advanced filters changed:", filters);
+    setAdvancedFilters(filters);
+    // Effects will trigger fetch
+  };
+
+  const handleNextPage = () => {
+    if (nextPageToken) {
+       // Save current start token to history
+       setPageHistory([...pageHistory, currentToken as string]); 
+       setCurrentToken(nextPageToken);
+       fetchAuditData(nextPageToken);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (pageHistory.length > 0) {
+      const newHistory = [...pageHistory];
+      const prevToken = newHistory.pop();
+      setPageHistory(newHistory);
+      setCurrentToken(prevToken);
+      fetchAuditData(prevToken);
+    }
   };
 
   if (loading) {
@@ -546,7 +598,9 @@ export default function AuditClient({
           </div>
 
           {/* Advanced Filters */}
-          {showAdvancedFilters && <AuditFilters />}
+          {showAdvancedFilters && (
+              <AuditFilters onFiltersChange={handleAdvancedFiltersChange} />
+          )}
         </CardContent>
       </Card>
 
@@ -585,6 +639,32 @@ export default function AuditClient({
           </Card>
         </TabsContent>
       </Tabs>
+      
+        {/* Pagination Controls */}
+      {/* Pagination Controls */}
+      <div className="flex items-center justify-end space-x-2 py-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handlePrevPage}
+          disabled={pageHistory.length === 0 || loading}
+        >
+          <ChevronLeft className="h-4 w-4 mr-2" />
+          Previous
+        </Button>
+        <div className="text-sm font-medium">
+            Page {pageHistory.length + 1}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleNextPage}
+          disabled={!nextPageToken || loading}
+        >
+          Next
+          <ChevronRight className="h-4 w-4 ml-2" />
+        </Button>
+      </div>
 
       {/* Export Dialog */}
       <ExportAuditDialog
