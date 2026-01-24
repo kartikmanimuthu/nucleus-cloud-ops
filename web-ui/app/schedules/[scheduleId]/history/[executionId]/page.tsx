@@ -136,7 +136,7 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
   }
 
   // Filter resources to only show start/stop actions (exclude skip)
-  const metadata = execution.schedule_metadata || { ec2: [], rds: [], ecs: [], asg: [] };
+  const metadata = execution.schedule_metadata || { ec2: [], rds: [], ecs: [], asg: [], docdb: [] };
   const filterActioned = (resources: any[]) => 
     (resources || []).filter((r: any) => r.action === 'start' || r.action === 'stop');
   
@@ -144,7 +144,8 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
   const rdsResources = filterActioned(metadata.rds);
   const ecsResources = filterActioned(metadata.ecs);
   const asgResources = filterActioned(metadata.asg);
-  const totalResources = ec2Resources.length + rdsResources.length + ecsResources.length + asgResources.length;
+  const docdbResources = filterActioned(metadata.docdb);
+  const totalResources = ec2Resources.length + rdsResources.length + ecsResources.length + asgResources.length + docdbResources.length;
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -261,19 +262,22 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="all" className="w-full">
-              <TabsList className="grid w-full grid-cols-5">
-                <TabsTrigger value="all">All Resources</TabsTrigger>
-                <TabsTrigger value="ec2" disabled={ec2Resources.length === 0}>
+              <TabsList className="w-full h-auto flex flex-wrap justify-start gap-2 bg-transparent p-0">
+                <TabsTrigger value="all" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">All Resources</TabsTrigger>
+                <TabsTrigger value="ec2" disabled={ec2Resources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
                   EC2 ({ec2Resources.length})
                 </TabsTrigger>
-                <TabsTrigger value="rds" disabled={rdsResources.length === 0}>
+                <TabsTrigger value="rds" disabled={rdsResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
                   RDS ({rdsResources.length})
                 </TabsTrigger>
-                <TabsTrigger value="ecs" disabled={ecsResources.length === 0}>
+                <TabsTrigger value="ecs" disabled={ecsResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
                   ECS ({ecsResources.length})
                 </TabsTrigger>
-                <TabsTrigger value="asg" disabled={asgResources.length === 0}>
+                <TabsTrigger value="asg" disabled={asgResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
                   ASG ({asgResources.length})
+                </TabsTrigger>
+                <TabsTrigger value="docdb" disabled={docdbResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
+                  DocDB ({docdbResources.length})
                 </TabsTrigger>
               </TabsList>
 
@@ -317,6 +321,14 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
                         type="asg"
                       />
                     )}
+                    {docdbResources.length > 0 && (
+                      <ResourceSection
+                        title="DocumentDB Clusters"
+                        icon={<Database className="h-4 w-4" />}
+                        resources={docdbResources}
+                        type="docdb"
+                      />
+                    )}
                   </div>
                 )}
               </TabsContent>
@@ -356,6 +368,15 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
                   type="asg"
                 />
               </TabsContent>
+
+              <TabsContent value="docdb" className="mt-4">
+                <ResourceSection
+                  title="DocumentDB Clusters"
+                  icon={<Database className="h-4 w-4" />}
+                  resources={docdbResources}
+                  type="docdb"
+                />
+              </TabsContent>
             </Tabs>
           </CardContent>
         </Card>
@@ -373,7 +394,7 @@ function ResourceSection({
   title: string;
   icon: React.ReactNode;
   resources: any[];
-  type: "ec2" | "rds" | "ecs" | "asg";
+  type: "ec2" | "rds" | "ecs" | "asg" | "docdb";
 }) {
   if (resources.length === 0) {
     return (

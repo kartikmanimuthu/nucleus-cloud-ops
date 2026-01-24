@@ -5,7 +5,7 @@ import { AccountMetadata, UIAccount } from './types';
 import { AuditService } from './audit-service';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { ECSClient, ListClustersCommand, ListServicesCommand, DescribeServicesCommand, DescribeCapacityProvidersCommand, ListClustersCommandOutput, ListServicesCommandOutput, DescribeCapacityProvidersCommandOutput, DescribeServicesCommandOutput } from '@aws-sdk/client-ecs';
-import { RDSClient, DescribeDBInstancesCommand, DescribeDBInstancesCommandOutput } from '@aws-sdk/client-rds';
+import { RDSClient, DescribeDBInstancesCommand, DescribeDBInstancesCommandOutput, DescribeDBClustersCommand, DescribeDBClustersCommandOutput } from '@aws-sdk/client-rds';
 import { EC2Client, DescribeInstancesCommand, DescribeInstancesCommandOutput } from '@aws-sdk/client-ec2';
 import { AutoScalingClient, DescribeAutoScalingGroupsCommand, DescribeAutoScalingGroupsCommandOutput } from '@aws-sdk/client-auto-scaling';
 
@@ -567,7 +567,7 @@ export class AccountService {
     /**
      * Scan resources (EC2, ECS, RDS, ASG) for a given account
      */
-    static async scanResources(accountId: string, tenantId: string = DEFAULT_TENANT_ID): Promise<Array<{ id: string; type: 'ec2' | 'ecs' | 'rds' | 'asg'; name: string; arn: string; clusterArn?: string }>> {
+    static async scanResources(accountId: string, tenantId: string = DEFAULT_TENANT_ID): Promise<Array<{ id: string; type: 'ec2' | 'ecs' | 'rds' | 'asg' | 'docdb'; name: string; arn: string; clusterArn?: string }>> {
         try {
             console.log(`AccountService - Scanning resources for account: ${accountId}`);
 
@@ -597,7 +597,7 @@ export class AccountService {
                 sessionToken: stsResponse.Credentials.SessionToken!,
             };
 
-            const resources: Array<{ id: string; type: 'ec2' | 'ecs' | 'rds' | 'asg'; name: string; arn: string; clusterArn?: string }> = [];
+            const resources: Array<{ id: string; type: 'ec2' | 'ecs' | 'rds' | 'asg' | 'docdb'; name: string; arn: string; clusterArn?: string }> = [];
 
             // 2. Scan EC2 (excluding ASG-managed instances)
             try {
@@ -708,6 +708,11 @@ export class AccountService {
                 do {
                     const rdsResponse: DescribeDBInstancesCommandOutput = await rdsClient.send(new DescribeDBInstancesCommand({ Marker: marker }));
                     rdsResponse.DBInstances?.forEach(instance => {
+                        // Filter out DocumentDB instances (Engine = 'docdb')
+                        if (instance.Engine === 'docdb') {
+                            return;
+                        }
+
                         if (instance.DBInstanceIdentifier) {
                             resources.push({
                                 id: instance.DBInstanceIdentifier,
@@ -719,6 +724,27 @@ export class AccountService {
                     });
                     marker = rdsResponse.Marker;
                 } while (marker);
+
+                // Scan DocumentDB Clusters
+                let clusterMarker: string | undefined = undefined;
+                do {
+                    const docDbResponse: DescribeDBClustersCommandOutput = await rdsClient.send(new DescribeDBClustersCommand({
+                        Marker: clusterMarker,
+                        Filters: [{ Name: 'engine', Values: ['docdb'] }]
+                    }));
+
+                    docDbResponse.DBClusters?.forEach(cluster => {
+                        if (cluster.DBClusterIdentifier) {
+                            resources.push({
+                                id: cluster.DBClusterIdentifier,
+                                type: 'docdb',
+                                name: cluster.DBClusterIdentifier,
+                                arn: cluster.DBClusterArn || `arn:aws:rds:${region}:${accountId}:cluster:${cluster.DBClusterIdentifier}`
+                            });
+                        }
+                    });
+                    clusterMarker = docDbResponse.Marker;
+                } while (clusterMarker);
 
             } catch (e) {
                 console.error('Error scanning RDS:', e);

@@ -25,7 +25,7 @@ import {
     processRDSResource,
     processECSResource,
     processASGResource,
-
+    processDocDBResource,
 } from '../resource-schedulers/index.js';
 import { isCurrentTimeInRange } from '../utils/time-utils.js';
 import type {
@@ -302,6 +302,7 @@ async function processSchedule(
         ecs: [],
         rds: [],
         asg: [],
+        docdb: [],
     };
 
     let started = 0;
@@ -403,6 +404,12 @@ async function processSchedule(
                             }
                             const result = await processASGResource(resource, schedule, action, credentials, metadata, lastState);
                             scheduleMetadata.asg.push(result);
+
+                            updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
+                        } else if (resource.type === 'docdb') {
+                            // For DocumentDB, we currently don't use lastState for simple Start/Stop
+                            const result = await processDocDBResource(resource, schedule, action, credentials, metadata, undefined);
+                            scheduleMetadata.docdb.push(result);
                             updateCounts(result, action, { started: () => started++, stopped: () => stopped++, failed: () => failed++ });
                         }
                     } catch (error) {

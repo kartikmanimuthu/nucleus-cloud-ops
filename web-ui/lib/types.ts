@@ -12,7 +12,7 @@ export interface Schedule {
     accountId?: string; // Account ID this schedule applies to (required in new schema)
     resources?: Array<{ // Selected resources
         id: string;
-        type: 'ec2' | 'ecs' | 'rds' | 'asg';
+        type: 'ec2' | 'ecs' | 'rds' | 'asg' | 'docdb';
         name?: string;
         arn?: string; // AWS ARN for the resource
         clusterArn?: string; // ECS cluster ARN (for ECS services)

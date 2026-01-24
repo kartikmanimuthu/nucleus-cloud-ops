@@ -17,7 +17,6 @@ import {
   ArrowLeft,
   Edit,
   RefreshCw,
-  Trash2,
   CheckCircle,
   XCircle,
   AlertTriangle,
@@ -33,7 +32,7 @@ import {
 } from "lucide-react";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
-import { DeleteAccountDialog } from "@/components/accounts/delete-account-dialog";
+
 
 interface AccountDetailPageProps {
   params: Promise<{
@@ -77,7 +76,6 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
   const [account, setAccount] = useState<UIAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [deletingAccount, setDeletingAccount] = useState(false);
   const [validatingConnection, setValidatingConnection] = useState(false);
   
   // State for schedules, resources, and activity
@@ -87,6 +85,28 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
   const [loadingSchedules, setLoadingSchedules] = useState(false);
   const [loadingResources, setLoadingResources] = useState(false);
   const [loadingActivity, setLoadingActivity] = useState(false);
+
+  // Pagination state for activity
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(activity.length / itemsPerPage);
+  
+  const paginatedActivity = activity.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(prev => prev + 1);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(prev => prev - 1);
+    }
+  };
 
   const loadAccount = async () => {
     try {
@@ -311,16 +331,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
           >
             <Edit className="mr-2 h-4 w-4" />
             Edit
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setDeletingAccount(true)}
-            className="text-destructive hover:text-red-700"
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete
-          </Button>
-        </div>
+          </Button>        </div>
       </div>
 
       <Tabs defaultValue="overview" className="w-full">
@@ -710,7 +721,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {activity.map((activityItem) => (
+                  {paginatedActivity.map((activityItem) => (
                     <div
                       key={activityItem.id}
                       className="flex items-start space-x-4 p-4 border rounded-lg"
@@ -739,19 +750,41 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                   ))}
                 </div>
               )}
+              
+              {/* Pagination Controls */}
+              {activity.length > 0 && (
+                <div className="flex items-center justify-between mt-4">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, activity.length)} of {activity.length} entries
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePrevPage}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    <div className="text-sm font-medium">
+                      Page {currentPage} of {totalPages || 1}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleNextPage}
+                      disabled={currentPage >= totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {/* Delete Dialog */}
-      {deletingAccount && (
-        <DeleteAccountDialog
-          account={account}
-          open={deletingAccount}
-          onOpenChange={setDeletingAccount}
-        />
-      )}
     </div>
   );
 }

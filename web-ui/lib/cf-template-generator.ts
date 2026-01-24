@@ -62,6 +62,9 @@ export const generateOnboardingTemplate = (hubAccountId: string, externalId: str
                                             "rds:DescribeDBInstances",
                                             "rds:StartDBInstance",
                                             "rds:StopDBInstance",
+                                            "rds:StartDBCluster",
+                                            "rds:StopDBCluster",
+                                            "rds:DescribeDBClusters",
                                             "ecs:ListClusters",
                                             "ecs:ListServices",
                                             "ecs:DescribeServices",
@@ -146,6 +149,9 @@ Resources:
                   - rds:DescribeDBInstances
                   - rds:StartDBInstance
                   - rds:StopDBInstance
+                  - rds:StartDBCluster
+                  - rds:StopDBCluster
+                  - rds:DescribeDBClusters
                   - ecs:ListClusters
                   - ecs:ListServices
                   - ecs:DescribeServices

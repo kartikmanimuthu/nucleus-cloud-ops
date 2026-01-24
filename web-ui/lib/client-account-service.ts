@@ -281,7 +281,7 @@ export class ClientAccountService {
     /**
      * Scan resources for an account via API route
      */
-    static async scanResources(accountId: string): Promise<Array<{ id: string; type: 'ec2' | 'ecs' | 'rds' | 'asg'; name: string; arn: string }>> {
+    static async scanResources(accountId: string): Promise<Array<{ id: string; type: 'ec2' | 'ecs' | 'rds' | 'asg' | 'docdb'; name: string; arn: string }>> {
         try {
             console.log('ClientAccountService - Scanning resources for account:', accountId);
             const response = await fetch(`${this.baseUrl}/${encodeURIComponent(accountId)}/scan`, {

@@ -86,11 +86,12 @@ export function ExecutionDetailsDialog({
     }
   };
 
-  const metadata = execution.schedule_metadata || { ec2: [], rds: [], ecs: [] };
+  const metadata = execution.schedule_metadata || { ec2: [], rds: [], ecs: [], asg: [], docdb: [] };
   const ec2Resources = metadata.ec2 || [];
   const rdsResources = metadata.rds || [];
   const ecsResources = metadata.ecs || [];
   const asgResources = metadata.asg || [];
+  const docdbResources = metadata.docdb || [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -150,19 +151,22 @@ export function ExecutionDetailsDialog({
 
             {/* Resources Tabs */}
             <Tabs defaultValue="all" className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="all">All Resources</TabsTrigger>
-                <TabsTrigger value="ec2" disabled={ec2Resources.length === 0}>
+              <TabsList className="w-full h-auto flex flex-wrap justify-start gap-2 bg-transparent p-0">
+                <TabsTrigger value="all" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[80px]">All Resources</TabsTrigger>
+                <TabsTrigger value="ec2" disabled={ec2Resources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[80px]">
                   EC2 ({ec2Resources.length})
                 </TabsTrigger>
-                <TabsTrigger value="rds" disabled={rdsResources.length === 0}>
+                <TabsTrigger value="rds" disabled={rdsResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[80px]">
                   RDS ({rdsResources.length})
                 </TabsTrigger>
-                <TabsTrigger value="ecs" disabled={ecsResources.length === 0}>
+                <TabsTrigger value="ecs" disabled={ecsResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[80px]">
                   ECS ({ecsResources.length})
                 </TabsTrigger>
-                <TabsTrigger value="asg" disabled={asgResources.length === 0}>
+                <TabsTrigger value="asg" disabled={asgResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[80px]">
                   ASG ({asgResources.length})
+                </TabsTrigger>
+                <TabsTrigger value="docdb" disabled={docdbResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[80px]">
+                  DocDB ({docdbResources.length})
                 </TabsTrigger>
               </TabsList>
 
@@ -170,7 +174,8 @@ export function ExecutionDetailsDialog({
                 {ec2Resources.length === 0 &&
                 rdsResources.length === 0 &&
                 ecsResources.length === 0 &&
-                asgResources.length === 0 ? (
+                asgResources.length === 0 &&
+                docdbResources.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
                     <p>No detailed resource information available.</p>
@@ -207,6 +212,14 @@ export function ExecutionDetailsDialog({
                         icon={<Cpu className="h-4 w-4" />}
                         resources={asgResources}
                         type="asg"
+                      />
+                    )}
+                    {docdbResources.length > 0 && (
+                      <ResourceSection
+                        title="DocumentDB Clusters"
+                        icon={<Database className="h-4 w-4" />}
+                        resources={docdbResources}
+                        type="docdb"
                       />
                     )}
                   </div>
@@ -248,6 +261,15 @@ export function ExecutionDetailsDialog({
                   type="asg"
                 />
               </TabsContent>
+
+              <TabsContent value="docdb" className="mt-4">
+                <ResourceSection
+                  title="DocumentDB Clusters"
+                  icon={<Database className="h-4 w-4" />}
+                  resources={docdbResources}
+                  type="docdb"
+                />
+              </TabsContent>
             </Tabs>
           </div>
         </div>
@@ -265,7 +287,7 @@ function ResourceSection({
   title: string;
   icon: React.ReactNode;
   resources: any[];
-  type: "ec2" | "rds" | "ecs" | "asg";
+  type: "ec2" | "rds" | "ecs" | "asg" | "docdb";
 }) {
   return (
     <Card>
