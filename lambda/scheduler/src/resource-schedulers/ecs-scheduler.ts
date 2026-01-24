@@ -490,8 +490,9 @@ async function isClusterIdle(clusterArn: string, excludedServiceName: string, ec
                     continue;
                 }
 
-                // If any other service has desiredCount > 0 or runningCount > 0, the cluster is NOT idle
-                if ((svc.desiredCount || 0) > 0 || (svc.runningCount || 0) > 0) {
+                // If any other service has desiredCount > 0, the cluster is NOT idle
+                // We ignore runningCount because if desiredCount is 0, the tasks are draining and we should proceed with shutdown
+                if ((svc.desiredCount || 0) > 0) {
                     return false;
                 }
             }

@@ -63,35 +63,67 @@ export async function processDocDBResource(
         log.debug(`DocDB ${resource.id}: currentStatus=${currentStatus}, desiredAction=${action}, lastState=${lastState?.dbClusterStatus || 'none'}`);
 
         // Determine if action is needed
-        if (action === 'start' && currentStatus !== 'available' && currentStatus !== 'starting') {
+        // For Start: Check if cluster is not available OR if it is available but instances are stopped
+        let needsStart = false;
+
+        if (action === 'start') {
+            if (currentStatus !== 'available' && currentStatus !== 'starting') {
+                needsStart = true;
+            } else if (currentStatus === 'available') {
+                // Cluster claims available, but instances might be stopped (common in DocDB/Aurora)
+                const instances = cluster.DBClusterMembers || [];
+                if (instances.length > 0) {
+                    needsStart = true; // Let's try starting it to ensure instances come up.
+                }
+            }
+        }
+
+        if (action === 'start' && needsStart) {
             // Start the cluster
-            await rdsClient.send(new StartDBClusterCommand({ DBClusterIdentifier: resource.id }));
-            log.info(`Started DocDB cluster ${resource.id}`);
+            try {
+                await rdsClient.send(new StartDBClusterCommand({ DBClusterIdentifier: resource.id }));
+                log.info(`Started DocDB cluster ${resource.id}`);
 
-            await createAuditLog({
-                type: 'audit_log',
-                eventType: 'scheduler.docdb.start',
-                action: 'start',
-                user: 'system',
-                userType: 'system',
-                resourceType: 'docdb',
-                resourceId: resource.id,
-                status: 'success',
-                details: `Started DocDB cluster ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
-                severity: 'medium',
-                accountId: metadata.account.accountId,
-                region: metadata.region,
-            });
+                await createAuditLog({
+                    type: 'audit_log',
+                    eventType: 'scheduler.docdb.start',
+                    action: 'start',
+                    user: 'system',
+                    userType: 'system',
+                    resourceType: 'docdb',
+                    resourceId: resource.id,
+                    status: 'success',
+                    details: `Started DocDB cluster ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
+                    severity: 'medium',
+                    accountId: metadata.account.accountId,
+                    region: metadata.region,
+                });
 
-            return {
-                arn: resource.arn,
-                resourceId: resource.id,
-                action: 'start',
-                status: 'success',
-                last_state: {
-                    dbInstanceStatus: currentStatus, // reusing property name for compatibility or define new type
-                },
-            };
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    action: 'start',
+                    status: 'success',
+                    last_state: {
+                        dbInstanceStatus: currentStatus,
+                    },
+                };
+            } catch (err: any) {
+                // If it's already running/available, tolerate it
+                if (err.name === 'InvalidDBClusterStateFault' && err.message.includes('available')) {
+                    log.debug(`DocDB cluster ${resource.id} is already available, skipping start`);
+                    return {
+                        arn: resource.arn,
+                        resourceId: resource.id,
+                        action: 'skip',
+                        status: 'success',
+                        last_state: {
+                            dbInstanceStatus: currentStatus,
+                        },
+                    };
+                }
+                throw err;
+            }
 
         } else if (action === 'stop' && currentStatus === 'available') {
             // Stop the cluster
@@ -166,4 +198,4 @@ export async function processDocDBResource(
             },
         };
     }
-}
+};
