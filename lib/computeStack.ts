@@ -61,6 +61,7 @@ export class ComputeStack extends cdk.Stack {
         const auditTableName = `${stackName}-audit-table`;
         const checkpointTableName = `${appName}-checkpoints-table`;
         const writesTableName = `${appName}-checkpoint-writes-v2-table`;
+        const agentConversationsTableName = `${appName}-agent-conversations`;
 
         // ============================================================================
         // DYNAMODB TABLES (from cdkStack.ts)
@@ -154,6 +155,23 @@ export class ComputeStack extends cdk.Stack {
             sortKey: { name: 'task_id_idx', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
             removalPolicy: cdk.RemovalPolicy.DESTROY,
+        });
+
+        // Agent Conversations Table (for chat/thread persistence with tenant/user scoping)
+        const agentConversationsTable = new dynamodb.Table(this, `${appName}-AgentConversationsTable`, {
+            tableName: agentConversationsTableName,
+            partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+        });
+
+        // GSI for direct thread access by ID
+        agentConversationsTable.addGlobalSecondaryIndex({
+            indexName: 'ThreadIdIndex',
+            partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
+            projectionType: dynamodb.ProjectionType.ALL,
         });
 
         // ============================================================================
@@ -414,6 +432,7 @@ export class ComputeStack extends cdk.Stack {
                 usersTeamsTable.tableArn, `${usersTeamsTable.tableArn}/index/*`,
                 checkpointTable.tableArn, `${checkpointTable.tableArn}/index/*`,
                 writesTable.tableArn, `${writesTable.tableArn}/index/*`,
+                agentConversationsTable.tableArn, `${agentConversationsTable.tableArn}/index/*`,
             ],
         }));
 
@@ -560,6 +579,7 @@ export class ComputeStack extends cdk.Stack {
                 SCHEDULER_LAMBDA_ARN: lambdaFunction.functionArn,
                 EVENTBRIDGE_RULE_NAME: `${appName}-rule`,
                 AGENT_TEMP_BUCKET: agentTempBucket.bucketName,
+                DYNAMODB_AGENT_CONVERSATIONS_TABLE: agentConversationsTable.tableName,
             },
             portMappings: [{ containerPort: 3000, hostPort: 3000, protocol: ecs.Protocol.TCP }],
         });
