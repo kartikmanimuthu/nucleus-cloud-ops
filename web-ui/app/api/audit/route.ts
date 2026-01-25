@@ -3,8 +3,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AuditService, AuditLogFilters } from '@/lib/audit-service';
 import { getDynamoDBDocumentClient, AUDIT_TABLE_NAME } from '@/lib/aws-config';
 import { DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { authorize } from '@/lib/rbac/authorize';
 
 export async function GET(request: NextRequest) {
+    // Authorization check
+    const authError = await authorize('read', 'AuditLog');
+    if (authError) return authError;
+
     try {
         const { searchParams } = new URL(request.url);
 

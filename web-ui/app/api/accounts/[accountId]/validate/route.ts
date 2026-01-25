@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AccountService } from '@/lib/account-service';
+import { authorize } from '@/lib/rbac/authorize';
 
 export async function POST(
     request: NextRequest,
     { params }: { params: Promise<{ accountId: string }> }
 ) {
+    // Check authorization - validate action on Account subject
+    const authError = await authorize('validate', 'Account');
+    if (authError) return authError;
+
     try {
         const { accountId } = await params;
         console.log(`API - Validating account ${accountId}`);

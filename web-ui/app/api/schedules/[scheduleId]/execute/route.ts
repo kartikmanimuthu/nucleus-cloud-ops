@@ -5,6 +5,7 @@ import { ScheduleExecutionService } from "@/lib/schedule-execution-service";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
+import { authorize } from "@/lib/rbac/authorize";
 
 // Lambda ARN from environment
 const SCHEDULER_LAMBDA_ARN = process.env.SCHEDULER_LAMBDA_ARN || "";
@@ -17,6 +18,10 @@ export async function POST(
     request: NextRequest,
     { params }: { params: Promise<{ scheduleId: string }> }
 ) {
+    // Check authorization - execute action on Schedule subject
+    const authError = await authorize('execute', 'Schedule');
+    if (authError) return authError;
+
     try {
         const { scheduleId } = await params;
         console.log(`[API] Execute Now triggered for schedule ${scheduleId}`);

@@ -41,6 +41,7 @@ import { UISchedule } from "@/lib/types";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
 import { formatDate } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
+import { Can } from "@/lib/rbac/AbilityContext";
 
 interface SchedulesTableProps {
   schedules: UISchedule[];
@@ -115,6 +116,9 @@ export function SchedulesTable({
           description: `Schedule has been executed successfully.`,
         });
       } else {
+        if (response.status === 403) {
+            throw new Error('Unauthorized: You do not have permission to execute this schedule');
+        }
         throw new Error('Execution request failed');
       }
 
@@ -331,47 +335,57 @@ export function SchedulesTable({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() =>
-                          router.push(
-                            `/schedules/${encodeURIComponent(schedule.id)}`
-                          )
-                        }
-                      >
-                        <Eye className="mr-2 h-4 w-4" />
-                        View Details
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          router.push(
-                            `/schedules/${encodeURIComponent(
-                              schedule.id
-                            )}/edit`
-                          )
-                        }
-                      >
-                        <Edit className="mr-2 h-4 w-4" />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setDuplicatingSchedule(schedule)}
-                      >
-                        <Copy className="mr-2 h-4 w-4" />
-                        Duplicate
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => executeScheduleNow(schedule.id)}
-                      >
-                        <Play className="mr-2 h-4 w-4" />
-                        Execute Now
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => deleteSchedule(schedule)}
-                        className="text-destructive"
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </DropdownMenuItem>
+                      <Can I="read" a="Schedule">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              router.push(
+                                `/schedules/${encodeURIComponent(schedule.id)}`
+                              )
+                            }
+                          >
+                            <Eye className="mr-2 h-4 w-4" />
+                            View Details
+                          </DropdownMenuItem>
+                      </Can>
+                      <Can I="update" a="Schedule">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              router.push(
+                                `/schedules/${encodeURIComponent(
+                                  schedule.id
+                                )}/edit`
+                              )
+                            }
+                          >
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                      </Can>
+                      <Can I="create" a="Schedule">
+                          <DropdownMenuItem
+                            onClick={() => setDuplicatingSchedule(schedule)}
+                          >
+                            <Copy className="mr-2 h-4 w-4" />
+                            Duplicate
+                          </DropdownMenuItem>
+                      </Can>
+                      <Can I="execute" a="Schedule">
+                          <DropdownMenuItem
+                            onClick={() => executeScheduleNow(schedule.id)}
+                          >
+                            <Play className="mr-2 h-4 w-4" />
+                            Execute Now
+                          </DropdownMenuItem>
+                      </Can>
+                      <Can I="delete" a="Schedule">
+                          <DropdownMenuItem
+                            onClick={() => deleteSchedule(schedule)}
+                            className="text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                      </Can>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>

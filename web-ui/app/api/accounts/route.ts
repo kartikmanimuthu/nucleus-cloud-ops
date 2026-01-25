@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AccountService } from '@/lib/account-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
+import { authorize } from '@/lib/rbac/authorize';
 
 export async function GET(request: NextRequest) {
+    // Authorization check
+    const authError = await authorize('read', 'Account');
+    if (authError) return authError;
+
     try {
         console.log('API - GET /api/accounts - Fetching accounts');
 
@@ -40,6 +45,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+    // Authorization check - create requires manage permission
+    const authError = await authorize('create', 'Account');
+    if (authError) return authError;
+
     try {
         console.log('API - POST /api/accounts - Creating account');
 

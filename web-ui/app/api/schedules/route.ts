@@ -4,13 +4,15 @@ import { AuditService } from '@/lib/audit-service';
 
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
+import { authorize } from '@/lib/rbac/authorize';
 
 // GET /api/schedules - Get all schedules with optional filtering
 export async function GET(request: NextRequest) {
-    try {
+    // Authorization check
+    const authError = await authorize('read', 'Schedule');
+    if (authError) return authError;
 
-
-        // Get query parameters for filtering
+    try {        // Get query parameters for filtering
         const { searchParams } = new URL(request.url);
         const statusFilter = searchParams.get('status') || undefined;
         const resourceFilter = searchParams.get('resource') || undefined;
@@ -54,6 +56,10 @@ export async function GET(request: NextRequest) {
 
 // POST /api/schedules - Create a new schedule
 export async function POST(request: NextRequest) {
+    // Authorization check - create requires manage permission
+    const authError = await authorize('create', 'Schedule');
+    if (authError) return authError;
+
     try {
         console.log('API - Creating new schedule');
 

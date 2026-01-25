@@ -17,16 +17,18 @@ export const authOptions: NextAuthOptions = {
         async jwt({ token, account, user }) {
             // Initial sign in
             if (account && user) {
-                // Extract cognito groups from the id token
+                // Extract cognito groups and sub from the id token
                 if (account.id_token) {
                     try {
-                        // Parse the JWT to get the 'cognito:groups' claim
+                        // Parse the JWT to get claims
                         const payload = JSON.parse(Buffer.from(
                             account.id_token.split('.')[1], 'base64'
                         ).toString());
 
                         // Add groups to the token
                         token.groups = payload["cognito:groups"] || [];
+                        // Add sub (Cognito user ID) to the token
+                        token.sub = payload["sub"];
                         console.log('User groups:', token.groups);
                     } catch (error) {
                         console.error("Error parsing id token:", error);
@@ -40,9 +42,10 @@ export const authOptions: NextAuthOptions = {
             return token;
         },
         async session({ session, token }) {
-            // Add groups to the session
+            // Add groups and sub to the session
             session.user = session.user || {};
-            session.user.groups = token.groups || [];
+            (session.user as any).groups = token.groups || [];
+            (session.user as any).sub = token.sub;
             return session;
         },
         async redirect({ url, baseUrl }) {
