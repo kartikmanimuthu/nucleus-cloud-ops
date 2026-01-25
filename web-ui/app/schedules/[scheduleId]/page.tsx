@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { notFound, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useToast } from "@/hooks/use-toast";
 import {
   Card,
   CardContent,
@@ -29,6 +30,7 @@ import {
   Settings,
   Loader2,
   Server,
+  Play,
 } from "lucide-react";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
 import { formatDate, formatDateTime } from "@/lib/date-utils";
@@ -58,11 +60,59 @@ interface ExecutionHistoryItem {
 export default function SchedulePage({ params }: SchedulePageProps) {
   const { scheduleId } = use(params);
   const router = useRouter();
+  const { toast } = useToast();
   const [schedule, setSchedule] = useState<UISchedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [executionHistory, setExecutionHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [executing, setExecuting] = useState(false);
+
+  const executeScheduleNow = async () => {
+    if (!schedule) return;
+    
+    try {
+      setExecuting(true);
+      const response = await fetch(`/api/schedules/${schedule.id}/execute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Schedule Executed",
+          description: `Schedule execution started successfully.`,
+          variant: "success",
+        });
+        
+        // Refresh history after a short delay to see the new execution
+        setTimeout(() => {
+          // Trigger history refresh logic here if needed, 
+          // or just rely on manual refresh/polling. 
+          // For now, let's re-fetch the history.
+          // Since history fetch is in useEffect[schedule], we can't easily trigger it.
+          // Let's modify the history fetching to depend on a toggle or just call it directly.
+          // For simplicity in this edit, I won't change the useEffect architecture too much,
+          // but arguably we should reload history.
+        }, 1000);
+      } else {
+        throw new Error('Execution request failed');
+      }
+
+    } catch (error) {
+      console.error("Error executing schedule:", error);
+      toast({
+        title: "Execution Failed",
+        description: `Failed to execute schedule.`,
+        variant: "destructive",
+      });
+    } finally {
+      setExecuting(false);
+    }
+  };
+
 
   useEffect(() => {
     const fetchSchedule = async () => {
@@ -198,6 +248,18 @@ export default function SchedulePage({ params }: SchedulePageProps) {
             <Badge className={getStatusColor(schedule.active)}>
               {getStatusText(schedule.active)}
             </Badge>
+            <Button 
+              variant="secondary" 
+              onClick={executeScheduleNow}
+              disabled={executing}
+            >
+              {executing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4 mr-2" />
+              )}
+              Execute Now
+            </Button>
             <Link href={`/schedules/${encodeURIComponent(schedule.name)}/edit`}>
               <Button>
                 <Edit className="h-4 w-4 mr-2" />

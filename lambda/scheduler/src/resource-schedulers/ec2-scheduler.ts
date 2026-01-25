@@ -61,7 +61,14 @@ export async function processEC2Resource(
         const currentState = instance.State?.Name || 'unknown';
         const instanceType = instance.InstanceType || 'unknown';
 
-        log.debug(`EC2 ${resource.id}: currentState=${currentState}, desiredAction=${action}, lastState=${lastState?.instanceState || 'none'}`);
+        log.debug(`EC2 ${resource.id}: fetched state details`, {
+            currentState,
+            instanceType,
+            tags: instance.Tags,
+            publicIp: instance.PublicIpAddress
+        });
+
+        log.debug(`EC2 ${resource.id}: status check - currentState=${currentState}, desiredAction=${action}, lastState=${lastState?.instanceState || 'none'}`);
 
         // Determine if action is needed
         if (action === 'start' && currentState !== 'running' && currentState !== 'pending') {
@@ -73,6 +80,7 @@ export async function processEC2Resource(
             }
 
             // Start the instance
+            log.debug(`EC2 ${resource.id}: Sending StartInstancesCommand`);
             await ec2Client.send(new StartInstancesCommand({ InstanceIds: [resource.id] }));
             log.info(`Started EC2 instance ${resource.id}`);
 
@@ -104,6 +112,7 @@ export async function processEC2Resource(
 
         } else if (action === 'stop' && currentState === 'running') {
             // Stop the instance - capture current state for later restoration
+            log.debug(`EC2 ${resource.id}: Sending StopInstancesCommand`);
             await ec2Client.send(new StopInstancesCommand({ InstanceIds: [resource.id] }));
             log.info(`Stopped EC2 instance ${resource.id} (saving state: instanceState=${currentState}, instanceType=${instanceType})`);
 

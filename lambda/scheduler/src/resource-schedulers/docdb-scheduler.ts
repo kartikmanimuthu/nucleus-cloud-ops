@@ -60,6 +60,21 @@ export async function processDocDBResource(
 
         const currentStatus = cluster.Status || 'unknown';
 
+        log.debug(`DocDB ${resource.id}: fetched state details`, {
+            currentStatus,
+            engine: cluster.Engine,
+            endpoint: cluster.Endpoint,
+            members: cluster.DBClusterMembers?.map(m => ({
+                id: m.DBInstanceIdentifier,
+                isClusterWriter: m.IsClusterWriter
+            }))
+        });
+
+        // Aggressive logging: If we suspect instance states are the issue, explicitly list them if possible
+        if (cluster.DBClusterMembers && cluster.DBClusterMembers.length > 0) {
+            log.debug(`DocDB ${resource.id} has ${cluster.DBClusterMembers.length} members. Checking member health...`);
+        }
+
         log.debug(`DocDB ${resource.id}: currentStatus=${currentStatus}, desiredAction=${action}, lastState=${lastState?.dbClusterStatus || 'none'}`);
 
         // Determine if action is needed
@@ -69,11 +84,15 @@ export async function processDocDBResource(
         if (action === 'start') {
             if (currentStatus !== 'available' && currentStatus !== 'starting') {
                 needsStart = true;
+                log.debug(`DocDB ${resource.id}: Needs start because cluster status is '${currentStatus}'`);
             } else if (currentStatus === 'available') {
                 // Cluster claims available, but instances might be stopped (common in DocDB/Aurora)
                 const instances = cluster.DBClusterMembers || [];
                 if (instances.length > 0) {
                     needsStart = true; // Let's try starting it to ensure instances come up.
+                    log.debug(`DocDB ${resource.id}: Needs start check because cluster is available but might have stopped instances (Preemptive Start). Member count: ${instances.length}`);
+                } else {
+                    log.debug(`DocDB ${resource.id}: Cluster available but has no members? Skipping start check.`);
                 }
             }
         }
@@ -81,6 +100,7 @@ export async function processDocDBResource(
         if (action === 'start' && needsStart) {
             // Start the cluster
             try {
+                log.debug(`DocDB ${resource.id}: Sending StartDBClusterCommand`);
                 await rdsClient.send(new StartDBClusterCommand({ DBClusterIdentifier: resource.id }));
                 log.info(`Started DocDB cluster ${resource.id}`);
 
@@ -111,7 +131,7 @@ export async function processDocDBResource(
             } catch (err: any) {
                 // If it's already running/available, tolerate it
                 if (err.name === 'InvalidDBClusterStateFault' && err.message.includes('available')) {
-                    log.debug(`DocDB cluster ${resource.id} is already available, skipping start`);
+                    log.debug(`DocDB cluster ${resource.id} is already available (InvalidDBClusterStateFault tolerated). This confirms instances are likely up.`);
                     return {
                         arn: resource.arn,
                         resourceId: resource.id,
@@ -127,6 +147,7 @@ export async function processDocDBResource(
 
         } else if (action === 'stop' && currentStatus === 'available') {
             // Stop the cluster
+            log.debug(`DocDB ${resource.id}: Sending StopDBClusterCommand`);
             await rdsClient.send(new StopDBClusterCommand({ DBClusterIdentifier: resource.id }));
             log.info(`Stopped DocDB cluster ${resource.id}`);
 

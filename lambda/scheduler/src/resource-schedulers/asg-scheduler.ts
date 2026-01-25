@@ -68,6 +68,14 @@ export async function processASGResource(
         const currentDesiredCapacity = asg.DesiredCapacity ?? 0;
         const instanceCount = asg.Instances?.length ?? 0;
 
+        log.debug(`ASG ${asgName}: fetched state details`, {
+            currentMinSize,
+            currentMaxSize,
+            currentDesiredCapacity,
+            instanceCount,
+            instances: asg.Instances?.map(i => ({ id: i.InstanceId, state: i.LifecycleState }))
+        });
+
         log.debug(`ASG ${asgName}: minSize=${currentMinSize}, maxSize=${currentMaxSize}, desiredCapacity=${currentDesiredCapacity}, instances=${instanceCount}, action=${action}`);
 
         if (action === 'stop' && (currentDesiredCapacity > 0 || currentMinSize > 0)) {
@@ -80,6 +88,7 @@ export async function processASGResource(
                 DesiredCapacity: 0,
             }));
             log.info(`Stopped ASG ${asgName} (was minSize=${currentMinSize}, maxSize=${currentMaxSize}, desiredCapacity=${currentDesiredCapacity})`);
+            log.debug(`ASG ${asgName}: UpdateAutoScalingGroupCommand sent for stop (0/0/0)`);
 
             await createAuditLog({
                 type: 'audit_log',
@@ -122,6 +131,7 @@ export async function processASGResource(
                 DesiredCapacity: targetDesiredCapacity,
             }));
             log.info(`Started ASG ${asgName} with minSize=${targetMinSize}, maxSize=${targetMaxSize}, desiredCapacity=${targetDesiredCapacity}`);
+            log.debug(`ASG ${asgName}: UpdateAutoScalingGroupCommand sent for start (${targetMinSize}/${targetMaxSize}/${targetDesiredCapacity})`);
 
             await createAuditLog({
                 type: 'audit_log',

@@ -53,7 +53,8 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
     logger.setContext({ executionId, mode: 'full' });
     logger.info('Starting full scan');
 
-    const schedules = await fetchActiveSchedules();
+    // Filter to ensure we only get actual schedules (in case GSI3 returns other active items like Accounts)
+    const schedules = (await fetchActiveSchedules()).filter(s => s.type === 'schedule');
     const accounts = await fetchActiveAccounts();
 
     logger.info(`Found ${schedules.length} active schedules and ${accounts.length} active accounts`);
@@ -77,6 +78,7 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
 
     // Process each schedule
     for (const schedule of schedules) {
+        logger.debug(`Processing schedule loop: ${schedule.scheduleId} (${schedule.name})`, { schedule });
         try {
             const result = await processSchedule(schedule, accounts, triggeredBy);
             totalStarted += result.started;
@@ -181,7 +183,10 @@ export async function runPartialScan(
         throw new Error(`Schedule not found: ${scheduleId}`);
     }
 
+    logger.debug('Fetched schedule for partial scan', { schedule });
+
     const accounts = await fetchActiveAccounts();
+    logger.debug(`Fetched ${accounts.length} active accounts for partial scan`);
 
     try {
         const result = await processSchedule(schedule, accounts, triggeredBy, userEmail);
@@ -280,6 +285,14 @@ async function processSchedule(
     const action: 'start' | 'stop' = inRange ? 'start' : 'stop';
 
     logger.info(`Schedule ${schedule.name}: inRange=${inRange}, action=${action}`);
+    logger.debug(`Time check details for ${schedule.name}`, {
+        starttime: schedule.starttime,
+        endtime: schedule.endtime,
+        timezone: schedule.timezone,
+        days: schedule.days,
+        inRange,
+        action
+    });
 
     // Prepare execution params (but don't create record yet)
     const execParams: CreateExecutionParams = {
@@ -295,6 +308,10 @@ async function processSchedule(
 
     // Group resources by account (extract from ARN)
     const resourcesByAccount = groupResourcesByAccount(resources, accounts);
+    logger.debug(`Grouped resources by account for ${schedule.name}`, {
+        accountCount: resourcesByAccount.size,
+        accounts: Array.from(resourcesByAccount.keys())
+    });
 
     // Initialize execution metadata
     const scheduleMetadata: ScheduleExecutionMetadata = {
@@ -311,6 +328,10 @@ async function processSchedule(
 
     // Process resources by account
     for (const [accountId, accountResources] of resourcesByAccount) {
+        logger.debug(`Processing resources for account ${accountId}`, {
+            resourceCount: accountResources.resources.length
+        });
+
         const account = accounts.find((a) => a.accountId === accountId);
         if (!account) {
             logger.warn(`Account ${accountId} not found in active accounts, skipping resources`);
@@ -320,10 +341,19 @@ async function processSchedule(
 
         // Group resources by region
         const resourcesByRegion = groupResourcesByRegion(accountResources.resources);
+        logger.debug(`Grouped resources by region for account ${accountId}`, {
+            regions: Array.from(resourcesByRegion.keys())
+        });
 
         for (const [region, regionResources] of resourcesByRegion) {
+            logger.debug(`Processing region ${region} for account ${accountId}`, {
+                resourceCount: regionResources.length
+            });
+
             try {
                 const credentials = await assumeRole(account.roleArn, account.accountId, region, account.externalId);
+                logger.debug(`Successfully assumed role for ${accountId} in ${region}`);
+
                 const metadata: SchedulerMetadata = {
                     account: {
                         name: account.accountName || account.name || account.accountId,
@@ -337,8 +367,10 @@ async function processSchedule(
 
                 // Process each resource
                 for (const resource of regionResources) {
+                    logger.debug(`Processing resource ${resource.arn} (${resource.type})`);
                     try {
                         if (resource.type === 'ec2') {
+
                             // For EC2 start, get last state to verify resource was managed by scheduler
                             let lastState: { instanceState: string; instanceType?: string } | undefined;
                             if (action === 'start') {

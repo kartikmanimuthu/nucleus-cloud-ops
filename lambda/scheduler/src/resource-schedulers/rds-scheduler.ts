@@ -61,7 +61,14 @@ export async function processRDSResource(
         const currentStatus = instance.DBInstanceStatus || 'unknown';
         const dbInstanceClass = instance.DBInstanceClass || 'unknown';
 
-        log.debug(`RDS ${resource.id}: currentStatus=${currentStatus}, desiredAction=${action}, lastState=${lastState?.dbInstanceStatus || 'none'}`);
+        log.debug(`RDS ${resource.id}: fetched state details`, {
+            currentStatus,
+            dbInstanceClass,
+            engine: instance.Engine,
+            endpoint: instance.Endpoint
+        });
+
+        log.debug(`RDS ${resource.id}: status check - currentStatus=${currentStatus}, desiredAction=${action}, lastState=${lastState?.dbInstanceStatus || 'none'}`);
 
         // Determine if action is needed
         if (action === 'start' && currentStatus !== 'available' && currentStatus !== 'starting') {
@@ -73,6 +80,7 @@ export async function processRDSResource(
             }
 
             // Start the instance
+            log.debug(`RDS ${resource.id}: Sending StartDBInstanceCommand`);
             await rdsClient.send(new StartDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
             log.info(`Started RDS instance ${resource.id}`);
 
@@ -104,6 +112,7 @@ export async function processRDSResource(
 
         } else if (action === 'stop' && currentStatus === 'available') {
             // Stop the instance - capture current state for later restoration
+            log.debug(`RDS ${resource.id}: Sending StopDBInstanceCommand`);
             await rdsClient.send(new StopDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
             log.info(`Stopped RDS instance ${resource.id} (saving state: dbInstanceStatus=${currentStatus}, dbInstanceClass=${dbInstanceClass})`);
 

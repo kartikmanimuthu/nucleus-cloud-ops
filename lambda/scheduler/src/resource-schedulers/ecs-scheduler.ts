@@ -122,6 +122,14 @@ export async function processECSResource(
         const pendingCount = service.pendingCount ?? 0;
         const serviceStatus = service.status ?? 'unknown';
 
+        log.debug(`ECS ${serviceName}: fetched service state`, {
+            currentDesiredCount,
+            runningCount,
+            pendingCount,
+            serviceStatus,
+            taskDefinition: service.taskDefinition
+        });
+
         log.debug(`ECS ${serviceName}: desiredCount=${currentDesiredCount}, runningCount=${runningCount}, action=${action}`);
 
         let capturedAsgState: ASGState[] | undefined;
@@ -138,6 +146,7 @@ export async function processECSResource(
                     desiredCount: 0,
                 }));
                 log.info(`Stopped ECS service ${serviceName} (was desiredCount=${currentDesiredCount})`);
+                log.debug(`ECS ${serviceName}: UpdateServiceCommand sent for stop`);
                 serviceStopped = true;
 
                 await createAuditLog({
@@ -191,7 +200,9 @@ export async function processECSResource(
                                 if (asg.Instances && asg.Instances.length > 0) {
                                     const protectedInstances = asg.Instances.filter(i => i.ProtectedFromScaleIn);
                                     if (protectedInstances.length > 0) {
-                                        log.info(`Found ${protectedInstances.length} instances protected from scale-in. Disabling protection...`);
+                                        log.info(`Found ${protectedInstances.length} instances protected from scale-in. Disabling protection...`, {
+                                            protectedInstanceIds: protectedInstances.map(i => i.InstanceId)
+                                        });
                                         try {
                                             await asgClient.send(new SetInstanceProtectionCommand({
                                                 AutoScalingGroupName: asgName,
@@ -200,8 +211,10 @@ export async function processECSResource(
                                             }));
                                             log.info(`Successfully disabled scale-in protection for ${protectedInstances.length} instances`);
                                         } catch (protErr) {
-                                            log.error(`Failed to disable scale-in protection`, protErr);
+                                            log.error(`Failed to disable scale-in protection for ASG ${asgName}`, protErr);
                                         }
+                                    } else {
+                                        log.debug(`No instances protected from scale-in for ASG ${asgName}`);
                                     }
                                 }
 
@@ -378,6 +391,7 @@ export async function processECSResource(
                 desiredCount: targetDesiredCount,
             }));
             log.info(`Started ECS service ${serviceName} with desiredCount=${targetDesiredCount}`);
+            log.debug(`ECS ${serviceName}: UpdateServiceCommand sent for start, targetDesiredCount=${targetDesiredCount}`);
 
             await createAuditLog({
                 type: 'audit_log',
@@ -493,11 +507,18 @@ async function isClusterIdle(clusterArn: string, excludedServiceName: string, ec
                 // If any other service has desiredCount > 0, the cluster is NOT idle
                 // We ignore runningCount because if desiredCount is 0, the tasks are draining and we should proceed with shutdown
                 if ((svc.desiredCount || 0) > 0) {
+                    logger.debug(`Cluster ${clusterArn} is NOT idle. Active service found: ${name} (desiredCount=${svc.desiredCount})`, {
+                        serviceName: name,
+                        serviceArn: arn,
+                        desiredCount: svc.desiredCount,
+                        status: svc.status
+                    });
                     return false;
                 }
             }
         }
 
+        logger.debug(`Cluster ${clusterArn} is idle. No active services found (excluding ${excludedServiceName}).`);
         return true;
     } catch (error) {
         logger.error(`Error checking if cluster ${clusterArn} is idle`, error);
@@ -532,15 +553,22 @@ async function getClusterASGs(clusterArn: string, ecsClient: ECSClient, asgClien
                         const arn = cp.autoScalingGroupProvider.autoScalingGroupArn;
                         // Extract name from ARN
                         const match = arn.match(/autoScalingGroupName\/(.+)$/);
-                        asgNames.add(match ? match[1] : arn);
+                        const asgName = match ? match[1] : arn;
+                        asgNames.add(asgName);
+                        logger.debug(`Found ASG via Capacity Provider: ${asgName} (CP: ${cp.name})`);
                     }
                 }
+            } else {
+                logger.debug(`Cluster ${clusterArn} has capacity providers, but all are FARGATE managed: ${cluster.capacityProviders.join(', ')}`);
             }
+        } else {
+            logger.debug(`Cluster ${clusterArn} has no capacity providers configured.`);
         }
 
         // Method 2: Container Instances (The legacy/fallback way)
         // If an ASG is just attached to the cluster but not a CP, we find it by looking at the instances.
         const containerInstances = await listAllContainerInstances(ecsClient, clusterArn);
+        logger.debug(`Found ${containerInstances.length} container instances in cluster ${clusterArn} for ASG lookup.`);
 
         if (containerInstances.length > 0) {
             // Describe them to get EC2 Instance IDs
@@ -592,9 +620,9 @@ async function getClusterASGs(clusterArn: string, ecsClient: ECSClient, asgClien
 
     const result = Array.from(asgNames);
     if (result.length > 0) {
-        logger.info(`Found backing ASGs for cluster ${clusterArn}`, { asgNames: result });
+        logger.info(`Found backing ASGs for cluster ${clusterArn}`, { asgNames: result, count: result.length });
     } else {
-        logger.info(`No backing ASGs found for cluster ${clusterArn}`);
+        logger.warn(`No backing ASGs found for cluster ${clusterArn}. This might be expected for Fargate, but check configuration if EC2 is expected.`);
     }
     return result;
 }

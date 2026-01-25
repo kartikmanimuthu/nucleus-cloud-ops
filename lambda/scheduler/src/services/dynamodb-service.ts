@@ -61,8 +61,13 @@ export async function fetchActiveSchedules(): Promise<Schedule[]> {
         TableName: APP_TABLE_NAME,
         IndexName: 'GSI3',
         KeyConditionExpression: 'gsi3pk = :statusVal',
+        FilterExpression: '#type = :scheduleType',
+        ExpressionAttributeNames: {
+            '#type': 'type',
+        },
         ExpressionAttributeValues: {
             ':statusVal': 'STATUS#active',
+            ':scheduleType': 'schedule',
         },
     };
 
