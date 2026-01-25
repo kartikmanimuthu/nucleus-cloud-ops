@@ -1,0 +1,24 @@
+# Bun Configuration
+# https://bun.sh/docs/runtime/bunfig
+
+[install]
+# Use exact versions for production builds
+exact = true
+
+# Configure package manager behavior
+registry = "https://registry.npmjs.org"
+auto = "auto"
+
+[install.cache]
+# Enable caching for faster installs
+disable = false
+
+[test]
+# Test configuration
+coverage = true
+preload = ["./src/utils/logger.ts"]
+
+[run]
+# Runtime configuration
+bun = true
+smol = false

@@ -258,6 +258,7 @@ export class ComputeStack extends cdk.Stack {
             },
             role: lambdaRole,
             timeout: cdk.Duration.minutes(15),
+            memorySize: 1024,
         });
 
         this.schedulerLambdaFunctionArn = lambdaFunction.functionArn;
