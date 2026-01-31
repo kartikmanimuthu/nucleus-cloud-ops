@@ -1,7 +1,7 @@
 """
 AWS Auto-Discovery ECS Fargate Task
 Main entry point for discovering AWS resources across multi-account environments.
-Uses AWS Auto Inventory for comprehensive resource scanning.
+Uses parallel scanning with ThreadPoolExecutor for high performance.
 """
 import os
 import sys
@@ -10,9 +10,24 @@ import boto3
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
-from config_generator import generate_inventory_config
-from inventory_runner import run_inventory_scan
-from data_processor import process_and_store_resources
+try:
+    from src.config_generator import generate_inventory_config, load_scanfile
+    from src.inventory_runner import run_inventory_scan
+    from src.data_processor import (
+        process_and_store_resources,
+        mark_missing_resources,
+        get_discovered_arns,
+        store_merged_to_s3
+    )
+except ImportError:
+    from config_generator import generate_inventory_config, load_scanfile
+    from inventory_runner import run_inventory_scan
+    from data_processor import (
+        process_and_store_resources,
+        mark_missing_resources,
+        get_discovered_arns,
+        store_merged_to_s3
+    )
 
 
 def get_active_accounts(dynamodb_client, table_name: str) -> List[Dict[str, Any]]:
@@ -24,19 +39,36 @@ def get_active_accounts(dynamodb_client, table_name: str) -> List[Dict[str, Any]
         TableName=table_name,
         IndexName='GSI1',
         KeyConditionExpression='gsi1pk = :pk',
-        ExpressionAttributeValues={':pk': {'S': 'TYPE#ACCOUNT'}},
-        FilterExpression='#status = :active',
-        ExpressionAttributeNames={'#status': 'status'},
+        ExpressionAttributeValues={
+            ':pk': {'S': 'TYPE#ACCOUNT'},
+            ':active': {'BOOL': True}
+        },
+        FilterExpression='#active = :active',
+        ExpressionAttributeNames={'#active': 'active'},
     ):
         for item in page.get('Items', []):
+            # Handle both formats: DDB low-level and resource-level
             accounts.append({
-                'accountId': item.get('account_id', {}).get('S', ''),
-                'accountName': item.get('account_name', {}).get('S', ''),
-                'roleArn': item.get('role_arn', {}).get('S', ''),
-                'regions': item.get('regions', {}).get('L', [{'S': 'us-east-1'}]),
+                'accountId': item.get('accountId', item.get('account_id', {})).get('S', ''),
+                'accountName': item.get('accountName', item.get('account_name', {})).get('S', ''),
+                'roleArn': item.get('roleArn', item.get('role_arn', {})).get('S', ''),
+                'regions': extract_regions(item.get('regions', {})),
             })
     
     return accounts
+
+
+def extract_regions(regions_item: Dict) -> List[str]:
+    """Extract regions list from DynamoDB item format."""
+    if not regions_item:
+        return ['us-east-1', 'ap-south-1']
+    
+    if 'L' in regions_item:
+        return [r.get('S', 'us-east-1') for r in regions_item['L']]
+    elif 'SS' in regions_item:
+        return list(regions_item['SS'])
+    
+    return ['us-east-1', 'ap-south-1']
 
 
 def update_account_sync_status(
@@ -48,20 +80,23 @@ def update_account_sync_status(
     duration_ms: int
 ) -> None:
     """Update the sync status for an account."""
-    dynamodb_client.update_item(
-        TableName=table_name,
-        Key={
-            'pk': {'S': f'ACCOUNT#{account_id}'},
-            'sk': {'S': 'METADATA'}
-        },
-        UpdateExpression='SET lastSyncedAt = :ts, lastSyncStatus = :status, lastSyncResourceCount = :count, lastSyncDurationMs = :duration',
-        ExpressionAttributeValues={
-            ':ts': {'S': datetime.now(timezone.utc).isoformat()},
-            ':status': {'S': status},
-            ':count': {'N': str(resource_count)},
-            ':duration': {'N': str(duration_ms)}
-        }
-    )
+    try:
+        dynamodb_client.update_item(
+            TableName=table_name,
+            Key={
+                'pk': {'S': f'ACCOUNT#{account_id}'},
+                'sk': {'S': 'METADATA'}
+            },
+            UpdateExpression='SET lastSyncedAt = :ts, lastSyncStatus = :status, lastSyncResourceCount = :count, lastSyncDurationMs = :duration',
+            ExpressionAttributeValues={
+                ':ts': {'S': datetime.now(timezone.utc).isoformat()},
+                ':status': {'S': status},
+                ':count': {'N': str(resource_count)},
+                ':duration': {'N': str(duration_ms)}
+            }
+        )
+    except Exception as e:
+        print(f"WARNING: Failed to update sync status for {account_id}: {e}")
 
 
 def main():
@@ -76,6 +111,11 @@ def main():
     inventory_table_name = os.environ.get('INVENTORY_TABLE_NAME')
     inventory_bucket = os.environ.get('INVENTORY_BUCKET')
     specific_account_id = os.environ.get('ACCOUNT_ID')  # Optional: scan specific account
+    scanfile_path = os.environ.get('SCANFILE_PATH')  # Optional: custom scanfile
+    
+    # Concurrency settings
+    concurrent_regions = int(os.environ.get('CONCURRENT_REGIONS', '5'))
+    concurrent_services = int(os.environ.get('CONCURRENT_SERVICES', '10'))
     
     if not app_table_name:
         print("ERROR: APP_TABLE_NAME environment variable is required")
@@ -89,17 +129,24 @@ def main():
         print("ERROR: INVENTORY_BUCKET environment variable is required")
         sys.exit(1)
     
+    print(f"Configuration:")
+    print(f"  APP_TABLE_NAME: {app_table_name}")
+    print(f"  INVENTORY_TABLE_NAME: {inventory_table_name}")
+    print(f"  INVENTORY_BUCKET: {inventory_bucket}")
+    print(f"  CONCURRENT_REGIONS: {concurrent_regions}")
+    print(f"  CONCURRENT_SERVICES: {concurrent_services}")
+    
     # Initialize AWS clients
     dynamodb = boto3.client('dynamodb')
     s3 = boto3.client('s3')
     
     # Get accounts to scan
     if specific_account_id:
-        print(f"Scanning specific account: {specific_account_id}")
-        # TODO: Fetch single account details
+        print(f"\nScanning specific account: {specific_account_id}")
+        # Fetch single account details or use minimal config
         accounts = [{'accountId': specific_account_id}]
     else:
-        print("Fetching all active accounts...")
+        print("\nFetching all active accounts...")
         accounts = get_active_accounts(dynamodb, app_table_name)
     
     print(f"Found {len(accounts)} account(s) to scan")
@@ -108,6 +155,8 @@ def main():
         print("No accounts to scan. Exiting.")
         return
     
+    # Track all raw results for merged output
+    all_accounts_data = {}
     total_resources = 0
     successful_accounts = 0
     failed_accounts = 0
@@ -117,25 +166,47 @@ def main():
         account_name = account.get('accountName', account_id)
         role_arn = account.get('roleArn')
         
-        print(f"\n--- Scanning Account: {account_name} ({account_id}) ---")
+        if not account_id:
+            print("WARN: Skipping account with no accountId")
+            continue
+        
+        print(f"\n{'=' * 40}")
+        print(f"Scanning Account: {account_name} ({account_id})")
+        print(f"{'=' * 40}")
         start_time = datetime.now(timezone.utc)
         
         try:
             # Generate config for this account
-            config = generate_inventory_config(account)
+            config = generate_inventory_config(account, scanfile_path)
             
-            # Run the inventory scan
-            resources = run_inventory_scan(config, role_arn)
+            # Run the parallel inventory scan
+            scan_result = run_inventory_scan(
+                config,
+                role_arn=role_arn,
+                concurrent_regions=concurrent_regions,
+                concurrent_services=concurrent_services
+            )
             
-            # Process and store results in inventory table
+            resources = scan_result.get('resources', [])
+            raw_results = scan_result.get('raw_results', {})
+            
+            # Store raw results for merged output
+            all_accounts_data[account_id] = raw_results
+            
+            # Process and store results
             resource_count = process_and_store_resources(
                 dynamodb_client=dynamodb,
                 s3_client=s3,
                 table_name=inventory_table_name,
                 bucket_name=inventory_bucket,
                 account_id=account_id,
-                resources=resources
+                resources=resources,
+                raw_results=raw_results
             )
+            
+            # Mark missing resources
+            discovered_arns = get_discovered_arns(resources, account_id)
+            mark_missing_resources(dynamodb, inventory_table_name, account_id, discovered_arns)
             
             # Calculate duration
             end_time = datetime.now(timezone.utc)
@@ -149,10 +220,15 @@ def main():
             
             total_resources += resource_count
             successful_accounts += 1
-            print(f"SUCCESS: Discovered {resource_count} resources in {duration_ms}ms")
+            print(f"\nSUCCESS: Discovered {resource_count} resources in {duration_ms}ms")
+            print(f"  Regions: {scan_result.get('regions_scanned', 0)}")
+            print(f"  Services: {scan_result.get('services_scanned', 0)}")
+            print(f"  Elapsed: {scan_result.get('elapsed_seconds', 0):.1f}s")
             
         except Exception as e:
-            print(f"ERROR scanning account {account_id}: {str(e)}")
+            print(f"\nERROR scanning account {account_id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             failed_accounts += 1
             
             # Update sync status as failed
@@ -163,8 +239,16 @@ def main():
                 'failed', 0, duration_ms
             )
     
+    # Create merged output across all accounts
+    if all_accounts_data:
+        print("\n" + "-" * 40)
+        print("Creating merged output...")
+        timestamp = datetime.now(timezone.utc).isoformat()
+        store_merged_to_s3(s3, inventory_bucket, all_accounts_data, timestamp)
+    
     print("\n" + "=" * 60)
     print("AWS Auto-Discovery Task Complete")
+    print("=" * 60)
     print(f"Total Accounts: {len(accounts)}")
     print(f"Successful: {successful_accounts}")
     print(f"Failed: {failed_accounts}")

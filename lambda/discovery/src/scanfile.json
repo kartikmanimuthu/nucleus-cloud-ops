@@ -1,0 +1,147 @@
+[
+    {
+        "service": "ec2",
+        "function": "describe_instances",
+        "result_key": "Reservations"
+    },
+    {
+        "service": "ec2",
+        "function": "describe_vpcs",
+        "result_key": "Vpcs"
+    },
+    {
+        "service": "ec2",
+        "function": "describe_subnets",
+        "result_key": "Subnets"
+    },
+    {
+        "service": "ec2",
+        "function": "describe_security_groups",
+        "result_key": "SecurityGroups"
+    },
+    {
+        "service": "ec2",
+        "function": "describe_volumes",
+        "result_key": "Volumes"
+    },
+    {
+        "service": "ec2",
+        "function": "describe_nat_gateways",
+        "result_key": "NatGateways"
+    },
+    {
+        "service": "ec2",
+        "function": "describe_addresses",
+        "result_key": "Addresses"
+    },
+    {
+        "service": "rds",
+        "function": "describe_db_instances",
+        "result_key": "DBInstances"
+    },
+    {
+        "service": "rds",
+        "function": "describe_db_clusters",
+        "result_key": "DBClusters"
+    },
+    {
+        "service": "ecs",
+        "function": "list_clusters",
+        "result_key": "clusterArns"
+    },
+    {
+        "service": "autoscaling",
+        "function": "describe_auto_scaling_groups",
+        "result_key": "AutoScalingGroups"
+    },
+    {
+        "service": "lambda",
+        "function": "list_functions",
+        "result_key": "Functions"
+    },
+    {
+        "service": "s3",
+        "function": "list_buckets",
+        "result_key": "Buckets"
+    },
+    {
+        "service": "dynamodb",
+        "function": "list_tables",
+        "result_key": "TableNames"
+    },
+    {
+        "service": "elbv2",
+        "function": "describe_load_balancers",
+        "result_key": "LoadBalancers"
+    },
+    {
+        "service": "elasticache",
+        "function": "describe_cache_clusters",
+        "result_key": "CacheClusters"
+    },
+    {
+        "service": "sns",
+        "function": "list_topics",
+        "result_key": "Topics"
+    },
+    {
+        "service": "sqs",
+        "function": "list_queues",
+        "result_key": "QueueUrls"
+    },
+    {
+        "service": "kms",
+        "function": "list_keys",
+        "result_key": "Keys"
+    },
+    {
+        "service": "secretsmanager",
+        "function": "list_secrets",
+        "result_key": "SecretList"
+    },
+    {
+        "service": "efs",
+        "function": "describe_file_systems",
+        "result_key": "FileSystems"
+    },
+    {
+        "service": "cloudfront",
+        "function": "list_distributions",
+        "result_key": "DistributionList"
+    },
+    {
+        "service": "acm",
+        "function": "list_certificates",
+        "result_key": "CertificateSummaryList"
+    },
+    {
+        "service": "apigateway",
+        "function": "get_rest_apis",
+        "result_key": "items"
+    },
+    {
+        "service": "codepipeline",
+        "function": "list_pipelines",
+        "result_key": "pipelines"
+    },
+    {
+        "service": "ssm",
+        "function": "describe_parameters",
+        "result_key": "Parameters"
+    },
+    {
+        "service": "iam",
+        "function": "list_roles",
+        "result_key": "Roles"
+    },
+    {
+        "service": "iam",
+        "function": "list_users",
+        "result_key": "Users"
+    },
+    {
+        "service": "docdb",
+        "function": "describe_db_clusters",
+        "result_key": "DBClusters"
+    }
+]
