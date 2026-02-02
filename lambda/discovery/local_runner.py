@@ -24,7 +24,8 @@ try:
         process_and_store_resources,
         mark_missing_resources, 
         get_discovered_arns,
-        store_merged_to_s3
+        store_merged_to_s3,
+        save_sync_status
     )
 except ImportError:
     from config_generator import generate_inventory_config, generate_direct_config, load_scanfile
@@ -34,7 +35,8 @@ except ImportError:
         process_and_store_resources,
         mark_missing_resources, 
         get_discovered_arns,
-        store_merged_to_s3
+        store_merged_to_s3,
+        save_sync_status
     )
 
 
@@ -46,7 +48,7 @@ def main():
     parser.add_argument('--account-id', type=str, help='Scan specific account ID (fetched from DynamoDB)')
     
     # Infrastructure Arguments (ENV vars as defaults)
-    parser.add_argument('--app-table', type=str, default=os.environ.get('APP_TABLE_NAME'), help='App Table Name (for fetching accounts)')
+    parser.add_argument('--app-table', type=str, default=os.environ.get('APP_TABLE_NAME'), help='App Table Name (for fetching accounts and saving sync status)')
     parser.add_argument('--inventory-table', type=str, default=os.environ.get('INVENTORY_TABLE_NAME'), help='Inventory Table Name (for persistence)')
     parser.add_argument('--bucket', type=str, default=os.environ.get('INVENTORY_BUCKET'), help='Inventory S3 Bucket (for persistence)')
     
@@ -194,6 +196,12 @@ def main():
                      print(f"  Marked {missing} missing resources")
                 else:
                     print("  Skipping 'mark missing' (partial scan or safety check)")
+                
+                # Save sync status to APP_TABLE for the status endpoint
+                if args.app_table:
+                    from datetime import datetime, timezone
+                    scan_ts = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+                    save_sync_status(dynamodb, args.app_table, f"SCAN#{scan_ts}", len(resources), 1)
                     
             if args.bucket and s3 and raw_results:
                  # Store raw is handled in process_and_store_resources

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ECSClient, RunTaskCommand } from '@aws-sdk/client-ecs';
+import { AuditService } from '@/lib/audit-service';
+import { randomUUID } from 'crypto';
 
 const ecsClient = new ECSClient({
     region: process.env.AWS_REGION || 'ap-south-1',
@@ -17,6 +19,7 @@ export async function POST(request: NextRequest) {
     try {
         const body = await request.json().catch(() => ({}));
         const accountId = body.accountId as string | undefined;
+        const scanId = randomUUID();
 
         if (!DISCOVERY_TASK_DEF) {
             return NextResponse.json(
@@ -32,22 +35,44 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Build environment overrides for specific account scan
-        const overrides = accountId ? {
-            containerOverrides: [{
-                name: 'DiscoveryContainer',
-                environment: [
-                    { name: 'ACCOUNT_ID', value: accountId },
-                ],
-            }],
-        } : undefined;
+        // Log scan initiation
+        await AuditService.logResourceAction({
+            action: 'scan_triggered',
+            resourceType: 'discovery',
+            resourceId: scanId,
+            resourceName: accountId ? `Scan ${accountId}` : 'Full Scan',
+            status: 'success',
+            details: accountId
+                ? `triggered manual discovery scan for account ${accountId}`
+                : 'triggered manual discovery scan for all accounts',
+            source: 'web-ui',
+            metadata: {
+                accountId: accountId || 'ALL',
+                scanId
+            }
+        });
+
+        // Build environment overrides
+        const environment = [
+            { name: 'SCAN_ID', value: scanId },
+            { name: 'CORRELATION_ID', value: scanId },
+        ];
+
+        if (accountId) {
+            environment.push({ name: 'ACCOUNT_ID', value: accountId });
+        }
 
         const command = new RunTaskCommand({
             cluster: ECS_CLUSTER_NAME,
             taskDefinition: DISCOVERY_TASK_DEF,
             launchType: 'FARGATE',
             count: 1,
-            overrides,
+            overrides: {
+                containerOverrides: [{
+                    name: 'DiscoveryContainer',
+                    environment,
+                }],
+            },
             networkConfiguration: {
                 awsvpcConfiguration: {
                     subnets: VPC_SUBNETS,
@@ -60,6 +85,23 @@ export async function POST(request: NextRequest) {
 
         if (!result.tasks || result.tasks.length === 0) {
             const failures = result.failures?.map(f => f.reason).join(', ') || 'Unknown error';
+
+            // Log failure
+            await AuditService.logResourceAction({
+                action: 'scan_failed',
+                resourceType: 'discovery',
+                resourceId: scanId,
+                resourceName: accountId ? `Scan ${accountId}` : 'Full Scan',
+                status: 'error',
+                details: `Failed to trigger ECS task: ${failures}`,
+                source: 'web-ui',
+                metadata: {
+                    accountId: accountId || 'ALL',
+                    scanId,
+                    failures
+                }
+            });
+
             return NextResponse.json(
                 { error: `Failed to start discovery task: ${failures}` },
                 { status: 500 }
@@ -75,6 +117,7 @@ export async function POST(request: NextRequest) {
                 : 'Discovery sync triggered for all accounts',
             taskArn: task.taskArn,
             taskId: task.taskArn?.split('/').pop(),
+            scanId,
             startedAt: new Date().toISOString(),
         });
 

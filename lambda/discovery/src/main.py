@@ -19,6 +19,7 @@ try:
         get_discovered_arns,
         store_merged_to_s3
     )
+    from src.audit_logger import create_audit_log
 except ImportError:
     from config_generator import generate_inventory_config, load_scanfile
     from inventory_runner import run_inventory_scan
@@ -28,6 +29,7 @@ except ImportError:
         get_discovered_arns,
         store_merged_to_s3
     )
+    from audit_logger import create_audit_log
 
 
 def get_active_accounts(dynamodb_client, table_name: str) -> List[Dict[str, Any]]:
@@ -108,10 +110,13 @@ def main():
     
     # Environment variables
     app_table_name = os.environ.get('APP_TABLE_NAME')
+    audit_table_name = os.environ.get('AUDIT_TABLE_NAME')
     inventory_table_name = os.environ.get('INVENTORY_TABLE_NAME')
     inventory_bucket = os.environ.get('INVENTORY_BUCKET')
     specific_account_id = os.environ.get('ACCOUNT_ID')  # Optional: scan specific account
     scanfile_path = os.environ.get('SCANFILE_PATH')  # Optional: custom scanfile
+    scan_id = os.environ.get('SCAN_ID')
+    correlation_id = os.environ.get('CORRELATION_ID')
     
     # Concurrency settings
     concurrent_regions = int(os.environ.get('CONCURRENT_REGIONS', '5'))
@@ -254,6 +259,31 @@ def main():
     print(f"Failed: {failed_accounts}")
     print(f"Total Resources: {total_resources}")
     print("=" * 60)
+
+    # Generate Audit Log for Scan Completion
+    status = 'success' if failed_accounts == 0 else ('warning' if successful_accounts > 0 else 'error')
+    details = f"Discovery scan completed. Scanned {len(accounts)} accounts. Found {total_resources} resources."
+    if failed_accounts > 0:
+        details += f" Failed accounts: {failed_accounts}."
+
+    create_audit_log(
+        dynamodb_client=dynamodb,
+        table_name=audit_table_name,
+        event_type='discovery.scan.completed',
+        action='scan_completed',
+        status=status,
+        resource=f"Scan {scan_id}" if scan_id else "Manual Discovery Scan",
+        details=details,
+        metadata={
+            'totalAccounts': len(accounts),
+            'successfulAccounts': successful_accounts,
+            'failedAccounts': failed_accounts,
+            'totalResources': total_resources,
+            'regionsScanned': concurrent_regions
+        },
+        scan_id=scan_id,
+        correlation_id=correlation_id
+    )
 
 
 if __name__ == '__main__':

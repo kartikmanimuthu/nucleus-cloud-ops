@@ -6,6 +6,7 @@ optimized DynamoDB schema for web UI filtering.
 """
 import json
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Set
 from decimal import Decimal
@@ -33,6 +34,150 @@ def generate_resource_arn(resource: Dict[str, Any], account_id: str) -> str:
     service = resource.get('service', 'unknown')
     
     return f"arn:aws:{service}:{region}:{account_id}:{resource_type}/{resource_id}"
+
+
+def _extract_metadata(resource: Dict[str, Any], resource_type: str) -> Dict[str, Any]:
+    """
+    Extract structured metadata based on resource type.
+    Different resource types have different relevant metadata fields.
+    Uses the 'rawData' field which contains the original AWS API response.
+    
+    Args:
+        resource: The resource dictionary from discovery
+        resource_type: The type of resource (e.g., 'ec2_instances', 'rds_instances')
+        
+    Returns:
+        Dictionary with resource-type-specific metadata
+    """
+    metadata = {}
+    
+    # Get raw data from the discovery response
+    raw_data = resource.get('rawData', {})
+    if not isinstance(raw_data, dict):
+        raw_data = {}
+    
+    # Common metadata for all resources
+    if raw_data.get('CreationTime'):
+        metadata['createdAt'] = str(raw_data.get('CreationTime'))
+    if raw_data.get('LaunchTime'):
+        metadata['launchTime'] = str(raw_data.get('LaunchTime'))
+    
+    # EC2 Instance specific metadata
+    if resource_type == 'ec2_instances':
+        metadata.update({
+            'instanceType': raw_data.get('InstanceType'),
+            'platform': raw_data.get('Platform') or raw_data.get('PlatformDetails'),
+            'vpcId': raw_data.get('VpcId'),
+            'subnetId': raw_data.get('SubnetId'),
+            'privateIpAddress': raw_data.get('PrivateIpAddress'),
+            'publicIpAddress': raw_data.get('PublicIpAddress'),
+            'iamInstanceProfile': raw_data.get('IamInstanceProfile', {}).get('Arn') if isinstance(raw_data.get('IamInstanceProfile'), dict) else None,
+            'launchTime': str(raw_data.get('LaunchTime')) if raw_data.get('LaunchTime') else None,
+            'architecture': raw_data.get('Architecture'),
+            'rootDeviceType': raw_data.get('RootDeviceType'),
+        })
+    
+    # RDS Instance specific metadata  
+    elif resource_type == 'rds_db_instances' or resource_type == 'rds_instances':
+        metadata.update({
+            'engine': raw_data.get('Engine'),
+            'engineVersion': raw_data.get('EngineVersion'),
+            'dbInstanceClass': raw_data.get('DBInstanceClass'),
+            'allocatedStorage': raw_data.get('AllocatedStorage'),
+            'multiAZ': raw_data.get('MultiAZ'),
+            'storageType': raw_data.get('StorageType'),
+            'vpcId': raw_data.get('DBSubnetGroup', {}).get('VpcId') if isinstance(raw_data.get('DBSubnetGroup'), dict) else None,
+            'endpoint': raw_data.get('Endpoint', {}).get('Address') if isinstance(raw_data.get('Endpoint'), dict) else None,
+            'port': raw_data.get('Endpoint', {}).get('Port') if isinstance(raw_data.get('Endpoint'), dict) else None,
+        })
+    
+    # Lambda specific metadata
+    elif resource_type == 'lambda_functions':
+        metadata.update({
+            'runtime': raw_data.get('Runtime'),
+            'handler': raw_data.get('Handler'),
+            'memorySize': raw_data.get('MemorySize'),
+            'timeout': raw_data.get('Timeout'),
+            'codeSize': raw_data.get('CodeSize'),
+            'lastModified': raw_data.get('LastModified'),
+            'packageType': raw_data.get('PackageType'),
+            'architectures': raw_data.get('Architectures'),
+        })
+    
+    # DynamoDB specific metadata
+    elif resource_type == 'dynamodb_tables':
+        metadata.update({
+            'tableStatus': raw_data.get('TableStatus'),
+            'itemCount': raw_data.get('ItemCount'),
+            'tableSizeBytes': raw_data.get('TableSizeBytes'),
+            'billingMode': raw_data.get('BillingModeSummary', {}).get('BillingMode') if isinstance(raw_data.get('BillingModeSummary'), dict) else None,
+            'tableId': raw_data.get('TableId'),
+        })
+    
+    # S3 specific metadata
+    elif resource_type == 's3_buckets':
+        metadata.update({
+            'creationDate': str(raw_data.get('CreationDate')) if raw_data.get('CreationDate') else None,
+        })
+    
+    # EBS Volume specific metadata
+    elif resource_type == 'ec2_volumes':
+        metadata.update({
+            'volumeType': raw_data.get('VolumeType'),
+            'size': raw_data.get('Size'),
+            'iops': raw_data.get('Iops'),
+            'encrypted': raw_data.get('Encrypted'),
+            'availabilityZone': raw_data.get('AvailabilityZone'),
+        })
+    
+    # ASG specific metadata
+    elif resource_type == 'autoscaling_auto_scaling_groups' or resource_type == 'asg_groups':
+        metadata.update({
+            'minSize': raw_data.get('MinSize'),
+            'maxSize': raw_data.get('MaxSize'),
+            'desiredCapacity': raw_data.get('DesiredCapacity'),
+            'healthCheckType': raw_data.get('HealthCheckType'),
+            'availabilityZones': raw_data.get('AvailabilityZones'),
+        })
+    
+    # ECS Cluster/Services
+    elif 'ecs' in resource_type:
+        metadata.update({
+            'clusterArn': raw_data.get('ClusterArn'),
+            'status': raw_data.get('Status'),
+            'runningTasksCount': raw_data.get('RunningTasksCount'),
+            'pendingTasksCount': raw_data.get('PendingTasksCount'),
+        })
+    
+    # Remove None values
+    return {k: v for k, v in metadata.items() if v is not None}
+
+
+def _get_raw_metadata(resource: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Get raw metadata from the resource's rawData field.
+    The rawData field contains the original AWS API response.
+    
+    Args:
+        resource: The processed resource dictionary (contains rawData from discovery)
+        
+    Returns:
+        Raw AWS API response data for this resource, or None
+    """
+    raw_data = resource.get('rawData')
+    
+    if not raw_data:
+        return None
+    
+    # If rawData is already a dict, return it
+    if isinstance(raw_data, dict):
+        return raw_data
+    
+    # If rawData is a string (e.g., ARN), wrap it
+    if isinstance(raw_data, str):
+        return {'raw_value': raw_data}
+    
+    return None
 
 
 def store_raw_to_s3(
@@ -157,7 +302,9 @@ def process_and_store_resources(
     bucket_name: str,
     account_id: str,
     resources: List[Dict[str, Any]],
-    raw_results: Dict[str, Dict[str, Any]] = None
+    raw_results: Dict[str, Dict[str, Any]] = None,
+    tenant_id: str = 'default',
+    scan_id: str = None
 ) -> int:
     """
     Process resources and store in DynamoDB and S3.
@@ -179,6 +326,11 @@ def process_and_store_resources(
     
     now = datetime.now(timezone.utc)
     timestamp = now.isoformat()
+    
+    # Generate scan_id if not provided
+    if not scan_id:
+        scan_timestamp = now.strftime('%Y%m%d%H%M%S')
+        scan_id = f"SCAN#{scan_timestamp}#{uuid.uuid4().hex[:8]}"
     
     # Store raw data to S3 (organized structure)
     if raw_results:
@@ -216,16 +368,26 @@ def process_and_store_resources(
         if not resource_id or resource_id == 'unknown':
             continue
         
-        # Create DynamoDB item
+        # Create DynamoDB item with new schema
         item = {
-            'pk': {'S': f'ACCOUNT#{account_id}'},
+            # Primary key: TENANT#<tenantId>#ACCOUNT#<accountId>
+            'pk': {'S': f'TENANT#{tenant_id}#ACCOUNT#{account_id}'},
+            # Sort key: INVENTORY#<resourceType>#<arn>
             'sk': {'S': f'INVENTORY#{resource_type}#{resource_arn}'},
+            
+            # GSI1: Query all inventory items - TYPE#INVENTORY -> {resourceType}#{region}#{name}
             'gsi1pk': {'S': 'TYPE#INVENTORY'},
             'gsi1sk': {'S': f'{resource_type}#{region}#{name}'},
+            
+            # GSI2: Query by region - REGION#{region} -> {resourceType}#{timestamp}
             'gsi2pk': {'S': f'REGION#{region}'},
             'gsi2sk': {'S': f'{resource_type}#{timestamp}'},
+            
+            # GSI3: Query by resource type - RESOURCE_TYPE#{resourceType} -> {accountId}#{resourceId}
             'gsi3pk': {'S': f'RESOURCE_TYPE#{resource_type}'},
             'gsi3sk': {'S': f'{account_id}#{resource_id}'},
+            
+            # Resource attributes
             'resourceId': {'S': str(resource_id)},
             'resourceArn': {'S': str(resource_arn)},
             'resourceType': {'S': str(resource_type)},
@@ -233,6 +395,10 @@ def process_and_store_resources(
             'region': {'S': str(region)},
             'state': {'S': str(state)},
             'accountId': {'S': str(account_id)},
+            
+            # Discovery tracking
+            'tenantId': {'S': tenant_id},
+            'discoveryScanId': {'S': scan_id},
             'lastDiscoveredAt': {'S': timestamp},
             'discoveryStatus': {'S': 'active'},
         }
@@ -244,6 +410,17 @@ def process_and_store_resources(
         # Add service info
         if resource.get('service'):
             item['service'] = {'S': str(resource.get('service'))}
+        
+        # Add Metadata - structured JSON with resource-type-specific metadata
+        # Different resource types will have different metadata fields
+        metadata = _extract_metadata(resource, resource_type)
+        if metadata:
+            item['Metadata'] = {'S': json.dumps(metadata)}
+        
+        # Add RawMetadata - store raw AWS API response for future use
+        raw_data = _get_raw_metadata(resource)
+        if raw_data:
+            item['RawMetadata'] = {'S': json.dumps(raw_data, default=str)}
         
         items_to_write.append({'PutRequest': {'Item': item}})
     
@@ -288,6 +465,49 @@ def process_and_store_resources(
     return total_written
 
 
+def save_sync_status(
+    dynamodb_client,
+    app_table_name: str,
+    scan_id: str,
+    total_resources: int,
+    accounts_synced: int = 1
+) -> bool:
+    """
+    Save sync status metadata to APP_TABLE for the status endpoint.
+    
+    Args:
+        dynamodb_client: Boto3 DynamoDB client
+        app_table_name: APP_TABLE name
+        scan_id: The unique scan ID for this run
+        total_resources: Total count of resources discovered
+        accounts_synced: Number of accounts scanned
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    now = datetime.now(timezone.utc)
+    timestamp = now.isoformat()
+    
+    try:
+        dynamodb_client.put_item(
+            TableName=app_table_name,
+            Item={
+                'pk': {'S': 'SYNC#INVENTORY'},
+                'sk': {'S': scan_id},
+                'scanId': {'S': scan_id},
+                'totalResources': {'N': str(total_resources)},
+                'accountsSynced': {'N': str(accounts_synced)},
+                'syncedAt': {'S': timestamp},
+                'status': {'S': 'completed'},
+            }
+        )
+        print(f"  Saved sync status: {total_resources} resources, {accounts_synced} accounts")
+        return True
+    except Exception as e:
+        print(f"  ERROR saving sync status: {e}")
+        return False
+
+
 def mark_missing_resources(
     dynamodb_client,
     table_name: str,
@@ -314,7 +534,7 @@ def mark_missing_resources(
         TableName=table_name,
         KeyConditionExpression='pk = :pk AND begins_with(sk, :sk_prefix)',
         ExpressionAttributeValues={
-            ':pk': {'S': f'ACCOUNT#{account_id}'},
+            ':pk': {'S': f'TENANT#default#ACCOUNT#{account_id}'},
             ':sk_prefix': {'S': 'INVENTORY#'}
         },
         ProjectionExpression='sk, resourceArn, discoveryStatus'
@@ -338,7 +558,7 @@ def mark_missing_resources(
                 dynamodb_client.update_item(
                     TableName=table_name,
                     Key={
-                        'pk': {'S': f'ACCOUNT#{account_id}'},
+                        'pk': {'S': f'TENANT#default#ACCOUNT#{account_id}'},
                         'sk': {'S': sk}
                     },
                     UpdateExpression='SET discoveryStatus = :status, lastDiscoveredAt = :ts',

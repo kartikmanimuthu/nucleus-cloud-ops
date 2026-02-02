@@ -20,8 +20,11 @@ export interface InventoryResource {
     accountId: string;
     lastDiscoveredAt: string;
     discoveryStatus: string;
+    discoveryScanId?: string;
+    tenantId?: string;
     tags?: Record<string, string>;
-    metadata?: Record<string, string>;
+    Metadata?: Record<string, any>;
+    RawMetadata?: Record<string, any>;
 }
 
 export interface ListResourcesParams {
@@ -37,6 +40,13 @@ export interface ListResourcesParams {
 /**
  * GET /api/inventory/resources
  * List discovered resources with pagination and filtering
+ * 
+ * New Schema:
+ * - pk: TENANT#{tenantId}#ACCOUNT#{accountId}
+ * - sk: INVENTORY#{resourceType}#{resourceArn}
+ * - GSI1: gsi1pk=TYPE#INVENTORY, gsi1sk={resourceType}#{region}#{name}
+ * - GSI2: gsi2pk=REGION#{region}, gsi2sk={resourceType}#{timestamp}
+ * - GSI3: gsi3pk=RESOURCE_TYPE#{resourceType}, gsi3sk={accountId}#{resourceId}
  */
 export async function GET(request: NextRequest) {
     try {
@@ -57,20 +67,12 @@ export async function GET(request: NextRequest) {
         let expressionAttributeValues: Record<string, any> = {};
         let expressionAttributeNames: Record<string, string> = {};
 
+        // Default tenant ID (multi-tenant ready)
+        const tenantId = 'default';
+
         // Build query based on filters
-        if (params.accountId) {
-            // Query by account ID (GSI1)
-            queryInput = {
-                TableName: INVENTORY_TABLE_NAME,
-                IndexName: 'GSI1',
-                KeyConditionExpression: 'gsi1pk = :pk',
-                ExpressionAttributeValues: {
-                    ':pk': { S: `ACCOUNT#${params.accountId}` },
-                },
-                Limit: params.limit,
-            };
-        } else if (params.resourceType) {
-            // Query by resource type (GSI3)
+        if (params.resourceType) {
+            // Query by resource type (GSI3): RESOURCE_TYPE#{resourceType}
             queryInput = {
                 TableName: INVENTORY_TABLE_NAME,
                 IndexName: 'GSI3',
@@ -80,8 +82,14 @@ export async function GET(request: NextRequest) {
                 },
                 Limit: params.limit,
             };
+
+            // Add accountId filter if provided
+            if (params.accountId) {
+                queryInput.KeyConditionExpression += ' AND begins_with(gsi3sk, :accountPrefix)';
+                queryInput.ExpressionAttributeValues![':accountPrefix'] = { S: params.accountId };
+            }
         } else if (params.region) {
-            // Query by region (GSI2)
+            // Query by region (GSI2): REGION#{region}
             queryInput = {
                 TableName: INVENTORY_TABLE_NAME,
                 IndexName: 'GSI2',
@@ -91,15 +99,25 @@ export async function GET(request: NextRequest) {
                 },
                 Limit: params.limit,
             };
-        } else {
-            // Query all resources (Main Table - Tenant scope)
-            // Assuming single tenant 'default' for now as per discovery.py
+        } else if (params.accountId) {
+            // Query by account (Main Table): TENANT#{tenantId}#ACCOUNT#{accountId}
             queryInput = {
                 TableName: INVENTORY_TABLE_NAME,
                 KeyConditionExpression: 'pk = :pk AND begins_with(sk, :sk_prefix)',
                 ExpressionAttributeValues: {
-                    ':pk': { S: 'TENANT#default' },
-                    ':sk_prefix': { S: 'RESOURCE#' },
+                    ':pk': { S: `TENANT#${tenantId}#ACCOUNT#${params.accountId}` },
+                    ':sk_prefix': { S: 'INVENTORY#' },
+                },
+                Limit: params.limit,
+            };
+        } else {
+            // Query all resources (GSI1): TYPE#INVENTORY
+            queryInput = {
+                TableName: INVENTORY_TABLE_NAME,
+                IndexName: 'GSI1',
+                KeyConditionExpression: 'gsi1pk = :pk',
+                ExpressionAttributeValues: {
+                    ':pk': { S: 'TYPE#INVENTORY' },
                 },
                 Limit: params.limit,
             };
@@ -114,7 +132,7 @@ export async function GET(request: NextRequest) {
 
         // Add filter for search if provided
         if (params.search) {
-            filterExpression.push('contains(#name, :search) OR contains(resourceId, :search)');
+            filterExpression.push('(contains(#name, :search) OR contains(resourceId, :search))');
             expressionAttributeValues[':search'] = { S: params.search };
             expressionAttributeNames['#name'] = 'name';
         }
@@ -149,6 +167,19 @@ export async function GET(request: NextRequest) {
 
         const resources = (result.Items || []).map(item => {
             const resource = unmarshall(item) as InventoryResource;
+
+            // Parse Metadata if it exists
+            let metadata = {};
+            if (resource.Metadata) {
+                try {
+                    metadata = typeof resource.Metadata === 'string'
+                        ? JSON.parse(resource.Metadata)
+                        : resource.Metadata;
+                } catch {
+                    // Ignore parse errors
+                }
+            }
+
             return {
                 resourceId: resource.resourceId,
                 resourceArn: resource.resourceArn,
@@ -158,7 +189,9 @@ export async function GET(request: NextRequest) {
                 state: resource.state,
                 accountId: resource.accountId,
                 lastDiscoveredAt: resource.lastDiscoveredAt,
+                discoveryScanId: resource.discoveryScanId,
                 tags: resource.tags || {},
+                metadata,
             };
         });
 

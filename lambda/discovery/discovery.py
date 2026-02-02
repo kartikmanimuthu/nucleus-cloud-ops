@@ -2,6 +2,7 @@ import boto3
 import os
 import logging
 import json
+import uuid
 from botocore.exceptions import ClientError
 from datetime import datetime, timezone
 
@@ -103,7 +104,7 @@ class DiscoveryService:
 
                             all_resources.append({
                                 'resourceId': instance['InstanceId'],
-                                'resourceType': 'ec2',
+                                'resourceType': 'ec2_instances',
                                 'name': tags.get('Name', instance['InstanceId']),
                                 'arn': f"arn:aws:ec2:{region}:{account_id}:instance/{instance['InstanceId']}", # Construct ARN manually if missing
                                 'region': region,
@@ -122,7 +123,7 @@ class DiscoveryService:
                             
                         all_resources.append({
                             'resourceId': db['DBInstanceIdentifier'],
-                            'resourceType': 'rds',
+                            'resourceType': 'rds_instances',
                             'name': db['DBInstanceIdentifier'],
                             'arn': db['DBInstanceArn'],
                             'region': region,
@@ -137,7 +138,7 @@ class DiscoveryService:
                     for cluster in page.get('DBClusters', []):
                         all_resources.append({
                             'resourceId': cluster['DBClusterIdentifier'],
-                            'resourceType': 'docdb',
+                            'resourceType': 'docdb_instances',
                             'name': cluster['DBClusterIdentifier'],
                             'arn': cluster['DBClusterArn'],
                             'region': region,
@@ -168,7 +169,7 @@ class DiscoveryService:
                         for svc in resp.get('services', []):
                             all_resources.append({
                                 'resourceId': svc['serviceName'],
-                                'resourceType': 'ecs',
+                                'resourceType': 'ecs_services',
                                 'name': f"{cluster_name}/{svc['serviceName']}",
                                 'arn': svc['serviceArn'],
                                 'region': region,
@@ -184,7 +185,7 @@ class DiscoveryService:
                     for group in page.get('AutoScalingGroups', []):
                         all_resources.append({
                             'resourceId': group['AutoScalingGroupName'],
-                            'resourceType': 'asg',
+                            'resourceType': 'asg_groups',
                             'name': group['AutoScalingGroupName'],
                             'arn': group['AutoScalingGroupARN'],
                             'region': region,
@@ -200,75 +201,125 @@ class DiscoveryService:
 
         return all_resources
 
-    def save_resources(self, resources):
-        """Save discovered resources to DynamoDB"""
+    def save_resources(self, resources, scan_id):
+        """Save discovered resources to DynamoDB with new schema structure"""
         if not resources:
             return
 
-        logger.info(f"Saving {len(resources)} resources to Inventory")
+        logger.info(f"Saving {len(resources)} resources to Inventory (Scan ID: {scan_id})")
         
-        # Determine Tenant ID (assuming single tenant for now or extracted from account)
-        # In single table design, we need tenantId. We'll default to 'default' if not known, 
-        # or we should have passed it from the account object. 
-        # For this implementation, I'll fetch tenantId from the first account or default.
-        tenant_id = 'default' 
+        # Tenant ID defaults to 'default' for now (multi-tenant ready)
+        tenant_id = 'default'
         
         with self.inventory_table.batch_writer() as batch:
             for res in resources:
                 now = datetime.now(timezone.utc).isoformat()
+                resource_type = res['resourceType']  # e.g., ec2_instances, rds_instances
                 
                 item = {
-                    'pk': f"TENANT#{tenant_id}",
-                    'sk': f"RESOURCE#{res['arn']}",
+                    # Primary key: TENANT#<tenantId>#ACCOUNT#<accountId>
+                    'pk': f"TENANT#{tenant_id}#ACCOUNT#{res['accountId']}",
+                    # Sort key: INVENTORY#<resourceType>#<arn>
+                    'sk': f"INVENTORY#{resource_type}#{res['arn']}",
                     
-                    'gsi1pk': f"ACCOUNT#{res['accountId']}",
-                    'gsi1sk': f"RESOURCE#{res['resourceType']}#{res['resourceId']}",
+                    # GSI1: Query all inventory items - TYPE#INVENTORY -> {resourceType}#{region}#{name}
+                    'gsi1pk': 'TYPE#INVENTORY',
+                    'gsi1sk': f"{resource_type}#{res['region']}#{res['name']}",
                     
+                    # GSI2: Query by region - REGION#{region} -> {resourceType}#{timestamp}
                     'gsi2pk': f"REGION#{res['region']}",
-                    'gsi2sk': f"{res['resourceType']}#{now}",
+                    'gsi2sk': f"{resource_type}#{now}",
                     
-                    'gsi3pk': f"RESOURCE_TYPE#{res['resourceType']}",
+                    # GSI3: Query by resource type - RESOURCE_TYPE#{resourceType} -> {accountId}#{resourceId}
+                    'gsi3pk': f"RESOURCE_TYPE#{resource_type}",
                     'gsi3sk': f"{res['accountId']}#{res['resourceId']}",
                     
+                    # Resource attributes
                     'resourceId': res['resourceId'],
-                    'resourceType': res['resourceType'],
+                    'resourceArn': res['arn'],
+                    'resourceType': resource_type,
                     'name': res['name'],
-                    'arn': res['arn'],
                     'region': res['region'],
                     'accountId': res['accountId'],
                     'state': res['state'],
-                    'tags': res['tags'],
-                    'lastSeenAt': now,
+                    'tags': res.get('tags', {}),
+                    
+                    # Discovery tracking
+                    'tenantId': tenant_id,
+                    'discoveryScanId': scan_id,
+                    'lastDiscoveredAt': now,
                     'discoveryStatus': 'active'
                 }
                 
+                # Add Metadata (structured resource-specific data)
                 if 'metadata' in res:
-                    item['metadata'] = res['metadata']
+                    item['Metadata'] = res['metadata']
+                
+                # Add RawMetadata (full API response for future use)
+                if 'rawMetadata' in res:
+                    item['RawMetadata'] = res['rawMetadata']
                     
                 batch.put_item(Item=item)
 
     def run(self):
         """Main execution flow"""
         logger.info("Starting Auto Discovery...")
+        
+        # Generate unique scan ID for this discovery run
+        scan_timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+        scan_id = f"SCAN#{scan_timestamp}#{uuid.uuid4().hex[:8]}"
+        logger.info(f"Discovery Scan ID: {scan_id}")
+        
         accounts = self.get_active_accounts()
         
         total_resources = 0
         all_resources = []
+        synced_accounts = []
+        
         for account in accounts:
             resources = self.scan_account(account)
-            self.save_resources(resources) # Save to DynamoDB per account
+            self.save_resources(resources, scan_id)  # Pass scan_id
             all_resources.extend(resources)
             total_resources += len(resources)
+            synced_accounts.append(account.get('accountId', 'unknown'))
         
         # Write all resources to S3 Table (Iceberg) at once (or in batches)
-        # Assuming we want a consolidated view in S3 Table
         self.save_to_s3_table(all_resources)
+        
+        # Save sync metadata to app_table for status tracking
+        self._save_sync_status(scan_id, total_resources, len(synced_accounts))
 
         logger.info(f"Auto Discovery Completed. Total resources synced: {total_resources}")
         return {
             'statusCode': 200,
-            'body': json.dumps(f"Synced {total_resources} resources")
+            'body': json.dumps({
+                'message': f"Synced {total_resources} resources",
+                'scanId': scan_id,
+                'resourceCount': total_resources,
+                'accountsSynced': len(synced_accounts)
+            })
         }
+    
+    def _save_sync_status(self, scan_id, total_resources, accounts_synced):
+        """Save sync status metadata to app_table for UI status tracking"""
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            self.app_table.put_item(
+                Item={
+                    'pk': 'SYNC#INVENTORY',
+                    'sk': scan_id,
+                    'gsi1pk': 'TYPE#SYNC',
+                    'gsi1sk': f"INVENTORY#{now}",
+                    'scanId': scan_id,
+                    'totalResources': total_resources,
+                    'accountsSynced': accounts_synced,
+                    'syncedAt': now,
+                    'status': 'completed'
+                }
+            )
+            logger.info(f"Saved sync status: {scan_id}, resources: {total_resources}, accounts: {accounts_synced}")
+        except Exception as e:
+            logger.error(f"Error saving sync status: {e}")
 
     def save_to_s3_table(self, resources):
         """Save resources to S3 Table (Iceberg)"""

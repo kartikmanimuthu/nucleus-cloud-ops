@@ -8,6 +8,14 @@ const dynamoClient = new DynamoDBClient({
 
 const APP_TABLE_NAME = process.env.APP_TABLE_NAME || 'nucleus-app-app-table';
 
+interface SyncStatus {
+    scanId: string;
+    totalResources: number;
+    accountsSynced: number;
+    syncedAt: string;
+    status: string;
+}
+
 interface AccountSyncStatus {
     accountId: string;
     accountName: string;
@@ -20,12 +28,40 @@ interface AccountSyncStatus {
 
 /**
  * GET /api/inventory/status
- * Get sync status for all accounts or a specific account
+ * Get inventory sync status including:
+ * - Latest sync info (scanId, totalResources, accountsSynced, syncedAt)
+ * - Account-level sync status (optional, by accountId param)
+ * 
+ * Schema:
+ * Sync metadata: pk=SYNC#INVENTORY, sk=SCAN#{timestamp}#{uuid}
  */
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const accountId = searchParams.get('accountId');
+
+        // Get latest sync status from SYNC#INVENTORY entries
+        const syncResult = await dynamoClient.send(new QueryCommand({
+            TableName: APP_TABLE_NAME,
+            KeyConditionExpression: 'pk = :pk',
+            ExpressionAttributeValues: {
+                ':pk': { S: 'SYNC#INVENTORY' },
+            },
+            ScanIndexForward: false, // Latest first
+            Limit: 1,
+        }));
+
+        let latestSync: SyncStatus | null = null;
+        if (syncResult.Items && syncResult.Items.length > 0) {
+            const syncItem = unmarshall(syncResult.Items[0]);
+            latestSync = {
+                scanId: syncItem.scanId,
+                totalResources: syncItem.totalResources || 0,
+                accountsSynced: syncItem.accountsSynced || 0,
+                syncedAt: syncItem.syncedAt,
+                status: syncItem.status || 'completed',
+            };
+        }
 
         let accounts: AccountSyncStatus[] = [];
 
@@ -77,9 +113,18 @@ export async function GET(request: NextRequest) {
             });
         }
 
+        // Count active accounts (those that are enabled)
+        const activeAccountsCount = accounts.filter(a => a.syncEnabled).length;
+
         return NextResponse.json({
+            // Latest sync summary for UI stats cards
+            latestSync,
+            totalResources: latestSync?.totalResources || 0,
+            accountsSynced: latestSync?.accountsSynced || activeAccountsCount,
+            lastSyncedAt: latestSync?.syncedAt || null,
+            // Account details
             accounts,
-            count: accounts.length,
+            accountCount: accounts.length,
         });
 
     } catch (error: any) {

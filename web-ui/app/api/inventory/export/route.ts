@@ -95,11 +95,25 @@ export async function POST(request: NextRequest) {
 
             const result = await dynamoClient.send(new QueryCommand(queryInput));
 
+            // Helper to get service name
+            const getServiceName = (type: string): string => {
+                const serviceMap: Record<string, string> = {
+                    ec2_instances: "EC2",
+                    rds_instances: "RDS",
+                    ecs_services: "ECS",
+                    asg_groups: "Auto Scaling",
+                    dynamodb_tables: "DynamoDB",
+                    docdb_instances: "DocumentDB",
+                };
+                return serviceMap[type] || type.replace(/_/g, " ").toUpperCase();
+            };
+
             for (const item of result.Items || []) {
                 const resource = unmarshall(item);
                 resources.push({
                     'Resource ID': resource.resourceId,
                     'Name': resource.name,
+                    'Service': getServiceName(resource.resourceType),
                     'Type': resource.resourceType,
                     'Region': resource.region,
                     'Account ID': resource.accountId,

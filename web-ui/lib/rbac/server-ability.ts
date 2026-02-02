@@ -42,6 +42,13 @@ export async function getServerAbility(): Promise<AppAbility> {
         allRoles.push(tenantRole);
     }
 
+    // [DEV ONLY] Default to SuperAdmin if no roles found in development
+    // This ensures local development works without setting up complex DynamoDB role mappings
+    if (process.env.NODE_ENV === 'development' && allRoles.length === 0) {
+        console.warn('⚠️  Development Mode: Assigning temporary SuperAdmins role to user');
+        allRoles.push('SuperAdmins');
+    }
+
     // 6. Build and return ability
     return defineAbilitiesFor(allRoles, activeTenantId);
 }
