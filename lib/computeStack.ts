@@ -580,6 +580,7 @@ export class ComputeStack extends cdk.Stack {
                 checkpointTable.tableArn, `${checkpointTable.tableArn}/index/*`,
                 writesTable.tableArn, `${writesTable.tableArn}/index/*`,
                 agentConversationsTable.tableArn, `${agentConversationsTable.tableArn}/index/*`,
+                inventoryTable.tableArn, `${inventoryTable.tableArn}/index/*`,
             ],
         }));
 
@@ -898,6 +899,30 @@ export class ComputeStack extends cdk.Stack {
                 },
             },
         });
+
+        // EventBridge Rule to trigger Discovery ECS Task
+        const discoveryRule = new events.Rule(this, `app-DiscoveryTriggerRule`, {
+            ruleName: `${appName}-discovery-trigger-rule`,
+            eventPattern: {
+                source: ['nucleus.app'],
+                detailType: ['StartDiscovery'],
+            },
+        });
+
+        discoveryRule.addTarget(new targets.EcsTask({
+            cluster: ecsCluster,
+            taskDefinition: discoveryTaskDef,
+            launchType: ecs.LaunchType.FARGATE,
+            subnetSelection: { subnets: props.vpc.privateSubnets },
+            securityGroups: [discoverySg],
+            containerOverrides: [{
+                containerName: 'DiscoveryContainer',
+                environment: [
+                    { name: 'SCAN_ID', value: events.EventField.fromPath('$.detail.scanId') },
+                    { name: 'ACCOUNT_ID', value: events.EventField.fromPath('$.detail.accountId') },
+                ],
+            }],
+        }));
 
 
         // ============================================================================

@@ -265,13 +265,28 @@ class DiscoveryService:
         """Main execution flow"""
         logger.info("Starting Auto Discovery...")
         
-        # Generate unique scan ID for this discovery run
-        scan_timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
-        scan_id = f"SCAN#{scan_timestamp}#{uuid.uuid4().hex[:8]}"
-        logger.info(f"Discovery Scan ID: {scan_id}")
+        # Use SCAN_ID from environment if available (passed from EventBridge), otherwise generate new
+        env_scan_id = os.environ.get('SCAN_ID')
+        if env_scan_id:
+            scan_id = env_scan_id
+            logger.info(f"Using provided Scan ID: {scan_id}")
+        else:
+            scan_timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+            scan_id = f"SCAN#{scan_timestamp}#{uuid.uuid4().hex[:8]}"
+            logger.info(f"Generated new Discovery Scan ID: {scan_id}")
         
         accounts = self.get_active_accounts()
         
+        # Filter by ACCOUNT_ID if provided
+        target_account_id = os.environ.get('ACCOUNT_ID')
+        if target_account_id and target_account_id != 'ALL':
+            logger.info(f"Filtering for specific account ID: {target_account_id}")
+            # Helper to extract ID from sk if needed, but get_active_accounts items usually have accountId attribute
+            accounts = [
+                acc for acc in accounts 
+                if acc.get('accountId') == target_account_id or acc.get('sk', '').endswith(f"#{target_account_id}")
+            ]
+            
         total_resources = 0
         all_resources = []
         synced_accounts = []

@@ -54,6 +54,7 @@ def get_active_accounts(dynamodb_client, table_name: str) -> List[Dict[str, Any]
                 'accountId': item.get('accountId', item.get('account_id', {})).get('S', ''),
                 'accountName': item.get('accountName', item.get('account_name', {})).get('S', ''),
                 'roleArn': item.get('roleArn', item.get('role_arn', {})).get('S', ''),
+                'externalId': item.get('externalId', item.get('external_id', {})).get('S', ''),
                 'regions': extract_regions(item.get('regions', {})),
             })
     
@@ -170,6 +171,7 @@ def main():
         account_id = account.get('accountId')
         account_name = account.get('accountName', account_id)
         role_arn = account.get('roleArn')
+        external_id = account.get('externalId')
         
         if not account_id:
             print("WARN: Skipping account with no accountId")
@@ -188,6 +190,7 @@ def main():
             scan_result = run_inventory_scan(
                 config,
                 role_arn=role_arn,
+                external_id=external_id,
                 concurrent_regions=concurrent_regions,
                 concurrent_services=concurrent_services
             )

@@ -15,6 +15,15 @@ import time
 import traceback
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Callable
+import sys
+
+try:
+    from src.data_processor import process_and_store_resources
+except ImportError:
+    try:
+        from data_processor import process_and_store_resources
+    except ImportError:
+        pass  # Handle case where data_processor is not available
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -86,7 +95,8 @@ def api_call_with_retry(
 def get_assumed_role_session(
     role_arn: str,
     session_name: str = 'NucleusDiscovery',
-    duration_seconds: int = 3600
+    duration_seconds: int = 3600,
+    external_id: Optional[str] = None
 ) -> boto3.Session:
     """
     Assume a cross-account role and return a boto3 session.
@@ -95,17 +105,23 @@ def get_assumed_role_session(
         role_arn: ARN of the role to assume
         session_name: Name for the assumed role session
         duration_seconds: Duration for the session credentials
+        external_id: Optional ExternalId for assume role condition
         
     Returns:
         boto3.Session with assumed role credentials
     """
     sts = boto3.client('sts')
     
-    response = sts.assume_role(
-        RoleArn=role_arn,
-        RoleSessionName=session_name,
-        DurationSeconds=duration_seconds
-    )
+    params = {
+        'RoleArn': role_arn,
+        'RoleSessionName': session_name,
+        'DurationSeconds': duration_seconds
+    }
+    
+    if external_id:
+        params['ExternalId'] = external_id
+        
+    response = sts.assume_role(**params)
     
     credentials = response['Credentials']
     
@@ -273,6 +289,7 @@ def process_region(
 def run_inventory_scan(
     config: Dict[str, Any],
     role_arn: Optional[str] = None,
+    external_id: Optional[str] = None,
     concurrent_regions: Optional[int] = None,
     concurrent_services: Optional[int] = None,
     max_retries: int = 3,
@@ -284,6 +301,7 @@ def run_inventory_scan(
     Args:
         config: Configuration dictionary with 'inventories' key
         role_arn: Optional role ARN for cross-account access
+        external_id: Optional ExternalId for assume role condition
         concurrent_regions: Number of regions to scan concurrently
         concurrent_services: Number of services per region to scan concurrently
         max_retries: Maximum retry attempts for API calls
@@ -296,8 +314,12 @@ def run_inventory_scan(
     
     # Get session
     if role_arn:
-        logger.info(f"Assuming role: {role_arn}")
-        session = get_assumed_role_session(role_arn)
+        logger.info(f"Assuming role: {role_arn} with ExternalId: {external_id if external_id else 'None'}")
+        try:
+            session = get_assumed_role_session(role_arn, external_id=external_id)
+        except Exception as e:
+            logger.error(f"Failed to assume role {role_arn}: {e}")
+            return {'resources': [], 'error': str(e), 'regions_scanned': 0, 'services_scanned': 0, 'elapsed_seconds': 0}
     else:
         session = boto3.Session()
     
@@ -533,3 +555,175 @@ def extract_resource_identifiers(resource: Dict, service: str) -> Dict[str, Any]
         identifiers['name'] = identifiers['resourceId']
     
     return identifiers
+
+
+def get_active_accounts(dynamodb_client, table_name: str) -> List[Dict[str, Any]]:
+    """Fetch all active accounts from DynamoDB."""
+    accounts = []
+    paginator = dynamodb_client.get_paginator('query')
+    
+    try:
+        paginator_iterator = paginator.paginate(
+            TableName=table_name,
+            IndexName='GSI1',
+            KeyConditionExpression='gsi1pk = :pk',
+            ExpressionAttributeValues={
+                ':pk': {'S': 'TYPE#ACCOUNT'},
+                ':active': {'BOOL': True}
+            },
+            FilterExpression='#active = :active',
+            ExpressionAttributeNames={'#active': 'active'},
+        )
+        
+        for page in paginator_iterator:
+            for item in page.get('Items', []):
+                accounts.append({
+                    'accountId': item.get('accountId', item.get('account_id', {})).get('S', ''),
+                    'accountName': item.get('accountName', item.get('account_name', {})).get('S', ''),
+                    'roleArn': item.get('roleArn', item.get('role_arn', {})).get('S', ''),
+                    'externalId': item.get('externalId', item.get('external_id', {})).get('S', ''),
+                    'regions': extract_regions(item.get('regions', {})),
+                })
+    except Exception as e:
+        logger.error(f"Error fetching active accounts: {e}")
+        return []
+            
+    return accounts
+
+
+def extract_regions(regions_item: Dict) -> List[str]:
+    """Extract regions list from DynamoDB item format."""
+    if not regions_item:
+        return ['us-east-1', 'ap-south-1']
+    
+    if 'L' in regions_item:
+        return [r.get('S', 'us-east-1') for r in regions_item['L']]
+    elif 'SS' in regions_item:
+        return list(regions_item['SS'])
+    
+    return ['us-east-1', 'ap-south-1']
+
+
+def _get_default_services():
+    """Return default services to scan if no config provided."""
+    """
+    Default services configuration to scan when no config is provided.
+    Includes commonly used AWS services.
+    """
+    return [
+        {'service': 'ec2', 'function': 'describe_instances', 'result_key': 'Reservations'},
+        {'service': 'rds', 'function': 'describe_db_instances', 'result_key': 'DBInstances'},
+        {'service': 'ecs', 'function': 'list_clusters', 'result_key': 'clusterArns'},
+        {'service': 'autoscaling', 'function': 'describe_auto_scaling_groups', 'result_key': 'AutoScalingGroups'},
+        {'service': 'lambda', 'function': 'list_functions', 'result_key': 'Functions'},
+        {'service': 'dynamodb', 'function': 'list_tables', 'result_key': 'TableNames'},
+        {'service': 's3', 'function': 'list_buckets', 'result_key': 'Buckets'}
+    ]
+
+
+def scan_all_active_accounts(
+    app_table_name: str,
+    inventory_table_name: str,
+    inventory_bucket: str,
+    config: Optional[Dict[str, Any]] = None,
+    concurrent_regions: int = 5,
+    concurrent_services: int = 10
+) -> Dict[str, Any]:
+    """
+    Scan all active accounts and store results in DynamoDB.
+    
+    Args:
+        app_table_name: Name of the App DynamoDB table (for accounts)
+        inventory_table_name: Name of the Inventory DynamoDB table (for results)
+        inventory_bucket: Name of the S3 bucket (for results)
+        config: Service configuration (optional)
+        concurrent_regions: Number of concurrent regions
+        concurrent_services: Number of concurrent services
+        
+    Returns:
+        Summary dictionary with scan results
+    """
+    dynamodb = boto3.client('dynamodb')
+    s3 = boto3.client('s3')
+    
+    # 1. Fetch active accounts
+    accounts = get_active_accounts(dynamodb, app_table_name)
+    logger.info(f"Found {len(accounts)} active accounts to scan")
+    
+    if not accounts:
+        return {'status': 'success', 'message': 'No active accounts found', 'scanned_count': 0}
+
+    total_resources = 0
+    successful_accounts = 0
+    failed_accounts = 0
+    results_summary = {}
+
+    # 2. Iterate and scan each account
+    for account in accounts:
+        account_id = account.get('accountId')
+        account_name = account.get('accountName', account_id)
+        role_arn = account.get('roleArn')
+        external_id = account.get('externalId')
+        
+        if not account_id:
+            logger.warning("Skipping account with missing ID")
+            continue
+            
+        logger.info(f"Starting scan for account: {account_name} ({account_id})")
+        
+        try:
+            # Use provided config or default
+            services_config = config.get('services') if config else _get_default_services()
+            current_config = {'inventories': [{'aws': {'region': account.get('regions', [])}, 'sheets': services_config}]}
+            
+            # Run scan for this account
+            scan_result = run_inventory_scan(
+                current_config,
+                role_arn=role_arn,
+                external_id=external_id,
+                concurrent_regions=concurrent_regions,
+                concurrent_services=concurrent_services
+            )
+            
+            resources = scan_result.get('resources', [])
+            raw_results = scan_result.get('raw_results', {})
+            
+            # Process and store results
+            try:
+                # Try to call process_and_store_resources from data_processor
+                if 'process_and_store_resources' in globals():
+                    process_func = globals()['process_and_store_resources']
+                    count = process_func(
+                        dynamodb_client=dynamodb,
+                        s3_client=s3,
+                        table_name=inventory_table_name,
+                        bucket_name=inventory_bucket,
+                        account_id=account_id,
+                        resources=resources,
+                        raw_results=raw_results
+                    )
+                    logger.info(f"Stored {count} resources for account {account_id}")
+                    total_resources += count
+                else:
+                    logger.warning("process_and_store_resources not available, skipping storage")
+                    count = len(resources)
+                    total_resources += count
+            except NameError:
+                 logger.warning("process_and_store_resources not defined")
+                 count = len(resources)
+            
+            successful_accounts += 1
+            results_summary[account_id] = {'status': 'success', 'count': count}
+            
+        except Exception as e:
+            logger.error(f"Error scanning account {account_id}: {e}")
+            failed_accounts += 1
+            results_summary[account_id] = {'status': 'failed', 'error': str(e)}
+
+    return {
+        'status': 'success' if failed_accounts == 0 else 'partial_success',
+        'total_resources': total_resources,
+        'successful_accounts': successful_accounts,
+        'failed_accounts': failed_accounts,
+        'details': results_summary
+    }

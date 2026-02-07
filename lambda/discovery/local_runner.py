@@ -128,6 +128,7 @@ def main():
     for account in accounts_to_scan:
         acc_id = account.get('accountId')
         role_arn = account.get('roleArn')
+        external_id = account.get('externalId')
         regions = account.get('regions', [])
         
         # Override regions if provided in CLI
@@ -154,6 +155,7 @@ def main():
         result = run_inventory_scan(
             config,
             role_arn=role_arn,
+            external_id=external_id,
             concurrent_regions=args.concurrent_regions,
             concurrent_services=args.concurrent_services
         )
