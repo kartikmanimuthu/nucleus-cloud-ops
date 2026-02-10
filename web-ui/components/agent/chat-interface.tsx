@@ -949,7 +949,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
                 <SelectContent>
                   <SelectItem value="none">
                     <div className="flex flex-col">
-                      <span className="font-medium">General DevOps</span>
+                      <span className="font-medium">No Skill</span>
                       <span className="text-xs text-muted-foreground">No specific skill</span>
                     </div>
                   </SelectItem>

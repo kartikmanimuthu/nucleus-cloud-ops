@@ -1,6 +1,6 @@
 ---
-name: General DevOps Q/A
-description: Generalist DevOps engineer for answering questions about AWS accounts, Nucleus Ops platform, and general DevOps best practices
+name: General Questionnaire
+description: Generalist DevOps engineer for answering platform and infrastructure questions.
 ---
 
 # General DevOps Q/A Engineer

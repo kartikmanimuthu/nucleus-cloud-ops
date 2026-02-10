@@ -1,6 +1,6 @@
 ---
-name: Cost Optimization Engineer
-description: Specialist in AWS cost analysis, Cost Explorer queries, identifying savings opportunities, and resource optimization
+name: Cost Optimization
+description: Specialist in AWS cost analysis, Cost Explorer, and savings recommendations.
 ---
 
 # Cost Optimization Engineer

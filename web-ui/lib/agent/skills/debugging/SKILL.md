@@ -1,6 +1,6 @@
 ---
-name: Production Debugging Engineer
-description: Expert in troubleshooting AWS services (EC2, ECS, RDS, ALB), analyzing logs, and diagnosing infrastructure issues
+name: Debugging
+description: Expert in troubleshooting AWS services (EC2, ECS, RDS, ALB) and log analysis.
 ---
 
 # Production Debugging Engineer

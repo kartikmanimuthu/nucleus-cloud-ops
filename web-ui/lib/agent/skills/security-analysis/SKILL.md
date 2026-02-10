@@ -1,6 +1,6 @@
 ---
-name: Security Analysis Engineer
-description: Expert in AWS security best practices, IAM analysis, security group audits, and compliance verification
+name: Security Analysis
+description: Expert in AWS security best practices, IAM analysis, and compliance checking.
 ---
 
 # Security Analysis Engineer

@@ -13,6 +13,7 @@ import {
     webSearchTool,
     getAwsCredentialsTool
 } from "./tools";
+import { getSkillContent } from "./skills/skill-loader";
 import {
     GraphConfig,
     ReflectionState,
@@ -25,7 +26,19 @@ import {
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
 export function createFastGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, accountName } = config;
+    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill } = config;
+
+    // Load skill content if a skill is selected
+    let skillContent = '';
+    if (selectedSkill) {
+        const content = getSkillContent(selectedSkill);
+        if (content) {
+            skillContent = `\n\n=== SELECTED SKILL INSTRUCTIONS ===\n${content}\n\nYou MUST follow the above skill-specific instructions for this conversation. These instructions take precedence and guide your approach to handling user requests.\n=== END SKILL INSTRUCTIONS ===\n`;
+            console.log(`[FastAgent] Loaded skill: ${selectedSkill}`);
+        } else {
+            console.warn(`[FastAgent] Failed to load skill content for: ${selectedSkill}`);
+        }
+    }
 
     // --- Model Initialization ---
     const model = new ChatBedrockConverse({
@@ -76,7 +89,7 @@ NEVER use the host's default credentials - always use the profile returned from 
         const systemPrompt = new SystemMessage(`You are a capable DevOps and Cloud Infrastructure assistant.
 You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials.
 You are proficient with AWS CLI, git, shell scripting, and infrastructure management.
-
+${skillContent}
 IMPORTANT: You are a READ-ONLY agent.
 - You MUST NOT perform any mutation operations (create, update, delete resources).
 - You MUST NOT execute dangerous commands (rm, mv, etc).
