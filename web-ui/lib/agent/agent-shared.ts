@@ -212,6 +212,46 @@ export interface GraphConfig {
     accountId?: string;   // Deprecated: Single account (kept for backwards compatibility)
     accountName?: string; // Deprecated: Single account name
     selectedSkill?: string | null; // Selected skill ID for dynamic loading
+    mcpServerIds?: string[];       // MCP server IDs to activate for this session
+}
+
+// --- MCP Integration ---
+// Re-export MCP utilities for use by agent modules
+export { getMCPManager } from './mcp-manager';
+export { createMCPTools, getMCPToolsDescription } from './mcp-tools';
+
+/**
+ * Connect requested MCP servers and return LangChain-compatible tools.
+ * Resolves server configs from DynamoDB (user customizations) falling back to defaults.
+ * If no server IDs are provided, returns an empty array (backward compatible).
+ */
+export async function getActiveMCPTools(serverIds?: string[]) {
+    if (!serverIds || serverIds.length === 0) {
+        return [];
+    }
+
+    const { getMCPManager: getManager } = await import('./mcp-manager');
+    const { createMCPTools: createTools } = await import('./mcp-tools');
+    const { mergeConfigs } = await import('./mcp-config');
+    const manager = getManager();
+
+    // Resolve server configs from DynamoDB + defaults
+    let allConfigs;
+    try {
+        const { TenantConfigService } = await import('../tenant-config-service');
+        const savedJson = await TenantConfigService.getConfig('mcp-servers');
+        allConfigs = mergeConfigs(savedJson);
+    } catch (err) {
+        console.warn('[getActiveMCPTools] DynamoDB config read failed, using defaults:', err);
+        const { DEFAULT_MCP_SERVERS } = await import('./mcp-config');
+        allConfigs = DEFAULT_MCP_SERVERS;
+    }
+
+    // Connect requested servers (idempotent — skips already-connected)
+    await manager.connectServers(serverIds, allConfigs);
+
+    // Convert MCP tools to LangChain format
+    return createTools(manager, serverIds);
 }
 
 // --- State Definition ---

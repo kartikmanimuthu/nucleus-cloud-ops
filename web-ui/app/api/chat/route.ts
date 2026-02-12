@@ -35,7 +35,8 @@ export async function POST(req: Request) {
             accounts,       // Array of { accountId, accountName } for multi-account querying
             accountId,      // Deprecated: single AWS account ID for backwards compatibility
             accountName,    // Deprecated: single AWS account name
-            selectedSkill   // Skill ID for dynamic skill loading
+            selectedSkill,  // Skill ID for dynamic skill loading
+            mcpServerIds    // MCP server IDs to activate for this session
         } = await req.json();
         const threadId = requestThreadId || Date.now().toString();
 
@@ -71,11 +72,12 @@ export async function POST(req: Request) {
             accountId: accountId,       // Backwards compatibility
             accountName: accountName,
             selectedSkill: selectedSkill || null,  // Pass selectedSkill for dynamic loading
+            mcpServerIds: mcpServerIds || [],       // Pass MCP server IDs for dynamic tool loading
         };
 
         const graph = mode === 'fast'
-            ? createFastGraph(graphConfig)
-            : createReflectionGraph(graphConfig);
+            ? await createFastGraph(graphConfig)
+            : await createReflectionGraph(graphConfig);
 
         const lastMessage = messages[messages.length - 1];
         let input: { messages: (HumanMessage | AIMessage | ToolMessage)[] } | null = null;

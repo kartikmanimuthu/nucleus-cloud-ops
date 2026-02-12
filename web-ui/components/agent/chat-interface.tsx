@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
   Bot, User, Trash2, Loader2, Terminal, Send, 
   Briefcase, Cpu, Check, X, Brain, RefreshCw, 
-  Flag, ListChecks, Sparkles, Settings, Zap, Cloud, Copy, Download
+  Flag, ListChecks, Sparkles, Settings, Zap, Cloud, Copy, Download, Plug
 } from 'lucide-react';
 import { copyToClipboard, exportToMarkdown } from '@/lib/chat-export';
 // Available modes
@@ -157,6 +157,11 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
   const [availableSkills, setAvailableSkills] = useState<Array<{id: string, name: string, description: string}>>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
 
+  // MCP server selection state
+  const [mcpServers, setMcpServers] = useState<Array<{id: string, name: string, description: string, enabled: boolean}>>([]);
+  const [selectedMcpServerIds, setSelectedMcpServerIds] = useState<string[]>([]);
+  const [mcpServersLoading, setMcpServersLoading] = useState(false);
+
   // Fetch accounts on mount
   useEffect(() => {
     async function fetchAccounts() {
@@ -200,6 +205,31 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
     fetchSkills();
   }, []);
 
+  // Fetch MCP servers on mount
+  useEffect(() => {
+    async function fetchMcpServers() {
+      try {
+        setMcpServersLoading(true);
+        const res = await fetch('/api/mcp-servers');
+        if (res.ok) {
+          const data = await res.json();
+          setMcpServers(data.servers || []);
+          // Auto-select any pre-enabled servers
+          const preEnabled = (data.servers || []).filter((s: any) => s.enabled).map((s: any) => s.id);
+          if (preEnabled.length > 0) setSelectedMcpServerIds(preEnabled);
+          console.log('[ChatInterface] Loaded MCP servers:', data.servers?.length || 0);
+        } else {
+          console.error('[ChatInterface] Failed to fetch MCP servers:', res.status);
+        }
+      } catch (error) {
+        console.error('[ChatInterface] Failed to load MCP servers:', error);
+      } finally {
+        setMcpServersLoading(false);
+      }
+    }
+    fetchMcpServers();
+  }, []);
+
   // Get selected account details for API - supports multi-account
   const selectedAccounts = accounts.filter(a => selectedAccountIds.includes(a.accountId));
 
@@ -220,6 +250,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
         mode: agentMode,
         accounts: selectedAccounts.length > 0 ? selectedAccounts.map(a => ({ accountId: a.accountId, accountName: a.name })) : undefined,
         selectedSkill: selectedSkill || undefined,
+        mcpServerIds: selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
     },
     onResponse: (response: Response) => {
         console.log('[ChatInterface] Received response headers:', response);
@@ -363,6 +394,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
         mode: agentMode,
         accounts: selectedAccounts.length > 0 ? selectedAccounts.map(a => ({ accountId: a.accountId, accountName: a.name })) : undefined,
         selectedSkill: selectedSkill || undefined,
+        mcpServerIds: selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
       }
     });
   };
@@ -401,6 +433,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
         mode: agentMode,
         accounts: selectedAccounts.length > 0 ? selectedAccounts.map(a => ({ accountId: a.accountId, accountName: a.name })) : undefined,
         selectedSkill: selectedSkill || undefined,
+        mcpServerIds: selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
       }
     });
   };
@@ -966,10 +999,37 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
                 </SelectContent>
               </Select>
 
-
+              {/* MCP Servers Multi-Toggle */}
+              {mcpServers.length > 0 && (
+                <div className="flex items-center gap-1.5 border-l pl-2 ml-1">
+                  <Plug className={cn("w-3 h-3", selectedMcpServerIds.length > 0 ? "text-green-500" : "text-muted-foreground")} />
+                  {mcpServers.map((server) => (
+                    <button
+                      key={server.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMcpServerIds(prev =>
+                          prev.includes(server.id)
+                            ? prev.filter(id => id !== server.id)
+                            : [...prev, server.id]
+                        );
+                      }}
+                      title={`${server.name}: ${server.description}`}
+                      className={cn(
+                        "h-6 px-2 text-[10px] font-medium rounded-full border transition-all",
+                        selectedMcpServerIds.includes(server.id)
+                          ? "bg-green-500/15 border-green-500/50 text-green-700 dark:text-green-400"
+                          : "bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/50"
+                      )}
+                    >
+                      {server.name.split(' ').slice(0, 2).join(' ')}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <span className="text-[10px] text-muted-foreground hidden sm:inline-block">
-                • {14} tools available
+                • {9 + (selectedMcpServerIds.length > 0 ? ' + MCP' : '')} tools
               </span>
             </div>
             
@@ -1016,7 +1076,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
 
                 <div className="w-px h-4 bg-border mx-1" />
 
-                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-muted-foreground" type="button">
+                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-muted-foreground" type="button" onClick={() => window.location.href = '/agent/mcp-settings'} title="MCP Server Settings">
                   <Settings className="w-3.5 h-3.5" />
                 </Button>
               </div>

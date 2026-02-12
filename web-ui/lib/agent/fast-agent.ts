@@ -21,12 +21,15 @@ import {
     MAX_ITERATIONS,
     truncateOutput,
     getRecentMessages,
-    checkpointer
+    checkpointer,
+    getActiveMCPTools,
+    getMCPToolsDescription,
+    getMCPManager
 } from "./agent-shared";
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
-export function createFastGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill } = config;
+export async function createFastGraph(config: GraphConfig) {
+    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
 
     // Load skill content if a skill is selected
     let skillContent = '';
@@ -50,7 +53,15 @@ export function createFastGraph(config: GraphConfig) {
     });
 
     // Include AWS credentials tool for account-aware operations
-    const tools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool];
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool];
+
+    // Dynamically discover and merge MCP server tools
+    const mcpTools = await getActiveMCPTools(mcpServerIds);
+    if (mcpTools.length > 0) {
+        console.log(`[FastAgent] Loaded ${mcpTools.length} MCP tools from servers: ${mcpServerIds?.join(', ')}`);
+    }
+    const tools = [...customTools, ...mcpTools];
+
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
 

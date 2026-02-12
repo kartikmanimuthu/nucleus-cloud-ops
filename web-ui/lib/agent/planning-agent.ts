@@ -22,12 +22,15 @@ import {
     MAX_ITERATIONS,
     truncateOutput,
     getRecentMessages,
-    checkpointer
+    checkpointer,
+    getActiveMCPTools,
+    getMCPToolsDescription,
+    getMCPManager
 } from "./agent-shared";
 
 // Factory function to create a configured reflection graph
-export function createReflectionGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill } = config;
+export async function createReflectionGraph(config: GraphConfig) {
+    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
 
     // Load skill content if a skill is selected
     let skillContent = '';
@@ -51,7 +54,20 @@ export function createReflectionGraph(config: GraphConfig) {
     });
 
     // Include AWS credentials tool for account-aware operations
-    const tools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool];
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool];
+
+    // Dynamically discover and merge MCP server tools
+    const mcpTools = await getActiveMCPTools(mcpServerIds);
+    if (mcpTools.length > 0) {
+        console.log(`[PlanningAgent] Loaded ${mcpTools.length} MCP tools from servers: ${mcpServerIds?.join(', ')}`);
+    }
+    const tools = [...customTools, ...mcpTools];
+
+    // Generate MCP tool descriptions for system prompts
+    const mcpToolsDescription = mcpServerIds && mcpServerIds.length > 0
+        ? getMCPToolsDescription(getMCPManager(), mcpServerIds)
+        : '';
+
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
 
