@@ -35,9 +35,9 @@ import {
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "AWS Accounts", href: "/accounts", icon: Server },
-  { name: "AI Agent", href: "/agent", icon: Bot },
-  { name: "Schedules", href: "/schedules", icon: Calendar },
-  { name: "Inventory", href: "/inventory", icon: Database },
+  { name: "AI Ops", href: "/agent", icon: Bot },
+  { name: "Cost Scheduler", href: "/schedules", icon: Calendar },
+  { name: "Inventory Discovery", href: "/inventory", icon: Database },
   { name: "Audit Logs", href: "/audit", icon: Activity },
   { name: "Users", href: "/admin/users", icon: Users },
   { name: "Settings", href: "/settings", icon: Settings },
@@ -76,7 +76,7 @@ export function Sidebar() {
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
               <Calendar className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="font-semibold text-lg text-foreground">Nucleus Ops</span>
+            <span className="font-semibold text-base text-foreground">Nucleus Cloud Ops</span>
           </div>
         )}
         <div className="flex items-center space-x-1">

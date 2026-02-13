@@ -291,7 +291,7 @@ export default function InventoryPage() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Resource Inventory</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">Inventory Discovery</h1>
                     <p className="text-muted-foreground">
                         Auto-discovered AWS resources across all connected accounts
                     </p>

@@ -669,7 +669,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
           </Avatar>
           <div>
             <h2 className="font-semibold flex items-center gap-2">
-              DevOps Agent
+              AI Ops
               <Sparkles className="w-4 h-4 text-warning" />
             </h2>
             <p className="text-xs text-muted-foreground flex items-center gap-1">

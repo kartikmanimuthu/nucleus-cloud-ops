@@ -13,9 +13,9 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope" });
 
 export const metadata: Metadata = {
-  title: "Nucleus Ops Platform",
+  title: "Nucleus Cloud Ops",
   description:
-    "Nucleus Ops Platform - Manage resource schedules across multiple accounts",
+    "Nucleus Cloud Ops - Manage AWS resources, schedules and costs across multiple accounts",
   generator: "v0.dev",
 };
 

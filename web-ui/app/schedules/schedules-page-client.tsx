@@ -266,7 +266,7 @@ export function SchedulesPageClient({
       {/* Header */}
       <div className="flex items-center justify-between sticky top-0 z-10 bg-background p-4 border-b">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Schedules</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Cost Scheduler</h1>
           <p className="text-muted-foreground">
             Manage cost optimization schedules and time configurations
           </p>
