@@ -10,7 +10,162 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { execFileSync } from 'child_process';
 import { MCPServerConfig, DEFAULT_MCP_SERVERS } from './mcp-config';
+
+/**
+ * Check if a command binary is available on the system PATH.
+ */
+function isCommandAvailable(command: string): boolean {
+    try {
+        execFileSync('which', [command], { stdio: 'ignore' });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Known Docker image → native command mappings.
+ * When a user configures an MCP server with `docker run <image>`,
+ * and Docker is not available (e.g. ECS Fargate), we automatically
+ * substitute the native npx/uvx equivalent.
+ */
+interface NativeAlternative {
+    command: string;
+    args: string[];
+    /** Env vars to carry over from the docker -e flags */
+    envKeys?: string[];
+}
+
+const DOCKER_IMAGE_ALTERNATIVES: Record<string, NativeAlternative> = {
+    'grafana/mcp-grafana': {
+        command: 'npx',
+        args: ['-y', '@leval/mcp-grafana'],
+        envKeys: ['GRAFANA_URL', 'GRAFANA_SERVICE_ACCOUNT_TOKEN', 'GRAFANA_TOKEN'],
+    },
+    'mcp/grafana': {
+        command: 'npx',
+        args: ['-y', '@leval/mcp-grafana'],
+        envKeys: ['GRAFANA_URL', 'GRAFANA_SERVICE_ACCOUNT_TOKEN', 'GRAFANA_TOKEN'],
+    },
+};
+
+/**
+ * Adapt an MCP server config for the current runtime environment.
+ *
+ * If the config uses `docker` but Docker is not available, attempts to
+ * find a native (npx/uvx) alternative from the known mappings table.
+ * This allows user-saved DynamoDB configs with `docker run` to work
+ * seamlessly in ECS Fargate where Docker-in-Docker is not available.
+ *
+ * Returns a new config object (never mutates the original).
+ */
+function adaptConfigForEnvironment(config: MCPServerConfig): MCPServerConfig {
+    // If the command is available, use as-is
+    if (isCommandAvailable(config.command)) {
+        return config;
+    }
+
+    // --- Docker command adaptation ---
+    if (config.command === 'docker') {
+        // Parse docker args to find the image name
+        // Typical: ["run", "--rm", "-i", "-e", "VAR1", "-e", "VAR2", "image/name", "-t", "stdio"]
+        const dockerImage = extractDockerImage(config.args);
+
+        if (dockerImage) {
+            const alternative = DOCKER_IMAGE_ALTERNATIVES[dockerImage];
+            if (alternative) {
+                // Extract env vars from docker -e flags
+                const envFromDocker = extractDockerEnvVars(config.args);
+                const mergedEnv = { ...config.env };
+                for (const key of (alternative.envKeys || [])) {
+                    if (envFromDocker[key]) {
+                        mergedEnv[key] = envFromDocker[key];
+                    }
+                }
+
+                console.log(`[MCPManager] 🔄 Adapting "${config.name}": docker ${dockerImage} → ${alternative.command} ${alternative.args.join(' ')}`);
+
+                return {
+                    ...config,
+                    command: alternative.command,
+                    args: [...alternative.args],
+                    env: mergedEnv,
+                };
+            }
+        }
+
+        console.warn(`[MCPManager] ⚠️ Docker not available and no native alternative found for image "${dockerImage || 'unknown'}"`);
+    }
+
+    // --- uvx → npx fallback (if uvx is missing but npx is available) ---
+    if (config.command === 'uvx' && !isCommandAvailable('uvx') && isCommandAvailable('npx')) {
+        console.log(`[MCPManager] 🔄 Adapting "${config.name}": uvx not found, attempting npx fallback`);
+        // Some MCP servers have both pypi and npm packages
+        // For known ones, we can map; for unknown, log a warning
+        console.warn(`[MCPManager] ⚠️ uvx not available. "${config.name}" may not work with npx. Consider installing uv/uvx.`);
+    }
+
+    // Return original config - the pre-flight check in _doConnect will catch if the command is still unavailable
+    return config;
+}
+
+/**
+ * Extract the Docker image name from docker run args.
+ * Handles: docker run --rm -i -e VAR1 -e VAR2 image/name [-t stdio]
+ */
+function extractDockerImage(args: string[]): string | null {
+    let i = 0;
+    // Skip "run" if present
+    if (args[0] === 'run') i = 1;
+
+    while (i < args.length) {
+        const arg = args[i];
+        // Skip known docker flags
+        if (arg === '--rm' || arg === '-i' || arg === '-t' || arg === '--interactive' || arg === '--tty') {
+            i++;
+            continue;
+        }
+        // Skip flags that take a value: -e VAR, --env VAR, -v, --volume, --name, etc.
+        if (arg === '-e' || arg === '--env' || arg === '-v' || arg === '--volume' ||
+            arg === '--name' || arg === '--network' || arg === '-p' || arg === '--publish' ||
+            arg === '-w' || arg === '--workdir' || arg === '--entrypoint') {
+            i += 2; // skip flag + value
+            continue;
+        }
+        // Skip flags with = (e.g. --env=VAR=VALUE)
+        if (arg.startsWith('-')) {
+            i++;
+            continue;
+        }
+        // First non-flag argument is the image name
+        return arg;
+    }
+    return null;
+}
+
+/**
+ * Extract environment variable names from docker -e flags.
+ * Handles both `-e VAR` (pass-through) and `-e VAR=value` forms.
+ */
+function extractDockerEnvVars(args: string[]): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (let i = 0; i < args.length; i++) {
+        if ((args[i] === '-e' || args[i] === '--env') && i + 1 < args.length) {
+            const val = args[i + 1];
+            if (val.includes('=')) {
+                const [key, ...rest] = val.split('=');
+                env[key] = rest.join('=');
+            } else {
+                // Pass-through: use value from current process.env
+                env[val] = process.env[val] || '';
+            }
+            i++; // skip value
+        }
+    }
+    return env;
+}
 
 export interface MCPToolInfo {
     mcpServerId: string;
@@ -55,16 +210,32 @@ export class MCPServerManager {
     }
 
     private async _doConnect(config: MCPServerConfig): Promise<void> {
-        console.log(`[MCPManager] Connecting to MCP server: "${config.name}" (${config.id})`);
-        console.log(`[MCPManager]   Command: ${config.command} ${config.args.join(' ')}`);
+        // Adapt config for the current environment (e.g. docker → npx in ECS)
+        const adaptedConfig = adaptConfigForEnvironment(config);
+
+        console.log(`[MCPManager] Connecting to MCP server: "${adaptedConfig.name}" (${adaptedConfig.id})`);
+        console.log(`[MCPManager]   Command: ${adaptedConfig.command} ${adaptedConfig.args.join(' ')}`);
+        if (adaptedConfig.command !== config.command) {
+            console.log(`[MCPManager]   (adapted from: ${config.command} ${config.args.join(' ')})`);
+        }
+
+        // Pre-flight check: verify the adapted command binary exists on PATH
+        if (!isCommandAvailable(adaptedConfig.command)) {
+            const errMsg = `Command "${adaptedConfig.command}" not found on PATH. ` +
+                `MCP server "${adaptedConfig.name}" requires "${adaptedConfig.command}" to be installed. ` +
+                `Current PATH: ${process.env.PATH || '(not set)'}`;
+            console.error(`[MCPManager] ❌ ${errMsg}`);
+            throw new Error(errMsg);
+        }
+        console.log(`[MCPManager] ✓ Command "${adaptedConfig.command}" found on PATH`);
 
         try {
             const transport = new StdioClientTransport({
-                command: config.command,
-                args: config.args,
+                command: adaptedConfig.command,
+                args: adaptedConfig.args,
                 env: {
                     ...process.env as Record<string, string>,
-                    ...(config.env || {}),
+                    ...(adaptedConfig.env || {}),
                 },
             });
 

@@ -23,8 +23,8 @@ const TEMPLATE_SERVERS: Record<string, { command: string; args: string[]; env?: 
         description: 'AWS CDK guidance & constructs',
     },
     'grafana': {
-        command: 'uvx',
-        args: ['mcp-grafana'],
+        command: 'npx',
+        args: ['-y', '@leval/mcp-grafana'],
         env: { GRAFANA_URL: 'https://your-grafana-instance.example.com', GRAFANA_TOKEN: 'glsa_xxxxxxxxxxxx' },
         description: 'Grafana dashboards & metrics',
     },
