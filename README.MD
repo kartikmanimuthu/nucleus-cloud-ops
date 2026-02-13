@@ -1,11 +1,11 @@
-# Nucleus Ops
+# Nucleus Cloud Ops
 
 <p align="center">
-  <img src="docs/screenshots/dashboard_page.png" alt="Nucleus Ops Dashboard" width="800">
+  <img src="docs/screenshots/dashboard_page.png" alt="Nucleus Cloud Ops Dashboard" width="800">
 </p>
 
 <p align="center">
-  <strong>Enterprise-grade AWS Cost Optimization & Resource Scheduling Platform</strong>
+  <strong>Enterprise-grade AWS Cloud Operations Platform with AI Ops & GenAI DevOps Agent built on AWS Bedrock for Multi-Account Management.</strong>
 </p>
 
 <p align="center">
@@ -18,9 +18,9 @@
 
 ---
 
-## 🎯 What is Nucleus Ops?
+## 🎯 What is Nucleus Cloud Ops?
 
-Nucleus Ops is a centralized platform for automating AWS resource management across multiple accounts. It helps organizations **reduce cloud costs by up to 65%** by automatically starting and stopping non-production resources based on business schedules.
+Nucleus Cloud Ops is a centralized platform for automating AWS resource management across multiple accounts. It leverages **AI Ops** and **GenAI** to optimize cloud operations and reduce costs.
 
 ### The Problem
 
@@ -28,6 +28,7 @@ Nucleus Ops is a centralized platform for automating AWS resource management acr
 - **Manual Management**: DevOps teams spend hours manually managing resource states
 - **Multi-Account Complexity**: Enterprises struggle to coordinate schedules across dozens of AWS accounts
 - **Lack of Visibility**: No centralized view of scheduling operations and cost savings
+
 
 ### The Solution
 
@@ -96,8 +97,8 @@ Dark/light themes, multiple color schemes, and typography options.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/nucleus-platform.git
-cd nucleus-platform
+git clone https://github.com/kartikmanimuthu/nucleus-cloud-ops.git
+cd nucleus-cloud-ops
 
 # Install dependencies
 npm install
@@ -148,7 +149,7 @@ TAVILY_API_KEY=your-tavily-key
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Nucleus Ops Platform                     │
+│                     Nucleus Cloud Ops Platform                     │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
 │  │   Next.js    │  │   LangGraph  │  │  Lambda Scheduler │  │
@@ -193,7 +194,7 @@ TAVILY_API_KEY=your-tavily-key
 ## 📂 Project Structure
 
 ```
-nucleus-platform/
+nucleus-cloud-ops/
 ├── bin/                    # CDK app entry point
 ├── lib/                    # CDK stack definitions
 │   ├── cdkStack.ts         # Main stack

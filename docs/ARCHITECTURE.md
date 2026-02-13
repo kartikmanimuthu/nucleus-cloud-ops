@@ -1,8 +1,8 @@
-# Nucleus Ops - Technical Architecture
+# Nucleus Cloud Ops - Technical Architecture
 
 ## Overview
 
-Nucleus Ops is an enterprise-grade AWS cost optimization and resource scheduling platform that provides centralized control over AWS resources across multiple accounts. The platform automates start/stop operations for EC2, RDS, and ECS services based on user-defined schedules, delivering significant cost savings for non-production environments.
+Nucleus Cloud Ops is an enterprise-grade AWS cost optimization and resource scheduling platform that provides centralized control over AWS resources across multiple accounts. The platform automates start/stop operations for EC2, RDS, and ECS services based on user-defined schedules, delivering significant cost savings for non-production environments.
 
 ## System Architecture
 
@@ -81,7 +81,7 @@ graph TB
 
 ### Single Table Design
 
-Nucleus Ops uses DynamoDB with a Single Table Design for optimal query performance:
+Nucleus Cloud Ops uses DynamoDB with a Single Table Design for optimal query performance:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

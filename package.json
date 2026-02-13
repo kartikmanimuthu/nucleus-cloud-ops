@@ -1,8 +1,10 @@
 {
-  "name": "cost-efficient-scheduler",
+  "name": "nucleus-cloud-ops",
   "version": "0.1.0",
+  "description": "Enterprise-grade AWS Cloud Operations Platform with AI Ops & GenAI DevOps Agent built on AWS Bedrock for Multi-Account Management.",
+  "author": "kartikmanimuthu@gmail.com",
   "bin": {
-    "cost-efficient-scheduler": "bin/cdkStack.js"
+    "nucleus-cloud-ops": "bin/cdkStack.js"
   },
   "scripts": {
     "build": "tsc",

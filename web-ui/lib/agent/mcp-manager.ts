@@ -240,7 +240,7 @@ export class MCPServerManager {
             });
 
             const client = new Client({
-                name: 'nucleus-platform-agent',
+                name: 'nucleus-cloud-ops-agent',
                 version: '1.0.0',
             });
 
