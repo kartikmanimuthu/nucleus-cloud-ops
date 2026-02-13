@@ -165,7 +165,7 @@ class DiscoveryService:
                         batch = service_arns[i:i+10]
                         if not batch: continue
                         
-                        resp = ecs.describe_services(cluster=cluster_arn, services=batch)
+                        resp = ecs.describe_services(cluster=cluster_arn, services=batch, include=['TAGS'])
                         for svc in resp.get('services', []):
                             all_resources.append({
                                 'resourceId': svc['serviceName'],
