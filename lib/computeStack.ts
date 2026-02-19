@@ -19,9 +19,11 @@ import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as path from "path";
 import * as crypto from "crypto";
+import * as s3_notifications from "aws-cdk-lib/aws-s3-notifications";
 import { Construct } from "constructs";
 import { TableBucket, Namespace, Table, OpenTableFormat } from '@aws-cdk/aws-s3tables-alpha';
 import { RemovalPolicy } from "aws-cdk-lib";
+import { Bucket as VectorBucket, Index } from 'cdk-s3-vectors';
 
 export interface ComputeStackProps extends cdk.StackProps {
     vpc: ec2.Vpc;
@@ -239,6 +241,22 @@ export class ComputeStack extends cdk.Stack {
         });
 
         // ============================================================================
+        // S3 VECTOR BUCKET (cdk-s3-vectors)
+        // ============================================================================
+
+        const vectorBucket = new VectorBucket(this, `${appName}-VectorBucket`, {
+            vectorBucketName: `${appName}-vectors-${this.account}-${this.region}`,
+        });
+
+        const vectorIndex = new Index(this, `${appName}-VectorIndex`, {
+            vectorBucketName: vectorBucket.vectorBucketName, // Using Name as per PoC; construct handles mapping
+            indexName: 'text-embeddings',
+            dataType: 'float32',
+            dimension: 1024,
+            distanceMetric: 'cosine',
+        });
+
+        // ============================================================================
         // AUTO-DISCOVERY INFRASTRUCTURE
         // ============================================================================
 
@@ -299,6 +317,79 @@ export class ComputeStack extends cdk.Stack {
 
         // S3 permissions for discovery
         inventoryBucket.grantReadWrite(discoveryTaskRole);
+
+        // Vector Processor Lambda
+        // Vector Processor Lambda (TypeScript)
+        const vectorProcessor = new lambda_nodejs.NodejsFunction(
+            this,
+            `${appName}-VectorProcessor`,
+            {
+                functionName: `${stackName}-vector-processor`,
+                runtime: lambda.Runtime.NODEJS_20_X,
+                architecture: lambda.Architecture.ARM_64,
+                entry: path.join(__dirname, "../lambda/vector_processor/src/index.ts"),
+                handler: "handler",
+                bundling: {
+                    minify: true,
+                    externalModules: [
+                        '@aws-sdk/client-s3',
+                        '@aws-sdk/client-bedrock-runtime'
+                    ], // Bundle client-s3vectors and cheerio
+                },
+                timeout: cdk.Duration.minutes(15),
+                memorySize: 1024,
+                environment: {
+                    INVENTORY_BUCKET_NAME: inventoryBucket.bucketName,
+                    VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName, // Use Name as we have Index now? Or ARN?
+                    // In index.ts, we use PutVectorsCommand. 
+                    // s3vectors (preview) usually takes Name + IndexName.
+                    // The Fix in Python used ARN. 
+                    // Let's pass ARN to be safe, as it's the unique identifier.
+                    // But wait, the Index construct takes Name. 
+                    // Let's pass BOTH and let the Lambda decide or use ARN.
+                    // Actually, the previous fix confirmed ARN was needed for the *Bucket* resource to be found.
+                    // But PutVectors might expect the Name if the client handles resolution.
+                    // I will pass ARN as VECTOR_BUCKET_NAME to be consistent with the fix.
+                    VECTOR_BUCKET_ARN: vectorBucket.vectorBucketArn,
+                    // Also pass Name just in case
+                    VECTOR_BUCKET_NAME_SIMPLE: vectorBucket.vectorBucketName,
+                    VECTOR_INDEX_NAME: vectorIndex.indexName,
+                    BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+                },
+            },
+        );
+
+        // Grant S3 permissions
+        inventoryBucket.grantReadWrite(vectorProcessor);
+        // vectorBucket is a custom resource, so we might need to manually grant if the L2 construct doesn't expose standard grant methods
+        // The cdk-s3-vectors construct does not appear to expose a standard IBucket interface directly for the vector bucket
+        // It exposes vectorBucketArn. Let's use addToRolePolicy for safety.
+        vectorProcessor.addToRolePolicy(new iam.PolicyStatement({
+            actions: [
+                "s3:PutObject", "s3:GetObject", "s3:ListBucket",
+                "s3vectors:PutVectors", "s3vectors:CreateVectorIndex" // Ensure permission
+            ],
+            resources: [
+                vectorBucket.vectorBucketArn,
+                `${vectorBucket.vectorBucketArn}/*`,
+                vectorIndex.indexArn // Grant permission on the index
+            ]
+        }));
+
+        // Grant Bedrock permissions
+        vectorProcessor.addToRolePolicy(
+            new iam.PolicyStatement({
+                actions: ["bedrock:InvokeModel"],
+                resources: ["*"],
+            }),
+        );
+
+        // Add S3 Event Notification
+        inventoryBucket.addEventNotification(
+            s3.EventType.OBJECT_CREATED,
+            new s3_notifications.LambdaDestination(vectorProcessor),
+            { prefix: "merged/" },
+        );
 
         // S3 Tables permissions (for managed Iceberg tables)
         discoveryTaskRole.addToPolicy(new iam.PolicyStatement({
@@ -707,6 +798,13 @@ export class ComputeStack extends cdk.Stack {
                 NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
                 COGNITO_CLIENT_SECRET: this.userPoolClient.userPoolClientSecret?.unsafeUnwrap() || '',
                 COGNITO_DOMAIN: `${webUiStackName}-auth-${this.account}.auth.${this.region}.amazoncognito.com`,
+
+                // Vector Search Config
+                VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName,
+                VECTOR_INDEX_NAME: vectorIndex.indexName,
+                BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+
+                // Remaining Cognito & App Config
                 NEXT_PUBLIC_COGNITO_DOMAIN: `${webUiStackName}-auth-${this.account}.auth.${this.region}.amazoncognito.com`,
                 COGNITO_REGION: this.region,
                 NEXT_PUBLIC_COGNITO_REGION: this.region,
@@ -731,6 +829,21 @@ export class ComputeStack extends cdk.Stack {
             },
             portMappings: [{ containerPort: 3000, hostPort: 3000, protocol: ecs.Protocol.TCP }],
         });
+
+        // Grant S3 Vectors permissions to ECS Task Role
+        ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+            actions: [
+                "s3vectors:QueryVectors",
+                "s3vectors:PutVectors",
+                "s3vectors:GetVector",
+                "s3vectors:ListVectorIndices"
+            ],
+            resources: [
+                vectorBucket.vectorBucketArn,
+                `${vectorBucket.vectorBucketArn}/*`,
+                vectorIndex.indexArn
+            ]
+        }));
 
         // Application Load Balancer
         const alb = new elbv2.ApplicationLoadBalancer(this, `${appName}-WebUIAlb`, {
