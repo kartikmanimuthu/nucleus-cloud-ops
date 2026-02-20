@@ -35,7 +35,7 @@ export async function createReflectionGraph(config: GraphConfig) {
     // Load skill content if a skill is selected
     let skillContent = '';
     const isDevOpsSkill = selectedSkill === 'devops';
-    
+
     if (selectedSkill) {
         const content = getSkillContent(selectedSkill);
         if (content) {
@@ -46,7 +46,7 @@ export async function createReflectionGraph(config: GraphConfig) {
         }
     }
 
-    const readOnlyInstruction = isDevOpsSkill 
+    const readOnlyInstruction = isDevOpsSkill
         ? `IMPORTANT: You are operating with DEVOPS MUTATION PRIVILEGES. 
 - You ARE allowed to create, update, delete, start, stop, and modify AWS infrastructure resources as requested by the user.
 - Follow safety guidelines: prefer dry-runs if unsure, output confirmation prompts for destructive actions, and verify resource IDs before applying changes.`
@@ -235,7 +235,11 @@ NOTE: AWS Cost Explorer only provides historical data for the last 14 months. Do
 IMPORTANT: You should use tools to accomplish the task if necessary. If the task is a simple question or greeting that doesn't require tools, you may answer directly.
 After using tools (or if no tools are needed), provide a brief summary of what you accomplished or the answer.`);
 
-        const response = await modelWithTools.invoke([executorSystemPrompt, ...getRecentMessages(messages, 25)]);
+        const recentMessages = getRecentMessages(messages, 25);
+        if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
+            recentMessages.push(new HumanMessage({ content: "Please execute the next step of the plan based on the tools available." }));
+        }
+        const response = await modelWithTools.invoke([executorSystemPrompt, ...recentMessages]);
 
         if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
             console.log(`\n🛠️ [EXECUTOR] Tool Calls Generated:`);
@@ -420,7 +424,11 @@ Focus on addressing the specific issues mentioned in the feedback.
 Available tools:
 - read_file, write_file, list_directory, execute_command, web_search`);
 
-        const response = await modelWithTools.invoke([reviserSystemPrompt, ...getRecentMessages(messages, 10)]);
+        const recentMessages = getRecentMessages(messages, 10);
+        if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
+            recentMessages.push(new HumanMessage({ content: "Please fix the issues mentioned in the reflection." }));
+        }
+        const response = await modelWithTools.invoke([reviserSystemPrompt, ...recentMessages]);
 
         if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
             console.log(`\n🛠️ [REVISER] Tool Calls Generated:`);
@@ -466,7 +474,11 @@ Based on the above, provide a clear, helpful summary for the user that:
 Be concise but comprehensive. Format nicely with markdown.`);
 
         // Use modelWithTools since messages contain tool content
-        const summaryResponse = await modelWithTools.invoke([summarySystemPrompt, ...getRecentMessages(messages, 5)]);
+        const recentMessages = getRecentMessages(messages, 5);
+        if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
+            recentMessages.push(new HumanMessage({ content: "Please provide the final summary." }));
+        }
+        const summaryResponse = await modelWithTools.invoke([summarySystemPrompt, ...recentMessages]);
         const summaryContent = typeof summaryResponse.content === 'string'
             ? summaryResponse.content
             : JSON.stringify(summaryResponse.content);
