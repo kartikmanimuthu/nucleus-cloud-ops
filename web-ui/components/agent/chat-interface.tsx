@@ -541,7 +541,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
       <div 
         key={key} 
         className={cn(
-          "w-full border-l-4 rounded-r-lg overflow-hidden text-xs mb-2 shadow-sm",
+          "w-full border-l-4 rounded-r-lg overflow-hidden text-xs mb-2 shadow-sm min-w-0",
           config.borderColor,
           config.bgColor
         )}
@@ -557,7 +557,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
             <Loader2 className="w-3 h-3 animate-spin ml-auto" />
           )}
         </div>
-        <div className="p-3 text-muted-foreground/90 leading-relaxed text-sm">
+        <div className="p-3 text-muted-foreground/90 leading-relaxed text-sm overflow-hidden min-w-0 break-words [overflow-wrap:anywhere]">
           <MarkdownContent content={content} />
         </div>
       </div>
@@ -860,7 +860,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
 
                 {/* Message Content */}
                 <div className={cn(
-                  "max-w-[85%] rounded-lg p-2.5 text-[13px]",
+                  "max-w-[85%] rounded-lg p-2.5 text-[13px] overflow-hidden min-w-0",
                   isUser 
                     ? "bg-primary text-primary-foreground ml-auto" 
                     : "bg-muted/50 border"
