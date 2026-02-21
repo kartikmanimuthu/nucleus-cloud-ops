@@ -1,8 +1,9 @@
 # Nucleus Cloud Ops
 
 <p align="center">
-<video controls width="800" src="docs/screenshots/ai_ops_agent.mp4" type="video/mp4" style="display:block;margin:auto;"></video>
+  <img src="docs/screenshots/ai_ops_agent.gif" alt="Nucleus Cloud Ops Dashboard" width="800">
 </p>
+
 
 <p align="center">
   <strong>AWS Cloud Operations Platform with AI Ops & GenAI DevOps Agent built on AWS Bedrock for Multi-Account Management.</strong>
