@@ -1,7 +1,7 @@
 # Nucleus Cloud Ops
 
 <p align="center">
-  <img src="docs/screenshots/dashboard_page.png" alt="Nucleus Cloud Ops Dashboard" width="800">
+  <img src="docs/screenshots/ai_ops_agent.gif" alt="Nucleus Cloud Ops Dashboard" width="800">
 </p>
 
 <p align="center">

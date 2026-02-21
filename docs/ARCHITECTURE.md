@@ -10,7 +10,6 @@ The platform automates complex DevOps workflows, infrastructure modifications, a
 
 ```mermaid
 
-
 flowchart TB
     %% Styling (Professional Corporate Palette)
     classDef aws fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#000000
@@ -29,59 +28,55 @@ flowchart TB
         Cognito["AWS Cognito<br>UserPool and IdentityPool"]:::aws
     end
 
-    %% Main Application Layout
-    subgraph Nucleus_Platform ["Nucleus Cloud Ops Platform"]
-        direction LR
-
-        %% Web & Agent Tier (ECS Fargate) - LEFT
-        subgraph Web_and_Agent_Tier ["Web & Agent Tier (ECS Fargate)"]
-            direction TB
-            UI["Next.js Web Interface"]:::aws
-            subgraph LangGraph_Agent ["LangGraph Agent Orchestration"]
-                direction TB
-                Planner["Planner Node"]:::agent
-                Generator["Executor Node"]:::agent
-                Reflector["Reflector Node"]:::agent
-                Reviser["Reviser Node"]:::agent
-                
-                subgraph Agent_Skills ["Agent Skills & Tools"]
-                    direction LR
-                    LocalTools["Local Tools<br>(AWS CLI, Bash)"]:::agent
-                    MCPGrafana["MCP Server<br>(Grafana)"]:::agent
-                    MCPK8s["MCP Server<br>(Kubernetes)"]:::agent
-                end
-                
-                Planner --> Generator
-                Generator <--> Agent_Skills
-                Generator --> Reflector
-                Reflector --> Reviser
-                Reviser --> Agent_Skills
-            end
-            UI <--> Planner
-        end
-
-        %% Backend Services - RIGHT
-        subgraph Backend_Services ["Backend Data & AI"]
-            direction TB
+    %% Web & Agent Tier (ECS Fargate)
+    subgraph Web_and_Agent_Tier
+        UI["Next.js Web Interface"]:::aws
+        subgraph LangGraph_Agent
+            Planner["Planner Node"]:::agent
+            Generator["Executor Node"]:::agent
+            Tools["DevOps Tools / AWS CLI"]:::agent
+            Reflector["Reflector Node"]:::agent
+            Reviser["Reviser Node"]:::agent
             
-            subgraph Data_Stores ["Data Store Tier"]
-                direction TB
-                AppTable[(App Table)]:::database
-                LGCheckpoints[(LangGraph<br>Checkpoints)]:::database
-                LGConversations[(Agent<br>Conversations)]:::database
-            end
-
-            subgraph Blob_Storage ["Storage Tier"]
-                direction TB
-                TempBucket[(Agent Temp Bucket)]:::storage
-                CheckpointBucket[(Checkpoint Offload)]:::storage
-            end
-
-            subgraph AI_Models ["AI Models"]
-                direction TB
-                Claude[" ChatBedrockConverse <br> [Inference]"]:::aws
-            end
+            Planner --> Generator
+            Generator <--> Tools
+            Generator --> Reflector
+            Reflector --> Reviser
+            Reviser --> Tools
         end
+        UI <--> Planner
+    end
+
+    %% AI Models
+    subgraph AI_Models
+        Claude["Claude Sonnet<br>ChatBedrockConverse"]:::aws
+        Titan["Amazon Titan<br>Embeddings v2"]:::aws
+    end
+
+    %% Data Store Tier (DynamoDB)
+    subgraph Data_Stores
+        AppTable[(App Table)]:::database
+        UsersTable[(Users and Teams)]:::database
+        AuditTable[(Audit Logs)]:::database
+        LGCheckpoints[(LangGraph<br>Checkpoints)]:::database
+        LGConversations[(Agent<br>Conversations)]:::database
+        InventoryDDB[(Inventory Table)]:::database
+    end
+
+    %% Storage & Analytics Tier (S3 & S3 Tables/Iceberg)
+    subgraph Blob_Storage
+        TempBucket[(Agent Temp Bucket)]:::storage
+        CheckpointBucket[(Checkpoint Offload)]:::storage
+        VectorBucket[(Vector Bucket<br>cdk-s3-vectors)]:::storage
+        S3Tables[(S3 Tables / Iceberg<br>Resource Inventory)]:::storage
+    end
+
+    %% Async & Discovery Processors
+    subgraph Async_Processors
+        VectorLambda["Vector Processor Lambda"]:::serverless
+        EventBridge("EventBridge"):::aws
+        SchedulerLambda["Scheduler Lambda<br>Cost and Ops Tasks"]:::serverless
+        DiscoveryTask["Resource Discovery Task"]:::serverless
     end
 
     %% Target Environments
@@ -94,25 +89,40 @@ flowchart TB
     %% Connections
     User -. authenticates .-> Cognito
     Admin -. authenticates .-> Cognito
-    Cognito --> UI
-    
-    %% Enforce Layout (Hidden Link)
-    Web_and_Agent_Tier ~~~ Backend_Services
+    Cognito <--> UI
     
     %% AI connections
-    Generator -->|LLM Calls| Claude
+    Generator <-->|LLM Calls| Claude
+    VectorLambda <-->|Generate Embeddings| Titan
 
     %% Web/Agent to DB
-    UI --> AppTable
-    Generator --> LGCheckpoints
-    Generator --> LGConversations
+    UI <--> UsersTable
+    UI <--> AppTable
+    Generator <--> LGCheckpoints
+    Generator <--> LGConversations
+    Generator <--> AuditTable
+    Generator <--> InventoryDDB
 
     %% Web/Agent to S3
-    Generator --> CheckpointBucket
-    Generator --> TempBucket
+    Generator <--> CheckpointBucket
+    Generator <--> TempBucket
+    Generator <--> VectorBucket
+    Generator <--> S3Tables
 
-    LocalTools -. assumes .-> CrossAccountRole
+    %% Async & Triggers
+    EventBridge -->|Scheduled| SchedulerLambda
+    SchedulerLambda --> AppTable
+    SchedulerLambda --> AuditTable
+    SchedulerLambda -. assumes .-> CrossAccountRole
 
+    S3Tables -. triggers on object created .-> VectorLambda
+    VectorLambda --> VectorBucket
+
+    DiscoveryTask --> InventoryDDB
+    DiscoveryTask --> S3Tables
+    DiscoveryTask -. assumes .-> CrossAccountRole
+
+    Tools -. assumes .-> CrossAccountRole
 
 ```
 
@@ -151,70 +161,6 @@ The core AI engine relies on a **Reflection Pattern** established via LangGraph 
 4. **Reflector Node**: An AI secondary loop that independently analyzes the Executor's results for logical consistency and security compliance.
 5. **Reviser Node**: In case of failures or sub-optimal outcomes, automatically self-corrects the approach without user intervention.
 6. **Final Node**: Summarizes the outcome and updates `AgentConversationsTable`.
-
-### DevOps Agent Internal Flow
-
-Below is the detailed flow for the AI Agent execution loop, highlighting how it manages context, persistence, and external execution.
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Graph as LangGraph Engine
-    participant LLM as Claude Sonnet
-    participant Planner
-    participant Executor
-    participant Reflector
-    participant Reviser
-    participant Tools as DevOps Tools
-    participant AWS as Target AWS Environment
-
-    User->>Graph: Submits Task (e.g. "Check ALB Logs")
-    
-    Graph->>LLM: Analyze request & determine approach
-    LLM-->>Graph: Returns strategy
-    
-    Graph->>Planner: Generate Execution Plan
-    Planner-->>Graph: [Plan: 1. Get Creds, 2. Run AWS CLI, 3. Analyze]
-    
-    loop Max Iterations (default 5)
-        Graph->>Executor: Execute next pending step
-        Executor->>LLM: Determine necessary tools
-        LLM-->>Executor: Tool Call Requests
-        
-        Executor->>Tools: Dispatch tool execution
-        opt If AWS Action Required
-            Tools->>AWS: sts:AssumeRole (Cross-Account)
-            AWS-->>Tools: Temporary Credentials
-            Tools->>AWS: Execute aws cli action
-            AWS-->>Tools: Command Output
-        end
-        Tools-->>Graph: Aggregated Tool Results
-        
-        Graph->>Reflector: Analyze Execution Output
-        Reflector->>LLM: Verify correctness, compliance, & errors
-        
-        alt Execution is successful
-            LLM-->>Reflector: "Task Complete"
-            Reflector-->>Graph: isComplete = true
-        else Issues Found
-            LLM-->>Reflector: "Issues Found"
-            Reflector-->>Graph: isComplete = false
-            
-            Graph->>Reviser: Correct Approach
-            Reviser->>LLM: Determine fix using feedback
-            LLM-->>Reviser: Corrected execution plan/tools
-            Reviser-->>Graph: Updated state
-        end
-    end
-    
-    Graph->>User: Comprehensive Task Summary
-```
-
-### AWS Diagrams-as-Code Representation
-
-We also maintain an infrastructure diagram representing the architectural deployment of the LangGraph components natively on AWS. This is generated via the Python `diagrams` library.
-
-![DevOps Agent Architecture](diagrams/devops_agent_architecture.png)
 
 ## Security Architecture
 
