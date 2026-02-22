@@ -11,7 +11,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
-import { executeAgentRun, determineMode } from '@/lib/agent-ops/agent-executor';
+import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import type { ApiTriggerMeta, TriggerRequest } from '@/lib/agent-ops/types';
 
 export async function POST(req: Request) {
@@ -35,8 +35,8 @@ export async function POST(req: Request) {
             }, { status: 400 });
         }
 
-        // 3. Determine mode
-        const mode = determineMode(payload.taskDescription, payload.mode);
+        // 3. Mode (now handled dynamically by evaluator, but DB needs a string)
+        const mode = payload.mode || 'fast';
 
         // 4. Build trigger metadata
         const trigger: ApiTriggerMeta = {

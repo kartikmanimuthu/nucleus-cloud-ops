@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server';
 import { verifySlackSignature, parseSlackSlashCommand } from '@/lib/agent-ops/slack-validator';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
-import { executeAgentRun, determineMode } from '@/lib/agent-ops/agent-executor';
+import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import type { SlackTriggerMeta } from '@/lib/agent-ops/types';
 
 export const maxDuration = 10; // Slack requires response < 3s, but allow for processing
@@ -40,8 +40,8 @@ export async function POST(req: Request) {
             });
         }
 
-        // 3. Determine mode
-        const mode = determineMode(taskDescription);
+        // 3. Mode (now handled dynamically by evaluator, but DB needs a string)
+        const mode = 'fast';
 
         // 4. Build trigger metadata
         const trigger: SlackTriggerMeta = {

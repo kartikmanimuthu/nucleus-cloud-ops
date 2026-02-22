@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server';
 import { verifyJiraSecret, extractJiraTaskDescription, type JiraWebhookPayload } from '@/lib/agent-ops/jira-validator';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
-import { executeAgentRun, determineMode } from '@/lib/agent-ops/agent-executor';
+import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import type { JiraTriggerMeta } from '@/lib/agent-ops/types';
 
 export async function POST(req: Request) {
@@ -33,8 +33,8 @@ export async function POST(req: Request) {
             }, { status: 400 });
         }
 
-        // 3. Determine mode
-        const mode = determineMode(taskDescription, payload.mode as any);
+        // 3. Mode (now handled dynamically by evaluator, but DB needs a string)
+        const mode = (payload.mode as any) || 'fast';
 
         // 4. Build trigger metadata
         const trigger: JiraTriggerMeta = {

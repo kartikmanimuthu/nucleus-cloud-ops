@@ -20,9 +20,10 @@ import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { HumanMessage } from '@langchain/core/messages';
-import { createExecutorReflectionGraph, createExecutorFastGraph } from './executor-graphs';
-import { loadSkills } from '@/lib/agent/skills/skill-loader';
+import { createDynamicExecutorGraph } from './executor-graphs';
+import { getSkillContent, loadSkills } from '@/lib/agent/skills/skill-loader';
 import { agentOpsService } from './agent-ops-service';
+import { getMCPManager } from '../agent/mcp-manager';
 import { AgentOpsRunModel } from './models/agent-ops-run';
 import type { AgentOpsRun, AgentMode, AgentEventType } from './types';
 
@@ -48,61 +49,6 @@ function mapNodeToEventType(node: string): AgentEventType {
     }
 }
 
-// ─── Smart Routing & Resolution ───────────────────────────────────────────
-
-/**
- * Autonomously determine the best skill for the task based on keywords in the prompt.
- */
-export async function resolveSkillFromPrompt(taskDescription: string): Promise<string | undefined> {
-    try {
-        const skills = await loadSkills();
-        const lowerDesc = taskDescription.toLowerCase();
-
-        // Simple keyword-based scoring or strict matching
-        for (const skill of skills) {
-            const skillNameLower = skill.name.toLowerCase();
-            const keywords = [];
-
-            // Build some basic heuristic keywords based on the skill ID
-            if (skill.id === 'security-analysis') keywords.push('security', 'audit', 'compliance', 'iam', 'vulnerability', 'mfa');
-            if (skill.id === 'devops') keywords.push('create', 'start', 'stop', 'terminate', 'deploy', 'update', 'delete', 'modify');
-            if (skill.id === 'debugging') keywords.push('debug', 'troubleshoot', 'error', 'failing', 'down', 'logs', 'why', 'fix');
-
-            // If the user explicitly names the skill or hits a keyword
-            if (lowerDesc.includes(skillNameLower) || lowerDesc.includes(skill.id.replace('-', ' '))) {
-                return skill.id;
-            }
-
-            for (const kw of keywords) {
-                if (lowerDesc.includes(kw)) {
-                    return skill.id;
-                }
-            }
-        }
-    } catch (err) {
-        console.error(`[AgentExecutor] Failed to resolve skill from prompt:`, err);
-    }
-    return undefined;
-}
-
-/**
- * Determines whether to use 'plan' (reflection) or 'fast' mode.
- * Can be explicitly overridden by the trigger payload.
- */
-export function determineMode(taskDescription: string, explicitMode?: AgentMode): AgentMode {
-    if (explicitMode) return explicitMode;
-
-    const complexKeywords = [
-        'terraform', 'infrastructure', 'deploy', 'migration', 'architecture',
-        'security audit', 'compliance', 'multi-step', 'create', 'modify',
-        'generate', 'build', 'setup', 'configure', 'plan',
-    ];
-
-    const lower = taskDescription.toLowerCase();
-    const isComplex = complexKeywords.some(kw => lower.includes(kw));
-    return isComplex ? 'plan' : 'fast';
-}
-
 // ─── Main Executor ──────────────────────────────────────────────────────
 
 /**
@@ -120,7 +66,7 @@ export function determineMode(taskDescription: string, explicitMode?: AgentMode)
  * 8. Cleanup sandbox
  */
 export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
-    const { runId, tenantId, taskDescription, mode, accountId, accountName, selectedSkill, threadId } = run;
+    const { runId, tenantId, taskDescription, mode, accountId, accountName, selectedSkill, threadId, workspaceId, mcpServerIds } = run as any;
     const startTime = Date.now();
 
     // 1. Create isolated sandbox directory (prevents file-tool collisions between concurrent runs)
@@ -131,15 +77,13 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
     console.log(`[AgentExecutor]   Task: "${taskDescription.slice(0, 100)}"`);
 
     try {
-        // 2. Autonomous Resolution: Determine mode and skill if not explicitly provided
-        const resolvedMode = mode || determineMode(taskDescription);
-        const resolvedSkill = selectedSkill || await resolveSkillFromPrompt(taskDescription);
-
-        console.log(`[AgentExecutor]   Resolved Mode: ${resolvedMode}`);
-        console.log(`[AgentExecutor]   Resolved Skill: ${resolvedSkill || 'None'}`);
-
-        // 3. Mark run in_progress (records start)
+        // 2. Mark run in_progress (records start)
         await agentOpsService.updateRunStatus(tenantId, runId, 'in_progress');
+
+        const mcpManager = getMCPManager();
+        await mcpManager.connectServers(mcpServerIds || []);
+
+
 
         // Record initial "started" event
         await agentOpsService.recordEvent({
@@ -147,31 +91,28 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
             eventType: 'planning',
             node: '__start__',
             content: `Agent run started. Task: ${taskDescription}`,
-            metadata: { mode: resolvedMode, accountId, accountName, selectedSkill: resolvedSkill },
+            metadata: { accountId, accountName },
         });
 
-        // 4. Build GraphConfig matching the interface expected by planning-agent/fast-agent
+        // 3. Build GraphConfig matching the expected agent inputs
         const graphConfig = {
             model: process.env.BEDROCK_MODEL_ID || 'global.anthropic.claude-sonnet-4-6',
-            autoApprove: true,  // Headless execution — no human-in-the-loop interrupts
+            autoApprove: true,
             accounts: accountId ? [{ accountId, accountName: accountName || accountId }] : [],
             accountId,
             accountName,
-            selectedSkill: resolvedSkill || null,
-            mcpServerIds: [] as string[],
+            mcpServerIds: mcpServerIds || [],
         };
 
-        // 5. Create the appropriate graph
-        console.log(`[AgentExecutor] Creating ${resolvedMode === 'plan' ? 'ReflectionGraph' : 'FastGraph'}...`);
-        const graph = resolvedMode === 'plan'
-            ? await createExecutorReflectionGraph(graphConfig)
-            : await createExecutorFastGraph(graphConfig);
+        // 4. Create the unified dynamic graph
+        console.log(`[AgentExecutor] Creating Dynamic Executor Graph...`);
+        const graph = await createDynamicExecutorGraph(graphConfig);
 
         // Display compiled Graph Mermaid visualization
         try {
             const mermaidGraph = graph.getGraph().drawMermaid();
             console.log(`\n================================================================================`);
-            console.log(`📊 Compiled LangGraph Workflow (${resolvedMode === 'plan' ? 'ReflectionGraph' : 'FastGraph'}):`);
+            console.log(`📊 Compiled LangGraph Workflow (DynamicExecutorGraph):`);
             console.log(`================================================================================`);
             console.log(mermaidGraph);
             console.log(`================================================================================\n`);
@@ -329,9 +270,12 @@ async function processLangGraphEvent(
         // ── Node lifecycle: capture when key agent nodes start ────────
         case 'on_chain_start': {
             // Record significant node starts (skip generic chain wrappers)
-            const significantNodes = ['planner', 'generate', 'agent', 'reflect', 'revise', 'final', 'tools'];
+            const significantNodes = ['evaluator', 'planner', 'generate', 'reflect', 'final', 'tools'];
             if (significantNodes.includes(node)) {
-                const eventType = mapNodeToEventType(node);
+                let eventType = mapNodeToEventType(node);
+                if (node === 'evaluator') {
+                    eventType = 'planning'; // Overload planning as we don't have evaluation yet
+                }
                 await agentOpsService.recordEvent({
                     runId,
                     eventType,
@@ -481,7 +425,7 @@ async function processLangGraphEvent(
 
                 if (contentStr.trim().length > 0) {
                     // Capture final content if from final or agent node
-                    if (node === 'final' || (node === 'agent' && !toolCalls.length)) {
+                    if (node === 'final' || (node === 'generate' && !toolCalls.length)) {
                         result.finalContent = contentStr;
                     }
 

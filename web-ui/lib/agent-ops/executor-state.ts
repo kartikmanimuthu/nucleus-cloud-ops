@@ -1,6 +1,14 @@
 import { BaseMessage } from "@langchain/core/messages";
 import { StateGraphArgs } from "@langchain/langgraph";
 
+export interface RequestEvaluation {
+    mode: 'plan' | 'fast' | 'end' | null;
+    skillId: string | null;
+    accountId: string | null;
+    requiresApproval: boolean;
+    reasoning: string;
+}
+
 export interface PlanStep {
     step: string;
     status: 'pending' | 'in_progress' | 'completed' | 'failed';
@@ -18,6 +26,7 @@ export interface ReflectionState {
     nextAction: string;
     isComplete: boolean;
     toolResults: string[]; // Store tool results for final summary
+    evaluation: RequestEvaluation | null;
 }
 
 export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
@@ -65,4 +74,8 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         reducer: (x: string[], y: string[]) => x.concat(y),
         default: () => [],
     },
+    evaluation: {
+        reducer: (x: RequestEvaluation | null, y: RequestEvaluation | null) => y || x,
+        default: () => null,
+    }
 };
