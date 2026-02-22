@@ -11,7 +11,8 @@ import {
     globTool,
     grepTool,
     webSearchTool,
-    getAwsCredentialsTool
+    getAwsCredentialsTool,
+    listAwsAccountsTool
 } from "./tools";
 import { getSkillContent } from "./skills/skill-loader";
 import {
@@ -63,8 +64,8 @@ export async function createReflectionGraph(config: GraphConfig) {
         streaming: true,
     });
 
-    // Include AWS credentials tool for account-aware operations
-    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool];
+    // Include AWS credentials tools for account-aware operations
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool, listAwsAccountsTool];
 
     // Dynamically discover and merge MCP server tools
     const mcpTools = await getActiveMCPTools(mcpServerIds);
@@ -109,7 +110,12 @@ The tool will return a profile name. Use this profile with ALL subsequent AWS CL
 Example: aws sts get-caller-identity --profile <profileName>
 NEVER use the host's default credentials - always use the profile returned from get_aws_credentials.`;
     } else {
-        accountContext = `\n\nNOTE: No AWS account is selected. If the user asks to perform AWS operations, inform them that they need to select an AWS account first.`;
+        accountContext = `\n\nIMPORTANT - AUTONOMOUS AWS ACCOUNT DISCOVERY:
+No explicit AWS account was provided. If the user asks to perform AWS operations:
+1. First, call the list_aws_accounts tool to get a list of all available connected accounts.
+2. Fuzzy-match the account name or ID from the user's prompt against the list.
+3. Call the get_aws_credentials tool with the matched accountId to create a session profile.
+4. Use the returned profile name with ALL subsequent AWS CLI commands by adding: --profile <profileName>`;
     }
 
     // --- PLANNER NODE ---
@@ -139,7 +145,8 @@ Focus on actionable steps that can be executed using available tools:
 - glob: Find files matching a pattern
 - grep: Search for patterns in files
 - execute_command: Execute shell commands
-- web_search: Search the web for information
+- web_search: Search the web for documentation or solutions
+- list_aws_accounts: List all available connected AWS accounts (use this to find the accountId if not provided)
 - get_aws_credentials: Get temporary AWS credentials for a specific account (REQUIRED before any AWS CLI commands)
 ${accountContext}
 
@@ -226,7 +233,8 @@ Available tools:
 - glob(pattern, path?): Find files matching a pattern
 - grep(pattern, args...): Search for patterns in files
 - execute_command(command): Execute a shell command
-- web_search(query): Search the web for information
+- web_search(query): Search the web
+- list_aws_accounts(): List all available connected AWS accounts
 - get_aws_credentials(accountId): Get temporary AWS credentials for a specific account
 ${accountContext}
 

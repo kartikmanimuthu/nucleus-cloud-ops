@@ -30,12 +30,14 @@ import {
   Bot,
   Users,
   Database,
+  Zap,
 } from "lucide-react"
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "AWS Accounts", href: "/accounts", icon: Server },
   { name: "AI Ops", href: "/agent", icon: Bot },
+  { name: "Agent Ops", href: "/agent-ops", icon: Zap },
   { name: "Cost Scheduler", href: "/schedules", icon: Calendar },
   { name: "Inventory Discovery", href: "/inventory", icon: Database },
   { name: "Audit Logs", href: "/audit", icon: Activity },

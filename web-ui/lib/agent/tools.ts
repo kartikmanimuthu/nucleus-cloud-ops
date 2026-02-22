@@ -8,8 +8,8 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { Readable } from 'stream';
 
 
-// Re-export AWS credentials tool
-export { getAwsCredentialsTool } from './aws-credentials-tool';
+// Re-export AWS credentials tools
+export { getAwsCredentialsTool, listAwsAccountsTool } from './aws-credentials-tool';
 
 const execAsync = promisify(exec);
 

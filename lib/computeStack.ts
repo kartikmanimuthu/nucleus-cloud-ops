@@ -68,6 +68,7 @@ export class ComputeStack extends cdk.Stack {
         const checkpointTableName = `${appName}-checkpoints-table`;
         const writesTableName = `${appName}-checkpoint-writes-v2-table`;
         const agentConversationsTableName = `${appName}-agent-conversations`;
+        const agentOpsTableName = `${appName}-agent-ops`;
 
         // ============================================================================
         // DYNAMODB TABLES (from cdkStack.ts)
@@ -202,6 +203,22 @@ export class ComputeStack extends cdk.Stack {
             sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
             removalPolicy: cdk.RemovalPolicy.DESTROY,
+        });
+
+        // Agent Ops Table (for background agent execution runs + events)
+        const agentOpsTable = new dynamodb.Table(this, `${appName}-AgentOpsTable`, {
+            tableName: agentOpsTableName,
+            partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            timeToLiveAttribute: 'ttl',
+        });
+        agentOpsTable.addGlobalSecondaryIndex({
+            indexName: 'GSI1',
+            partitionKey: { name: 'GSI1PK', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'GSI1SK', type: dynamodb.AttributeType.STRING },
+            projectionType: dynamodb.ProjectionType.ALL,
         });
 
         // GSI for direct thread access by ID
@@ -674,6 +691,7 @@ export class ComputeStack extends cdk.Stack {
                 writesTable.tableArn, `${writesTable.tableArn}/index/*`,
                 agentConversationsTable.tableArn, `${agentConversationsTable.tableArn}/index/*`,
                 inventoryTable.tableArn, `${inventoryTable.tableArn}/index/*`,
+                agentOpsTable.tableArn, `${agentOpsTable.tableArn}/index/*`,
             ],
         }));
 
@@ -828,6 +846,7 @@ export class ComputeStack extends cdk.Stack {
                 EVENTBRIDGE_RULE_NAME: `${appName}-rule`,
                 AGENT_TEMP_BUCKET: agentTempBucket.bucketName,
                 DYNAMODB_AGENT_CONVERSATIONS_TABLE: agentConversationsTable.tableName,
+                AGENT_OPS_TABLE_NAME: agentOpsTable.tableName,
             },
             portMappings: [{ containerPort: 3000, hostPort: 3000, protocol: ecs.Protocol.TCP }],
         });

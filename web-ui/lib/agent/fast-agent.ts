@@ -11,7 +11,8 @@ import {
     globTool,
     grepTool,
     webSearchTool,
-    getAwsCredentialsTool
+    getAwsCredentialsTool,
+    listAwsAccountsTool
 } from "./tools";
 import { getSkillContent } from "./skills/skill-loader";
 import {
@@ -64,8 +65,8 @@ export async function createFastGraph(config: GraphConfig) {
         streaming: true,
     });
 
-    // Include AWS credentials tool for account-aware operations
-    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool];
+    // Include AWS credentials tools for account-aware operations
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool, listAwsAccountsTool];
 
     // Dynamically discover and merge MCP server tools
     const mcpTools = await getActiveMCPTools(mcpServerIds);
@@ -97,7 +98,12 @@ Before executing any AWS CLI commands, you MUST first call the get_aws_credentia
 The tool will return a profile name. Use this profile with ALL subsequent AWS CLI commands by adding: --profile <profileName>
 NEVER use the host's default credentials - always use the profile returned from get_aws_credentials.`;
     } else {
-        accountContext = `\n\nNOTE: No AWS account is selected. If the user asks to perform AWS operations, inform them that they need to select an AWS account first.`;
+        accountContext = `\n\nIMPORTANT - AUTONOMOUS AWS ACCOUNT DISCOVERY:
+No explicit AWS account was provided. If the user asks to perform AWS operations:
+1. First, call the list_aws_accounts tool to get a list of all available connected accounts.
+2. Fuzzy-match the account name or ID from the user's prompt against the list.
+3. Call the get_aws_credentials tool with the matched accountId to create a session profile.
+4. Use the returned profile name with ALL subsequent AWS CLI commands by adding: --profile <profileName>`;
     }
 
     // --- GENERATOR NODE (Agent) ---
@@ -110,7 +116,7 @@ NEVER use the host's default credentials - always use the profile returned from 
         console.log(`================================================================================\n`);
 
         const systemPrompt = new SystemMessage(`You are a capable DevOps and Cloud Infrastructure assistant.
-You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials.
+You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials, list_aws_accounts.
 You are proficient with AWS CLI, git, shell scripting, and infrastructure management.
 ${skillContent}
 ${readOnlyInstruction}
