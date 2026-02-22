@@ -20,7 +20,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { HumanMessage } from '@langchain/core/messages';
-import { createReflectionGraph, createFastGraph } from '@/lib/agent/graph-factory';
+import { createExecutorReflectionGraph, createExecutorFastGraph } from './executor-graphs';
 import { loadSkills } from '@/lib/agent/skills/skill-loader';
 import { agentOpsService } from './agent-ops-service';
 import { AgentOpsRunModel } from './models/agent-ops-run';
@@ -164,8 +164,20 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
         // 5. Create the appropriate graph
         console.log(`[AgentExecutor] Creating ${resolvedMode === 'plan' ? 'ReflectionGraph' : 'FastGraph'}...`);
         const graph = resolvedMode === 'plan'
-            ? await createReflectionGraph(graphConfig)
-            : await createFastGraph(graphConfig);
+            ? await createExecutorReflectionGraph(graphConfig)
+            : await createExecutorFastGraph(graphConfig);
+
+        // Display compiled Graph Mermaid visualization
+        try {
+            const mermaidGraph = graph.getGraph().drawMermaid();
+            console.log(`\n================================================================================`);
+            console.log(`📊 Compiled LangGraph Workflow (${resolvedMode === 'plan' ? 'ReflectionGraph' : 'FastGraph'}):`);
+            console.log(`================================================================================`);
+            console.log(mermaidGraph);
+            console.log(`================================================================================\n`);
+        } catch (err) {
+            console.warn(`[AgentExecutor] Failed to generate mermaid graph:`, err);
+        }
 
         // 6. Build input for the graph
         const graphInput = {
