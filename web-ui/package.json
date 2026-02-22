@@ -73,6 +73,7 @@
     "date-fns": "latest",
     "dotenv": "^16.5.0",
     "embla-carousel-react": "8.5.1",
+    "html2pdf.js": "^0.14.0",
     "i": "^0.3.7",
     "input-otp": "1.4.1",
     "jspdf": "^4.0.0",

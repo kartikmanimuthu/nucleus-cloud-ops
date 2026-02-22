@@ -10,9 +10,9 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
   Bot, User, Trash2, Loader2, Terminal, Send, 
   Briefcase, Cpu, Check, X, Brain, RefreshCw, 
-  Flag, ListChecks, Sparkles, Settings, Zap, Cloud, Copy, Download, Plug, Wand2
+  Flag, ListChecks, Sparkles, Settings, Zap, Cloud, Copy, Download, Plug, Wand2, FileText
 } from 'lucide-react';
-import { copyToClipboard, exportToMarkdown } from '@/lib/chat-export';
+import { copyToClipboard, exportToMarkdown, exportToPDF } from '@/lib/chat-export';
 // Available modes
 const AGENT_MODES = [
   { id: 'plan', label: 'Plan & Execute' },
@@ -841,7 +841,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
 
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" onScrollCapture={handleScroll}>
-        <div className="space-y-4">
+        <div id="chat-messages-container" className="space-y-4">
           {/* Loading history indicator */}
           {isLoadingHistory && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -1152,6 +1152,19 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
                   disabled={messages.length === 0}
                 >
                   <Download className="w-3.5 h-3.5" />
+                </Button>
+
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" 
+                  onClick={async () => {
+                    await exportToPDF(messages, threadId);
+                  }}
+                  title="Export to PDF"
+                  disabled={messages.length === 0}
+                >
+                  <FileText className="w-3.5 h-3.5" />
                 </Button>
                 
                 <Button 
