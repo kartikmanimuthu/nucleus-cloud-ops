@@ -10,9 +10,9 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
   Bot, User, Trash2, Loader2, Terminal, Send, 
   Briefcase, Cpu, Check, X, Brain, RefreshCw, 
-  Flag, ListChecks, Sparkles, Settings, Zap, Cloud, Copy, Download, Plug
+  Flag, ListChecks, Sparkles, Settings, Zap, Cloud, Copy, Download, Plug, Wand2, FileText
 } from 'lucide-react';
-import { copyToClipboard, exportToMarkdown } from '@/lib/chat-export';
+import { copyToClipboard, exportToMarkdown, exportToPDF } from '@/lib/chat-export';
 // Available modes
 const AGENT_MODES = [
   { id: 'plan', label: 'Plan & Execute' },
@@ -40,15 +40,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ClientAccountService } from '@/lib/client-account-service';
 import { UIAccount } from '@/lib/types';
 
 // Available models
 const AVAILABLE_MODELS = [
-  { id: 'global.anthropic.claude-haiku-4-5-20251001-v1:0', label: 'Claude 4.5 Haiku (Global)', provider: 'amazon' },
-  { id: 'global.amazon.nova-2-lite-v1:0', label: 'Nova 2 Lite (Global)', provider: 'amazon' },
-  { id: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude 4.5 Sonnet (Global)', provider: 'amazon' },
-  { id: 'global.anthropic.claude-opus-4-5-20251101-v1:0', label: 'Claude 4.5 Opus (Global)', provider: 'amazon' },
+  { id: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude 4.5 Sonnet', provider: 'amazon' },
+  { id: 'global.anthropic.claude-haiku-4-5-20251001-v1:0', label: 'Claude 4.5 Haiku', provider: 'amazon' },
+  { id: 'global.anthropic.claude-opus-4-5-20251101-v1:0', label: 'Claude 4.5 Opus', provider: 'amazon' },
+  { id: 'global.anthropic.claude-sonnet-4-6', label: 'Claude 4.6 Sonnet', provider: 'amazon' },
+  { id: 'global.anthropic.claude-opus-4-6-v1', label: 'Claude 4.6 Opus', provider: 'amazon' },
+  { id: 'global.amazon.nova-2-lite-v1:0', label: 'Nova 2 Lite', provider: 'amazon' },
 ];
 
 // Phase types matching backend
@@ -137,6 +144,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [wasStopped, setWasStopped] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
   const streamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastMessageContentRef = useRef<string>('');
   
@@ -161,6 +169,8 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
   const [mcpServers, setMcpServers] = useState<Array<{id: string, name: string, description: string, enabled: boolean}>>([]);
   const [selectedMcpServerIds, setSelectedMcpServerIds] = useState<string[]>([]);
   const [mcpServersLoading, setMcpServersLoading] = useState(false);
+  const [mcpDropdownOpen, setMcpDropdownOpen] = useState(false);
+  const mcpDropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch accounts on mount
   useEffect(() => {
@@ -373,6 +383,35 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
     }
   };
 
+  const handleEnhancePrompt = async () => {
+    if (!inputValue.trim() || isEnhancing || isLoading || isStreaming) return;
+    
+    try {
+      setIsEnhancing(true);
+      const res = await fetch('/api/enhance-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: inputValue,
+          model: selectedModel,
+        }),
+      });
+      
+      if (!res.ok) {
+        throw new Error('Failed to enhance prompt');
+      }
+      
+      const data = await res.json();
+      if (data.enhancedPrompt) {
+        setInputValue(data.enhancedPrompt);
+      }
+    } catch (error) {
+      console.error('[ChatInterface] Enhance prompt error:', error);
+    } finally {
+      setIsEnhancing(false);
+    }
+  };
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim() || isLoading) return;
@@ -539,7 +578,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
       <div 
         key={key} 
         className={cn(
-          "w-full border-l-4 rounded-r-lg overflow-hidden text-xs mb-2 shadow-sm",
+          "w-full border-l-4 rounded-r-lg overflow-hidden text-xs mb-2 shadow-sm min-w-0",
           config.borderColor,
           config.bgColor
         )}
@@ -555,7 +594,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
             <Loader2 className="w-3 h-3 animate-spin ml-auto" />
           )}
         </div>
-        <div className="p-3 text-muted-foreground/90 leading-relaxed text-sm">
+        <div className="p-3 text-muted-foreground/90 leading-relaxed text-sm overflow-hidden min-w-0 break-words [overflow-wrap:anywhere]">
           <MarkdownContent content={content} />
         </div>
       </div>
@@ -652,9 +691,9 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
 
   // Sample prompts
   const samplePrompts = [
-    "List all files in the current directory",
+    "Vital check of my ec2 instances",
     "Review the Cost of the AWS Account for the last 3 months and share the key movers and optimization scope",
-    "Check my AWS Lambda functions"
+    "Review my AWS Lambda functions"
   ];
 
   return (
@@ -802,7 +841,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
 
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" onScrollCapture={handleScroll}>
-        <div className="space-y-4">
+        <div id="chat-messages-container" className="space-y-4">
           {/* Loading history indicator */}
           {isLoadingHistory && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -858,7 +897,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
 
                 {/* Message Content */}
                 <div className={cn(
-                  "max-w-[85%] rounded-lg p-2.5 text-[13px]",
+                  "max-w-[85%] rounded-lg p-2.5 text-[13px] overflow-hidden min-w-0",
                   isUser 
                     ? "bg-primary text-primary-foreground ml-auto" 
                     : "bg-muted/50 border"
@@ -1001,34 +1040,85 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
 
               {/* MCP Servers Multi-Toggle */}
               {mcpServers.length > 0 && (
-                <div className="flex items-center gap-1.5 border-l pl-2 ml-1">
-                  <Plug className={cn("w-3 h-3", selectedMcpServerIds.length > 0 ? "text-green-500" : "text-muted-foreground")} />
-                  {mcpServers.map((server) => (
-                    <button
-                      key={server.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedMcpServerIds(prev =>
-                          prev.includes(server.id)
-                            ? prev.filter(id => id !== server.id)
-                            : [...prev, server.id]
-                        );
-                      }}
-                      title={`${server.name}: ${server.description}`}
-                      className={cn(
-                        "h-6 px-2 text-[10px] font-medium rounded-full border transition-all",
-                        selectedMcpServerIds.includes(server.id)
-                          ? "bg-green-500/15 border-green-500/50 text-green-700 dark:text-green-400"
-                          : "bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/50"
-                      )}
-                    >
-                      {server.name.split(' ').slice(0, 2).join(' ')}
-                    </button>
-                  ))}
+                <div className="relative border-l pl-2 ml-1">
+                  <Popover open={mcpDropdownOpen} onOpenChange={setMcpDropdownOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="ghost" 
+                        size="sm"
+                        type="button"
+                        className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[140px] justify-start"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <Plug className={cn("w-3 h-3", selectedMcpServerIds.length > 0 ? "text-green-500" : "text-muted-foreground")} />
+                          <span className="truncate max-w-[120px] font-normal">
+                            {mcpServersLoading ? "Loading..." : 
+                             selectedMcpServerIds.length === 0 ? "Select Tools" :
+                             selectedMcpServerIds.length === 1 ? mcpServers.find(s => s.id === selectedMcpServerIds[0])?.name || "1 Tool" :
+                             `${selectedMcpServerIds.length} Tools`}
+                          </span>
+                        </div>
+                      </Button>
+                    </PopoverTrigger>
+                    
+                    <PopoverContent side="top" align="start" className="w-[280px] p-0 mb-2">
+                      <div className="max-h-[300px] overflow-y-auto p-1">
+                        {mcpServers.map((server) => (
+                          <label 
+                            key={server.id} 
+                            className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted cursor-pointer text-sm transition-colors"
+                          >
+                            <Checkbox 
+                              checked={selectedMcpServerIds.includes(server.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedMcpServerIds([...selectedMcpServerIds, server.id]);
+                                } else {
+                                  setSelectedMcpServerIds(selectedMcpServerIds.filter(id => id !== server.id));
+                                }
+                              }}
+                              className="h-4 w-4"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate text-xs">{server.name}</p>
+                              {server.description && <p className="text-[10px] text-muted-foreground truncate">{server.description}</p>}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="p-2 border-t flex justify-between items-center bg-muted/20 rounded-b-lg">
+                        <span className="text-xs text-muted-foreground">
+                          {selectedMcpServerIds.length} selected
+                        </span>
+                        <div className="flex gap-2">
+                          {selectedMcpServerIds.length > 0 && (
+                            <Button 
+                              type="button"
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-xs h-7"
+                              onClick={() => setSelectedMcpServerIds([])}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                          <Button 
+                            type="button"
+                            variant="default" 
+                            size="sm" 
+                            className="text-xs h-7"
+                            onClick={() => setMcpDropdownOpen(false)}
+                          >
+                            Done
+                          </Button>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               )}
 
-              <span className="text-[10px] text-muted-foreground hidden sm:inline-block">
+              <span className="text-[10px] text-muted-foreground hidden sm:inline-block ml-1">
                 • {9 + (selectedMcpServerIds.length > 0 ? ' + MCP' : '')} tools
               </span>
             </div>
@@ -1063,6 +1153,19 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
                 >
                   <Download className="w-3.5 h-3.5" />
                 </Button>
+
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground" 
+                  onClick={async () => {
+                    await exportToPDF(messages, threadId);
+                  }}
+                  title="Export to PDF"
+                  disabled={messages.length === 0}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                </Button>
                 
                 <Button 
                   variant="ghost" 
@@ -1090,7 +1193,7 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
               onKeyDown={handleKeyDown}
               placeholder="Ask the agent to plan, execute, reflect, and revise..."
               disabled={isLoading}
-              className="min-h-[80px] w-full border-0 focus-visible:ring-0 resize-none p-3 text-sm bg-transparent"
+              className="min-h-[80px] max-h-[500px] w-full border-0 focus-visible:ring-0 resize-y overflow-y-auto p-3 text-sm bg-transparent"
             />
           </div>
 
@@ -1146,6 +1249,24 @@ export function ChatInterface({ threadId: initialThreadId }: ChatInterfaceProps)
               <span className="text-[10px] text-muted-foreground tabular-nums">
                 {inputValue.length}/2000
               </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={handleEnhancePrompt}
+                disabled={!inputValue.trim() || isLoading || isStreaming || isEnhancing}
+                className={cn(
+                  "h-8 w-8 rounded-full shrink-0 transition-all text-muted-foreground hover:text-primary",
+                  isEnhancing && "animate-pulse"
+                )}
+                title="Enhance prompt using AI"
+              >
+                {isEnhancing ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                ) : (
+                  <Wand2 className="h-4 w-4" />
+                )}
+              </Button>
               <Button 
                 type={(isLoading || isStreaming) ? "button" : "submit"}
                 onClick={(isLoading || isStreaming) ? handleStop : undefined}

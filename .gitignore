@@ -1,6 +1,8 @@
 # CDK asset staging directory
 .cdk.staging
 cdk.out/
+cdk.context.json
+
 
 # Dependency directories
 node_modules/
@@ -67,4 +69,4 @@ Thumbs.db
 # Optional: if you're using Jest for testing
 jest.config.js
 
-.venv/
+.venv/.env

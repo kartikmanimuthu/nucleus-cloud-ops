@@ -3,6 +3,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as elasticache from "aws-cdk-lib/aws-elasticache";
 import { Construct } from "constructs";
+import { getConfig } from "./config";
 
 export interface NetworkingStackProps extends cdk.StackProps {
     // VPC Configuration from cdk.context.json
@@ -21,13 +22,13 @@ export class NetworkingStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: NetworkingStackProps) {
         super(scope, id, props);
 
-        // Load configuration from context or use defaults
-        const networkingConfig = this.node.tryGetContext('networking') || {};
-        const appName = this.node.tryGetContext('appName') || 'nucleus-app';
+        // Load configuration from env via config.ts
+        const config = getConfig();
+        const appName = config.appName;
 
-        const vpcCidr = props.vpcCidr || networkingConfig.vpcCidr || '10.0.0.0/16';
-        const maxAzs = props.maxAzs || networkingConfig.maxAzs || 2;
-        const natGatewayCount = props.natGateways || networkingConfig.natGateways || 2;
+        const vpcCidr = props.vpcCidr || config.networking.vpcCidr;
+        const maxAzs = props.maxAzs || config.networking.maxAzs;
+        const natGatewayCount = props.natGateways || config.networking.natGateways;
 
         // Create a four-tier VPC architecture following AWS best practices
         this.vpc = new ec2.Vpc(this, `${appName}-VPC`, {

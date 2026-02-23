@@ -147,4 +147,38 @@ export async function exportToMarkdown(messages: ChatMessage[], threadId: string
 }
 
 // Keep the old function name for backwards compatibility
-export const exportToPDF = exportToMarkdown;
+export async function exportToPDF(messages: ChatMessage[], threadId: string): Promise<boolean> {
+    try {
+        console.log('[Export] Exporting to PDF, messages count:', messages.length);
+
+        // Dynamically import html2pdf to avoid SSR issues
+        const html2pdf = (await import('html2pdf.js')).default;
+
+        const element = document.getElementById('chat-messages-container');
+        if (!element) {
+            console.error('Chat messages container not found');
+            return false;
+        }
+
+        const opt = {
+            margin: 10,
+            filename: `chat_${threadId}_${Date.now()}.pdf`,
+            image: { type: 'jpeg' as const, quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, logging: false },
+            jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
+        };
+
+        // Add a temporary class to ensure consistent styling during export if needed
+        element.classList.add('pdf-export-mode');
+
+        await html2pdf().set(opt).from(element).save();
+
+        // Remove the temporary class
+        element.classList.remove('pdf-export-mode');
+
+        return true;
+    } catch (error) {
+        console.error('Failed to export PDF:', error);
+        return false;
+    }
+}

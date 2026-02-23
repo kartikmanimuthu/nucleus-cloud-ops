@@ -20,7 +20,14 @@ This skill focuses on analyzing AWS costs, identifying optimization opportunitie
 
 ## Instructions
 
-### 1. Understanding Cost Analysis Constraints
+### 1. 🔒 READ-ONLY MODE & CONSTRAINTS
+
+**CRITICAL:** You are a strictly READ-ONLY agent. 
+- You may analyze data, generate reports, and recommend right-sizing or savings. 
+- You MUST NOT execute any commands that purchase RIs, alter instance types, or delete resources. 
+- You can recommend deletions, but you cannot execute them.
+
+### 2. Understanding Cost Analysis Constraints
 
 **Important Limits:**
 - AWS Cost Explorer API only provides data for the **last 14 months**

@@ -8,10 +8,19 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { Readable } from 'stream';
 
 
-// Re-export AWS credentials tool
-export { getAwsCredentialsTool } from './aws-credentials-tool';
+// Re-export AWS credentials tools
+export { getAwsCredentialsTool, listAwsAccountsTool } from './aws-credentials-tool';
 
 const execAsync = promisify(exec);
+
+// Helper to truncate large tool outputs to prevent prompt token limits
+const MAX_OUTPUT_LENGTH = 100000;
+const truncateToolOutput = (output: string) => {
+    if (output && output.length > MAX_OUTPUT_LENGTH) {
+        return output.substring(0, MAX_OUTPUT_LENGTH) + `\n\n...[Output truncated due to length. Total length: ${output.length} characters]...`;
+    }
+    return output;
+};
 
 // Helper to format file size
 const formatSize = (bytes: number) => {
@@ -37,7 +46,7 @@ export const executeCommandTool = tool(
             const output = stdout || stderr || 'Command executed successfully (no output)';
             console.log(`[Tool] Command Output Length: ${output.length}`);
 
-            return output;
+            return truncateToolOutput(output);
         } catch (error: any) {
             const errorMsg = `Command failed: ${error.message}\n${error.stderr || ''}`;
             console.error(`[Tool] Command Error:`, errorMsg);
@@ -92,7 +101,7 @@ export const lsTool = tool(
             }
 
             output += `\nTotal items: ${validItems.length}`;
-            return output;
+            return truncateToolOutput(output);
         } catch (error: any) {
             const errorMsg = `Error listing directory: ${error.message}`;
             console.error(`[Tool] LS Error:`, errorMsg);
@@ -142,7 +151,7 @@ export const readFileTool = tool(
             }
 
             console.log(`[Tool] File read successfully${rangeInfo}, length: ${result.length}`);
-            return result;
+            return truncateToolOutput(result);
         } catch (error: any) {
             const errorMsg = `Error reading file: ${error.message}`;
             console.error(`[Tool] Read Error:`, errorMsg);
@@ -299,10 +308,10 @@ export const globTool = tool(
             }
 
             if (files.length > 100) {
-                return `Found ${files.length} files. First 100:\n${files.slice(0, 100).join('\n')}\n...(and ${files.length - 100} more)`;
+                return truncateToolOutput(`Found ${files.length} files. First 100:\n${files.slice(0, 100).join('\n')}\n...(and ${files.length - 100} more)`);
             }
 
-            return files.join('\n');
+            return truncateToolOutput(files.join('\n'));
         } catch (error: any) {
             const errorMsg = `Glob error: ${error.message}`;
             console.error(`[Tool] Glob Error:`, errorMsg);
@@ -358,7 +367,7 @@ export const grepTool = tool(
 
             if (!stdout && !stderr) return "No matches found.";
 
-            return stdout || stderr;
+            return truncateToolOutput(stdout || stderr);
         } catch (error: any) {
             // grep returns exit code 1 if no matches, which triggers exception in exec
             if (error.code === 1) return "No matches found.";
@@ -424,7 +433,7 @@ export const webSearchTool = tool(
             }
 
             console.log(`[Tool] Search completed, found ${data.results?.length || 0} results`);
-            return result || 'No results found.';
+            return truncateToolOutput(result || 'No results found.');
         } catch (error: any) {
             const errorMsg = `Web search error: ${error.message}`;
             console.error(`[Tool] Search Error:`, errorMsg);
@@ -523,7 +532,7 @@ export const getFileFromS3Tool = tool(
             const content = await streamToString(response.Body as Readable);
 
             console.log(`[Tool] S3 file read successfully, length: ${content.length}`);
-            return content;
+            return truncateToolOutput(content);
         } catch (error: any) {
             const errorMsg = `Error reading file from S3: ${error.message}`;
             console.error(`[Tool] S3 Read Error:`, errorMsg);

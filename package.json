@@ -18,8 +18,9 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
-    "@types/node": "22.5.4",
+    "@types/node": "^22.5.4",
     "aws-cdk": "^2.1104.0",
+    "esbuild": "^0.27.3",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
@@ -27,8 +28,12 @@
   },
   "dependencies": {
     "@aws-cdk/aws-s3tables-alpha": "^2.236.0-alpha.0",
+    "@aws-sdk/client-s3vectors": "^3.992.0",
     "aws-cdk-lib": "^2.236.0",
+    "cdk-s3-vectors": "^0.3.2",
+    "cheerio": "^1.2.0",
     "constructs": "^10.0.0",
+    "dotenv": "^17.3.1",
     "jwt-decode": "^4.0.0",
     "next-auth": "^4.24.11",
     "source-map-support": "^0.5.21"

@@ -185,6 +185,66 @@ The returned profile name should be used with all subsequent AWS CLI commands.`,
 );
 
 /**
+ * List AWS Accounts Tool
+ * 
+ * Lists all active, connected AWS accounts from DynamoDB.
+ * The agent uses this tool to discover available accounts
+ * and fuzzy-match by account name or ID from the user's prompt.
+ */
+export const listAwsAccountsTool = tool(
+    async (): Promise<string> => {
+        console.log(`[Tool] Listing all connected AWS accounts`);
+
+        try {
+            // Dynamic import to avoid circular dependencies
+            const { AccountService } = await import('../account-service');
+
+            const { accounts } = await AccountService.getAccounts({
+                statusFilter: 'active',
+                connectionFilter: 'connected',
+                limit: 100,
+            });
+
+            if (!accounts || accounts.length === 0) {
+                return JSON.stringify({
+                    success: true,
+                    accounts: [],
+                    message: 'No active connected AWS accounts found. Please configure accounts first.',
+                });
+            }
+
+            const accountList = accounts.map(a => ({
+                accountId: a.accountId,
+                accountName: a.name,
+                regions: a.regions || [],
+            }));
+
+            console.log(`[Tool] Found ${accountList.length} connected accounts`);
+
+            return JSON.stringify({
+                success: true,
+                accounts: accountList,
+                message: `Found ${accountList.length} connected AWS account(s). Use get_aws_credentials with the desired accountId to obtain temporary credentials.`,
+            });
+        } catch (error: any) {
+            console.error(`[Tool] Error listing accounts:`, error);
+            return JSON.stringify({
+                error: error.message || 'Failed to list AWS accounts',
+                success: false,
+            });
+        }
+    },
+    {
+        name: 'list_aws_accounts',
+        description: `List all active and connected AWS accounts available in the system.
+Use this tool FIRST to discover which AWS accounts are available before calling get_aws_credentials.
+Returns account IDs, names, and regions. You can then match the user's request to the correct account
+by fuzzy-matching the account name or ID from the user's prompt.`,
+        schema: z.object({}),
+    }
+);
+
+/**
  * Utility function to generate AWS CLI prefix with credentials
  * This can be used by other tools to prepend credential exports to commands
  */

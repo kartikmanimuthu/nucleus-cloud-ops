@@ -11,7 +11,8 @@ import {
     globTool,
     grepTool,
     webSearchTool,
-    getAwsCredentialsTool
+    getAwsCredentialsTool,
+    listAwsAccountsTool
 } from "./tools";
 import { getSkillContent } from "./skills/skill-loader";
 import {
@@ -33,6 +34,8 @@ export async function createFastGraph(config: GraphConfig) {
 
     // Load skill content if a skill is selected
     let skillContent = '';
+    const isDevOpsSkill = selectedSkill === 'devops';
+
     if (selectedSkill) {
         const content = getSkillContent(selectedSkill);
         if (content) {
@@ -43,6 +46,16 @@ export async function createFastGraph(config: GraphConfig) {
         }
     }
 
+    const readOnlyInstruction = isDevOpsSkill
+        ? `IMPORTANT: You are operating with DEVOPS MUTATION PRIVILEGES. 
+- You ARE allowed to create, update, delete, start, stop, and modify AWS infrastructure resources as requested by the user.
+- If asked to perform a mutation, execute it using the CLI cautiously.`
+        : `IMPORTANT: You are a READ-ONLY agent.
+- You MUST NOT perform any mutation operations (create, update, delete resources).
+- You MUST NOT execute dangerous commands (rm, mv, etc).
+- Your AWS IAM role is read-only.
+- If asked to perform a mutation, politely refuse and explain your read-only limitations.`;
+
     // --- Model Initialization ---
     const model = new ChatBedrockConverse({
         region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
@@ -52,8 +65,8 @@ export async function createFastGraph(config: GraphConfig) {
         streaming: true,
     });
 
-    // Include AWS credentials tool for account-aware operations
-    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool];
+    // Include AWS credentials tools for account-aware operations
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool, listAwsAccountsTool];
 
     // Dynamically discover and merge MCP server tools
     const mcpTools = await getActiveMCPTools(mcpServerIds);
@@ -85,7 +98,12 @@ Before executing any AWS CLI commands, you MUST first call the get_aws_credentia
 The tool will return a profile name. Use this profile with ALL subsequent AWS CLI commands by adding: --profile <profileName>
 NEVER use the host's default credentials - always use the profile returned from get_aws_credentials.`;
     } else {
-        accountContext = `\n\nNOTE: No AWS account is selected. If the user asks to perform AWS operations, inform them that they need to select an AWS account first.`;
+        accountContext = `\n\nIMPORTANT - AUTONOMOUS AWS ACCOUNT DISCOVERY:
+No explicit AWS account was provided. If the user asks to perform AWS operations:
+1. First, call the list_aws_accounts tool to get a list of all available connected accounts.
+2. Fuzzy-match the account name or ID from the user's prompt against the list.
+3. Call the get_aws_credentials tool with the matched accountId to create a session profile.
+4. Use the returned profile name with ALL subsequent AWS CLI commands by adding: --profile <profileName>`;
     }
 
     // --- GENERATOR NODE (Agent) ---
@@ -98,14 +116,10 @@ NEVER use the host's default credentials - always use the profile returned from 
         console.log(`================================================================================\n`);
 
         const systemPrompt = new SystemMessage(`You are a capable DevOps and Cloud Infrastructure assistant.
-You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials.
+You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials, list_aws_accounts.
 You are proficient with AWS CLI, git, shell scripting, and infrastructure management.
 ${skillContent}
-IMPORTANT: You are a READ-ONLY agent.
-- You MUST NOT perform any mutation operations (create, update, delete resources).
-- You MUST NOT execute dangerous commands (rm, mv, etc).
-- Your AWS IAM role is read-only.
-- If asked to perform a mutation, politely refuse and explain your read-only limitations.
+${readOnlyInstruction}
 
 CONVERSATION CONTINUITY: Review the conversation history carefully.
 If this is a follow-up question, use the context from previous exchanges to provide accurate and relevant responses.
@@ -173,7 +187,7 @@ Analyze the response for:
 1. Correctness
 2. Completeness (did it answer the user's request?)
 3. Missing details
-4. SECURITY: Ensure the assistant acted as a READ-ONLY agent. If it performed any mutation/write/delete operations, flag this as a major error.
+4. SECURITY: ${isDevOpsSkill ? `The assistant has MUTATION PRIVILEGES. Ensure destructive actions were performed intentionally, cautiously, and successfully.` : `Ensure the assistant acted as a READ-ONLY agent. If it performed any mutation/write/delete operations on AWS, flag this as a major error.`}
 
 If the response is good and complete, respond with "COMPLETE".
 If there are issues, list them clearly and concisely as feedback for the assistant to fix.

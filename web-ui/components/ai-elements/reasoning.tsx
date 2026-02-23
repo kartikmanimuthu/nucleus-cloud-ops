@@ -147,6 +147,7 @@ const ReasoningContent = React.forwardRef<
         className={cn(
           "border-t px-4 py-3 text-sm text-muted-foreground leading-relaxed",
           "bg-gradient-to-b from-muted/30 to-transparent",
+          "overflow-hidden break-words [overflow-wrap:anywhere]",
           context?.isStreaming && "animate-pulse",
           className
         )}

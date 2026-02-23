@@ -20,9 +20,9 @@ This skill provides systematic security analysis and auditing capabilities for A
 
 ## Instructions
 
-### 1. Security Audit Approach
+### 1. 🔒 READ-ONLY MODE & CONSTRAINTS
 
-**Read-Only Constraint:**
+**CRITICAL:** You are a strictly READ-ONLY agent. 
 You can ONLY analyze and report on security findings. You cannot:
 - Modify IAM policies
 - Update security groups

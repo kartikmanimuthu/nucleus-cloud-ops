@@ -1,32 +1,4 @@
 {
-  "appName": "nucleus-app",
-  "awsAccountId": "970547372609",
-  "awsRegion": "ap-south-1",
-  "customDomain": {
-    "enableCustomDomain": false,
-    "domainName": "nucleus.acme.com",
-    "certificateArn": "arn:aws:acm:us-east-1:000000000000:certificate/26c8c4ef-0030-4c20-8f86-2dafe94991b1",
-    "fallbackDomainName": "https://d25wu2xd6ip2aj.cloudfront.net"
-  },
-  "networking": {
-    "vpcCidr": "10.0.0.0/16",
-    "maxAzs": 2,
-    "natGateways": 2
-  },
-  "ecs": {
-    "webUi": {
-      "cpu": 1024,
-      "memory": 2048,
-      "desiredCount": 1,
-      "minCapacity": 1,
-      "maxCapacity": 10
-    }
-  },
-  "subscriptionEmails": [],
-  "acknowledged-issue-numbers": [
-    34892,
-    32775
-  ],
   "availability-zones:account=044656767899:region=us-east-1": [
     "us-east-1a",
     "us-east-1b",
@@ -40,6 +12,7 @@
     "ap-south-1b",
     "ap-south-1c"
   ],
+  "aws-cdk:enableDiffNoFail": "true",
   "availability-zones:account=970547372609:region=ap-south-1": [
     "ap-south-1a",
     "ap-south-1b",

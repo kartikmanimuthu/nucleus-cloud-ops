@@ -23,6 +23,8 @@ import * as s3_notifications from "aws-cdk-lib/aws-s3-notifications";
 import { Construct } from "constructs";
 import { TableBucket, Namespace, Table, OpenTableFormat } from '@aws-cdk/aws-s3tables-alpha';
 import { RemovalPolicy } from "aws-cdk-lib";
+import { Bucket as VectorBucket, Index } from 'cdk-s3-vectors';
+import { getConfig } from './config';
 
 export interface ComputeStackProps extends cdk.StackProps {
     vpc: ec2.Vpc;
@@ -45,16 +47,17 @@ export class ComputeStack extends cdk.Stack {
         super(scope, id, props);
 
         // ============================================================================
-        // CONFIGURATION FROM CONTEXT
+        // CONFIGURATION FROM CONFIG.TS (ENV VARS)
         // ============================================================================
 
-        const appName = this.node.tryGetContext('appName') || 'nucleus-app';
+        const config = getConfig();
+        const appName = config.appName;
         const SCHEDULE_INTERVAL = 30; // Defaulting to 30 as context is being removed
         const CROSS_ACCOUNT_ROLE_NAME = 'CrossAccountRoleForCostOptimizationScheduler';
         const SCHEDULER_TAG = 'cost-optimization-scheduler';
-        const subscriptionEmails = this.node.tryGetContext('subscriptionEmails') || [];
-        const customDomainConfig = this.node.tryGetContext('customDomain') || {};
-        const ecsConfig = this.node.tryGetContext('ecs') || {};
+        const subscriptionEmails = config.subscriptionEmails;
+        const customDomainConfig = config.customDomain;
+        const ecsConfig = config.ecs;
 
         const stackName = `${appName}`;
         const webUiStackName = `${appName}-web-ui`;
@@ -65,6 +68,7 @@ export class ComputeStack extends cdk.Stack {
         const checkpointTableName = `${appName}-checkpoints-table`;
         const writesTableName = `${appName}-checkpoint-writes-v2-table`;
         const agentConversationsTableName = `${appName}-agent-conversations`;
+        const agentOpsTableName = `${appName}-agent-ops`;
 
         // ============================================================================
         // DYNAMODB TABLES (from cdkStack.ts)
@@ -201,6 +205,22 @@ export class ComputeStack extends cdk.Stack {
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
+        // Agent Ops Table (for background agent execution runs + events)
+        const agentOpsTable = new dynamodb.Table(this, `${appName}-AgentOpsTable`, {
+            tableName: agentOpsTableName,
+            partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            timeToLiveAttribute: 'ttl',
+        });
+        agentOpsTable.addGlobalSecondaryIndex({
+            indexName: 'GSI1',
+            partitionKey: { name: 'GSI1PK', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'GSI1SK', type: dynamodb.AttributeType.STRING },
+            projectionType: dynamodb.ProjectionType.ALL,
+        });
+
         // GSI for direct thread access by ID
         agentConversationsTable.addGlobalSecondaryIndex({
             indexName: 'ThreadIdIndex',
@@ -237,6 +257,22 @@ export class ComputeStack extends cdk.Stack {
                     expiration: cdk.Duration.days(1), // Auto-expire temp files after due to temporary nature of storage
                 }
             ]
+        });
+
+        // ============================================================================
+        // S3 VECTOR BUCKET (cdk-s3-vectors)
+        // ============================================================================
+
+        const vectorBucket = new VectorBucket(this, `${appName}-VectorBucket`, {
+            vectorBucketName: `${appName}-vectors-${this.account}-${this.region}`,
+        });
+
+        const vectorIndex = new Index(this, `${appName}-VectorIndex`, {
+            vectorBucketName: vectorBucket.vectorBucketName, // Using Name as per PoC; construct handles mapping
+            indexName: 'text-embeddings',
+            dataType: 'float32',
+            dimension: 1024,
+            distanceMetric: 'cosine',
         });
 
         // ============================================================================
@@ -302,40 +338,76 @@ export class ComputeStack extends cdk.Stack {
         inventoryBucket.grantReadWrite(discoveryTaskRole);
 
         // Vector Processor Lambda
-        const vectorProcessor = new lambda.Function(
-          this,
-          `${appName}-VectorProcessor`,
-          {
-            functionName: `${stackName}-vector-processor`,
-            runtime: lambda.Runtime.PYTHON_3_12,
-            handler: "index.handler",
-            code: lambda.Code.fromAsset(
-              path.join(__dirname, "../lambda/vector_processor/src"),
-            ),
-            timeout: cdk.Duration.minutes(15),
-            memorySize: 1024,
-            environment: {
-              INVENTORY_BUCKET_NAME: inventoryBucket.bucketName,
+        // Vector Processor Lambda (TypeScript)
+        const vectorProcessor = new lambda_nodejs.NodejsFunction(
+            this,
+            `${appName}-VectorProcessor`,
+            {
+                functionName: `${stackName}-vector-processor`,
+                runtime: lambda.Runtime.NODEJS_20_X,
+                architecture: lambda.Architecture.ARM_64,
+                entry: path.join(__dirname, "../lambda/vector_processor/src/index.ts"),
+                handler: "handler",
+                bundling: {
+                    minify: true,
+                    externalModules: [
+                        '@aws-sdk/client-s3',
+                        '@aws-sdk/client-bedrock-runtime'
+                    ], // Bundle client-s3vectors and cheerio
+                },
+                timeout: cdk.Duration.minutes(15),
+                memorySize: 1024,
+                environment: {
+                    INVENTORY_BUCKET_NAME: inventoryBucket.bucketName,
+                    VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName, // Use Name as we have Index now? Or ARN?
+                    // In index.ts, we use PutVectorsCommand. 
+                    // s3vectors (preview) usually takes Name + IndexName.
+                    // The Fix in Python used ARN. 
+                    // Let's pass ARN to be safe, as it's the unique identifier.
+                    // But wait, the Index construct takes Name. 
+                    // Let's pass BOTH and let the Lambda decide or use ARN.
+                    // Actually, the previous fix confirmed ARN was needed for the *Bucket* resource to be found.
+                    // But PutVectors might expect the Name if the client handles resolution.
+                    // I will pass ARN as VECTOR_BUCKET_NAME to be consistent with the fix.
+                    VECTOR_BUCKET_ARN: vectorBucket.vectorBucketArn,
+                    // Also pass Name just in case
+                    VECTOR_BUCKET_NAME_SIMPLE: vectorBucket.vectorBucketName,
+                    VECTOR_INDEX_NAME: vectorIndex.indexName,
+                    BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+                },
             },
-          },
         );
 
         // Grant S3 permissions
         inventoryBucket.grantReadWrite(vectorProcessor);
+        // vectorBucket is a custom resource, so we might need to manually grant if the L2 construct doesn't expose standard grant methods
+        // The cdk-s3-vectors construct does not appear to expose a standard IBucket interface directly for the vector bucket
+        // It exposes vectorBucketArn. Let's use addToRolePolicy for safety.
+        vectorProcessor.addToRolePolicy(new iam.PolicyStatement({
+            actions: [
+                "s3:PutObject", "s3:GetObject", "s3:ListBucket",
+                "s3vectors:PutVectors", "s3vectors:CreateVectorIndex" // Ensure permission
+            ],
+            resources: [
+                vectorBucket.vectorBucketArn,
+                `${vectorBucket.vectorBucketArn}/*`,
+                vectorIndex.indexArn // Grant permission on the index
+            ]
+        }));
 
         // Grant Bedrock permissions
         vectorProcessor.addToRolePolicy(
-          new iam.PolicyStatement({
-            actions: ["bedrock:InvokeModel"],
-            resources: ["*"],
-          }),
+            new iam.PolicyStatement({
+                actions: ["bedrock:InvokeModel"],
+                resources: ["*"],
+            }),
         );
 
         // Add S3 Event Notification
         inventoryBucket.addEventNotification(
-          s3.EventType.OBJECT_CREATED,
-          new s3_notifications.LambdaDestination(vectorProcessor),
-          { prefix: "merged/" },
+            s3.EventType.OBJECT_CREATED,
+            new s3_notifications.LambdaDestination(vectorProcessor),
+            { prefix: "merged/" },
         );
 
         // S3 Tables permissions (for managed Iceberg tables)
@@ -619,6 +691,7 @@ export class ComputeStack extends cdk.Stack {
                 writesTable.tableArn, `${writesTable.tableArn}/index/*`,
                 agentConversationsTable.tableArn, `${agentConversationsTable.tableArn}/index/*`,
                 inventoryTable.tableArn, `${inventoryTable.tableArn}/index/*`,
+                agentOpsTable.tableArn, `${agentOpsTable.tableArn}/index/*`,
             ],
         }));
 
@@ -745,6 +818,13 @@ export class ComputeStack extends cdk.Stack {
                 NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
                 COGNITO_CLIENT_SECRET: this.userPoolClient.userPoolClientSecret?.unsafeUnwrap() || '',
                 COGNITO_DOMAIN: `${webUiStackName}-auth-${this.account}.auth.${this.region}.amazoncognito.com`,
+
+                // Vector Search Config
+                VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName,
+                VECTOR_INDEX_NAME: vectorIndex.indexName,
+                BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+
+                // Remaining Cognito & App Config
                 NEXT_PUBLIC_COGNITO_DOMAIN: `${webUiStackName}-auth-${this.account}.auth.${this.region}.amazoncognito.com`,
                 COGNITO_REGION: this.region,
                 NEXT_PUBLIC_COGNITO_REGION: this.region,
@@ -766,9 +846,25 @@ export class ComputeStack extends cdk.Stack {
                 EVENTBRIDGE_RULE_NAME: `${appName}-rule`,
                 AGENT_TEMP_BUCKET: agentTempBucket.bucketName,
                 DYNAMODB_AGENT_CONVERSATIONS_TABLE: agentConversationsTable.tableName,
+                AGENT_OPS_TABLE_NAME: agentOpsTable.tableName,
             },
             portMappings: [{ containerPort: 3000, hostPort: 3000, protocol: ecs.Protocol.TCP }],
         });
+
+        // Grant S3 Vectors permissions to ECS Task Role
+        ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+            actions: [
+                "s3vectors:QueryVectors",
+                "s3vectors:PutVectors",
+                "s3vectors:GetVector",
+                "s3vectors:ListVectorIndices"
+            ],
+            resources: [
+                vectorBucket.vectorBucketArn,
+                `${vectorBucket.vectorBucketArn}/*`,
+                vectorIndex.indexArn
+            ]
+        }));
 
         // Application Load Balancer
         const alb = new elbv2.ApplicationLoadBalancer(this, `${appName}-WebUIAlb`, {

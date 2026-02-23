@@ -18,7 +18,7 @@ export function MarkdownContent({ content, className }: MarkdownContentProps) {
   if (!content) return null;
 
   return (
-    <div className={cn("markdown-content", className)}>
+    <div className={cn("markdown-content break-words whitespace-pre-wrap overflow-hidden min-w-0", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -92,7 +92,7 @@ export function MarkdownContent({ content, className }: MarkdownContentProps) {
             );
           },
           pre: ({ children }) => (
-            <pre className="bg-muted/50 border rounded-md p-3 mb-2 overflow-x-auto text-xs font-mono">
+            <pre className="bg-muted/50 border rounded-md p-3 mb-2 text-xs font-mono whitespace-pre-wrap break-words [word-break:break-word] overflow-hidden">
               {children}
             </pre>
           ),

@@ -83,6 +83,72 @@ export const generateOnboardingTemplate = (hubAccountId: string, externalId: str
                                     }
                                 ]
                             }
+                        },
+                        {
+                            // SSM Session Manager & Run Command — allows AI agent to
+                            // log into EC2 instances for live troubleshooting without SSH/bastion
+                            PolicyName: "NucleusAgentSSMPolicy",
+                            PolicyDocument: {
+                                Version: "2012-10-17",
+                                Statement: [
+                                    {
+                                        // Session Manager: start, resume, terminate interactive sessions
+                                        Sid: "SSMSessionManager",
+                                        Effect: "Allow",
+                                        Action: [
+                                            "ssm:StartSession",
+                                            "ssm:ResumeSession",
+                                            "ssm:TerminateSession",
+                                            "ssm:DescribeSessions",
+                                            "ssm:GetConnectionStatus"
+                                        ],
+                                        Resource: "*"
+                                    },
+                                    {
+                                        // Run Command: execute diagnostic scripts remotely on EC2
+                                        Sid: "SSMRunCommand",
+                                        Effect: "Allow",
+                                        Action: [
+                                            "ssm:SendCommand",
+                                            "ssm:GetCommandInvocation",
+                                            "ssm:ListCommandInvocations",
+                                            "ssm:ListCommands",
+                                            "ssm:CancelCommand"
+                                        ],
+                                        Resource: "*"
+                                    },
+                                    {
+                                        // SSM Inventory & Agent Health: check which instances
+                                        // have the SSM agent installed and are reachable
+                                        Sid: "SSMInventoryAndAgentHealth",
+                                        Effect: "Allow",
+                                        Action: [
+                                            "ssm:DescribeInstanceInformation",
+                                            "ssm:DescribeInstanceProperties",
+                                            "ssm:DescribeInstancePatchStates",
+                                            "ssm:ListInstanceAssociations",
+                                            "ssm:DescribeAssociation",
+                                            "ssm:GetDocument",
+                                            "ssm:DescribeDocument",
+                                            "ssm:ListDocuments",
+                                            "ssm:ListAssociations"
+                                        ],
+                                        Resource: "*"
+                                    },
+                                    {
+                                        // SSM Parameter Store: read-only access for config/secrets lookup
+                                        Sid: "SSMParameterStoreReadOnly",
+                                        Effect: "Allow",
+                                        Action: [
+                                            "ssm:GetParameter",
+                                            "ssm:GetParameters",
+                                            "ssm:GetParametersByPath",
+                                            "ssm:DescribeParameters"
+                                        ],
+                                        Resource: "*"
+                                    }
+                                ]
+                            }
                         }
                     ],
                     ManagedPolicyArns: [
@@ -165,6 +231,56 @@ Resources:
                   - kms:DescribeKey
                   - kms:GenerateDataKeyWithoutPlainText
                   - kms:ReEncrypt
+                Resource: '*'
+        # SSM Session Manager & Run Command — allows AI agent to
+        # log into EC2 instances for live troubleshooting without SSH/bastion
+        - PolicyName: NucleusAgentSSMPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Session Manager: start, resume, terminate interactive sessions
+              - Sid: SSMSessionManager
+                Effect: Allow
+                Action:
+                  - ssm:StartSession
+                  - ssm:ResumeSession
+                  - ssm:TerminateSession
+                  - ssm:DescribeSessions
+                  - ssm:GetConnectionStatus
+                Resource: '*'
+              # Run Command: execute diagnostic scripts remotely on EC2
+              - Sid: SSMRunCommand
+                Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                  - ssm:ListCommands
+                  - ssm:CancelCommand
+                Resource: '*'
+              # SSM Inventory & Agent Health: check which instances
+              # have the SSM agent installed and are reachable
+              - Sid: SSMInventoryAndAgentHealth
+                Effect: Allow
+                Action:
+                  - ssm:DescribeInstanceInformation
+                  - ssm:DescribeInstanceProperties
+                  - ssm:DescribeInstancePatchStates
+                  - ssm:ListInstanceAssociations
+                  - ssm:DescribeAssociation
+                  - ssm:GetDocument
+                  - ssm:DescribeDocument
+                  - ssm:ListDocuments
+                  - ssm:ListAssociations
+                Resource: '*'
+              # SSM Parameter Store: read-only access for config/secrets lookup
+              - Sid: SSMParameterStoreReadOnly
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                  - ssm:DescribeParameters
                 Resource: '*'
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/ReadOnlyAccess
