@@ -5,6 +5,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { MarkdownContent } from "@/components/ui/markdown-content"
 import {
     ArrowLeft, Clock, CheckCircle2, XCircle, Loader2,
     MessageSquare, AlertCircle, Globe, Zap, Terminal, Brain, RefreshCw,
@@ -35,8 +36,7 @@ function EventRow({ event, idx }: { event: AgentOpsEvent; idx: number }) {
         : 0
 
     const mainContent = event.content || event.toolOutput || ""
-    const isLong = mainContent.length > 300
-    const displayContent = isLong && !expanded ? mainContent.slice(0, 300) + "…" : mainContent
+    const isLong = mainContent.length > 500
 
     return (
         <div key={idx} className="relative pl-10 py-3 first:pt-0">
@@ -75,24 +75,32 @@ function EventRow({ event, idx }: { event: AgentOpsEvent; idx: number }) {
                 )}
 
                 {/* Main content */}
-                {displayContent && (
+                {mainContent && (
                     <div>
-                        <pre className={`text-xs text-muted-foreground whitespace-pre-wrap break-all ${
+                        <div className={`relative ${
                             event.eventType === "tool_result"
-                                ? "bg-teal-50 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900 rounded p-2"
+                                ? "bg-teal-50 text-foreground dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900 rounded p-3"
                                 : event.eventType === "error"
-                                ? "text-red-600 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded p-2"
-                                : ""
+                                ? "text-red-600 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded p-3"
+                                : "text-muted-foreground"
                         }`}>
-                            {displayContent}
-                        </pre>
+                            <div 
+                                className={isLong && !expanded ? "max-h-[300px] overflow-hidden relative" : "relative"}
+                                style={isLong && !expanded ? {
+                                    maskImage: 'linear-gradient(to bottom, white 60%, transparent 100%)',
+                                    WebkitMaskImage: 'linear-gradient(to bottom, white 60%, transparent 100%)'
+                                } : {}}
+                            >
+                                <MarkdownContent content={mainContent} />
+                            </div>
+                        </div>
                         {isLong && (
                             <button
                                 onClick={() => setExpanded(!expanded)}
-                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1 transition-colors"
+                                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-2 transition-colors"
                             >
                                 {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                                {expanded ? "Show less" : `Show ${mainContent.length - 300} more chars`}
+                                {expanded ? "Show less" : "Show more"}
                             </button>
                         )}
                     </div>
@@ -284,7 +292,9 @@ export default function RunDetailPage() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <pre className="text-sm whitespace-pre-wrap bg-muted p-3 rounded-md">{run.result.summary}</pre>
+                        <div className="bg-muted p-4 rounded-md">
+                            <MarkdownContent content={run.result.summary} />
+                        </div>
                         {run.result.toolsUsed && run.result.toolsUsed.length > 0 && (
                             <div className="flex gap-1.5 mt-3 flex-wrap">
                                 <span className="text-xs text-muted-foreground mr-1">Tools used:</span>
