@@ -108,7 +108,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
 
         // 3. Build GraphConfig matching the expected agent inputs
         const graphConfig = {
-            model: process.env.BEDROCK_MODEL_ID || 'global.anthropic.claude-sonnet-4-6',
+            model: 'global.anthropic.claude-sonnet-4-6',
             autoApprove: true,
             accounts: accountId ? [{ accountId, accountName: accountName || accountId }] : [],
             accountId,
