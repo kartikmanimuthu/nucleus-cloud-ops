@@ -405,7 +405,8 @@ def process_and_store_resources(
         
         # Add tags if present
         if tags and isinstance(tags, dict):
-            item['tags'] = {'M': {str(k): {'S': str(v)} for k, v in tags.items()}}
+            # Filter empty keys and values to avoid DynamoDB errors
+            item['tags'] = {'M': {str(k): {'S': str(v)} for k, v in tags.items() if k and v}}
         
         # Add service info
         if resource.get('service'):

@@ -165,7 +165,7 @@ class DiscoveryService:
                         batch = service_arns[i:i+10]
                         if not batch: continue
                         
-                        resp = ecs.describe_services(cluster=cluster_arn, services=batch)
+                        resp = ecs.describe_services(cluster=cluster_arn, services=batch, include=['TAGS'])
                         for svc in resp.get('services', []):
                             all_resources.append({
                                 'resourceId': svc['serviceName'],
@@ -174,7 +174,7 @@ class DiscoveryService:
                                 'arn': svc['serviceArn'],
                                 'region': region,
                                 'state': svc['status'],
-                                'tags': {t['Key']: t['Value'] for t in svc.get('tags', [])},
+                                'tags': {t.get('Key', t.get('key')): t.get('Value', t.get('value')) for t in svc.get('tags', [])},
                                 'accountId': account_id,
                                 'metadata': {'clusterArn': cluster_arn}
                             })
@@ -298,10 +298,14 @@ class DiscoveryService:
             total_resources += len(resources)
             synced_accounts.append(account.get('accountId', 'unknown'))
         
-        # Write all resources to S3 Table (Iceberg) at once (or in batches)
-        self.save_to_s3_table(all_resources)
-        
-        # Save sync metadata to app_table for status tracking
+        # Post-Processing
+        # Write all resources to S3 Table (Iceberg)
+        try:
+             self.save_to_s3_table(all_resources)
+        except Exception as e:
+             logger.error(f"Failed to save to S3 table: {e}")
+
+        # Save sync metadata
         self._save_sync_status(scan_id, total_resources, len(synced_accounts))
 
         logger.info(f"Auto Discovery Completed. Total resources synced: {total_resources}")
