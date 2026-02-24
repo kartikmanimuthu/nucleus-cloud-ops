@@ -80,8 +80,20 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
         // 2. Mark run in_progress (records start)
         await agentOpsService.updateRunStatus(tenantId, runId, 'in_progress');
 
+        // Load MCP server configs from DynamoDB (merged with defaults) and connect
         const mcpManager = getMCPManager();
-        await mcpManager.connectServers(mcpServerIds || []);
+        if (mcpServerIds && mcpServerIds.length > 0) {
+            try {
+                const { TenantConfigService } = await import('../tenant-config-service');
+                const { mergeConfigs } = await import('../agent/mcp-config');
+                const savedJson = await TenantConfigService.getConfig('mcp-servers');
+                const allConfigs = mergeConfigs(savedJson);
+                await mcpManager.connectServers(mcpServerIds, allConfigs);
+                console.log(`[AgentExecutor] Connected MCP servers: ${mcpServerIds.join(', ')}`);
+            } catch (mcpErr) {
+                console.warn(`[AgentExecutor] MCP server connection failed (non-fatal):`, mcpErr);
+            }
+        }
 
 
 

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Zap, Bot, MessageSquare, Globe, RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertCircle } from "lucide-react"
+import { Zap, Bot, MessageSquare, Globe, RefreshCw, Clock, CheckCircle2, XCircle, Loader2, AlertCircle, Settings, Plug } from "lucide-react"
 import type { AgentOpsRun, TriggerSource, AgentOpsStatus } from "@/lib/agent-ops/types"
 import { NewRunDialog } from "@/components/agent-ops/new-run-dialog"
 
@@ -95,6 +95,14 @@ export default function AgentOpsPage() {
                     <Button variant="outline" size="sm" onClick={fetchRuns} disabled={loading}>
                         <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
                         Refresh
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => router.push("/agent-ops/jira-settings")}>
+                        <AlertCircle className="h-4 w-4 mr-2" />
+                        Jira Settings
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => router.push("/agent-ops/mcp-settings")}>
+                        <Plug className="h-4 w-4 mr-2" />
+                        MCP Servers
                     </Button>
                     <NewRunDialog tenantId={tenantId} />
                 </div>

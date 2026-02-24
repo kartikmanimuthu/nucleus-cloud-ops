@@ -35,6 +35,7 @@ export async function createRun(params: {
     accountId?: string;
     accountName?: string;
     selectedSkill?: string;
+    mcpServerIds?: string[];
 }): Promise<AgentOpsRun> {
     const runId = uuidv4();
     const threadId = `agent-ops-${runId}`;
@@ -54,6 +55,7 @@ export async function createRun(params: {
         accountId: params.accountId,
         accountName: params.accountName,
         selectedSkill: params.selectedSkill,
+        mcpServerIds: params.mcpServerIds,
         threadId,
         trigger: params.trigger,
         createdAt: now,
@@ -68,6 +70,8 @@ export async function createRun(params: {
 
 /**
  * Update the status of a run.
+ * On terminal states (completed/failed), sets completedAt and computes durationMs
+ * from the run's createdAt timestamp.
  */
 export async function updateRunStatus(
     tenantId: string,
@@ -78,14 +82,21 @@ export async function updateRunStatus(
         error?: string;
     }
 ): Promise<void> {
-    const now = new Date().toISOString();
+    const now = new Date();
+    const nowIso = now.toISOString();
     const updateData: Record<string, unknown> = {
         status,
-        updatedAt: now,
+        updatedAt: nowIso,
     };
 
     if (status === 'completed' || status === 'failed') {
-        updateData.completedAt = now;
+        updateData.completedAt = nowIso;
+
+        // Fetch the run to compute durationMs from createdAt
+        const existing = await getRun(tenantId, runId);
+        if (existing?.createdAt) {
+            updateData.durationMs = now.getTime() - new Date(existing.createdAt).getTime();
+        }
     }
 
     if (extra?.result) {
@@ -118,20 +129,23 @@ export async function getRun(tenantId: string, runId: string): Promise<AgentOpsR
 }
 
 /**
- * List runs for a tenant (newest first).
+ * List runs using GSI1 (time-sorted by source), with optional pagination.
+ *
+ * GSI1PK = SOURCE#<source>  (defaults to 'slack' when no source provided)
+ * GSI1SK = <ISO-timestamp>#<runId>  — sorted descending (newest first)
  */
 export async function listRuns(query: RunListQuery): Promise<{
     runs: AgentOpsRun[];
     lastKey?: Record<string, unknown>;
 }> {
     const limit = query.limit || 25;
+    const source = query.source ?? 'slack';
 
-    let q = AgentOpsRunModel.query('PK')
-        .eq(`TENANT#${query.tenantId}`)
-        .where('SK')
-        .beginsWith('RUN#')
+    let q = AgentOpsRunModel.query('GSI1PK')
+        .eq(`SOURCE#${source}`)
         .sort('descending')
-        .limit(limit);
+        .limit(limit)
+        .using('GSI1');
 
     if (query.lastKey) {
         q = q.startAt(query.lastKey);
@@ -141,7 +155,8 @@ export async function listRuns(query: RunListQuery): Promise<{
 
     let runs = result.toJSON() as unknown as AgentOpsRun[];
 
-    // Filter by status if provided
+    // Filter by tenantId and optional status in-memory (GSI1 is source-partitioned)
+    runs = runs.filter(r => r.tenantId === query.tenantId);
     if (query.status) {
         runs = runs.filter(r => r.status === query.status);
     }

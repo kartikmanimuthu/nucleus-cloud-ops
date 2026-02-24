@@ -1,114 +1,73 @@
 /**
  * Slack Trigger Endpoint
- * 
+ *
  * POST /api/v1/trigger/slack
- * 
- * Accepts Slack slash commands and @mentions,
- * validates the signature, creates an agent-ops run,
- * and kicks off the agent asynchronously.
+ *
+ * Accepts Slack slash commands, validates the signature, creates an agent-ops
+ * run, and kicks off the agent asynchronously (fire-and-forget).
+ * Returns an ephemeral acknowledgement within Slack's 3-second window.
  */
 
 import { NextResponse } from 'next/server';
 import { verifySlackSignature, parseSlackSlashCommand } from '@/lib/agent-ops/slack-validator';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
-import type { SlackTriggerMeta } from '@/lib/agent-ops/types';
+import { postResultToSlack, postErrorToSlack } from '@/lib/agent-ops/slack-notifier';
 
-export const maxDuration = 10; // Slack requires response < 3s, but allow for processing
+export const maxDuration = 10;
 
 export async function POST(req: Request) {
-    try {
-        // Read raw body for signature verification
-        const rawBody = await req.text();
-        const timestamp = req.headers.get('x-slack-request-timestamp') || '';
-        const signature = req.headers.get('x-slack-signature') || '';
+    // Read raw body as text — must happen before any parsing for HMAC verification
+    const rawBody = await req.text();
+    const timestamp = req.headers.get('x-slack-request-timestamp') ?? '';
+    const signature = req.headers.get('x-slack-signature') ?? '';
 
-        // 1. Verify Slack signature
-        if (!verifySlackSignature(rawBody, timestamp, signature)) {
-            console.warn('[Slack Trigger] Signature verification failed');
-            return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-        }
+    // 1. Verify Slack signature
+    if (!verifySlackSignature(rawBody, timestamp, signature)) {
+        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
 
-        // 2. Parse slash command payload
-        const payload = parseSlackSlashCommand(rawBody);
-        const taskDescription = payload.text.trim();
+    // 2. Parse slash command payload
+    const payload = parseSlackSlashCommand(rawBody);
 
-        if (!taskDescription) {
-            return NextResponse.json({
+    // 3. Guard against empty task description
+    if (payload.text.trim() === '') {
+        return NextResponse.json(
+            {
                 response_type: 'ephemeral',
-                text: '⚠️ Please provide a task description. Example: `/cloud-ops Check Lambda configurations`',
-            });
-        }
+                text: '⚠️ Please provide a task description. Example: /cloud-ops Check Lambda configurations',
+            },
+            { status: 200 },
+        );
+    }
 
-        // 3. Mode (now handled dynamically by evaluator, but DB needs a string)
-        const mode = 'fast';
-
-        // 4. Build trigger metadata
-        const trigger: SlackTriggerMeta = {
+    // 4. Create run record (team_id used as tenantId for multi-tenancy)
+    const run = await agentOpsService.createRun({
+        tenantId: payload.team_id,
+        source: 'slack',
+        taskDescription: payload.text.trim(),
+        mode: 'fast',
+        trigger: {
             userId: payload.user_id,
             userName: payload.user_name,
             channelId: payload.channel_id,
             channelName: payload.channel_name,
             responseUrl: payload.response_url,
             teamId: payload.team_id,
-        };
+        },
+    });
 
-        // 5. Create run record (use team_id as tenantId for multi-tenancy)
-        const run = await agentOpsService.createRun({
-            tenantId: payload.team_id || 'default',
-            source: 'slack',
-            taskDescription,
-            mode,
-            trigger,
-        });
+    // 5. Fire-and-forget: execute agent, then post result/error back to Slack
+    executeAgentRun(run)
+        .then(() => postResultToSlack(run, payload.response_url))
+        .catch((err) => postErrorToSlack(err, run.runId, payload.response_url));
 
-        // 6. Execute agent asynchronously (fire-and-forget)
-        //    Don't await — respond immediately to Slack
-        executeAgentRun(run)
-            .then(async () => {
-                // Post result back to Slack via response_url
-                const updatedRun = await agentOpsService.getRun(run.tenantId, run.runId);
-                if (updatedRun?.result?.summary && payload.response_url) {
-                    try {
-                        await fetch(payload.response_url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                response_type: 'in_channel',
-                                text: `✅ *Agent Ops Complete*\n\n*Task:* ${taskDescription}\n*Run ID:* \`${run.runId}\`\n\n${updatedRun.result.summary}`,
-                            }),
-                        });
-                    } catch (postError) {
-                        console.error('[Slack Trigger] Failed to post result:', postError);
-                    }
-                }
-            })
-            .catch((err) => {
-                console.error('[Slack Trigger] Execution error:', err);
-                // Best-effort error notification
-                if (payload.response_url) {
-                    fetch(payload.response_url, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            response_type: 'ephemeral',
-                            text: `❌ Agent Ops failed: ${err.message}\nRun ID: \`${run.runId}\``,
-                        }),
-                    }).catch(() => { /* swallow */ });
-                }
-            });
-
-        // 7. Immediate acknowledgement to Slack (< 3s)
-        return NextResponse.json({
+    // 6. Immediate acknowledgement — must return within Slack's 3-second window
+    return NextResponse.json(
+        {
             response_type: 'ephemeral',
-            text: `🚀 *Agent Ops Started*\n*Task:* ${taskDescription}\n*Mode:* ${mode}\n*Run ID:* \`${run.runId}\`\n\nI'll post the results here when complete.`,
-        });
-
-    } catch (error) {
-        console.error('[Slack Trigger] Error:', error);
-        return NextResponse.json({
-            response_type: 'ephemeral',
-            text: `❌ Error: ${error instanceof Error ? error.message : 'Internal server error'}`,
-        }, { status: 500 });
-    }
+            text: '🚀 Agent Ops Started\nTask: ' + run.taskDescription + '\nRun ID: `' + run.runId + '`',
+        },
+        { status: 200 },
+    );
 }

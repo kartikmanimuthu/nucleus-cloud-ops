@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server';
 import { verifyJiraSecret, extractJiraTaskDescription, type JiraWebhookPayload } from '@/lib/agent-ops/jira-validator';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
+import { postResultToJira, postErrorToJira } from '@/lib/agent-ops/jira-notifier';
 import type { JiraTriggerMeta } from '@/lib/agent-ops/types';
 
 export async function POST(req: Request) {
@@ -57,10 +58,14 @@ export async function POST(req: Request) {
             selectedSkill: payload.selectedSkill,
         });
 
-        // 6. Execute agent asynchronously
-        executeAgentRun(run).catch((err) => {
-            console.error('[Jira Trigger] Execution error:', err);
-        });
+        // 6. Execute agent asynchronously, then post result/error back to Jira
+        const issueKey = trigger.issueKey;
+        executeAgentRun(run)
+            .then(() => issueKey ? postResultToJira(run, issueKey) : undefined)
+            .catch((err) => {
+                console.error('[Jira Trigger] Execution error:', err);
+                if (issueKey) postErrorToJira(err, run, issueKey).catch(() => { });
+            });
 
         // 7. Immediate acknowledgement
         return NextResponse.json({

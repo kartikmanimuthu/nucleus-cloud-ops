@@ -66,6 +66,7 @@ export interface AgentOpsRun {
     accountName?: string;
     selectedSkill?: string;
     threadId: string;       // LangGraph thread ID
+    mcpServerIds?: string[];
     trigger: TriggerMetadata;
     result?: AgentOpsResult;
     error?: string;
@@ -110,6 +111,7 @@ export interface TriggerRequest {
     mode?: AgentMode;
     mcpServerIds?: string[];
 }
+
 
 export interface TriggerResponse {
     runId: string;

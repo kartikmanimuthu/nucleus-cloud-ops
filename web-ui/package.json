@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "next lint",
     "deploy": "npx cdk deploy WebUIStack"
   },
@@ -108,8 +110,11 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^9",
     "eslint-config-next": "15.3.3",
-    "typescript": "^5"
+    "fast-check": "^4.5.3",
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }
