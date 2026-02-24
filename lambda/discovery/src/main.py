@@ -17,7 +17,8 @@ try:
         process_and_store_resources,
         mark_missing_resources,
         get_discovered_arns,
-        store_merged_to_s3
+        store_merged_to_s3,
+        save_sync_status
     )
     from src.audit_logger import create_audit_log
 except ImportError:
@@ -27,7 +28,8 @@ except ImportError:
         process_and_store_resources,
         mark_missing_resources,
         get_discovered_arns,
-        store_merged_to_s3
+        store_merged_to_s3,
+        save_sync_status
     )
     from audit_logger import create_audit_log
 
@@ -117,6 +119,8 @@ def main():
     specific_account_id = os.environ.get('ACCOUNT_ID')  # Optional: scan specific account
     scanfile_path = os.environ.get('SCANFILE_PATH')  # Optional: custom scanfile
     scan_id = os.environ.get('SCAN_ID')
+    if not scan_id:
+        scan_id = f"SCAN#{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     correlation_id = os.environ.get('CORRELATION_ID')
     
     # Concurrency settings
@@ -209,7 +213,8 @@ def main():
                 bucket_name=inventory_bucket,
                 account_id=account_id,
                 resources=resources,
-                raw_results=raw_results
+                raw_results=raw_results,
+                scan_id=scan_id
             )
             
             # Mark missing resources
@@ -228,6 +233,12 @@ def main():
             
             total_resources += resource_count
             successful_accounts += 1
+            
+            # Update global sync status
+            save_sync_status(
+                dynamodb, app_table_name, scan_id, 
+                total_resources, successful_accounts
+            )
             print(f"\nSUCCESS: Discovered {resource_count} resources in {duration_ms}ms")
             print(f"  Regions: {scan_result.get('regions_scanned', 0)}")
             print(f"  Services: {scan_result.get('services_scanned', 0)}")

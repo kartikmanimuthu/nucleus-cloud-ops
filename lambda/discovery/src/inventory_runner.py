@@ -160,6 +160,28 @@ def get_service_data(
     logger.info(f"Scanning {service_name}.{function_name} in {region_name}")
     
     try:
+        # Check for custom handlers first
+        if service_name == 'ecs' and function_name == 'list_clusters':
+            return _scan_ecs_deep(session, region_name)
+        elif service_name == 'lambda' and function_name == 'list_functions':
+            return _scan_lambda_deep(session, region_name)
+        elif service_name == 's3' and function_name == 'list_buckets':
+            return _scan_s3_deep(session, region_name)
+        elif service_name == 'dynamodb' and function_name == 'list_tables':
+            return _scan_dynamodb_deep(session, region_name)
+        elif service_name == 'rds' and function_name == 'describe_db_instances':
+            return _scan_rds_deep(session, region_name)
+        elif service_name == 'rds' and function_name == 'describe_db_instances':
+            return _scan_rds_deep(session, region_name)
+        elif service_name == 'elbv2' and function_name == 'describe_load_balancers':
+            return _scan_elbv2_deep(session, region_name)
+        elif service_name == 'acm' and function_name == 'list_certificates':
+            return _scan_acm_deep(session, region_name)
+        elif service_name == 'apigateway' and function_name == 'get_rest_apis':
+            return _scan_apigateway_deep(session, region_name)
+        elif service_name == 'kms' and function_name == 'list_keys':
+            return _scan_kms_deep(session, region_name)
+            
         client = session.client(service_name, region_name=region_name)
         
         if not hasattr(client, function_name):
@@ -409,6 +431,392 @@ def run_inventory_scan(
     }
 
 
+def _scan_ecs_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for ECS: Clusters -> Services -> Tags
+    """
+    ecs = session.client('ecs', region_name=region_name)
+    all_services = []
+    
+    try:
+        # 1. List Clusters
+        cluster_arns = []
+        paginator = ecs.get_paginator('list_clusters')
+        for page in paginator.paginate():
+            cluster_arns.extend(page.get('clusterArns', []))
+            
+        # 2. For each cluster, list and describe services
+        for cluster_arn in cluster_arns:
+            list_svc_paginator = ecs.get_paginator('list_services')
+            service_arns = []
+            for svc_page in list_svc_paginator.paginate(cluster=cluster_arn):
+                service_arns.extend(svc_page.get('serviceArns', []))
+            
+            # Describe in batches of 10
+            for i in range(0, len(service_arns), 10):
+                batch = service_arns[i:i+10]
+                if not batch: continue
+                
+                try:
+                    resp = ecs.describe_services(cluster=cluster_arn, services=batch, include=['TAGS'])
+                    for svc in resp.get('services', []):
+                        # Ensure nice tag format if missing
+                        if 'tags' not in svc:
+                            svc['tags'] = []
+                        # Flatten tags for consistency if needed, but data_processor handles list of dicts
+                        # Just ensure we have them.
+                        svc['ClusterArn'] = cluster_arn # Add context
+                        all_services.append(svc)
+                except Exception as e:
+                    logger.error(f"Error describing ECS services in {cluster_arn}: {e}")
+
+    except Exception as e:
+        logger.error(f"Error in deep ECS scan: {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'ecs',
+        'function': 'describe_services', # Standard function name for proper resource type normalization
+        'result': all_services
+    }
+
+def _scan_lambda_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for Lambda: Functions -> Tags
+    """
+    lam = session.client('lambda', region_name=region_name)
+    all_functions = []
+    
+    try:
+        paginator = lam.get_paginator('list_functions')
+        for page in paginator.paginate():
+            for func in page.get('Functions', []):
+                try:
+                    # Fetch tags
+                    tags_resp = lam.list_tags(Resource=func['FunctionArn'])
+                    # print("lambda tags>>>>>>>",tags_resp)
+                    func_tags = tags_resp.get('Tags', {})
+                    # Convert dict tags to list of dicts format specific to this project's convention if needed?
+                    # AWS returns {'Key': 'Value'} validation usually wants list or dict. 
+                    # data_processor handles both.
+                    # We inject it back into the object as 'Tags' (capitalized) or 'tags'
+                    # AWS list_functions returns 'Functions' list.
+                    
+                    # Store as list of dicts for consistency with other resources if needed, 
+                    # but AWS Resource Groups Tagging API standard is what we usually see.
+                    # list_tags return Dict[str, str].
+                    # Let's convert to [{'Key': k, 'Value': v}] logic if strict, 
+                    # but data_processor extracts from both.
+                    
+                    # Let's attach as 'Tags' (list) to match other resources if possible
+                    tag_list = [{'Key': k, 'Value': v} for k, v in func_tags.items()]
+                    func['Tags'] = tag_list 
+                    
+                    all_functions.append(func)
+                except Exception as e:
+                    logger.warning(f"Error getting tags for lambda {func.get('FunctionName')}: {e}")
+                    all_functions.append(func) # Append anyway
+                    
+    except Exception as e:
+        logger.error(f"Error in deep Lambda scan: {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'lambda',
+        'function': 'list_functions',
+        'result': all_functions
+    }
+
+
+def _scan_s3_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for S3: Buckets -> Tags
+    """
+    s3 = session.client('s3', region_name=region_name)
+    all_buckets = []
+    
+    try:
+        resp = s3.list_buckets()
+        buckets = resp.get('Buckets', [])
+        
+        for bucket in buckets:
+            try:
+                # Fetch tags
+                tags_resp = s3.get_bucket_tagging(Bucket=bucket['Name'])
+                tag_set = tags_resp.get('TagSet', [])
+                # Convert to dict for easier consumption if needed, but keeping original format is safer for now
+                # Or inject as 'Tags' list of dicts {'Key': 'k', 'Value': 'v'}
+                bucket['Tags'] = tag_set
+            except Exception:
+                # Tags might not exist or be accessible
+                bucket['Tags'] = []
+            
+            # Since S3 is global, we might want to filter by region?
+            # Or just return all buckets for this region scan?
+            # Usually inventory runs per region, if we return all buckets for every region scan, we duplicate.
+            # But duplicate handling at ingestion usually handles this (app table has normalized ID).
+            # Let's check bucket location to be precise if we want to assign correct region.
+            try:
+                loc_resp = s3.get_bucket_location(Bucket=bucket['Name'])
+                loc = loc_resp.get('LocationConstraint')
+                # If explicit region matches our scan region, include it.
+                # If loc is None, it means us-east-1.
+                bucket_region = loc if loc else 'us-east-1'
+                if bucket_region == 'EU': bucket_region = 'eu-west-1' # Legacy mapping
+                
+                # If we are scanning a specific region, only return buckets in that region?
+                if bucket_region == region_name:
+                     all_buckets.append(bucket)
+                # Else skip to avoid duplicates across regions?
+                # If we skip, we ensure each bucket is reported exactly once.
+            except Exception as e:
+                logger.warning(f"Could not get location for bucket {bucket['Name']}: {e}")
+                # Include anyway if check fails? Or skip?
+                # Safe to skip if we assume eventually consistent
+                pass
+
+    except Exception as e:
+        logger.error(f"Error in deep S3 scan: {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 's3',
+        'function': 'list_buckets',
+        'result': all_buckets
+    }
+
+
+def _scan_dynamodb_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for DynamoDB: Tables -> Describe -> Tags
+    """
+    ddb = session.client('dynamodb', region_name=region_name)
+    all_tables = []
+    
+    try:
+        paginator = ddb.get_paginator('list_tables')
+        table_names = []
+        for page in paginator.paginate():
+            table_names.extend(page.get('TableNames', []))
+            
+        for table_name in table_names:
+            try:
+                # Describe table to get ARN and details
+                desc = ddb.describe_table(TableName=table_name)
+                table = desc.get('Table', {})
+                arn = table.get('TableArn')
+                
+                if arn:
+                    # List tags
+                    tags_resp = ddb.list_tags_of_resource(ResourceArn=arn)
+                    tags = tags_resp.get('Tags', [])
+                    table['Tags'] = tags
+                
+                all_tables.append(table)
+            except Exception as e:
+                logger.warning(f"Error describing table {table_name}: {e}")
+    except Exception as e:
+        logger.error(f"Error in deep DynamoDB scan: {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'dynamodb',
+        'function': 'list_tables', # Maps to describe_table output structure essentially
+        'result': all_tables # This is List[TableDescription] basically
+    }
+
+
+def _scan_rds_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for RDS: DBInstances -> Tags
+    """
+    rds = session.client('rds', region_name=region_name)
+    all_instances = []
+    
+    try:
+        paginator = rds.get_paginator('describe_db_instances')
+        for page in paginator.paginate():
+            for instance in page.get('DBInstances', []):
+                try:
+                    arn = instance.get('DBInstanceArn')
+                    if arn:
+                        tags_resp = rds.list_tags_for_resource(ResourceName=arn)
+                        # Tags are returned as List[Dict['Key', 'Value']]
+                        # Inject directly into 'TagList' (RDS typical key) or 'Tags'
+                        instance['TagList'] = tags_resp.get('TagList', [])
+                except Exception as e:
+                    logger.warning(f"Error getting tags for RDS {instance.get('DBInstanceIdentifier')}: {e}")
+                
+                all_instances.append(instance)
+    except Exception as e:
+        logger.error(f"Error in deep RDS scan: {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'rds',
+        'function': 'describe_db_instances',
+        'result': all_instances
+    }
+
+
+def _scan_elbv2_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for ELBv2: LoadBalancers -> Tags (Batch)
+    """
+    elbv2 = session.client('elbv2', region_name=region_name)
+    all_lbs = []
+    
+    try:
+        paginator = elbv2.get_paginator('describe_load_balancers')
+        
+        # Collect all ARNs first? Or process page by page?
+        # describe_tags accepts up to 20 ARNs.
+        # Let's process page by page (page size usually 50-100? or 400?)
+        
+        for page in paginator.paginate():
+            lbs = page.get('LoadBalancers', [])
+            if not lbs: continue
+            
+            # Batch ARNs for tag fetching
+            # Create map ARN -> LB object to attach tags later
+            arn_map = {lb['LoadBalancerArn']: lb for lb in lbs}
+            arns = list(arn_map.keys())
+            
+            # Process in chunks of 20
+            for i in range(0, len(arns), 20):
+                chunk = arns[i:i+20]
+                try:
+                    tags_resp = elbv2.describe_tags(ResourceArns=chunk)
+                    for tag_desc in tags_resp.get('TagDescriptions', []):
+                        resource_arn = tag_desc.get('ResourceArn')
+                        tags = tag_desc.get('Tags', [])
+                        
+                        if resource_arn in arn_map:
+                            arn_map[resource_arn]['Tags'] = tags
+                            
+                except Exception as e:
+                    logger.warning(f"Error getting tags for ELB batch: {e}")
+            
+            all_lbs.extend(lbs)
+            
+    except Exception as e:
+        logger.error(f"Error in deep ELBv2 scan: {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'elbv2',
+        'function': 'describe_load_balancers',
+        'result': all_lbs
+    }
+
+
+def _scan_acm_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """Deep scan for ACM: Certificates -> Tags"""
+    acm = session.client('acm', region_name=region_name)
+    all_certs = []
+    
+    try:
+        paginator = acm.get_paginator('list_certificates')
+        for page in paginator.paginate():
+            for cert in page.get('CertificateSummaryList', []):
+                try:
+                    arn = cert.get('CertificateArn')
+                    if arn:
+                        tags_resp = acm.list_tags_for_certificate(CertificateArn=arn)
+                        cert['Tags'] = tags_resp.get('Tags', [])
+                except Exception as e:
+                    logger.warning(f"Error getting tags for ACM cert {cert.get('CertificateArn')}: {e}")
+                all_certs.append(cert)
+    except Exception as e:
+        logger.error(f"Error in deep ACM scan: {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'acm',
+        'function': 'list_certificates',
+        'result': all_certs
+    }
+
+
+def _scan_apigateway_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """Deep scan for API Gateway: RestApis -> Tags"""
+    apigw = session.client('apigateway', region_name=region_name)
+    all_apis = []
+    
+    try:
+        paginator = apigw.get_paginator('get_rest_apis')
+        for page in paginator.paginate():
+            for api in page.get('items', []):
+                try:
+                    api_id = api.get('id')
+                    if api_id:
+                        # Construct ARN manually as get_rest_apis doesn't return it usually
+                        # format: arn:aws:apigateway:{region}::/restapis/{api_id}
+                        arn = f"arn:aws:apigateway:{region_name}::/restapis/{api_id}"
+                        tags_resp = apigw.get_tags(resourceArn=arn)
+                        api['tags'] = tags_resp.get('tags', {}) # Returns dict
+                        api['Arn'] = arn # Inject ARN since we computed it
+                except Exception as e:
+                    logger.warning(f"Error getting tags for APIGW {api.get('name')}: {e}")
+                all_apis.append(api)
+    except Exception as e:
+        logger.error(f"Error in deep APIGateway scan: {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'apigateway',
+        'function': 'get_rest_apis',
+        'result': all_apis
+    }
+
+
+def _scan_kms_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """Deep scan for KMS: Keys -> Tags"""
+    kms = session.client('kms', region_name=region_name)
+    all_keys = []
+    
+    try:
+        paginator = kms.get_paginator('list_keys')
+        for page in paginator.paginate():
+            for key in page.get('Keys', []):
+                try:
+                    key_id = key.get('KeyId')
+                    if key_id:
+                        # List tags
+                        tags_resp = kms.list_resource_tags(KeyId=key_id)
+                        key['Tags'] = tags_resp.get('Tags', [])
+                        
+                        # Describe key for details? Optional but useful.
+                        # Logic: list_keys only returns KeyId and KeyArn.
+                        # Users usually want description, state, etc.
+                        desc = kms.describe_key(KeyId=key_id)
+                        key_metadata = desc.get('KeyMetadata', {})
+                        key.update(key_metadata) # Merge metadata into key object
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing KMS key {key.get('KeyId')}: {e}")
+                all_keys.append(key)
+    except Exception as e:
+        logger.error(f"Error in deep KMS scan: {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'kms',
+        'function': 'list_keys',
+        'result': all_keys
+    }
+
+
+
 def _get_default_regions(session: boto3.Session) -> List[str]:
     """Get list of enabled AWS regions."""
     try:
@@ -453,7 +861,7 @@ def normalize_resources(
         if isinstance(item, str):
             # Handle ARN or ID strings
             resource = {
-                'resourceType': f"{service}_{function}".replace('describe_', '').replace('list_', ''),
+                'resourceType': f"{service}_{function}".replace('describe_', '').replace('list_', '').replace('get_', ''),
                 'region': region,
                 'service': service,
                 'resourceId': item.split('/')[-1] if '/' in item else item.split(':')[-1],
@@ -465,7 +873,7 @@ def normalize_resources(
             }
         elif isinstance(item, dict):
             resource = {
-                'resourceType': f"{service}_{function}".replace('describe_', '').replace('list_', ''),
+                'resourceType': f"{service}_{function}".replace('describe_', '').replace('list_', '').replace('get_', ''),
                 'region': region,
                 'service': service,
                 'rawData': item,
@@ -541,7 +949,7 @@ def extract_resource_identifiers(resource: Dict, service: str) -> Dict[str, Any]
         identifiers['state'] = state
     
     # Tags extraction
-    tags = resource.get('Tags', resource.get('TagList', []))
+    tags = resource.get('Tags', resource.get('TagList', resource.get('tags', [])))
     if isinstance(tags, list):
         identifiers['tags'] = {
             tag.get('Key', ''): tag.get('Value', '') 

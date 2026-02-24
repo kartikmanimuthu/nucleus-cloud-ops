@@ -124,6 +124,10 @@ def main():
 
     # --- Execution Loop ---
     all_results_data = {}
+    # Initialize accumulators for sync status
+    total_scanned_resources = 0
+    total_synced_accounts = 0
+    scan_ts = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
     
     for account in accounts_to_scan:
         acc_id = account.get('accountId')
@@ -201,9 +205,10 @@ def main():
                 
                 # Save sync status to APP_TABLE for the status endpoint
                 if args.app_table:
-                    from datetime import datetime, timezone
-                    scan_ts = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
-                    save_sync_status(dynamodb, args.app_table, f"SCAN#{scan_ts}", len(resources), 1)
+                    # Accumulate stats
+                    total_scanned_resources += len(resources)
+                    total_synced_accounts += 1
+                    save_sync_status(dynamodb, args.app_table, f"SCAN#{scan_ts}", total_scanned_resources, total_synced_accounts)
                     
             if args.bucket and s3 and raw_results:
                  # Store raw is handled in process_and_store_resources
