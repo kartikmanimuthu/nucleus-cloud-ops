@@ -10,31 +10,33 @@
  *   JIRA_API_TOKEN     — Atlassian API token
  */
 
-import type { AgentOpsRun } from './types';
+import type { AgentOpsRun, JiraIntegrationConfig } from './types';
 
-const JIRA_BASE_URL = process.env.JIRA_BASE_URL || '';
-const JIRA_USER_EMAIL = process.env.JIRA_USER_EMAIL || '';
-const JIRA_API_TOKEN = process.env.JIRA_API_TOKEN || '';
-
-function getAuthHeader(): string {
-    const credentials = Buffer.from(`${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}`).toString('base64');
-    return `Basic ${credentials}`;
+function resolveConfig(config?: JiraIntegrationConfig) {
+    return {
+        baseUrl: config?.baseUrl || process.env.JIRA_BASE_URL || '',
+        userEmail: config?.userEmail || process.env.JIRA_USER_EMAIL || '',
+        apiToken: config?.apiToken || process.env.JIRA_API_TOKEN || '',
+    };
 }
 
-function isConfigured(): boolean {
-    return Boolean(JIRA_BASE_URL && JIRA_USER_EMAIL && JIRA_API_TOKEN);
+function buildAuthHeader(userEmail: string, apiToken: string): string {
+    const credentials = Buffer.from(`${userEmail}:${apiToken}`).toString('base64');
+    return `Basic ${credentials}`;
 }
 
 /**
  * Post a comment to a Jira issue using the Atlassian Document Format (ADF).
  */
-async function postComment(issueKey: string, bodyText: string): Promise<void> {
-    if (!isConfigured()) {
+async function postComment(issueKey: string, bodyText: string, config?: JiraIntegrationConfig): Promise<void> {
+    const { baseUrl, userEmail, apiToken } = resolveConfig(config);
+
+    if (!baseUrl || !userEmail || !apiToken) {
         console.warn('[JiraNotifier] Jira API not configured — skipping comment post');
         return;
     }
 
-    const url = `${JIRA_BASE_URL}/rest/api/3/issue/${issueKey}/comment`;
+    const url = `${baseUrl}/rest/api/3/issue/${issueKey}/comment`;
 
     const body = {
         body: {
@@ -52,7 +54,7 @@ async function postComment(issueKey: string, bodyText: string): Promise<void> {
     const res = await fetch(url, {
         method: 'POST',
         headers: {
-            'Authorization': getAuthHeader(),
+            'Authorization': buildAuthHeader(userEmail, apiToken),
             'Accept': 'application/json',
             'Content-Type': 'application/json',
         },
@@ -68,7 +70,7 @@ async function postComment(issueKey: string, bodyText: string): Promise<void> {
 /**
  * Post a successful agent run result as a Jira comment.
  */
-export async function postResultToJira(run: AgentOpsRun, issueKey: string): Promise<void> {
+export async function postResultToJira(run: AgentOpsRun, issueKey: string, config?: JiraIntegrationConfig): Promise<void> {
     const summary = run.result?.summary ?? '(no summary)';
     const tools = run.result?.toolsUsed?.join(', ') || 'none';
     const duration = run.durationMs ? `${(run.durationMs / 1000).toFixed(1)}s` : '—';
@@ -83,7 +85,7 @@ export async function postResultToJira(run: AgentOpsRun, issueKey: string): Prom
     ].join('\n');
 
     try {
-        await postComment(issueKey, text);
+        await postComment(issueKey, text, config);
     } catch (err) {
         console.error('[JiraNotifier] Failed to post result:', err);
     }
@@ -92,7 +94,7 @@ export async function postResultToJira(run: AgentOpsRun, issueKey: string): Prom
 /**
  * Post a failed agent run error as a Jira comment.
  */
-export async function postErrorToJira(err: unknown, run: AgentOpsRun, issueKey: string): Promise<void> {
+export async function postErrorToJira(err: unknown, run: AgentOpsRun, issueKey: string, config?: JiraIntegrationConfig): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
 
     const text = [
@@ -102,7 +104,7 @@ export async function postErrorToJira(err: unknown, run: AgentOpsRun, issueKey: 
     ].join('\n');
 
     try {
-        await postComment(issueKey, text);
+        await postComment(issueKey, text, config);
     } catch (fetchErr) {
         console.error('[JiraNotifier] Failed to post error:', fetchErr);
     }

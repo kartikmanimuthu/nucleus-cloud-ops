@@ -13,6 +13,8 @@ import { verifySlackSignature, parseSlackSlashCommand } from '@/lib/agent-ops/sl
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { postResultToSlack, postErrorToSlack } from '@/lib/agent-ops/slack-notifier';
+import { TenantConfigService } from '@/lib/tenant-config-service';
+import type { SlackIntegrationConfig } from '@/lib/agent-ops/types';
 
 export const maxDuration = 10;
 
@@ -22,15 +24,30 @@ export async function POST(req: Request) {
     const timestamp = req.headers.get('x-slack-request-timestamp') ?? '';
     const signature = req.headers.get('x-slack-signature') ?? '';
 
-    // 1. Verify Slack signature
-    if (!verifySlackSignature(rawBody, timestamp, signature)) {
+    // 1. Fetch signing secret from DynamoDB (falls back to env var inside verifySlackSignature)
+    let signingSecretOverride: string | undefined;
+    try {
+        const slackConfig = await TenantConfigService.getConfig<SlackIntegrationConfig>('agent-ops-slack');
+        if (slackConfig?.signingSecret) {
+            signingSecretOverride = slackConfig.signingSecret;
+        }
+        // If integration is explicitly disabled, reject
+        if (slackConfig && slackConfig.enabled === false) {
+            return NextResponse.json({ error: 'Slack integration is disabled' }, { status: 403 });
+        }
+    } catch (dbErr) {
+        console.warn('[Slack Trigger] Failed to load Slack config from DynamoDB, using env var fallback:', dbErr);
+    }
+
+    // 2. Verify Slack signature
+    if (!verifySlackSignature(rawBody, timestamp, signature, signingSecretOverride)) {
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
-    // 2. Parse slash command payload
+    // 3. Parse slash command payload
     const payload = parseSlackSlashCommand(rawBody);
 
-    // 3. Guard against empty task description
+    // 4. Guard against empty task description
     if (payload.text.trim() === '') {
         return NextResponse.json(
             {
@@ -41,7 +58,7 @@ export async function POST(req: Request) {
         );
     }
 
-    // 4. Create run record (team_id used as tenantId for multi-tenancy)
+    // 5. Create run record (team_id used as tenantId for multi-tenancy)
     const run = await agentOpsService.createRun({
         tenantId: payload.team_id,
         source: 'slack',
@@ -57,12 +74,12 @@ export async function POST(req: Request) {
         },
     });
 
-    // 5. Fire-and-forget: execute agent, then post result/error back to Slack
+    // 6. Fire-and-forget: execute agent, then post result/error back to Slack
     executeAgentRun(run)
         .then(() => postResultToSlack(run, payload.response_url))
         .catch((err) => postErrorToSlack(err, run.runId, payload.response_url));
 
-    // 6. Immediate acknowledgement — must return within Slack's 3-second window
+    // 7. Immediate acknowledgement — must return within Slack's 3-second window
     return NextResponse.json(
         {
             response_type: 'ephemeral',

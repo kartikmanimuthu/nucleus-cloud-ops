@@ -126,3 +126,35 @@ export interface RunListQuery {
     limit?: number;
     lastKey?: Record<string, unknown>;
 }
+
+// ─── Integration Config ─────────────────────────────────────────────────
+
+export interface SlackIntegrationConfig {
+    signingSecret: string;
+    botToken?: string;
+    enabled: boolean;
+}
+
+export interface JiraIntegrationConfig {
+    webhookSecret: string;
+    baseUrl?: string;
+    userEmail?: string;
+    apiToken?: string;
+    enabled: boolean;
+}
+
+// ─── Integration Settings ──────────────────────────────────────────────
+
+export interface SlackIntegrationConfig {
+    signingSecret: string;   // HMAC signing secret from Slack app settings
+    botToken?: string;       // xoxb-... bearer token for proactive messages
+    enabled: boolean;
+}
+
+export interface JiraIntegrationConfig {
+    webhookSecret: string;   // Shared secret sent as Bearer token in Automation rule
+    baseUrl?: string;        // e.g. https://your-org.atlassian.net
+    userEmail?: string;      // Atlassian account email for Basic Auth
+    apiToken?: string;       // Atlassian API token
+    enabled: boolean;
+}

@@ -22,7 +22,7 @@ export default function AgentOpsMCPSettingsPage() {
         </Button>
       </div>
 
-      <MCPSettings />
+      <MCPSettings apiPath="/api/agent-ops/mcp-settings" />
     </div>
   );
 }

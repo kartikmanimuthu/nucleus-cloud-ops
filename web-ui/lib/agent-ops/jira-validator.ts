@@ -4,8 +4,6 @@
  * Validates Jira automation rule webhook requests.
  */
 
-const JIRA_WEBHOOK_SECRET = process.env.JIRA_WEBHOOK_SECRET || '';
-
 export interface JiraWebhookPayload {
     webhookEvent?: string;
     issue?: {
@@ -40,10 +38,14 @@ export interface JiraWebhookPayload {
 /**
  * Verify the Jira webhook shared secret.
  * Jira Automation rules can include a custom header for authentication.
+ *
+ * @param authHeader - Authorization header value from the request
+ * @param webhookSecretOverride - Webhook secret from DynamoDB; falls back to JIRA_WEBHOOK_SECRET env var
  */
-export function verifyJiraSecret(authHeader: string | null): boolean {
-    if (!JIRA_WEBHOOK_SECRET) {
-        console.error('[JiraValidator] JIRA_WEBHOOK_SECRET not configured');
+export function verifyJiraSecret(authHeader: string | null, webhookSecretOverride?: string): boolean {
+    const expectedSecret = webhookSecretOverride || process.env.JIRA_WEBHOOK_SECRET || '';
+    if (!expectedSecret) {
+        console.error('[JiraValidator] Webhook secret not configured (no DynamoDB value or JIRA_WEBHOOK_SECRET env var)');
         return false;
     }
 
@@ -56,7 +58,7 @@ export function verifyJiraSecret(authHeader: string | null): boolean {
         ? authHeader.slice(7)
         : authHeader;
 
-    return secret === JIRA_WEBHOOK_SECRET;
+    return secret === expectedSecret;
 }
 
 /**
