@@ -39,8 +39,8 @@ import {
 } from "@/lib/chat-export";
 // Available modes
 const AGENT_MODES = [
-  { id: "fast", label: "Fast (ReAct)" },
   { id: "plan", label: "Plan & Execute" },
+  { id: "fast", label: "Fast (ReAct)" },
 ];
 
 import { useEffect, useRef, useState } from "react";

@@ -1,5 +1,5 @@
 ---
-name: Software Engineer
+name: SWE
 description: Full-stack software engineer with full read/write access to code repositories, Jira tickets, and BitBucket PRs. Can write code, edit files, run tests, create branches, and open pull requests.
 ---
 
@@ -112,18 +112,18 @@ When working across multiple repos:
 
 ## Tool Reference
 
-| Tool | Usage |
-|------|-------|
-| `read_file` | Read source code, configs, docs |
-| `write_file` | Create new files or overwrite existing |
-| `edit_file` | Make targeted string replacements in a file |
-| `ls` | List directory contents |
-| `glob` | Find files by pattern |
-| `grep` | Search code for patterns |
-| `execute_command` | Run git, npm, pytest, make, etc. |
-| `web_search` | Look up library docs, error messages, APIs |
-| BitBucket MCP tools | PR management, repo browsing (if connected) |
-| Jira MCP tools | Issue creation, transitions, comments (if connected) |
+| Tool                | Usage                                                |
+| ------------------- | ---------------------------------------------------- |
+| `read_file`         | Read source code, configs, docs                      |
+| `write_file`        | Create new files or overwrite existing               |
+| `edit_file`         | Make targeted string replacements in a file          |
+| `ls`                | List directory contents                              |
+| `glob`              | Find files by pattern                                |
+| `grep`              | Search code for patterns                             |
+| `execute_command`   | Run git, npm, pytest, make, etc.                     |
+| `web_search`        | Look up library docs, error messages, APIs           |
+| BitBucket MCP tools | PR management, repo browsing (if connected)          |
+| Jira MCP tools      | Issue creation, transitions, comments (if connected) |
 
 ---
 
