@@ -92,6 +92,26 @@ export async function postResultToJira(run: AgentOpsRun, issueKey: string, confi
 }
 
 /**
+ * Post a clarification question as a Jira comment (HIL flow).
+ */
+export async function postClarificationToJira(question: string, runId: string, issueKey: string, config?: JiraIntegrationConfig): Promise<void> {
+    const text = [
+        `❓ Agent Ops — Clarification Needed`,
+        `Run ID: ${runId}`,
+        ``,
+        question,
+        ``,
+        `Please reply to this issue with the information above to resume the agent run.`,
+    ].join('\n');
+
+    try {
+        await postComment(issueKey, text, config);
+    } catch (err) {
+        console.error('[JiraNotifier] Failed to post clarification:', err);
+    }
+}
+
+/**
  * Post a failed agent run error as a Jira comment.
  */
 export async function postErrorToJira(err: unknown, run: AgentOpsRun, issueKey: string, config?: JiraIntegrationConfig): Promise<void> {

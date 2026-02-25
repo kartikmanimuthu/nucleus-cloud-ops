@@ -18,6 +18,7 @@ export interface SlackTriggerMeta {
     channelName?: string;
     responseUrl: string;
     teamId?: string;
+    threadTs?: string;
 }
 
 export interface AgentOpsRun {
@@ -28,7 +29,7 @@ export interface AgentOpsRun {
     runId: string;               // UUID v4
     tenantId: string;            // Slack team_id
     source: 'slack' | 'jira' | 'api';
-    status: 'queued' | 'in_progress' | 'completed' | 'failed';
+    status: 'queued' | 'in_progress' | 'awaiting_input' | 'completed' | 'failed';
     taskDescription: string;
     mode: 'plan' | 'fast';
     threadId: string;            // agent-ops-<runId>
@@ -37,6 +38,10 @@ export interface AgentOpsRun {
         summary: string;
         toolsUsed: string[];
         iterations: number;
+    };
+    clarification?: {
+        question: string;
+        missingInfo: string;
     };
     error?: string;
     createdAt: string;           // ISO 8601
@@ -84,7 +89,7 @@ const AgentOpsRunSchema = new dynamoose.Schema(
         },
         status: {
             type: String,
-            enum: ['queued', 'in_progress', 'completed', 'failed'],
+            enum: ['queued', 'in_progress', 'awaiting_input', 'completed', 'failed'],
             required: true,
             default: 'queued',
         },
@@ -126,6 +131,7 @@ const AgentOpsRunSchema = new dynamoose.Schema(
                 channelName: String,
                 responseUrl: String,
                 teamId: String,
+                threadTs: String,   // Slack thread timestamp for HIL reply correlation
                 // Jira fields
                 issueKey: String,
                 projectKey: String,
@@ -136,6 +142,13 @@ const AgentOpsRunSchema = new dynamoose.Schema(
                 apiKeyId: String,
                 callbackUrl: String,
                 clientId: String,
+            },
+        },
+        clarification: {
+            type: Object,
+            schema: {
+                question: String,
+                missingInfo: String,
             },
         },
         result: {

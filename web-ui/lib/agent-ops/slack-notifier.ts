@@ -23,6 +23,25 @@ export async function postResultToSlack(run: AgentOpsRun, responseUrl: string): 
     }
 }
 
+export async function postClarificationToSlack(
+    question: string,
+    runId: string,
+    responseUrl: string,
+): Promise<void> {
+    try {
+        await fetch(responseUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                response_type: 'in_channel',
+                text: `❓ *Clarification needed* (Run \`${runId}\`)\n\n${question}\n\n_Reply with the information above to continue._`,
+            }),
+        });
+    } catch (err) {
+        console.error('[slack-notifier] Failed to post clarification to Slack:', err);
+    }
+}
+
 export async function postErrorToSlack(
     err: unknown,
     _runId: string,

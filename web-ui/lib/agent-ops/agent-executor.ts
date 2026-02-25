@@ -16,16 +16,16 @@
  *   on_tool_end         → tool execution result
  */
 
-import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { HumanMessage } from '@langchain/core/messages';
 import { createDynamicExecutorGraph } from './executor-graphs';
-import { getSkillContent, loadSkills } from '@/lib/agent/skills/skill-loader';
 import { agentOpsService } from './agent-ops-service';
 import { getMCPManager } from '../agent/mcp-manager';
 import { AgentOpsRunModel } from './models/agent-ops-run';
-import type { AgentOpsRun, AgentMode, AgentEventType } from './types';
+import { postClarificationToSlack } from './slack-notifier';
+import { postClarificationToJira } from './jira-notifier';
+import type { AgentOpsRun, AgentEventType, SlackTriggerMeta, JiraTriggerMeta, JiraIntegrationConfig } from './types';
 
 const SANDBOX_BASE = '/tmp/agent-ops';
 
@@ -39,6 +39,8 @@ const SANDBOX_BASE = '/tmp/agent-ops';
 function mapNodeToEventType(node: string): AgentEventType {
     switch (node) {
         case 'planner': return 'planning';
+        case 'evaluator': return 'planning';
+        case 'clarify': return 'planning';
         case 'generate': return 'execution';
         case 'agent': return 'execution';
         case 'reflect': return 'reflection';
@@ -177,7 +179,60 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
             }
         }
 
-        // ─── 7. Mark completed and record result ──────────────────────
+        // ─── 7. Check for awaiting_input (clarification needed) ──────
+        // After streaming completes, inspect final graph state to see if
+        // the clarifyNode set nextAction='awaiting_input'.
+        let finalGraphState: any = null;
+        try {
+            finalGraphState = await (graph as any).getState({ configurable: { thread_id: threadId } });
+        } catch {
+            // Non-fatal — we'll fall through to normal completion
+        }
+
+        const stateValues = finalGraphState?.values as any;
+        if (stateValues?.nextAction === 'awaiting_input' && stateValues?.clarificationQuestion) {
+            const clarificationQuestion = stateValues.clarificationQuestion as string;
+            const missingInfo = stateValues.evaluation?.missingInfo as string | null;
+
+            console.log(`[AgentExecutor] ❓ Run ${runId} awaiting user input`);
+            console.log(`[AgentExecutor]   Question: "${clarificationQuestion}"`);
+
+            await agentOpsService.updateRunStatus(tenantId, runId, 'awaiting_input', {
+                clarification: { question: clarificationQuestion, missingInfo: missingInfo || 'Additional information' },
+            });
+
+            await agentOpsService.recordEvent({
+                runId,
+                eventType: 'final',
+                node: 'clarify',
+                content: clarificationQuestion,
+                metadata: { missingInfo },
+            });
+
+            // Post clarification question back to the originating channel/issue
+            try {
+                const freshRun = await agentOpsService.getRun(tenantId, runId);
+                if (freshRun) {
+                    if (freshRun.source === 'slack') {
+                        const slackTrigger = freshRun.trigger as SlackTriggerMeta;
+                        await postClarificationToSlack(clarificationQuestion, freshRun.runId, slackTrigger.responseUrl);
+                    } else if (freshRun.source === 'jira') {
+                        const { TenantConfigService } = await import('../tenant-config-service');
+                        const jiraConfig = await TenantConfigService.getConfig<JiraIntegrationConfig>('agent-ops-jira').catch(() => undefined);
+                        const jiraTrigger = freshRun.trigger as JiraTriggerMeta;
+                        if (jiraTrigger.issueKey) {
+                            await postClarificationToJira(clarificationQuestion, freshRun.runId, jiraTrigger.issueKey, jiraConfig ?? undefined);
+                        }
+                    }
+                }
+            } catch (notifyErr) {
+                console.warn(`[AgentExecutor] Failed to post clarification (non-fatal):`, notifyErr);
+            }
+
+            return; // Do not proceed to 'completed'
+        }
+
+        // ─── 8. Mark completed and record result ──────────────────────
         const durationMs = Date.now() - startTime;
 
         const resultSummary = finalContent || 'Agent execution completed (no explicit final summary).';
@@ -282,7 +337,7 @@ async function processLangGraphEvent(
         // ── Node lifecycle: capture when key agent nodes start ────────
         case 'on_chain_start': {
             // Record significant node starts (skip generic chain wrappers)
-            const significantNodes = ['evaluator', 'planner', 'generate', 'reflect', 'final', 'tools'];
+            const significantNodes = ['evaluator', 'clarify', 'planner', 'generate', 'reflect', 'final', 'tools'];
             if (significantNodes.includes(node)) {
                 let eventType = mapNodeToEventType(node);
                 if (node === 'evaluator') {

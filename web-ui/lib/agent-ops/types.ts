@@ -8,7 +8,7 @@
 
 export type TriggerSource = 'slack' | 'jira' | 'api';
 
-export type AgentOpsStatus = 'queued' | 'in_progress' | 'completed' | 'failed';
+export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'completed' | 'failed';
 
 export type AgentMode = 'plan' | 'fast';
 
@@ -31,6 +31,7 @@ export interface SlackTriggerMeta {
     channelName?: string;
     responseUrl: string;
     teamId?: string;
+    threadTs?: string;      // Slack thread timestamp for HIL reply correlation
 }
 
 export interface JiraTriggerMeta {
@@ -51,6 +52,11 @@ export type TriggerMetadata = SlackTriggerMeta | JiraTriggerMeta | ApiTriggerMet
 
 // ─── Agent Ops Run ─────────────────────────────────────────────────────
 
+export interface AgentOpsClarification {
+    question: string;       // The question posted back to the user
+    missingInfo: string;    // Brief description of what information is needed
+}
+
 export interface AgentOpsRun {
     PK: string;             // TENANT#<tenantId>
     SK: string;             // RUN#<runId>
@@ -69,6 +75,7 @@ export interface AgentOpsRun {
     mcpServerIds?: string[];
     trigger: TriggerMetadata;
     result?: AgentOpsResult;
+    clarification?: AgentOpsClarification; // Set when status is awaiting_input
     error?: string;
     createdAt: string;
     updatedAt: string;
@@ -110,6 +117,11 @@ export interface TriggerRequest {
     selectedSkill?: string;
     mode?: AgentMode;
     mcpServerIds?: string[];
+}
+
+export interface ResumeRequest {
+    userInput: string;
+    tenantId: string;
 }
 
 

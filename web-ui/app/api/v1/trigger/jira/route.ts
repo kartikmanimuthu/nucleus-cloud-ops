@@ -9,12 +9,12 @@
  */
 
 import { NextResponse } from 'next/server';
-import { verifyJiraSecret, extractJiraTaskDescription, type JiraWebhookPayload } from '@/lib/agent-ops/jira-validator';
+import { verifyJiraSecret, extractJiraTaskDescription, extractJiraCommentText, type JiraWebhookPayload } from '@/lib/agent-ops/jira-validator';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { postResultToJira, postErrorToJira } from '@/lib/agent-ops/jira-notifier';
 import { TenantConfigService } from '@/lib/tenant-config-service';
-import type { JiraTriggerMeta, JiraIntegrationConfig } from '@/lib/agent-ops/types';
+import type { JiraTriggerMeta, JiraIntegrationConfig, AgentOpsRun } from '@/lib/agent-ops/types';
 
 export async function POST(req: Request) {
     try {
@@ -43,28 +43,70 @@ export async function POST(req: Request) {
 
         // 3. Parse JSON payload
         const payload = (await req.json()) as JiraWebhookPayload;
+
+        // Prefer comment text over issue task description for HIL resume
+        const commentText = extractJiraCommentText(payload.comment);
         const taskDescription = extractJiraTaskDescription(payload);
 
+        const issueKey = payload.issue?.key || '';
+        const tenantId = payload.issue?.fields?.project?.key || 'default';
+
+        // 4. Check if this is a comment reply to an awaiting_input run for the same issue
+        // (Jira comment_created events trigger HIL resume)
+        if (issueKey) {
+            const awaitingRun = await agentOpsService.findAwaitingRunByJiraIssue(issueKey);
+
+            if (awaitingRun) {
+                // Use comment text if available; otherwise fall back to task description
+                const userReply = commentText || taskDescription;
+
+                if (userReply && userReply !== 'No task description provided') {
+                    console.log(`[Jira Trigger] Resuming awaiting_input run ${awaitingRun.runId} for issue ${issueKey}`);
+
+                    const clarificationContext = awaitingRun.clarification
+                        ? `\n\n---\nOriginal clarification question: ${awaitingRun.clarification.question}\nUser reply: ${userReply}`
+                        : `\n\n---\nUser clarification: ${userReply}`;
+
+                    const enrichedTask = awaitingRun.taskDescription + clarificationContext;
+                    await agentOpsService.updateRunStatus(tenantId, awaitingRun.runId, 'in_progress');
+
+                    const resumedRun = { ...awaitingRun, taskDescription: enrichedTask };
+                    executeAgentRun(resumedRun)
+                        .then(() => postResultToJira(resumedRun as AgentOpsRun, issueKey, jiraConfig))
+                        .catch((err) => {
+                            console.error('[Jira Trigger] Resume execution error:', err);
+                            postErrorToJira(err, resumedRun as AgentOpsRun, issueKey, jiraConfig).catch(() => { });
+                        });
+
+                    return NextResponse.json({
+                        runId: awaitingRun.runId,
+                        status: 'in_progress',
+                        message: `Resumed run ${awaitingRun.runId} for issue ${issueKey}`,
+                    });
+                }
+            }
+        }
+
+        // Not a HIL resume — validate and create a new run
         if (!taskDescription || taskDescription === 'No task description provided') {
             return NextResponse.json({
                 error: 'Missing task description in payload',
             }, { status: 400 });
         }
 
-        // 4. Mode (now handled dynamically by evaluator, but DB needs a string)
-        const mode = (payload.mode as any) || 'fast';
-
         // 5. Build trigger metadata
         const trigger: JiraTriggerMeta = {
-            issueKey: payload.issue?.key || '',
+            issueKey,
             projectKey: payload.issue?.fields?.project?.key || '',
             reporter: payload.issue?.fields?.reporter?.displayName || '',
             issueType: payload.issue?.fields?.issuetype?.name,
             webhookId: payload.automation?.ruleId,
         };
 
-        // 6. Create run record (use project key as tenantId)
-        const tenantId = payload.issue?.fields?.project?.key || 'default';
+        // 6. Mode (now handled dynamically by evaluator, but DB needs a string)
+        const mode = (payload.mode as any) || 'fast';
+
+        // 7. Create a new run record
         const run = await agentOpsService.createRun({
             tenantId,
             source: 'jira',
@@ -75,8 +117,7 @@ export async function POST(req: Request) {
             selectedSkill: payload.selectedSkill,
         });
 
-        // 7. Execute agent asynchronously, then post result/error back to Jira
-        const issueKey = trigger.issueKey;
+        // 8. Execute agent asynchronously, then post result/error back to Jira
         executeAgentRun(run)
             .then(() => issueKey ? postResultToJira(run, issueKey, jiraConfig) : undefined)
             .catch((err) => {
@@ -84,7 +125,7 @@ export async function POST(req: Request) {
                 if (issueKey) postErrorToJira(err, run, issueKey, jiraConfig).catch(() => { });
             });
 
-        // 8. Immediate acknowledgement
+        // 9. Immediate acknowledgement
         return NextResponse.json({
             runId: run.runId,
             status: 'queued',

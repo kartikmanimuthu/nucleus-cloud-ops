@@ -36,6 +36,7 @@ export async function createReflectionGraph(config: GraphConfig) {
     // Load skill content if a skill is selected
     let skillContent = '';
     const isDevOpsSkill = selectedSkill === 'devops';
+    const isSWESkill = selectedSkill === 'swe';
 
     if (selectedSkill) {
         const content = getSkillContent(selectedSkill);
@@ -47,7 +48,14 @@ export async function createReflectionGraph(config: GraphConfig) {
         }
     }
 
-    const readOnlyInstruction = isDevOpsSkill
+    const readOnlyInstruction = isSWESkill
+        ? `IMPORTANT: You are operating with SOFTWARE ENGINEER (SWE) MUTATION PRIVILEGES.
+- You ARE allowed to read, write, create, and edit files in code repositories.
+- You ARE allowed to run git commands (clone, branch, commit, push) via execute_command.
+- You ARE allowed to interact with BitBucket (PRs, reviews, merges) and JIRA (create, update, transition, comment) via MCP tools if connected.
+- You ARE allowed to write and run tests.
+- Safety guidelines: always work on a feature branch (never push to main directly), write descriptive commit messages, and include PR descriptions summarising the change.`
+        : isDevOpsSkill
         ? `IMPORTANT: You are operating with DEVOPS MUTATION PRIVILEGES. 
 - You ARE allowed to create, update, delete, start, stop, and modify AWS infrastructure resources as requested by the user.
 - Follow safety guidelines: prefer dry-runs if unsure, output confirmation prompts for destructive actions, and verify resource IDs before applying changes.`

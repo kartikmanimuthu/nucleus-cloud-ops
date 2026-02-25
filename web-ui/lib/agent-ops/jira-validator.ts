@@ -23,6 +23,17 @@ export interface JiraWebhookPayload {
             };
         };
     };
+    // Comment added to an issue (webhookEvent: 'comment_created')
+    comment?: {
+        id: string;
+        body?: string | {
+            content?: Array<{ content?: Array<{ text?: string }> }>;
+        };
+        author?: {
+            displayName: string;
+            accountId: string;
+        };
+    };
     // Automation rule specific
     automation?: {
         ruleId: string;
@@ -33,6 +44,25 @@ export interface JiraWebhookPayload {
     accountId?: string;
     selectedSkill?: string;
     mode?: string;
+}
+
+/**
+ * Extract plain text from a Jira comment body (supports ADF and plain string formats).
+ */
+export function extractJiraCommentText(comment: JiraWebhookPayload['comment']): string {
+    if (!comment?.body) return '';
+    if (typeof comment.body === 'string') return comment.body.trim();
+
+    // Atlassian Document Format (ADF) — extract text nodes recursively
+    const texts: string[] = [];
+    const walk = (nodes: Array<{ text?: string; content?: any[] }> = []) => {
+        for (const node of nodes) {
+            if (node.text) texts.push(node.text);
+            if (node.content) walk(node.content);
+        }
+    };
+    walk(comment.body.content || []);
+    return texts.join('').trim();
 }
 
 /**

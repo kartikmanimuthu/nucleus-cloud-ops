@@ -35,6 +35,7 @@ export async function createFastGraph(config: GraphConfig) {
     // Load skill content if a skill is selected
     let skillContent = '';
     const isDevOpsSkill = selectedSkill === 'devops';
+    const isSWESkill = selectedSkill === 'swe';
 
     if (selectedSkill) {
         const content = getSkillContent(selectedSkill);
@@ -46,7 +47,14 @@ export async function createFastGraph(config: GraphConfig) {
         }
     }
 
-    const readOnlyInstruction = isDevOpsSkill
+    const readOnlyInstruction = isSWESkill
+        ? `IMPORTANT: You are operating with SOFTWARE ENGINEER (SWE) MUTATION PRIVILEGES.
+- You ARE allowed to read, write, create, and edit files in code repositories.
+- You ARE allowed to run git commands (clone, branch, commit, push) via execute_command.
+- You ARE allowed to interact with BitBucket (PRs, reviews, merges) and JIRA (create, update, transition, comment) via MCP tools if connected.
+- You ARE allowed to write and run tests.
+- Safety guidelines: always work on a feature branch (never push to main directly), write descriptive commit messages, and include PR descriptions summarising the change.`
+        : isDevOpsSkill
         ? `IMPORTANT: You are operating with DEVOPS MUTATION PRIVILEGES. 
 - You ARE allowed to create, update, delete, start, stop, and modify AWS infrastructure resources as requested by the user.
 - If asked to perform a mutation, execute it using the CLI cautiously.`
@@ -187,7 +195,7 @@ Analyze the response for:
 1. Correctness
 2. Completeness (did it answer the user's request?)
 3. Missing details
-4. SECURITY: ${isDevOpsSkill ? `The assistant has MUTATION PRIVILEGES. Ensure destructive actions were performed intentionally, cautiously, and successfully.` : `Ensure the assistant acted as a READ-ONLY agent. If it performed any mutation/write/delete operations on AWS, flag this as a major error.`}
+4. SECURITY: ${isSWESkill ? `The assistant has SWE MUTATION PRIVILEGES. Ensure code/file mutations were done on a feature branch and not directly on main. Verify commits and PRs follow best practices.` : isDevOpsSkill ? `The assistant has MUTATION PRIVILEGES. Ensure destructive actions were performed intentionally, cautiously, and successfully.` : `Ensure the assistant acted as a READ-ONLY agent. If it performed any mutation/write/delete operations on AWS, flag this as a major error.`}
 
 If the response is good and complete, respond with "COMPLETE".
 If there are issues, list them clearly and concisely as feedback for the assistant to fix.

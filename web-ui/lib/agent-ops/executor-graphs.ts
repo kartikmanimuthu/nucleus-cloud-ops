@@ -2,8 +2,6 @@ import { BaseMessage, AIMessage, HumanMessage, SystemMessage } from "@langchain/
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ChatBedrockConverse } from "@langchain/aws";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { z } from "zod";
-
 import {
     executeCommandTool,
     readFileTool,
@@ -24,7 +22,6 @@ import {
     getRecentMessages,
     checkpointer,
     getActiveMCPTools,
-    getMCPToolsDescription,
     getMCPManager
 } from "@/lib/agent/agent-shared";
 import { ReflectionState, graphState, PlanStep, RequestEvaluation } from "./executor-state";
@@ -85,14 +82,17 @@ ${skillsContext}
 
 You must return a JSON object evaluating the request according to the following schema:
 {
-    "mode": "plan" | "fast" | "end", // "plan" for complex/multi-step/mutations. "fast" for simple read queries. "end" if the request is ambiguous or unachievable.
+    "mode": "plan" | "fast" | "end", // "plan" for complex/multi-step/mutations. "fast" for simple read queries. "end" if the request is ambiguous, incomplete, or requires clarification before proceeding.
     "skillId": "string", // The ID of the best matching skill, or null if none apply directly.
     "accountId": "string", // The AWS account ID mentioned in the prompt, or null if not found.
     "requiresApproval": boolean, // true if the request involves destructive/mutative operations (create, update, delete, start, stop).
-    "reasoning": "string" // A brief explanation of your decision.
+    "reasoning": "string", // A brief explanation of your decision.
+    "clarificationQuestion": "string | null", // REQUIRED when mode="end": A clear, specific question to ask the user for the missing information needed to proceed. null otherwise.
+    "missingInfo": "string | null" // REQUIRED when mode="end": A brief label of what is missing (e.g. "AWS account ID", "environment name"). null otherwise.
 }
 
 Determine the safest and most efficient path. Complex infrastructure deployments, security audits, and multi-step changes should use "plan" mode. Simple "how do I..." or "what is the status of..." lookups should use "fast" mode.
+Use "end" only when the request is genuinely ambiguous or missing critical information — always provide a clarificationQuestion in this case.
 
 Only return the JSON. No other text.`);
 
@@ -103,7 +103,9 @@ Only return the JSON. No other text.`);
             skillId: null,
             accountId: null,
             requiresApproval: false,
-            reasoning: "Fallback to fast mode due to parsing error."
+            reasoning: "Fallback to fast mode due to parsing error.",
+            clarificationQuestion: null,
+            missingInfo: null,
         };
 
         try {
@@ -116,7 +118,9 @@ Only return the JSON. No other text.`);
                     skillId: parsed.skillId || null,
                     accountId: parsed.accountId || null,
                     requiresApproval: !!parsed.requiresApproval,
-                    reasoning: parsed.reasoning || "Parsed successfully."
+                    reasoning: parsed.reasoning || "Parsed successfully.",
+                    clarificationQuestion: parsed.clarificationQuestion || null,
+                    missingInfo: parsed.missingInfo || null,
                 };
             }
         } catch (e) {
@@ -147,7 +151,16 @@ Only return the JSON. No other text.`);
             }
         }
 
-        if (evaluation?.requiresApproval) {
+        const isSWESkill = evaluation?.skillId === 'swe';
+
+        if (isSWESkill) {
+            readOnlyInstruction = `IMPORTANT: You are operating with SOFTWARE ENGINEER (SWE) MUTATION PRIVILEGES.
+- You ARE allowed to read, write, create, and edit files in code repositories.
+- You ARE allowed to run git commands (clone, branch, commit, push) via execute_command.
+- You ARE allowed to interact with BitBucket (PRs, reviews, merges) and JIRA (create, update, transition, comment) via MCP tools if connected.
+- You ARE allowed to write and run tests.
+- Safety guidelines: always work on a feature branch (never push to main directly), write descriptive commit messages, and include PR descriptions summarising the change.`;
+        } else if (evaluation?.requiresApproval) {
             readOnlyInstruction = `IMPORTANT: This is a MUTATIVE task. You ARE allowed to create, update, delete, start, stop, and modify infrastructure resources.
 - Follow safety guidelines: prefer dry-runs if unsure, output confirmation prompts for destructive actions, and verify resource IDs before applying changes.`;
         } else {
@@ -400,12 +413,32 @@ If there are issues, list them clearly as feedback. Do not generate the fixed an
     // CONDITIONAL EDGE ROUTING
     // ========================================================================
 
-    function routeFromEvaluator(state: ReflectionState): "planner" | "generate" | "__end__" {
+    // ========================================================================
+    // CLARIFY NODE (Human-in-Loop: request missing information)
+    // ========================================================================
+    async function clarifyNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+        const { evaluation } = state;
+
+        const question = evaluation?.clarificationQuestion
+            || "I need more information to proceed. Could you please clarify your request?";
+
+        console.log(`\n================================================================================`);
+        console.log(`❓ [CLARIFY] Requesting clarification from user`);
+        console.log(`   Question: "${question}"`);
+        console.log(`================================================================================\n`);
+
+        return {
+            clarificationQuestion: question,
+            nextAction: 'awaiting_input',
+        };
+    }
+
+    function routeFromEvaluator(state: ReflectionState): "planner" | "generate" | "clarify" | "__end__" {
         if (!state.evaluation) return "generate"; // Fallback to fast mode
 
         if (state.evaluation.mode === 'plan') return "planner";
         if (state.evaluation.mode === 'fast') return "generate";
-        return "__end__"; // End mode
+        return "clarify"; // End mode → clarification
     }
 
     function routeFromGenerate(state: ReflectionState): "tools" | "reflect" | "final" | "__end__" {
@@ -445,6 +478,7 @@ If there are issues, list them clearly as feedback. Do not generate the fixed an
     // ========================================================================
     const workflow = new StateGraph<ReflectionState>({ channels: graphState })
         .addNode("evaluator", evaluatorNode)
+        .addNode("clarify", clarifyNode)
         .addNode("planner", planNode)
         .addNode("generate", generateNode)
         .addNode("tools", collectingToolNode)
@@ -464,8 +498,11 @@ If there are issues, list them clearly as feedback. Do not generate the fixed an
         .addConditionalEdges("evaluator", routeFromEvaluator, {
             planner: "planner",
             generate: "generate",
+            clarify: "clarify",
             __end__: END
         })
+
+        .addEdge("clarify", END)
 
         .addEdge("planner", "generate")
 

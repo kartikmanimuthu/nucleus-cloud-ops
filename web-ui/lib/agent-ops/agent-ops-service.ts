@@ -14,6 +14,7 @@ import type {
     AgentOpsEvent,
     AgentOpsStatus,
     AgentOpsResult,
+    AgentOpsClarification,
     AgentEventType,
     TriggerSource,
     TriggerMetadata,
@@ -80,6 +81,7 @@ export async function updateRunStatus(
     extra?: {
         result?: AgentOpsResult;
         error?: string;
+        clarification?: AgentOpsClarification;
     }
 ): Promise<void> {
     const now = new Date();
@@ -104,6 +106,9 @@ export async function updateRunStatus(
     }
     if (extra?.error) {
         updateData.error = extra.error;
+    }
+    if (extra?.clarification) {
+        updateData.clarification = extra.clarification;
     }
 
     await AgentOpsRunModel.update(
@@ -245,6 +250,51 @@ export async function getRunEvents(runId: string): Promise<AgentOpsEvent[]> {
     return result.toJSON() as unknown as AgentOpsEvent[];
 }
 
+// ─── Human-in-Loop Lookup Helpers ─────────────────────────────────────
+
+/**
+ * Find a run with status 'awaiting_input' triggered by a given Jira issue key.
+ * Scans recent Jira-sourced runs (capped at 50) and filters in-memory.
+ * Since awaiting_input runs are rare, this is acceptable without a dedicated GSI.
+ */
+export async function findAwaitingRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null> {
+    const result = await AgentOpsRunModel.query('GSI1PK')
+        .eq('SOURCE#jira')
+        .sort('descending')
+        .limit(50)
+        .using('GSI1')
+        .exec();
+
+    const runs = result.toJSON() as unknown as AgentOpsRun[];
+    return runs.find(r =>
+        r.status === 'awaiting_input' &&
+        (r.trigger as any)?.issueKey === issueKey
+    ) || null;
+}
+
+/**
+ * Find a run with status 'awaiting_input' triggered in a given Slack channel+thread.
+ * Scans recent Slack-sourced runs (capped at 50) and filters in-memory.
+ */
+export async function findAwaitingRunBySlackThread(
+    channelId: string,
+    threadTs: string
+): Promise<AgentOpsRun | null> {
+    const result = await AgentOpsRunModel.query('GSI1PK')
+        .eq('SOURCE#slack')
+        .sort('descending')
+        .limit(50)
+        .using('GSI1')
+        .exec();
+
+    const runs = result.toJSON() as unknown as AgentOpsRun[];
+    return runs.find(r =>
+        r.status === 'awaiting_input' &&
+        (r.trigger as any)?.channelId === channelId &&
+        (r.trigger as any)?.threadTs === threadTs
+    ) || null;
+}
+
 // ─── Singleton export ──────────────────────────────────────────────────
 
 export const agentOpsService = {
@@ -255,4 +305,6 @@ export const agentOpsService = {
     listRunsBySource,
     recordEvent,
     getRunEvents,
+    findAwaitingRunByJiraIssue,
+    findAwaitingRunBySlackThread,
 };

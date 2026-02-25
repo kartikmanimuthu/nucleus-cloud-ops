@@ -14,7 +14,7 @@ import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { postResultToSlack, postErrorToSlack } from '@/lib/agent-ops/slack-notifier';
 import { TenantConfigService } from '@/lib/tenant-config-service';
-import type { SlackIntegrationConfig } from '@/lib/agent-ops/types';
+import type { SlackIntegrationConfig, AgentOpsRun } from '@/lib/agent-ops/types';
 
 export const maxDuration = 10;
 
@@ -58,9 +58,41 @@ export async function POST(req: Request) {
         );
     }
 
-    // 5. Create run record (team_id used as tenantId for multi-tenancy)
+    const tenantId = payload.team_id;
+    const threadTs: string | undefined = (payload as any).thread_ts || undefined;
+
+    // 5. Check if this message is a reply to an awaiting_input run (thread-based HIL)
+    if (threadTs) {
+        const awaitingRun = await agentOpsService.findAwaitingRunBySlackThread(payload.channel_id, threadTs);
+
+        if (awaitingRun) {
+            console.log(`[Slack Trigger] Resuming awaiting_input run ${awaitingRun.runId} via thread ${threadTs}`);
+
+            const clarificationContext = awaitingRun.clarification
+                ? `\n\n---\nOriginal clarification question: ${awaitingRun.clarification.question}\nUser reply: ${payload.text.trim()}`
+                : `\n\n---\nUser clarification: ${payload.text.trim()}`;
+
+            const enrichedTask = awaitingRun.taskDescription + clarificationContext;
+            await agentOpsService.updateRunStatus(tenantId, awaitingRun.runId, 'in_progress');
+
+            const resumedRun = { ...awaitingRun, taskDescription: enrichedTask };
+            executeAgentRun(resumedRun)
+                .then(() => postResultToSlack(resumedRun as AgentOpsRun, payload.response_url))
+                .catch((err) => postErrorToSlack(err, awaitingRun.runId, payload.response_url));
+
+            return NextResponse.json(
+                {
+                    response_type: 'ephemeral',
+                    text: `▶️ Resuming run \`${awaitingRun.runId}\` with your clarification...`,
+                },
+                { status: 200 },
+            );
+        }
+    }
+
+    // 6. Create a new run record (team_id used as tenantId for multi-tenancy)
     const run = await agentOpsService.createRun({
-        tenantId: payload.team_id,
+        tenantId,
         source: 'slack',
         taskDescription: payload.text.trim(),
         mode: 'fast',
@@ -71,15 +103,16 @@ export async function POST(req: Request) {
             channelName: payload.channel_name,
             responseUrl: payload.response_url,
             teamId: payload.team_id,
+            threadTs,
         },
     });
 
-    // 6. Fire-and-forget: execute agent, then post result/error back to Slack
+    // 7. Fire-and-forget: execute agent, then post result/error back to Slack
     executeAgentRun(run)
         .then(() => postResultToSlack(run, payload.response_url))
         .catch((err) => postErrorToSlack(err, run.runId, payload.response_url));
 
-    // 7. Immediate acknowledgement — must return within Slack's 3-second window
+    // 8. Immediate acknowledgement — must return within Slack's 3-second window
     return NextResponse.json(
         {
             response_type: 'ephemeral',
