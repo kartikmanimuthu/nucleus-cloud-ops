@@ -11,8 +11,21 @@ import {
 } from '@langchain/langgraph-checkpoint';
 import { RunnableConfig } from '@langchain/core/runnables';
 
-// Size threshold for offloading to S3 (300KB to be safe within 400KB limit)
-const S3_OFFLOAD_THRESHOLD = 300 * 1024;
+// Per-field threshold: offload to S3 once a single field exceeds 100KB.
+// This is intentionally conservative — a DynamoDB item can hold up to 400KB total,
+// but a checkpoint item contains up to 5 other fields (thread_id, checkpoint_id, etc.)
+// plus both the serialized checkpoint AND metadata. If either individually exceeds
+// 100KB we offload it, keeping the combined item well under the 400KB limit.
+const S3_OFFLOAD_THRESHOLD = 100 * 1024;
+
+// Hard ceiling: if the total marshalled item still exceeds this, force-offload the
+// largest inline field before writing. 350KB gives ~50KB headroom for DynamoDB overhead.
+const DYNAMO_ITEM_MAX_BYTES = 350 * 1024;
+
+/** Returns true if the value is an S3 reference pointer (already offloaded). */
+function isS3Ref(value: any): boolean {
+    return value !== null && typeof value === 'object' && '__s3_ref__' in value;
+}
 
 export interface DynamoDBS3SaverFields {
     clientConfig?: any;
@@ -190,9 +203,37 @@ export class DynamoDBS3Saver extends BaseCheckpointSaver {
         const serializedCheckpoint = JSON.parse(decoder.decode(checkpointDump[1]));
         const serializedMetadata = JSON.parse(decoder.decode(metadataDump[1]));
 
-        // Offload to S3 if needed
-        const storedCheckpoint = await this.storeData(serializedCheckpoint, `checkpoint/${thread_id}/${checkpoint_id}`);
-        const storedMetadata = await this.storeData(serializedMetadata, `metadata/${thread_id}/${checkpoint_id}`);
+        // Per-field S3 offload: each field that exceeds S3_OFFLOAD_THRESHOLD is stored in S3.
+        let storedCheckpoint = await this.storeData(serializedCheckpoint, `checkpoint/${thread_id}/${checkpoint_id}`);
+        let storedMetadata = await this.storeData(serializedMetadata, `metadata/${thread_id}/${checkpoint_id}`);
+
+        // Combined-size guard: even if each field individually passed the per-field
+        // threshold, the total DynamoDB item could still exceed 400KB. Measure the
+        // expected item size and force-offload the largest still-inline field.
+        const estimatedItemSize = (
+            Buffer.byteLength(JSON.stringify(storedCheckpoint)) +
+            Buffer.byteLength(JSON.stringify(storedMetadata)) +
+            Buffer.byteLength(thread_id) +
+            Buffer.byteLength(checkpoint_id) +
+            Buffer.byteLength(checkpoint_ns || '') +
+            Buffer.byteLength(parent_checkpoint_id || '') +
+            256 // overhead for DynamoDB attribute names and marshalling
+        );
+
+        if (estimatedItemSize > DYNAMO_ITEM_MAX_BYTES) {
+            console.warn(
+                `[DynamoDBS3Saver] Combined item size ~${estimatedItemSize} bytes exceeds ` +
+                `${DYNAMO_ITEM_MAX_BYTES} bytes. Force-offloading largest inline field to S3.`
+            );
+            // Determine which inline field is larger and offload it.
+            const cpSize = isS3Ref(storedCheckpoint) ? 0 : Buffer.byteLength(JSON.stringify(storedCheckpoint));
+            const mdSize = isS3Ref(storedMetadata) ? 0 : Buffer.byteLength(JSON.stringify(storedMetadata));
+            if (cpSize >= mdSize && cpSize > 0) {
+                storedCheckpoint = await this.forceOffload(serializedCheckpoint, `checkpoint/${thread_id}/${checkpoint_id}`);
+            } else if (mdSize > 0) {
+                storedMetadata = await this.forceOffload(serializedMetadata, `metadata/${thread_id}/${checkpoint_id}`);
+            }
+        }
 
         const item = {
             thread_id,
@@ -274,27 +315,37 @@ export class DynamoDBS3Saver extends BaseCheckpointSaver {
         console.log(`[DynamoDBS3Saver] Data size: ${size} bytes. Threshold: ${S3_OFFLOAD_THRESHOLD}`);
 
         if (size > S3_OFFLOAD_THRESHOLD) {
-            const key = `${keySuffix}.json`;
-            console.log(`[DynamoDBS3Saver] Offloading data to S3. Size: ${size} bytes, Key: ${key}`);
-
-            // Upload to S3
-            await this.s3Client.send(new PutObjectCommand({
-                Bucket: this.s3BucketName,
-                Key: key,
-                Body: jsonString,
-                ContentType: 'application/json'
-            }));
-
-            // Return pointer
-            return {
-                __s3_ref__: {
-                    bucket: this.s3BucketName,
-                    key: key
-                }
-            };
+            return this.uploadToS3(keySuffix, jsonString, size);
         }
 
         return data;
+    }
+
+    /** Force-upload data to S3 unconditionally (used by the combined-size guard). */
+    private async forceOffload(data: any, keySuffix: string): Promise<any> {
+        const jsonString = JSON.stringify(data);
+        const size = Buffer.byteLength(jsonString);
+        console.log(`[DynamoDBS3Saver] Force-offloading to S3. Size: ${size} bytes, Key: ${keySuffix}`);
+        return this.uploadToS3(keySuffix, jsonString, size);
+    }
+
+    private async uploadToS3(keySuffix: string, jsonString: string, size: number): Promise<any> {
+        const key = `${keySuffix}.json`;
+        console.log(`[DynamoDBS3Saver] Offloading data to S3. Size: ${size} bytes, Key: ${key}`);
+
+        await this.s3Client.send(new PutObjectCommand({
+            Bucket: this.s3BucketName,
+            Key: key,
+            Body: jsonString,
+            ContentType: 'application/json'
+        }));
+
+        return {
+            __s3_ref__: {
+                bucket: this.s3BucketName,
+                key: key
+            }
+        };
     }
 
     private async loadData(data: any): Promise<any> {

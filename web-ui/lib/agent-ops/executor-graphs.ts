@@ -1,4 +1,4 @@
-import { BaseMessage, AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ChatBedrockConverse } from "@langchain/aws";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
@@ -22,7 +22,8 @@ import {
     getRecentMessages,
     checkpointer,
     getActiveMCPTools,
-    getMCPManager
+    getMCPManager,
+    getMCPToolsDescription
 } from "@/lib/agent/agent-shared";
 import { ReflectionState, graphState, PlanStep, RequestEvaluation } from "./executor-state";
 
@@ -31,7 +32,7 @@ import { ReflectionState, graphState, PlanStep, RequestEvaluation } from "./exec
 // ============================================================================
 
 export async function createDynamicExecutorGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, accountName, mcpServerIds } = config;
+    const { model: modelId, autoApprove, accounts, accountId, mcpServerIds, tenantId } = config;
 
     const model = new ChatBedrockConverse({
         region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
@@ -41,13 +42,16 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
         streaming: true,
     });
 
-    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool, listAwsAccountsTool];
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, getAwsCredentialsTool, listAwsAccountsTool];
 
-    const mcpTools = await getActiveMCPTools(mcpServerIds);
+    const mcpTools = await getActiveMCPTools(mcpServerIds, tenantId);
     if (mcpTools.length > 0) {
         console.log(`[DynamicExecutorGraph] Loaded ${mcpTools.length} MCP tools from servers: ${mcpServerIds?.join(', ')}`);
     }
     const tools = [...customTools, ...mcpTools];
+
+    const mcpManager = getMCPManager();
+    const mcpContext = mcpServerIds && mcpServerIds.length > 0 ? getMCPToolsDescription(mcpManager, mcpServerIds) : '';
 
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
@@ -197,7 +201,12 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
 4. Use the returned profile name with ALL subsequent AWS CLI commands by adding: --profile <profileName>`;
         }
 
-        return { skillContent, readOnlyInstruction, accountContext };
+        let mcpInstructions = '';
+        if (mcpContext) {
+            mcpInstructions = `${mcpContext}\n\nYou MUST use these specialized MCP tools over generic bash commands whenever possible to interact with external APIs (Bitbucket, Jira, Confluence, etc.). When dealing with external systems, always check if an MCP tool exists for the action before attempting a curl or script.`;
+        }
+
+        return { skillContent, readOnlyInstruction, accountContext, mcpInstructions };
     }
 
     // ========================================================================
@@ -214,12 +223,13 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
         console.log(`🤖 [PLANNER] Initiating planning phase`);
         console.log(`================================================================================\n`);
 
-        const { skillContent, readOnlyInstruction, accountContext } = getDynamicContext(evaluation);
+        const { skillContent, readOnlyInstruction, accountContext, mcpInstructions } = getDynamicContext(evaluation);
 
         const plannerSystemPrompt = new SystemMessage(`You are an expert DevOps and Cloud Infrastructure planning agent.
 Given a task, create a clear step-by-step plan to accomplish it.
 ${skillContent}
 ${readOnlyInstruction}
+${mcpInstructions}
 
 Focus on actionable steps that can be executed using available tools.
 ${accountContext}
@@ -272,7 +282,7 @@ Only return the JSON array, nothing else.`);
         console.log(`⚡ [EXECUTOR] Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
         console.log(`================================================================================\n`);
 
-        const { skillContent, readOnlyInstruction, accountContext } = getDynamicContext(evaluation);
+        const { skillContent, readOnlyInstruction, accountContext, mcpInstructions } = getDynamicContext(evaluation);
 
         let stepContext = "";
         if (evaluation?.mode === 'plan') {
@@ -286,11 +296,12 @@ Full Plan: ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 Your goal is to execute technical tasks with precision.
 ${skillContent}
 ${readOnlyInstruction}
+${mcpInstructions}
 
 ${stepContext}
 ${accountContext}
 
-Available tools:
+Available core tools:
 - read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, list_aws_accounts, get_aws_credentials
 
 IMPORTANT: You should use tools to accomplish the task if necessary. If the task is a simple question or greeting that doesn't require tools, you may answer directly. Always remember to maintain conversation continuity.`);
@@ -340,7 +351,7 @@ IMPORTANT: You should use tools to accomplish the task if necessary. If the task
     // REFLECT NODE
     // ========================================================================
     async function reflectNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        const { messages, taskDescription, iterationCount, plan, toolResults, evaluation } = state;
+        const { messages, iterationCount, plan, toolResults, evaluation } = state;
 
         // Fast mode skip
         const lastMessage = messages[messages.length - 1];
@@ -389,7 +400,7 @@ If there are issues, list them clearly as feedback. Do not generate the fixed an
                     isComplete = parsed.isComplete === true;
                     if (parsed.updatedPlan) updatedPlan = parsed.updatedPlan;
                 }
-            } catch (e) {
+            } catch {
                 isComplete = false;
             }
 

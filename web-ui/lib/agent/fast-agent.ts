@@ -61,7 +61,7 @@ export async function createFastGraph(config: GraphConfig) {
     });
 
     // Include AWS credentials tools for account-aware operations
-    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool, listAwsAccountsTool];
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, getAwsCredentialsTool, listAwsAccountsTool];
 
     // Dynamically discover and merge MCP server tools
     const mcpTools = await getActiveMCPTools(mcpServerIds);

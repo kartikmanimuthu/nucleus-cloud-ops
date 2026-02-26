@@ -68,7 +68,7 @@ function mapNodeToEventType(node: string): AgentEventType {
  * 8. Cleanup sandbox
  */
 export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
-    const { runId, tenantId, taskDescription, mode, accountId, accountName, selectedSkill, threadId, workspaceId, mcpServerIds } = run as any;
+    const { runId, tenantId, taskDescription, mode, accountId, accountName, threadId, mcpServerIds } = run as any;
     const startTime = Date.now();
 
     // 1. Create isolated sandbox directory (prevents file-tool collisions between concurrent runs)
@@ -89,7 +89,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
         try {
             const { TenantConfigService } = await import('../tenant-config-service');
             const { mergeConfigs } = await import('../agent/mcp-config');
-            const savedJson = await TenantConfigService.getConfig('mcp-servers');
+            const savedJson = await TenantConfigService.getConfig('mcp-servers', tenantId);
             const allConfigs = mergeConfigs(savedJson);
 
             // If no explicit MCP servers provided, default to all enabled ones for headless runs
@@ -122,6 +122,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
             accountId,
             accountName,
             mcpServerIds: activeMcpServerIds,
+            tenantId,
         };
 
         // 4. Create the unified dynamic graph

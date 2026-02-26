@@ -23,6 +23,8 @@ import {
     MAX_ITERATIONS,
     truncateOutput,
     getRecentMessages,
+    sanitizeMessagesForBedrock,
+    llmAuditLog,
     checkpointer,
     getActiveMCPTools,
     getMCPToolsDescription,
@@ -62,7 +64,7 @@ export async function createReflectionGraph(config: GraphConfig) {
     });
 
     // Include AWS credentials tools for account-aware operations
-    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool, listAwsAccountsTool];
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, getAwsCredentialsTool, listAwsAccountsTool];
 
     // Dynamically discover and merge MCP server tools
     const mcpTools = await getActiveMCPTools(mcpServerIds);
@@ -157,7 +159,10 @@ Example: ["Step 1: List directory contents", "Step 2: Read config file", "Step 3
 
 Only return the JSON array, nothing else.`);
 
-        const response = await model.invoke([plannerSystemPrompt, lastMessage]);
+        const _auditInputs_plan = [plannerSystemPrompt, lastMessage];
+        const _auditStart_plan = Date.now();
+        const response = await model.invoke(_auditInputs_plan);
+        llmAuditLog('PLANNER', _auditInputs_plan, response, _auditStart_plan);
 
         let planSteps: PlanStep[] = [];
         try {
@@ -242,7 +247,13 @@ After using tools (or if no tools are needed), provide a brief summary of what y
         if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
             recentMessages.push(new HumanMessage({ content: "Please execute the next step of the plan based on the tools available." }));
         }
-        const response = await modelWithTools.invoke([executorSystemPrompt, ...recentMessages]);
+        // Sanitize to ensure every tool_use block has a matching tool_result.
+        // Without this, Bedrock throws ValidationException on long multi-tool sessions.
+        const safeMessages = sanitizeMessagesForBedrock(recentMessages);
+        const _auditInputs_exec = [executorSystemPrompt, ...safeMessages];
+        const _auditStart_exec = Date.now();
+        const response = await modelWithTools.invoke(_auditInputs_exec);
+        llmAuditLog('EXECUTOR', _auditInputs_exec, response, _auditStart_exec);
 
         if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
             console.log(`\n🛠️ [EXECUTOR] Tool Calls Generated:`);
@@ -355,7 +366,10 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
         });
 
         // Use base model (no tools) to ensure the reflector focuses on analysis, not tool calls
-        const response = await model.invoke([reflectorSystemPrompt, summaryInput]);
+        const _auditInputs_ref = [reflectorSystemPrompt, summaryInput];
+        const _auditStart_ref = Date.now();
+        const response = await model.invoke(_auditInputs_ref);
+        llmAuditLog('REFLECTOR', _auditInputs_ref, response, _auditStart_ref);
 
         let analysis = "";
         let issues = "None";
@@ -455,7 +469,12 @@ Available tools: read_file, write_file, edit_file, ls, glob, grep, execute_comma
         if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
             recentMessages.push(new HumanMessage({ content: "Please fix the issues mentioned in the reflection." }));
         }
-        const response = await modelWithTools.invoke([reviserSystemPrompt, ...recentMessages]);
+        // Sanitize to ensure every tool_use block has a matching tool_result.
+        const safeMessages = sanitizeMessagesForBedrock(recentMessages);
+        const _auditInputs_rev = [reviserSystemPrompt, ...safeMessages];
+        const _auditStart_rev = Date.now();
+        const response = await modelWithTools.invoke(_auditInputs_rev);
+        llmAuditLog('REVISER', _auditInputs_rev, response, _auditStart_rev);
 
         if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
             console.log(`\n🛠️ [REVISER] Tool Calls Generated:`);
@@ -500,12 +519,18 @@ Based on the above, provide a clear, helpful summary for the user that:
 
 Be concise but comprehensive. Format nicely with markdown.`);
 
-        // Use modelWithTools since messages contain tool content
-        const recentMessages = getRecentMessages(messages, 5);
-        if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
-            recentMessages.push(new HumanMessage({ content: "Please provide the final summary." }));
-        }
-        const summaryResponse = await modelWithTools.invoke([summarySystemPrompt, ...recentMessages]);
+        // Use the base model (no tools) with a clean synthesized context.
+        // IMPORTANT: We deliberately do NOT pass raw recentMessages here because they may
+        // contain tool_use/tool_result pairs. Passing those with modelWithTools risks the
+        // model emitting an accidental tool_call in the summary, which would be orphaned
+        // and crash the next graph invocation with a Bedrock ValidationException.
+        const summaryInput = new HumanMessage({
+            content: `Please provide the final summary for the completed task.`
+        });
+        const _auditInputs_fin = [summarySystemPrompt, summaryInput];
+        const _auditStart_fin = Date.now();
+        const summaryResponse = await model.invoke(_auditInputs_fin);
+        llmAuditLog('FINAL', _auditInputs_fin, summaryResponse, _auditStart_fin);
         const summaryContent = typeof summaryResponse.content === 'string'
             ? summaryResponse.content
             : JSON.stringify(summaryResponse.content);
