@@ -69,7 +69,7 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         default: () => false,
     },
     toolResults: {
-        reducer: (x: string[], y: string[]) => x.concat(y),
+        reducer: (x: string[], y: string[]) => [...x, ...y].slice(-10), // cap at 10 to prevent unbounded growth
         default: () => [],
     },
 };

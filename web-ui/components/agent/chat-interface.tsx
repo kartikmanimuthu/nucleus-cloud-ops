@@ -31,6 +31,7 @@ import {
   Plug,
   Wand2,
   FileText,
+  ChevronDown,
 } from "lucide-react";
 import {
   copyToClipboard,
@@ -43,7 +44,7 @@ const AGENT_MODES = [
   { id: "fast", label: "Fast (ReAct)" },
 ];
 
-import { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Plan,
   PlanHeader,
@@ -223,6 +224,142 @@ interface ChatInterfaceProps {
   threadId: string;
 }
 
+interface MessageRowProps {
+  message: any;
+  renderPhaseBlock: (phase: AgentPhase, content: string, key: string, isLastMessage?: boolean) => React.ReactNode;
+  renderToolInvocation: (part: any, messageId: string, index: number) => React.ReactNode;
+}
+
+const MessageRow = React.memo(function MessageRow({ message, renderPhaseBlock, renderToolInvocation }: MessageRowProps) {
+  const isUser = message.role === "user";
+  return (
+    <div
+      className={cn(
+        "flex gap-3",
+        isUser ? "justify-end" : "justify-start",
+      )}
+    >
+      {/* AI Avatar */}
+      {!isUser && (
+        <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
+          <AvatarFallback className="bg-gradient-to-br from-primary/80 to-primary text-primary-foreground text-xs">
+            <Bot className="h-4 w-4" />
+          </AvatarFallback>
+        </Avatar>
+      )}
+
+      {/* Message Content */}
+      <div
+        className={cn(
+          "max-w-[85%] rounded-lg p-2.5 text-[13px] overflow-hidden min-w-0",
+          isUser
+            ? "bg-primary text-primary-foreground ml-auto"
+            : "bg-muted/50 border",
+        )}
+      >
+        {/* Render parts */}
+        {message.parts &&
+          message.parts.map((part: any, index: number) => {
+            // Text part
+            if (part.type === "text") {
+              const text = part.text || "";
+              if (!text.trim()) return null;
+              return (
+                <div key={`${message.id}-part-${index}`}>
+                  <MarkdownContent content={text} />
+                </div>
+              );
+            }
+
+            // Reasoning part (contains phase markers)
+            if (part.type === "reasoning") {
+              const { phase, cleanContent } = parsePhaseFromContent(
+                part.text || "",
+              );
+              return renderPhaseBlock(
+                phase,
+                cleanContent,
+                `${message.id}-part-${index}`,
+              );
+            }
+
+            // Tool invocation
+            if (part.type === "tool-invocation" || part.toolCallId) {
+              return renderToolInvocation(part, message.id, index);
+            }
+
+            return null;
+          })}
+
+        {/* Fallback for simple content */}
+        {!message.parts && message.content && (
+          <MarkdownContent
+            content={
+              typeof message.content === "string"
+                ? message.content
+                : JSON.stringify(message.content)
+            }
+          />
+        )}
+      </div>
+
+      {/* User Avatar */}
+      {isUser && (
+        <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
+          <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-600 text-white text-xs">
+            <User className="h-4 w-4" />
+          </AvatarFallback>
+        </Avatar>
+      )}
+    </div>
+  );
+});
+
+// Tool outputs from AWS CLI can exceed 50 KB (describe-instances, list-web-acls, etc.).
+// Rendering the full string in the DOM for 30-50 tool calls causes the browser to freeze.
+// This constant caps the initially-rendered portion; users can expand on demand.
+const TOOL_OUTPUT_TRUNCATE_BYTES = 4096;
+
+const ToolOutputWithTruncation = React.memo(function ToolOutputWithTruncation({
+  output,
+  isLoading,
+  label,
+}: {
+  output: string | undefined;
+  isLoading: boolean;
+  label: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!output || output.length <= TOOL_OUTPUT_TRUNCATE_BYTES) {
+    return <ToolOutput output={output} isLoading={isLoading} label={label} />;
+  }
+
+  const displayOutput = expanded
+    ? output
+    : output.slice(0, TOOL_OUTPUT_TRUNCATE_BYTES) + "\n… (truncated)";
+
+  return (
+    <>
+      <ToolOutput output={displayOutput} isLoading={isLoading} label={label} />
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        className="flex items-center gap-1 mt-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronDown
+          className={cn(
+            "w-3 h-3 transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+        {expanded
+          ? "Show less"
+          : `Show full output (${Math.round(output.length / 1024)} KB)`}
+      </button>
+    </>
+  );
+});
+
 export function ChatInterface({
   threadId: initialThreadId,
 }: ChatInterfaceProps) {
@@ -239,6 +376,12 @@ export function ChatInterface({
   const [isEnhancing, setIsEnhancing] = useState(false);
   const streamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastMessageContentRef = useRef<string>("");
+  const planStepCacheRef = useRef(new Map<string, string[]>());
+  // Ref mirror of isStreaming — lets us read the current value inside effects/callbacks
+  // without adding it to dependency arrays (avoids extra re-renders).
+  const isStreamingRef = useRef(isStreaming);
+  // rAF handle for debounced auto-scroll — cancelled if a new message arrives before the frame fires.
+  const scrollRafRef = useRef<number | null>(null);
 
   // Scroll control state - track if user has manually scrolled up
   const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
@@ -426,6 +569,11 @@ export function ChatInterface({
     fetchHistory();
   }, [threadId, setMessages]);
 
+  // Keep isStreamingRef in sync so callbacks can read the current value without a dependency.
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  });
+
   useEffect(() => {
     console.log("[ChatInterface] Messages State Updated:", messages);
     if (messages.length > 0) {
@@ -433,12 +581,19 @@ export function ChatInterface({
 
       // Track streaming state based on message content changes
       const lastMessage = messages[messages.length - 1];
-      const currentContent = JSON.stringify(lastMessage);
+      // Use a lightweight fingerprint instead of JSON.stringify to avoid blocking the main thread
+      // when the last message contains large tool outputs (100KB+)
+      const parts = lastMessage.parts || [];
+      const lastPart = parts[parts.length - 1];
+      const currentContent = `${lastMessage.id}-${parts.length}-${lastPart?.type ?? ""}-${String(lastPart?.text?.length ?? lastPart?.toolCallId ?? "")}`;
 
       // If content changed, we're actively streaming
       if (currentContent !== lastMessageContentRef.current) {
         lastMessageContentRef.current = currentContent;
-        setIsStreaming(true);
+
+        // Only call setIsStreaming(true) when not already streaming — avoids a redundant
+        // state update (and the consequent re-render) on every streaming chunk.
+        if (!isStreamingRef.current) setIsStreaming(true);
 
         // Clear any existing timeout
         if (streamTimeoutRef.current) {
@@ -482,10 +637,16 @@ export function ChatInterface({
     }
   };
 
-  // Auto-scroll to bottom only when user hasn't scrolled up
+  // Auto-scroll to bottom only when user hasn't scrolled up.
+  // Using requestAnimationFrame batches scroll operations to at most one per frame (~16 ms),
+  // avoiding synchronous layout recalculations on every streaming chunk.
   useEffect(() => {
-    if (scrollRef.current && !userHasScrolledUp) {
-      scrollRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (!userHasScrolledUp) {
+      if (scrollRafRef.current !== null) cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = requestAnimationFrame(() => {
+        scrollRef.current?.scrollIntoView({ behavior: "instant", block: "end" });
+        scrollRafRef.current = null;
+      });
     }
   }, [messages, userHasScrolledUp]);
 
@@ -630,7 +791,7 @@ export function ChatInterface({
   };
 
   // Render a phase block
-  const renderPhaseBlock = (
+  const renderPhaseBlock = useCallback((
     phase: AgentPhase,
     content: string,
     key: string,
@@ -640,43 +801,52 @@ export function ChatInterface({
     const Icon = config.icon;
 
     // Parse plan steps from content - handle multiple formats
+    // Use cache to avoid re-parsing identical content on every render
     let planSteps: string[] = [];
 
     if (phase === "planning") {
-      // Try to parse as JSON array first (e.g., ["Step 1: ...", "Step 2: ..."])
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed)) {
-            planSteps = parsed.map((step: string) =>
-              typeof step === "string" ? step : JSON.stringify(step),
-            );
+      const cacheKey = content;
+      const cached = planStepCacheRef.current.get(cacheKey);
+      if (cached) {
+        planSteps = cached;
+      } else {
+        // Try to parse as JSON array first (e.g., ["Step 1: ...", "Step 2: ..."])
+        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (Array.isArray(parsed)) {
+              planSteps = parsed.map((step: string) =>
+                typeof step === "string" ? step : JSON.stringify(step),
+              );
+            }
+          } catch (e) {
+            // Not valid JSON, continue to line-by-line parsing
           }
-        } catch (e) {
-          // Not valid JSON, continue to line-by-line parsing
         }
-      }
 
-      // If no JSON array found, try line-by-line parsing
-      if (planSteps.length === 0) {
-        // Match lines starting with number, bullet, dash, or "Step"
-        planSteps = content.split("\n").filter((line) => {
-          const trimmed = line.trim();
-          return (
-            /^(\d+[\.\):]|\-|\*|•|Step\s*\d+)/i.test(trimmed) &&
-            trimmed.length > 5
-          );
-        });
-      }
+        // If no JSON array found, try line-by-line parsing
+        if (planSteps.length === 0) {
+          // Match lines starting with number, bullet, dash, or "Step"
+          planSteps = content.split("\n").filter((line) => {
+            const trimmed = line.trim();
+            return (
+              /^(\d+[\.\):]|\-|\*|•|Step\s*\d+)/i.test(trimmed) &&
+              trimmed.length > 5
+            );
+          });
+        }
 
-      // Also check for markdown bold headers like "**Plan Created:**"
-      if (planSteps.length === 0 && content.includes("**")) {
-        // Extract content after headers
-        const lines = content
-          .split("\n")
-          .filter((line) => line.trim().length > 0 && !line.includes("**"));
-        planSteps = lines;
+        // Also check for markdown bold headers like "**Plan Created:**"
+        if (planSteps.length === 0 && content.includes("**")) {
+          // Extract content after headers
+          const lines = content
+            .split("\n")
+            .filter((line) => line.trim().length > 0 && !line.includes("**"));
+          planSteps = lines;
+        }
+
+        planStepCacheRef.current.set(cacheKey, planSteps);
       }
     }
 
@@ -773,10 +943,11 @@ export function ChatInterface({
         </div>
       </div>
     );
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]);
 
   // Render tool invocation using enhanced Tool component
-  const renderToolInvocation = (
+  const renderToolInvocation = useCallback((
     part: any,
     messageId: string,
     index: number,
@@ -867,8 +1038,8 @@ export function ChatInterface({
             </Confirmation>
           )}
 
-          {/* Output with loading state */}
-          <ToolOutput
+          {/* Output with loading state — truncated to TOOL_OUTPUT_TRUNCATE_BYTES if large */}
+          <ToolOutputWithTruncation
             output={
               result !== "Approved" && result !== "Cancelled by user"
                 ? result
@@ -880,7 +1051,8 @@ export function ChatInterface({
         </ToolContent>
       </Tool>
     );
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoApprove, isLoading, handleToolApproval]);
 
   // Sample prompts
   const samplePrompts = [
@@ -1102,92 +1274,14 @@ export function ChatInterface({
           )}
 
           {/* Render messages */}
-          {messages.map((message: any) => {
-            const isUser = message.role === "user";
-
-            return (
-              <div
-                key={message.id}
-                className={cn(
-                  "flex gap-3",
-                  isUser ? "justify-end" : "justify-start",
-                )}
-              >
-                {/* AI Avatar */}
-                {!isUser && (
-                  <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
-                    <AvatarFallback className="bg-gradient-to-br from-primary/80 to-primary text-primary-foreground text-xs">
-                      <Bot className="h-4 w-4" />
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-
-                {/* Message Content */}
-                <div
-                  className={cn(
-                    "max-w-[85%] rounded-lg p-2.5 text-[13px] overflow-hidden min-w-0",
-                    isUser
-                      ? "bg-primary text-primary-foreground ml-auto"
-                      : "bg-muted/50 border",
-                  )}
-                >
-                  {/* Render parts */}
-                  {message.parts &&
-                    message.parts.map((part: any, index: number) => {
-                      // Text part
-                      if (part.type === "text") {
-                        const text = part.text || "";
-                        if (!text.trim()) return null;
-                        return (
-                          <div key={`${message.id}-part-${index}`}>
-                            <MarkdownContent content={text} />
-                          </div>
-                        );
-                      }
-
-                      // Reasoning part (contains phase markers)
-                      if (part.type === "reasoning") {
-                        const { phase, cleanContent } = parsePhaseFromContent(
-                          part.text || "",
-                        );
-                        return renderPhaseBlock(
-                          phase,
-                          cleanContent,
-                          `${message.id}-part-${index}`,
-                        );
-                      }
-
-                      // Tool invocation
-                      if (part.type === "tool-invocation" || part.toolCallId) {
-                        return renderToolInvocation(part, message.id, index);
-                      }
-
-                      return null;
-                    })}
-
-                  {/* Fallback for simple content */}
-                  {!message.parts && message.content && (
-                    <MarkdownContent
-                      content={
-                        typeof message.content === "string"
-                          ? message.content
-                          : JSON.stringify(message.content)
-                      }
-                    />
-                  )}
-                </div>
-
-                {/* User Avatar */}
-                {isUser && (
-                  <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
-                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-600 text-white text-xs">
-                      <User className="h-4 w-4" />
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-              </div>
-            );
-          })}
+          {messages.map((message: any) => (
+            <MessageRow
+              key={message.id}
+              message={message}
+              renderPhaseBlock={renderPhaseBlock}
+              renderToolInvocation={renderToolInvocation}
+            />
+          ))}
 
           {/* Loading indicator */}
           {(isLoading || isStreaming) && (

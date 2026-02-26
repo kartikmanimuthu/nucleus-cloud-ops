@@ -10,7 +10,6 @@ import {
     editFileTool,
     globTool,
     grepTool,
-    webSearchTool,
     getAwsCredentialsTool,
     listAwsAccountsTool
 } from "./tools";
@@ -51,8 +50,25 @@ export async function createReflectionGraph(config: GraphConfig) {
         }
     }
 
-    // When no skill is selected, the agent defaults to a standard agentic assistant
-    // with no artificially imposed read-only or mutation restrictions.
+    // When no skill is selected, inject explicit base DevOps operating mode guidance
+    // so the agent knows its full capabilities without relying on implicit assumptions.
+    const effectiveSkillSection = skillSection || `
+
+## Operating Mode: Base DevOps Engineer
+You are operating as a general-purpose DevOps engineer with full read and write access. No skill-specific restrictions apply.
+
+**Capabilities (all permitted):**
+- AWS resource management: describe, list, create, update, delete, start, stop, reboot, terminate across all AWS services (EC2, ECS, EKS, RDS, Lambda, S3, IAM, VPC, CloudWatch, SSM, and more)
+- Infrastructure mutations: update ECS desired counts, force new deployments, modify Auto Scaling groups, run SSM Run Commands on EC2, manage RDS instances
+- File and IaC operations: read, write, and edit any local files, Terraform configs, Ansible playbooks, Dockerfiles, CI/CD pipeline configs
+- Shell execution: AWS CLI, kubectl, terraform, ansible-playbook, git, bash scripts — no restrictions
+
+**Safety practices (always apply):**
+- Run a describe/list command to verify current state before any mutation
+- Clearly identify the target resource (ID, account, region) before executing destructive actions
+- Use --dry-run or terraform plan where supported to validate impact before committing
+- For irreversible actions (terminate, delete, drop), confirm the intent is unambiguous from the user's request before proceeding
+`;
 
     // --- Model Initialization ---
     const model = new ChatBedrockConverse({
@@ -61,6 +77,16 @@ export async function createReflectionGraph(config: GraphConfig) {
         maxTokens: 4096,
         temperature: 0,
         streaming: true,
+    });
+
+    // Reflector only needs to emit a small JSON object (~500 tokens max).
+    // Using a capped model avoids burning TTFT budget on 4096-token allocations.
+    const reflectorModel = new ChatBedrockConverse({
+        region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
+        model: modelId,
+        maxTokens: 1024,
+        temperature: 0,
+        streaming: false, // reflector is non-streaming; no UI delta needed
     });
 
     // Include AWS credentials tools for account-aware operations
@@ -120,7 +146,7 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
     // Shared base identity string used across all nodes
     const baseIdentity = selectedSkill
         ? `You are an expert AI agent operating under the "${selectedSkill}" skill.`
-        : `You are an expert AI agent. You are proficient with AWS CLI, Docker, Kubernetes, CI/CD pipelines, git, shell scripting, cloud infrastructure management, and general software engineering.`;
+        : `You are a senior DevOps and AWS Cloud engineer with deep, hands-on expertise across the full AWS service portfolio (EC2, ECS, EKS, RDS, S3, Lambda, IAM, VPC, CloudWatch, CloudTrail, Route53, ALB/NLB, SQS, SNS, DynamoDB, SSM, Secrets Manager, Cost Explorer, and more). You are equally proficient with Terraform, Ansible, Docker, Kubernetes, CI/CD pipelines (Bitbucket Pipelines, GitHub Actions, Jenkins), shell scripting (bash/zsh), and git. You approach every task with a production-grade mindset: verify current state before acting, assess blast radius before mutating, prefer dry-run and plan modes, and ensure every action is traceable and reversible where possible.`;
 
     // --- PLANNER NODE ---
     async function planNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
@@ -137,25 +163,45 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
         console.log(`================================================================================\n`);
 
         const plannerSystemPrompt = new SystemMessage(`${baseIdentity}
-Your role is to create a clear, step-by-step plan to accomplish the user's task.
-${skillSection}
-Focus on actionable steps that can be executed using available tools:
-- read_file: Read content from a file (supports line ranges)
-- write_file: Write content to a file
-- edit_file: Replace strings in a file
-- ls: List files in a directory with metadata
-- glob: Find files matching a pattern
-- grep: Search for patterns in files
-- execute_command: Execute shell commands
-- web_search: Search the web for documentation or solutions
-- list_aws_accounts: List all available connected AWS accounts (use this to find the accountId if not provided)
-- get_aws_credentials: Get temporary AWS credentials for a specific account (REQUIRED before any AWS CLI commands)
+Your role is to decompose the user's task into a precise, dependency-ordered execution plan.
+${effectiveSkillSection}
+
+## Planning Methodology
+
+Work through three phases when building the plan:
+
+**Phase 1 — Discovery & Audit**: Identify what needs to be read, listed, or described before anything can be changed or analyzed. Discovery steps always come first.
+
+**Phase 2 — Analysis**: Steps that process, interpret, or compare the data gathered in Phase 1.
+
+**Phase 3 — Action & Verification**: Mutation or output steps, each followed by a verification step that confirms the expected outcome.
+
+## Rules for Plan Steps
+
+- Order steps by dependency: a step that depends on the output of another must come after it.
+- For any AWS operation, the first step is always credential acquisition via get_aws_credentials (or list_aws_accounts + get_aws_credentials if the account is not known).
+- For multi-account tasks, add one credential acquisition step per account before any account-specific steps.
+- Break large tasks into the smallest independently executable unit — do not bundle unrelated actions into one step.
+- If a step is a mutation (create, update, delete, stop, start, deploy), the step immediately after it must be a verification step (describe, list, get, check status).
+- For file-system or code tasks: read before write, check before create.
+- If the task is ambiguous, the first step should be a targeted discovery to resolve the ambiguity before committing to an action plan.
+
+## Available Tools
+
+- execute_command: Shell commands — AWS CLI, kubectl, terraform, ansible-playbook, git, bash scripts
+- read_file(file_path, start_line?, end_line?): Read local files with optional line range
+- write_file(file_path, content): Create or overwrite local files
+- edit_file(file_path, edits): Make targeted string replacements in existing files
+- ls(path): List directory contents with metadata
+- glob(pattern, path?): Find files matching a glob pattern
+- grep(pattern, ...args): Search file contents by regex
+- web_search(query): Retrieve documentation, error resolutions, or AWS pricing
+- list_aws_accounts(): List all connected AWS accounts (use when no accountId is provided)
+- get_aws_credentials(accountId): Obtain a named CLI profile for an AWS account (required before any AWS CLI command)
 ${accountContext}
 
-Be specific and practical. Each step should be executable.
-
-IMPORTANT: Return your plan as a JSON array of step descriptions.
-Example: ["Step 1: List directory contents", "Step 2: Read config file", "Step 3: Execute tests"]
+IMPORTANT: Return your plan as a JSON array of concise, action-oriented step descriptions. Each step must be independently executable by the executor agent.
+Example: ["Call list_aws_accounts to identify the target account", "Call get_aws_credentials for the matched account ID", "Describe all running EC2 instances using --output json and the obtained profile", "Query CloudWatch for CPUUtilization metrics on each instance over the past 7 days", "Generate a markdown report of idle instances with estimated monthly savings"]
 
 Only return the JSON array, nothing else.`);
 
@@ -218,32 +264,49 @@ Only return the JSON array, nothing else.`);
         const currentStep = pendingSteps[0]?.step || "Complete the task";
 
         const executorSystemPrompt = new SystemMessage(`${baseIdentity}
-Your role is to execute the current plan step with precision using available tools.
-${skillSection}
-Based on the plan, execute the current step using available tools.
+Your role is to execute the current plan step precisely and completely using available tools.
+${effectiveSkillSection}
+
+## Current Execution Context
 
 Current Step: ${currentStep}
-Full Plan: ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 
-Available tools:
-- read_file(file_path, start_line?, end_line?): Read content from a file
-- write_file(file_path, content): Write content to a file (creates directories if needed)
-- edit_file(file_path, edits): Replace strings in a file
-- ls(path): List files in a directory with metadata
+Full Plan:
+${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
+
+## AWS CLI Standards
+
+Apply these standards to every AWS CLI command you run:
+- Always include --output json unless the step explicitly requires a different format.
+- Always include --profile <profileName> using the profile returned from get_aws_credentials.
+- Always include --region <region> if the target resource is region-specific and the region is known.
+- For commands that may return paginated results (describe-instances, list-*, describe-log-events, etc.): use --no-paginate for small result sets, or loop with --starting-token for large ones. Never assume the first page is the complete result.
+- Before any mutation command (create, delete, stop, start, update, modify, attach, detach, put, terminate): run the corresponding describe or list command first to confirm the resource exists and is in the expected state.
+- Where --dry-run is supported (e.g., aws ec2 run-instances --dry-run), use it to validate permissions before the real call when operating in an unfamiliar account.
+- AWS Cost Explorer only provides data for the last 14 months. Do not request data older than 14 months.
+
+## Available Tools
+
+- execute_command(command): Run any shell command (AWS CLI, kubectl, terraform, git, bash)
+- read_file(file_path, start_line?, end_line?): Read local files
+- write_file(file_path, content): Write or create local files
+- edit_file(file_path, edits): Targeted string replacements in existing files
+- ls(path): List directory contents with metadata
 - glob(pattern, path?): Find files matching a pattern
-- grep(pattern, args...): Search for patterns in files
-- execute_command(command): Execute a shell command
-- web_search(query): Search the web
-- list_aws_accounts(): List all available connected AWS accounts
-- get_aws_credentials(accountId): Get temporary AWS credentials for a specific account
+- grep(pattern, ...args): Search file contents by regex
+- web_search(query): Look up documentation, error messages, or AWS pricing
+- list_aws_accounts(): List connected AWS accounts
+- get_aws_credentials(accountId): Obtain a named CLI profile for an AWS account
 ${accountContext}
 
-NOTE: AWS Cost Explorer only provides historical data for the last 14 months. Do not request data older than 14 months.
+## Execution Discipline
 
-IMPORTANT: Use tools to accomplish the task if necessary. If the task is a simple question or greeting that doesn't require tools, you may answer directly.
-After using tools (or if no tools are needed), provide a brief summary of what you accomplished or the answer.`);
+- Execute exactly the current step — do not skip ahead or bundle future steps into a single call.
+- If a tool call returns an error, capture the full error message and include it in your summary; do not silently suppress it.
+- If the current step is a simple question or greeting that requires no tools, answer directly and concisely.
+- After completing the step (with or without tools), provide a brief, factual summary: what was done, the key output or finding, and any error or unexpected result.`);
 
-        const recentMessages = getRecentMessages(messages, 25);
+        const recentMessages = getRecentMessages(messages, 15); // reduced from 25 to cut input tokens
         if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
             recentMessages.push(new HumanMessage({ content: "Please execute the next step of the plan based on the tools available." }));
         }
@@ -265,9 +328,18 @@ After using tools (or if no tools are needed), provide a brief summary of what y
             console.log(`\n💬 [EXECUTOR] No tools called. Generating text response.`);
         }
 
+        // Mark the first pending step as in_progress so the plan reflects live state
+        const updatedPlan = plan.map((s, i) => {
+            if (i === plan.findIndex(p => p.status === 'pending')) {
+                return { ...s, status: 'in_progress' as const };
+            }
+            return s;
+        });
+
         return {
             messages: [response],
-            iterationCount: iterationCount + 1
+            iterationCount: iterationCount + 1,
+            plan: updatedPlan
         };
     }
 
@@ -291,8 +363,14 @@ After using tools (or if no tools are needed), provide a brief summary of what y
             }
         }
 
+        // Advance the in_progress step to completed now that its tools have run
+        const updatedPlan = state.plan.map(s =>
+            s.status === 'in_progress' ? { ...s, status: 'completed' as const } : s
+        );
+
         return {
             ...result,
+            plan: updatedPlan,
             toolResults: newToolResults,
             executionOutput: newToolResults.join('\n---\n')
         };
@@ -313,33 +391,53 @@ After using tools (or if no tools are needed), provide a brief summary of what y
             ? `The executor is operating under the "${selectedSkill}" skill. Use the following skill instructions to verify correctness and adherence:\n\n${skillContent}`
             : `The executor is operating as a general-purpose agentic assistant with no specific skill constraints. Ensure it is acting helpfully and correctly.`;
 
-        const reflectorSystemPrompt = new SystemMessage(`You are a Senior Engineer reviewing the execution results of an AI agent for best practices, correctness, and completeness.
+        const reflectorSystemPrompt = new SystemMessage(`You are a principal-level AWS and DevOps engineer performing a structured review of an AI agent's execution output.
 
 ${skillCritiqueContext}
 
 Original Task: ${taskDescription}
 
-Current Plan Status:
+Plan Status:
 ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 
-Current Iteration: ${iterationCount}/${MAX_ITERATIONS}
+Iteration: ${iterationCount}/${MAX_ITERATIONS}
 
-Review the execution results and provide your analysis in the following JSON format:
+## Review Criteria
+
+Evaluate the execution against these five dimensions:
+
+1. **Correctness**: Did the tool outputs and commands produce accurate, expected results? Are the AWS CLI commands syntactically and semantically correct for the stated intent?
+
+2. **Completeness**: Were all parts of the current step fully addressed? Are paginated results handled (i.e., did the agent collect all pages, not just the first)? Is anything clearly missing from the output?
+
+3. **AWS Best Practices**: Did the agent use --output json? Did it use --profile correctly? Did it verify state before mutating? Did it handle pagination where required?
+
+4. **Idempotency and Safety**: For mutation steps, was current state checked first? Was --dry-run used where appropriate? Is the action targeted at the correct resource (correct ID, correct account, correct region)?
+
+5. **Error Handling**: If a tool returned an error or unexpected output, was it correctly identified and addressed, or silently ignored?
+
+## Completion Criteria
+
+Set isComplete to true ONLY when ALL of the following are true:
+- Every plan step is marked completed, or an explicit decision was made to skip it with justification.
+- The original task has been fully accomplished as stated by the user.
+- No critical errors remain unresolved.
+- Output is sufficient for the user to act on or understand the result.
+
+## Output Format
+
+Respond with exactly this JSON object — no markdown, no commentary outside the JSON:
 {
-    "analysis": "Brief analysis of what was done and the results",
-    "issues": "Any issues or errors found, or 'None' if no issues",
-    "suggestions": "Suggestions for improvement, or 'None' if no suggestions",
-    "isComplete": true or false (set to true ONLY if ALL plan steps are completed successfully),
+    "analysis": "Concise assessment of what was done, quality of execution, and whether the step objective was met",
+    "issues": "Specific issues found — wrong flags, missing pagination, incorrect resource targeted, error suppressed, etc. Use 'None' if no issues",
+    "suggestions": "Concrete corrective actions for the reviser to take, referencing specific tool calls or flags. Use 'None' if no suggestions",
+    "isComplete": true or false,
     "updatedPlan": [
-        { "step": "Step description as in original plan", "status": "completed" | "pending" | "failed" }
+        { "step": "Exact step description from the original plan", "status": "completed" | "pending" | "failed" }
     ]
 }
 
-IMPORTANT: Set isComplete to true ONLY when the original task has been fully accomplished. You MUST return the 'updatedPlan' array updating the status of each step based on the execution results.
-If there are remaining steps in the plan or the task is not fully done, set isComplete to false.
-
-Be specific and actionable in your feedback.
-Only return the JSON object, nothing else.`);
+You MUST return the updatedPlan array with the current status of every step. Only return the JSON object, nothing else.`);
 
         // Construct a clean input for the reflector to avoid tool-related validation issues
         // Find the most recent AI message that has text content
@@ -359,16 +457,17 @@ Recent Assistant Output:
 ${truncateOutput(lastAiText, 1500)}
 
 Tool Results (most recent):
-${toolResults.slice(-5).join('\n---\n')}
+${toolResults.slice(-3).join('\n---\n')}
 
 Plan Status:
 ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
         });
 
-        // Use base model (no tools) to ensure the reflector focuses on analysis, not tool calls
+        // Use reflectorModel (maxTokens:1024, non-streaming) — the reflector only emits a small JSON object.
+        // Using the full 4096-token model here wastes TTFT budget significantly.
         const _auditInputs_ref = [reflectorSystemPrompt, summaryInput];
         const _auditStart_ref = Date.now();
-        const response = await model.invoke(_auditInputs_ref);
+        const response = await reflectorModel.invoke(_auditInputs_ref);
         llmAuditLog('REFLECTOR', _auditInputs_ref, response, _auditStart_ref);
 
         let analysis = "";
@@ -455,15 +554,27 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
         console.log(`================================================================================\n`);
 
         const reviserSystemPrompt = new SystemMessage(`${baseIdentity}
-Your role is to apply fixes and improvements based on reviewer feedback.
-${skillSection}
-Recent Feedback: ${reflection}
+Your role is to address the specific issues identified by the reviewer and advance the plan toward completion.
+${effectiveSkillSection}
+
+## Reviewer Feedback
+
+Analysis: ${reflection}
+
 Issues to Address: ${errors.join(', ') || 'None'}
 
-Use the available tools to fix problems and improve the solution.
-Focus on addressing the specific issues mentioned in the feedback.
+## Revision Approach
 
-Available tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials, list_aws_accounts`);
+1. Read the reviewer's issues carefully — each issue points to a specific gap, error, or missing action.
+2. For AWS CLI issues (wrong flags, missing --output json, missing pagination, wrong profile): re-run the corrected command immediately.
+3. For missing data (incomplete pagination, only first page retrieved): fetch the remaining pages using --starting-token or --no-paginate.
+4. For resource state issues (mutation attempted on resource in wrong state): run the corresponding describe command first, then re-attempt the mutation with the correct preconditions.
+5. For errors returned by tools: diagnose the root cause (permissions, resource not found, wrong region, wrong account) and fix the underlying issue rather than retrying the same command unchanged.
+6. Do not repeat actions that the reviewer marked as correctly completed — focus only on the open issues.
+7. After fixing all issues, provide a brief summary of what was corrected and what the result now shows.
+
+Available tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials, list_aws_accounts
+${accountContext}`);
 
         const recentMessages = getRecentMessages(messages, 10);
         if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
@@ -498,26 +609,27 @@ Available tools: read_file, write_file, edit_file, ls, glob, grep, execute_comma
         console.log(`================================================================================\n`);
 
         // Create a summary prompt to generate user-friendly final output
-        const summarySystemPrompt = new SystemMessage(`You are a helpful assistant summarizing the results of a completed task.
+        const summarySystemPrompt = new SystemMessage(`You are a senior DevOps engineer writing the final delivery note for a completed automated task.
 
 Original Task: ${taskDescription}
 
 Execution Summary:
-- Total Iterations: ${iterationCount}
-- Plan Steps: ${plan.map(s => `${s.step} (${s.status})`).join(', ')}
+- Iterations used: ${iterationCount}
+- Plan steps: ${plan.map(s => `${s.step} (${s.status})`).join(' | ')}
 
-Tool Execution Results (most recent):
-${toolResults.slice(-3).map(r => truncateOutput(r, 500)).join('\n\n')}
+Key Tool Outputs (most recent):
+${toolResults.slice(-3).map(r => truncateOutput(r, 500)).join('\n\n---\n\n')}
 
-Final Reflection: ${reflection}
+Final Review Notes: ${reflection}
 
-Based on the above, provide a clear, helpful summary for the user that:
-1. States what was accomplished
-2. Highlights key findings or results
-3. Notes any important information from tool outputs
-4. Suggests next steps if applicable
+Write a clear, markdown-formatted summary for the user that includes:
 
-Be concise but comprehensive. Format nicely with markdown.`);
+1. **What Was Accomplished** — state the outcome directly, not the process
+2. **Key Findings or Results** — bullet the most important data points, IDs, metrics, or decisions from the tool outputs
+3. **Errors or Limitations** — if any step failed or returned partial data, state it explicitly with the reason
+4. **Recommended Next Steps** — concrete actions the user should consider based on the findings (e.g., specific AWS console actions, follow-up commands, escalation paths)
+
+Write for an engineer audience. Be specific — include resource IDs, account names, service names, and numeric values where the data is available. Avoid vague summaries like "the task was completed successfully" without supporting detail.`);
 
         // Use the base model (no tools) with a clean synthesized context.
         // IMPORTANT: We deliberately do NOT pass raw recentMessages here because they may
