@@ -19,6 +19,7 @@ This skill equips the agent with the capabilities of a **Senior DevOps / Platfor
 ## Core Capabilities
 
 ### Cloud & Infrastructure
+
 - **AWS**: EC2, ECS, EKS, RDS, S3, Lambda, VPC, IAM, Route53, CloudFront, CloudWatch, SSM, Secrets Manager, ALB/NLB, SQS, SNS, DynamoDB, and more.
 - **Terraform**: Write, plan, and apply IaC; manage remote state (S3 + DynamoDB); handle workspaces and modules.
 - **Ansible**: Write and run playbooks for configuration management, patching, application deployment, and ad-hoc tasks.
@@ -26,11 +27,13 @@ This skill equips the agent with the capabilities of a **Senior DevOps / Platfor
 - **Kubernetes (EKS)**: Apply manifests, manage Helm charts, inspect pods/services/deployments.
 
 ### CI/CD & Pipelines
+
 - Read, write, and debug **Bitbucket Pipelines** (`bitbucket-pipelines.yml`).
 - Understand GitHub Actions, Jenkins, and other common pipeline formats.
 - Trigger, monitor, and diagnose pipeline runs.
 
 ### Collaboration & Ticketing
+
 - **Jira MCP**: Create, update, transition, and comment on Jira issues. Link issues and track work against tickets.
 - **Bitbucket MCP**: Browse repositories, create branches, open/merge pull requests, respond to review comments.
 - **Confluence MCP**: Read and write runbooks, architecture docs, post-mortems, and onboarding guides.
@@ -43,6 +46,7 @@ This skill equips the agent with the capabilities of a **Senior DevOps / Platfor
 > **MANDATORY**: Before executing any critical or destructive action, you MUST present the exact command / plan to the user and ask for explicit confirmation. Do NOT proceed without a "yes" or equivalent approval.
 
 ### What qualifies as a "critical action" requiring approval:
+
 - Any `terraform apply` or `terraform destroy`
 - Any `aws` CLI command that **mutates** state: `create`, `delete`, `terminate`, `stop`, `modify`, `put`, `update`, `attach`, `detach`
 - Any Ansible playbook run that makes changes (not `--check` mode)
@@ -65,6 +69,7 @@ Do you want me to proceed? (yes / no)
 ```
 
 ### Additional safety rules:
+
 1. **Verify before mutating**: Always run `describe`/`list`/`plan` commands first to confirm what you are targeting.
 2. **Use dry-run / plan mode when available**: Run `terraform plan` before `apply`, `--dry-run` for AWS CLI where supported, `--check` for Ansible.
 3. **Never touch `main`/`master` directly**: Always work on a feature branch.
@@ -184,24 +189,24 @@ Commit message prefixes: `feat`, `fix`, `chore`, `docs`, `refactor`, `ci`, `infr
 
 ## MCP Tool Reference
 
-| MCP Server        | Tools Available                      | Use For                                       |
-| ----------------- | ------------------------------------ | --------------------------------------------- |
-| `user-jira`       | `jira_get`, `jira_post`, `jira_put`, `jira_patch`, `jira_delete` | Create/update/transition Jira issues and comments |
-| `user-bitbucket`  | `bb_get`, `bb_post`, `bb_put`, `bb_patch`, `bb_delete`, `bb_clone` | Browse repos, open PRs, manage branches       |
-| `user-confluence` | `conf_get`, `conf_post`, `conf_put`, `conf_patch`, `conf_delete` | Read/write runbooks, architecture docs        |
+| MCP Server        | Tools Available                                                    | Use For                                           |
+| ----------------- | ------------------------------------------------------------------ | ------------------------------------------------- |
+| `user-jira`       | `jira_get`, `jira_post`, `jira_put`, `jira_patch`, `jira_delete`   | Create/update/transition Jira issues and comments |
+| `user-bitbucket`  | `bb_get`, `bb_post`, `bb_put`, `bb_patch`, `bb_delete`, `bb_clone` | Browse repos, open PRs, manage branches           |
+| `user-confluence` | `conf_get`, `conf_post`, `conf_put`, `conf_patch`, `conf_delete`   | Read/write runbooks, architecture docs            |
 
 ---
 
 ## Tool Reference
 
-| Tool              | Usage                                                        |
-| ----------------- | ------------------------------------------------------------ |
-| `read_file`       | Read Terraform files, Ansible playbooks, pipeline configs    |
-| `write_file`      | Create or overwrite IaC, playbooks, scripts                  |
-| `edit_file`       | Make targeted edits to existing files                        |
+| Tool              | Usage                                                                    |
+| ----------------- | ------------------------------------------------------------------------ |
+| `read_file`       | Read Terraform files, Ansible playbooks, pipeline configs                |
+| `write_file`      | Create or overwrite IaC, playbooks, scripts                              |
+| `edit_file`       | Make targeted edits to existing files                                    |
 | `execute_command` | Run `terraform`, `ansible-playbook`, `aws` CLI, `git`, `kubectl`, `helm` |
-| `web_search`      | Look up Terraform docs, AWS API references, Ansible modules  |
-| MCP tools         | Jira, Bitbucket, Confluence integration (see table above)    |
+| `web_search`      | Look up Terraform docs, AWS API references, Ansible modules              |
+| MCP tools         | Jira, Bitbucket, Confluence integration (see table above)                |
 
 ---
 

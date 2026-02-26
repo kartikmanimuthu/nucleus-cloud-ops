@@ -119,6 +119,22 @@ export async function updateRunStatus(
 }
 
 /**
+ * Update the trigger metadata of a run.
+ */
+export async function updateRunTrigger(
+    tenantId: string,
+    runId: string,
+    trigger: TriggerMetadata
+): Promise<void> {
+    const nowIso = new Date().toISOString();
+    await AgentOpsRunModel.update(
+        { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
+        { trigger, updatedAt: nowIso }
+    );
+    console.log(`[AgentOpsService] Updated trigger metadata for run ${runId}`);
+}
+
+/**
  * Get a single run by ID.
  */
 export async function getRun(tenantId: string, runId: string): Promise<AgentOpsRun | null> {
@@ -144,31 +160,58 @@ export async function listRuns(query: RunListQuery): Promise<{
     lastKey?: Record<string, unknown>;
 }> {
     const limit = query.limit || 25;
-    const source = query.source ?? 'slack';
 
-    let q = AgentOpsRunModel.query('GSI1PK')
-        .eq(`SOURCE#${source}`)
-        .sort('descending')
-        .limit(limit)
-        .using('GSI1');
+    let runs: AgentOpsRun[] = [];
+    let lastKey: Record<string, unknown> | undefined;
 
-    if (query.lastKey) {
-        q = q.startAt(query.lastKey);
+    if (query.source) {
+        let q = AgentOpsRunModel.query('GSI1PK')
+            .eq(`SOURCE#${query.source}`)
+            .sort('descending')
+            .limit(limit)
+            .using('GSI1');
+
+        if (query.lastKey) {
+            q = q.startAt(query.lastKey);
+        }
+
+        const result = await q.exec();
+        runs = result.toJSON() as unknown as AgentOpsRun[];
+        lastKey = result.lastKey;
+    } else {
+        // Query all sources in parallel and merge
+        const sources: TriggerSource[] = ['slack', 'jira', 'api'];
+        const promises = sources.map(src =>
+            AgentOpsRunModel.query('GSI1PK')
+                .eq(`SOURCE#${src}`)
+                .sort('descending')
+                .limit(limit)
+                .using('GSI1')
+                .exec()
+        );
+
+        const results = await Promise.all(promises);
+        for (const res of results) {
+            runs.push(...(res.toJSON() as unknown as AgentOpsRun[]));
+        }
+
+        // Sort descending by createdAt
+        runs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        runs = runs.slice(0, limit);
     }
 
-    const result = await q.exec();
-
-    let runs = result.toJSON() as unknown as AgentOpsRun[];
-
     // Filter by tenantId and optional status in-memory (GSI1 is source-partitioned)
-    runs = runs.filter(r => r.tenantId === query.tenantId);
+    if (query.tenantId && query.tenantId !== 'default' && query.tenantId !== 'all') {
+        runs = runs.filter(r => r.tenantId === query.tenantId);
+    }
+
     if (query.status) {
         runs = runs.filter(r => r.status === query.status);
     }
 
     return {
         runs,
-        lastKey: result.lastKey,
+        lastKey,
     };
 }
 
@@ -300,6 +343,7 @@ export async function findAwaitingRunBySlackThread(
 export const agentOpsService = {
     createRun,
     updateRunStatus,
+    updateRunTrigger,
     getRun,
     listRuns,
     listRunsBySource,

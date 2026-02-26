@@ -132,7 +132,7 @@ export interface TriggerResponse {
 }
 
 export interface RunListQuery {
-    tenantId: string;
+    tenantId?: string;
     source?: TriggerSource;
     status?: AgentOpsStatus;
     limit?: number;

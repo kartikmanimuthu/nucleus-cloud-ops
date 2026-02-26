@@ -1,4 +1,4 @@
-import { BaseMessage, AIMessage, SystemMessage, HumanMessage } from "@langchain/core/messages";
+import { AIMessage, SystemMessage, HumanMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ChatBedrockConverse } from "@langchain/aws";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
@@ -33,35 +33,24 @@ import {
 export async function createReflectionGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
 
-    // Load skill content if a skill is selected
+    // Load skill content if a skill is selected. The SKILL.md file contains
+    // all privilege, safety, and workflow instructions for that skill.
     let skillContent = '';
-    const isDevOpsSkill = selectedSkill === 'devops';
-    const isSWESkill = selectedSkill === 'swe';
+    let skillSection = '';
 
     if (selectedSkill) {
         const content = getSkillContent(selectedSkill);
         if (content) {
-            skillContent = `\n\n=== SELECTED SKILL INSTRUCTIONS ===\n${content}\n\nYou MUST follow the above skill-specific instructions for this conversation. These instructions take precedence and guide your approach to handling user requests.\n=== END SKILL INSTRUCTIONS ===\n`;
+            skillContent = content;
+            skillSection = `\n\n=== ACTIVE SKILL: ${selectedSkill.toUpperCase()} ===\n${skillContent}\n\nYou MUST follow the above skill-specific instructions. They define your privileges, safety guidelines, and workflow for this conversation.\n=== END SKILL ===\n`;
             console.log(`[PlanningAgent] Loaded skill: ${selectedSkill}`);
         } else {
             console.warn(`[PlanningAgent] Failed to load skill content for: ${selectedSkill}`);
         }
     }
 
-    const readOnlyInstruction = isSWESkill
-        ? `IMPORTANT: You are operating with SOFTWARE ENGINEER (SWE) MUTATION PRIVILEGES.
-- You ARE allowed to read, write, create, and edit files in code repositories.
-- You ARE allowed to run git commands (clone, branch, commit, push) via execute_command.
-- You ARE allowed to interact with BitBucket (PRs, reviews, merges) and JIRA (create, update, transition, comment) via MCP tools if connected.
-- You ARE allowed to write and run tests.
-- Safety guidelines: always work on a feature branch (never push to main directly), write descriptive commit messages, and include PR descriptions summarising the change.`
-        : isDevOpsSkill
-        ? `IMPORTANT: You are operating with DEVOPS MUTATION PRIVILEGES. 
-- You ARE allowed to create, update, delete, start, stop, and modify AWS infrastructure resources as requested by the user.
-- Follow safety guidelines: prefer dry-runs if unsure, output confirmation prompts for destructive actions, and verify resource IDs before applying changes.`
-        : `IMPORTANT: You are a READ-ONLY agent. You MUST NOT create plans that modify, create, or delete resources.
-- Focus ONLY on observability, diagnosis, status checks, and log analysis.
-- Do NOT plan to deploy stacks, update services, or write to files unless explicitly for logging/reporting (and even then, prefer stdout).`;
+    // When no skill is selected, the agent defaults to a standard agentic assistant
+    // with no artificially imposed read-only or mutation restrictions.
 
     // --- Model Initialization ---
     const model = new ChatBedrockConverse({
@@ -126,6 +115,11 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
 4. Use the returned profile name with ALL subsequent AWS CLI commands by adding: --profile <profileName>`;
     }
 
+    // Shared base identity string used across all nodes
+    const baseIdentity = selectedSkill
+        ? `You are an expert AI agent operating under the "${selectedSkill}" skill.`
+        : `You are an expert AI agent. You are proficient with AWS CLI, Docker, Kubernetes, CI/CD pipelines, git, shell scripting, cloud infrastructure management, and general software engineering.`;
+
     // --- PLANNER NODE ---
     async function planNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         const { messages } = state;
@@ -140,11 +134,9 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================\n`);
 
-        const plannerSystemPrompt = new SystemMessage(`You are an expert DevOps and Cloud Infrastructure planning agent.
-Given a task, create a clear step-by-step plan to accomplish it, utilizing your expertise in AWS, Docker, Kubernetes, and CI/CD.
-${skillContent}
-${readOnlyInstruction}
-
+        const plannerSystemPrompt = new SystemMessage(`${baseIdentity}
+Your role is to create a clear, step-by-step plan to accomplish the user's task.
+${skillSection}
 Focus on actionable steps that can be executed using available tools:
 - read_file: Read content from a file (supports line ranges)
 - write_file: Write content to a file
@@ -220,14 +212,9 @@ Only return the JSON array, nothing else.`);
         const pendingSteps = plan.filter(s => s.status === 'pending' || s.status === 'in_progress');
         const currentStep = pendingSteps[0]?.step || "Complete the task";
 
-        const executorSystemPrompt = new SystemMessage(`You are an expert DevOps and Cloud Infrastructure executor agent.
-Your goal is to execute technical tasks with precision, utilizing tools like AWS CLI, git, bash, and more.
-${skillContent}
-${isDevOpsSkill ? `IMPORTANT: You have DEVOPS MUTATION ACCESS. You are authorized to execute commands that modify, create, or delete infrastructure if the plan requires it.` : `IMPORTANT: You are a READ-ONLY agent.
-- You MUST NOT execute commands that modify, create, or delete infrastructure or files (unless strictly necessary for reporting).
-- If the plan asks you to perform a mutation, REFUSE and explain that you are in read-only mode.
-- Your AWS IAM role is read-only.`}
-
+        const executorSystemPrompt = new SystemMessage(`${baseIdentity}
+Your role is to execute the current plan step with precision using available tools.
+${skillSection}
 Based on the plan, execute the current step using available tools.
 
 Current Step: ${currentStep}
@@ -248,7 +235,7 @@ ${accountContext}
 
 NOTE: AWS Cost Explorer only provides historical data for the last 14 months. Do not request data older than 14 months.
 
-IMPORTANT: You should use tools to accomplish the task if necessary. If the task is a simple question or greeting that doesn't require tools, you may answer directly.
+IMPORTANT: Use tools to accomplish the task if necessary. If the task is a simple question or greeting that doesn't require tools, you may answer directly.
 After using tools (or if no tools are needed), provide a brief summary of what you accomplished or the answer.`);
 
         const recentMessages = getRecentMessages(messages, 25);
@@ -310,13 +297,14 @@ After using tools (or if no tools are needed), provide a brief summary of what y
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================`);
 
-        const reflectorSystemPrompt = new SystemMessage(`You are a Senior DevOps Engineer reviewing work for best practices, security, and correctness.
+        // The reflector uses the skill's own instructions to judge correctness.
+        const skillCritiqueContext = skillContent
+            ? `The executor is operating under the "${selectedSkill}" skill. Use the following skill instructions to verify correctness and adherence:\n\n${skillContent}`
+            : `The executor is operating as a general-purpose agentic assistant with no specific skill constraints. Ensure it is acting helpfully and correctly.`;
 
-${isDevOpsSkill ? `IMPORTANT: The agent has DEVOPS MUTATION ACCESS.
-- Ensure the agent is performing mutations safely and verifying outcomes.
-- Flag risky destructive commands if they lack appropriate checks, but mutations themselves are ALLOWED.` : `IMPORTANT: Ensure the agent is adhering to READ-ONLY protocols.
-- Flag any attempt to modify, create, or delete resources as a CRITICAL ISSUE.
-- Verify that only diagnosis, observation, and status checks were performed.`}
+        const reflectorSystemPrompt = new SystemMessage(`You are a Senior Engineer reviewing the execution results of an AI agent for best practices, correctness, and completeness.
+
+${skillCritiqueContext}
 
 Original Task: ${taskDescription}
 
@@ -343,8 +331,6 @@ Be specific and actionable in your feedback.
 Only return the JSON object, nothing else.`);
 
         // Construct a clean input for the reflector to avoid tool-related validation issues
-        // This approach mirrors fast-agent.ts and prevents the reflector from trying to call tools
-
         // Find the most recent AI message that has text content
         const recentAiMessages = messages.filter(m => m._getType() === 'ai');
         const lastAiMessage = recentAiMessages.length > 0 ? recentAiMessages[recentAiMessages.length - 1] : null;
@@ -402,7 +388,6 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
                 }
                 // If no clear completion signal, continue the loop (isComplete stays false)
             }
-            // REMOVED: The overly aggressive "if (issues === 'None' && !isComplete)" fallback
             // Completion should ONLY be determined by the model's explicit isComplete flag
         } catch (e) {
             console.error("[Reflector] Parsing failed:", e);
@@ -455,17 +440,16 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================\n`);
 
-        const reviserSystemPrompt = new SystemMessage(`You are a code revision agent.
-Based on the feedback provided, make improvements to address the issues.
-
+        const reviserSystemPrompt = new SystemMessage(`${baseIdentity}
+Your role is to apply fixes and improvements based on reviewer feedback.
+${skillSection}
 Recent Feedback: ${reflection}
 Issues to Address: ${errors.join(', ') || 'None'}
 
 Use the available tools to fix problems and improve the solution.
 Focus on addressing the specific issues mentioned in the feedback.
 
-Available tools:
-- read_file, write_file, list_directory, execute_command, web_search`);
+Available tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials, list_aws_accounts`);
 
         const recentMessages = getRecentMessages(messages, 10);
         if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {

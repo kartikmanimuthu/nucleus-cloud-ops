@@ -26,8 +26,9 @@ export async function POST(req: Request) {
 
     // 1. Fetch signing secret from DynamoDB (falls back to env var inside verifySlackSignature)
     let signingSecretOverride: string | undefined;
+    let slackConfig: SlackIntegrationConfig | null | undefined;
     try {
-        const slackConfig = await TenantConfigService.getConfig<SlackIntegrationConfig>('agent-ops-slack');
+        slackConfig = await TenantConfigService.getConfig<SlackIntegrationConfig>('agent-ops-slack');
         if (slackConfig?.signingSecret) {
             signingSecretOverride = slackConfig.signingSecret;
         }
@@ -77,7 +78,10 @@ export async function POST(req: Request) {
 
             const resumedRun = { ...awaitingRun, taskDescription: enrichedTask };
             executeAgentRun(resumedRun)
-                .then(() => postResultToSlack(resumedRun as AgentOpsRun, payload.response_url))
+                .then(async () => {
+                    const freshRun = await agentOpsService.getRun(tenantId, awaitingRun.runId);
+                    await postResultToSlack((freshRun as AgentOpsRun) || (resumedRun as AgentOpsRun), payload.response_url);
+                })
                 .catch((err) => postErrorToSlack(err, awaitingRun.runId, payload.response_url));
 
             return NextResponse.json(
@@ -107,12 +111,46 @@ export async function POST(req: Request) {
         },
     });
 
+    // 6.5. Post initial message using API to start a thread (if botToken is available)
+    let initialMessageTs: string | undefined;
+    if (slackConfig?.botToken && !threadTs) {
+        try {
+            const startMsgRes = await fetch('https://slack.com/api/chat.postMessage', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${slackConfig.botToken}`,
+                },
+                body: JSON.stringify({
+                    channel: payload.channel_id,
+                    text: '🚀 Agent Ops Started\nTask: ' + run.taskDescription + '\nRun ID: `' + run.runId + '`',
+                }),
+            });
+            const startMsgData = await startMsgRes.json();
+            if (startMsgData.ok && startMsgData.ts) {
+                initialMessageTs = startMsgData.ts;
+                (run.trigger as any).threadTs = initialMessageTs;
+                await agentOpsService.updateRunTrigger(tenantId, run.runId, run.trigger);
+            }
+        } catch (postErr) {
+            console.warn('[Slack Trigger] Failed to post initial message via API:', postErr);
+        }
+    }
+
     // 7. Fire-and-forget: execute agent, then post result/error back to Slack
     executeAgentRun(run)
-        .then(() => postResultToSlack(run, payload.response_url))
+        .then(async () => {
+            const freshRun = await agentOpsService.getRun(tenantId, run.runId);
+            await postResultToSlack(freshRun || run, payload.response_url);
+        })
         .catch((err) => postErrorToSlack(err, run.runId, payload.response_url));
 
     // 8. Immediate acknowledgement — must return within Slack's 3-second window
+    if (initialMessageTs) {
+        // Acknowledge quietly, we already posted the message
+        return new Response(null, { status: 200 });
+    }
+
     return NextResponse.json(
         {
             response_type: 'ephemeral',

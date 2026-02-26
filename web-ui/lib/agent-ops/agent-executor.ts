@@ -84,20 +84,26 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
 
         // Load MCP server configs from DynamoDB (merged with defaults) and connect
         const mcpManager = getMCPManager();
-        if (mcpServerIds && mcpServerIds.length > 0) {
-            try {
-                const { TenantConfigService } = await import('../tenant-config-service');
-                const { mergeConfigs } = await import('../agent/mcp-config');
-                const savedJson = await TenantConfigService.getConfig('mcp-servers');
-                const allConfigs = mergeConfigs(savedJson);
-                await mcpManager.connectServers(mcpServerIds, allConfigs);
-                console.log(`[AgentExecutor] Connected MCP servers: ${mcpServerIds.join(', ')}`);
-            } catch (mcpErr) {
-                console.warn(`[AgentExecutor] MCP server connection failed (non-fatal):`, mcpErr);
+        let activeMcpServerIds = mcpServerIds || [];
+
+        try {
+            const { TenantConfigService } = await import('../tenant-config-service');
+            const { mergeConfigs } = await import('../agent/mcp-config');
+            const savedJson = await TenantConfigService.getConfig('mcp-servers');
+            const allConfigs = mergeConfigs(savedJson);
+
+            // If no explicit MCP servers provided, default to all enabled ones for headless runs
+            if (activeMcpServerIds.length === 0) {
+                activeMcpServerIds = allConfigs.filter(c => c.enabled).map(c => c.id);
             }
+
+            if (activeMcpServerIds.length > 0) {
+                await mcpManager.connectServers(activeMcpServerIds, allConfigs);
+                console.log(`[AgentExecutor] Connected MCP servers: ${activeMcpServerIds.join(', ')}`);
+            }
+        } catch (mcpErr) {
+            console.warn(`[AgentExecutor] MCP server connection failed (non-fatal):`, mcpErr);
         }
-
-
 
         // Record initial "started" event
         await agentOpsService.recordEvent({
@@ -115,7 +121,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
             accounts: accountId ? [{ accountId, accountName: accountName || accountId }] : [],
             accountId,
             accountName,
-            mcpServerIds: mcpServerIds || [],
+            mcpServerIds: activeMcpServerIds,
         };
 
         // 4. Create the unified dynamic graph
@@ -215,7 +221,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 if (freshRun) {
                     if (freshRun.source === 'slack') {
                         const slackTrigger = freshRun.trigger as SlackTriggerMeta;
-                        await postClarificationToSlack(clarificationQuestion, freshRun.runId, slackTrigger.responseUrl);
+                        await postClarificationToSlack(clarificationQuestion, freshRun, slackTrigger.responseUrl);
                     } else if (freshRun.source === 'jira') {
                         const { TenantConfigService } = await import('../tenant-config-service');
                         const jiraConfig = await TenantConfigService.getConfig<JiraIntegrationConfig>('agent-ops-jira').catch(() => undefined);

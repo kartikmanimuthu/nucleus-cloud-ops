@@ -72,7 +72,10 @@ export async function POST(req: Request) {
 
                     const resumedRun = { ...awaitingRun, taskDescription: enrichedTask };
                     executeAgentRun(resumedRun)
-                        .then(() => postResultToJira(resumedRun as AgentOpsRun, issueKey, jiraConfig))
+                        .then(async () => {
+                            const freshRun = await agentOpsService.getRun(tenantId, awaitingRun.runId);
+                            await postResultToJira((freshRun as AgentOpsRun) || (resumedRun as AgentOpsRun), issueKey, jiraConfig);
+                        })
                         .catch((err) => {
                             console.error('[Jira Trigger] Resume execution error:', err);
                             postErrorToJira(err, resumedRun as AgentOpsRun, issueKey, jiraConfig).catch(() => { });
@@ -119,7 +122,12 @@ export async function POST(req: Request) {
 
         // 8. Execute agent asynchronously, then post result/error back to Jira
         executeAgentRun(run)
-            .then(() => issueKey ? postResultToJira(run, issueKey, jiraConfig) : undefined)
+            .then(async () => {
+                if (issueKey) {
+                    const freshRun = await agentOpsService.getRun(tenantId, run.runId);
+                    await postResultToJira(freshRun || run, issueKey, jiraConfig);
+                }
+            })
             .catch((err) => {
                 console.error('[Jira Trigger] Execution error:', err);
                 if (issueKey) postErrorToJira(err, run, issueKey, jiraConfig).catch(() => { });

@@ -1,4 +1,4 @@
-import { BaseMessage, AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ChatBedrockConverse } from "@langchain/aws";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
@@ -24,45 +24,32 @@ import {
     getRecentMessages,
     checkpointer,
     getActiveMCPTools,
-    getMCPToolsDescription,
-    getMCPManager
+    getMCPManager,
+    getMCPToolsDescription
 } from "./agent-shared";
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
 export async function createFastGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
 
-    // Load skill content if a skill is selected
+    // Load skill content if a skill is selected. The SKILL.md file contains
+    // all privilege, safety, and workflow instructions for that skill.
     let skillContent = '';
-    const isDevOpsSkill = selectedSkill === 'devops';
-    const isSWESkill = selectedSkill === 'swe';
+    let skillSection = '';
 
     if (selectedSkill) {
         const content = getSkillContent(selectedSkill);
         if (content) {
-            skillContent = `\n\n=== SELECTED SKILL INSTRUCTIONS ===\n${content}\n\nYou MUST follow the above skill-specific instructions for this conversation. These instructions take precedence and guide your approach to handling user requests.\n=== END SKILL INSTRUCTIONS ===\n`;
+            skillContent = content;
+            skillSection = `\n\n=== ACTIVE SKILL: ${selectedSkill.toUpperCase()} ===\n${skillContent}\n\nYou MUST follow the above skill-specific instructions. They define your privileges, safety guidelines, and workflow for this conversation.\n=== END SKILL ===\n`;
             console.log(`[FastAgent] Loaded skill: ${selectedSkill}`);
         } else {
             console.warn(`[FastAgent] Failed to load skill content for: ${selectedSkill}`);
         }
     }
 
-    const readOnlyInstruction = isSWESkill
-        ? `IMPORTANT: You are operating with SOFTWARE ENGINEER (SWE) MUTATION PRIVILEGES.
-- You ARE allowed to read, write, create, and edit files in code repositories.
-- You ARE allowed to run git commands (clone, branch, commit, push) via execute_command.
-- You ARE allowed to interact with BitBucket (PRs, reviews, merges) and JIRA (create, update, transition, comment) via MCP tools if connected.
-- You ARE allowed to write and run tests.
-- Safety guidelines: always work on a feature branch (never push to main directly), write descriptive commit messages, and include PR descriptions summarising the change.`
-        : isDevOpsSkill
-        ? `IMPORTANT: You are operating with DEVOPS MUTATION PRIVILEGES. 
-- You ARE allowed to create, update, delete, start, stop, and modify AWS infrastructure resources as requested by the user.
-- If asked to perform a mutation, execute it using the CLI cautiously.`
-        : `IMPORTANT: You are a READ-ONLY agent.
-- You MUST NOT perform any mutation operations (create, update, delete resources).
-- You MUST NOT execute dangerous commands (rm, mv, etc).
-- Your AWS IAM role is read-only.
-- If asked to perform a mutation, politely refuse and explain your read-only limitations.`;
+    // When no skill is selected, the agent defaults to a standard agentic assistant
+    // with no artificially imposed read-only or mutation restrictions.
 
     // --- Model Initialization ---
     const model = new ChatBedrockConverse({
@@ -123,12 +110,13 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================\n`);
 
-        const systemPrompt = new SystemMessage(`You are a capable DevOps and Cloud Infrastructure assistant.
-You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials, list_aws_accounts.
-You are proficient with AWS CLI, git, shell scripting, and infrastructure management.
-${skillContent}
-${readOnlyInstruction}
+        const baseIdentity = selectedSkill
+            ? `You are a capable AI assistant operating under the "${selectedSkill}" skill.`
+            : `You are a capable AI assistant. You are proficient with AWS CLI, git, shell scripting, cloud infrastructure management, and general software engineering tasks.`;
 
+        const systemPrompt = new SystemMessage(`${baseIdentity}
+You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials, list_aws_accounts.
+${skillSection}
 CONVERSATION CONTINUITY: Review the conversation history carefully.
 If this is a follow-up question, use the context from previous exchanges to provide accurate and relevant responses.
 Reference previous findings, tool outputs, and context when answering follow-up questions.
@@ -187,19 +175,28 @@ Be concise and effective.`);
         }
 
         console.log(`\n================================================================================`);
-        console.log(`🤔 [FAST REFECTOR] Critiquing response`);
+        console.log(`🤔 [FAST REFLECTOR] Critiquing response`);
         console.log(`================================================================================\n`);
 
-        const reflectorPrompt = new SystemMessage(`You are a strict critic reviewing an AI assistant's response.
-Analyze the response for:
-1. Correctness
-2. Completeness (did it answer the user's request?)
-3. Missing details
-4. SECURITY: ${isSWESkill ? `The assistant has SWE MUTATION PRIVILEGES. Ensure code/file mutations were done on a feature branch and not directly on main. Verify commits and PRs follow best practices.` : isDevOpsSkill ? `The assistant has MUTATION PRIVILEGES. Ensure destructive actions were performed intentionally, cautiously, and successfully.` : `Ensure the assistant acted as a READ-ONLY agent. If it performed any mutation/write/delete operations on AWS, flag this as a major error.`}
+        // The reflector critique is informed by the skill's own instructions.
+        // If a skill is active, its privilege/safety context is used to evaluate correctness.
+        const skillCritiqueContext = skillContent
+            ? `The assistant is operating under the "${selectedSkill}" skill. Use the following skill instructions to verify correctness and adherence:\n\n${skillContent}`
+            : `The assistant is operating as a general-purpose agentic assistant with no specific skill constraints.`;
 
-If the response is good and complete, respond with "COMPLETE".
+        const reflectorPrompt = new SystemMessage(`You are a strict critic reviewing an AI assistant's response.
+
+${skillCritiqueContext}
+
+Analyze the response for:
+1. Correctness — did it answer the user's question accurately?
+2. Completeness — did it fully address the request?
+3. Missing details or gaps in reasoning
+4. Adherence to skill-specific safety guidelines and privilege rules (if a skill is active)
+
+If the response is good and complete, respond with exactly "COMPLETE".
 If there are issues, list them clearly and concisely as feedback for the assistant to fix.
-Do not generate the fixed answer yourself, just the analysis.`);
+Do not generate the fixed answer yourself — only provide the critique.`);
 
         // Construct a clean context for the Reflector to avoid Bedrock tool validation issues
         // and to prevent the Reflector from trying to use tools itself.
@@ -226,7 +223,7 @@ Please provide your critique.`
         const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
 
         if (!content) {
-            console.log(`⚠️ [FAST REFECTOR] Empty content received!`);
+            console.log(`⚠️ [FAST REFLECTOR] Empty content received!`);
             console.log(`   Input Query Length: ${originalQuery.length}`);
             console.log(`   Agent Response Length: ${agentResponse.length}`);
             console.log(`   Raw Response:`, JSON.stringify(response));
