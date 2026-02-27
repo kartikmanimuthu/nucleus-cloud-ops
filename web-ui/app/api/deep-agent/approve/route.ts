@@ -92,15 +92,13 @@ export async function POST(req: NextRequest) {
                         } else {
                             if (nodeData?.messages) {
                                 for (const msg of nodeData.messages ?? []) {
-                                    const text =
-                                        typeof msg?.content === 'string'
-                                            ? msg.content
-                                            : Array.isArray(msg?.content)
-                                                ? msg.content.map((c: any) => c?.text ?? '').join('')
-                                                : '';
-                                    if (text) {
-                                        accumulatedText += text;
-                                        enqueue('text-delta', { text });
+                                    // Only emit text-delta for AI messages, not tool results
+                                    if (key !== 'tools') {
+                                        const text = extractText(msg?.content);
+                                        if (text) {
+                                            accumulatedText += text;
+                                            enqueue('text-delta', { text });
+                                        }
                                     }
 
                                     if (msg?.tool_calls?.length > 0) {

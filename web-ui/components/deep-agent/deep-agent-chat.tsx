@@ -37,6 +37,7 @@ import remarkGfm from 'remark-gfm';
 import type {
   TodoItem,
   SubagentEvent,
+  SubagentToolItem,
   PendingApproval,
   ApprovalDecision,
   DeepAgentMessage,
@@ -103,6 +104,9 @@ export function DeepAgentChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
+  // Maps namespace UUIDs (from subagent-tool/subagent-delta events) to their
+  // matching subagent card ID (from subagent-start). Reset on each new request.
+  const subagentIdMapRef = useRef<Map<string, string>>(new Map());
 
   // --- Scroll to bottom ---
   const scrollToBottom = useCallback(() => {
@@ -244,6 +248,7 @@ export function DeepAgentChat() {
     setInput('');
     setIsLoading(true);
     setPendingApproval(null);
+    subagentIdMapRef.current = new Map(); // reset ID mapping for fresh stream
 
     // Append user message to UI
     const userMsg: ChatMessage = {
@@ -299,6 +304,32 @@ export function DeepAgentChat() {
   // Handle stream events from server
   // ---------------------------------------------------------------------------
 
+  /**
+   * Resolves a potentially-unknown external subagent ID (LangGraph namespace UUID)
+   * to the internal subagent card ID (Anthropic tool call ID from subagent-start).
+   *
+   * The server tries to resolve this but may fail when subgraph chunks arrive
+   * before the main agent's tool-call chunk. This client-side fallback associates
+   * any unknown ID with the most recently started running subagent.
+   */
+  function resolveSubagentId(externalId: string, events: SubagentEvent[]): string {
+    const map = subagentIdMapRef.current;
+    // Already mapped — return cached result
+    if (map.has(externalId)) return map.get(externalId)!;
+    // Direct match — no mapping needed
+    if (events.some(se => se.id === externalId)) return externalId;
+    // Find the most recently started subagent that is still running and unmapped
+    const mapped = new Set(map.values());
+    const running = [...events].reverse().find(
+      se => (se.status === 'running' || se.status === 'pending') && !mapped.has(se.id),
+    );
+    if (running) {
+      map.set(externalId, running.id);
+      return running.id;
+    }
+    return externalId;
+  }
+
   function handleStreamEvent(assistantId: string, event: string, data: any) {
     switch (event) {
       case 'text-delta':
@@ -348,13 +379,55 @@ export function DeepAgentChat() {
         ));
         break;
 
+      case 'subagent-delta':
+        // Append live thinking text to the matching subagent event
+        setMessages(prev => prev.map(m => {
+          if (m.id !== assistantId) return m;
+          const events = m.subagentEvents ?? [];
+          const resolvedId = resolveSubagentId(data.toolCallId, events);
+          return {
+            ...m,
+            subagentEvents: events.map(se =>
+              se.id === resolvedId
+                ? { ...se, deltaText: (se.deltaText ?? '') + (data.text ?? '') }
+                : se,
+            ),
+          };
+        }));
+        break;
+
+      case 'subagent-tool':
+        // Push a new tool-call record into the matching subagent event
+        setMessages(prev => prev.map(m => {
+          if (m.id !== assistantId) return m;
+          const events = m.subagentEvents ?? [];
+          const resolvedId = resolveSubagentId(data.toolCallId, events);
+          return {
+            ...m,
+            subagentEvents: events.map(se =>
+              se.id === resolvedId
+                ? {
+                    ...se,
+                    tools: [
+                      ...(se.tools ?? []),
+                      { toolName: data.toolName, result: data.result, timestamp: new Date().toISOString() } as SubagentToolItem,
+                    ],
+                  }
+                : se,
+            ),
+          };
+        }));
+        break;
+
       case 'subagent-complete':
         setMessages(prev => prev.map(m => {
           if (m.id !== assistantId) return m;
           return {
             ...m,
             subagentEvents: (m.subagentEvents ?? []).map(se =>
-              se.id === data.id ? { ...se, status: 'complete', result: data.result } : se,
+              se.id === data.id
+                ? { ...se, status: 'complete', result: data.result, completedAt: data.completedAt }
+                : se,
             ),
           };
         }));
@@ -392,6 +465,7 @@ export function DeepAgentChat() {
     if (!activeThreadId) return;
     setPendingApproval(null);
     setIsLoading(true);
+    subagentIdMapRef.current = new Map(); // reset ID mapping for resume stream
 
     const assistantId = uuidv4();
     const placeholder: ChatMessage = {

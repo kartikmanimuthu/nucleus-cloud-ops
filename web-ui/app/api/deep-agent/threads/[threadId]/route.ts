@@ -12,10 +12,11 @@ import {
 
 export async function GET(
     _req: NextRequest,
-    { params }: { params: { threadId: string } },
+    context: { params: Promise<{ threadId: string }> },
 ) {
     try {
-        const thread = await getThread(params.threadId);
+        const { threadId } = await context.params;
+        const thread = await getThread(threadId);
         if (!thread) {
             return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
         }
@@ -28,10 +29,11 @@ export async function GET(
 
 export async function DELETE(
     _req: NextRequest,
-    { params }: { params: { threadId: string } },
+    context: { params: Promise<{ threadId: string }> },
 ) {
     try {
-        const deleted = await deleteThread(params.threadId);
+        const { threadId } = await context.params;
+        const deleted = await deleteThread(threadId);
         if (!deleted) {
             return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
         }

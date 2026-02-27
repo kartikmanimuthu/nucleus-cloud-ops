@@ -177,6 +177,13 @@ export async function POST(req: NextRequest) {
                 let todos: TodoItem[] = [];
                 let chunkCount = 0;
 
+                // Maps a LangGraph internal namespace tool-call UUID → the outer Anthropic
+                // tool call ID used in subagent-start, so subagent-tool/subagent-delta
+                // events carry an ID that matches the card on the client.
+                // Key: namespace toolCallId (e.g. "d7e5192d-...")
+                // Value: outer subagent event id (e.g. "tooluse_...")
+                const nsIdToOuterId = new Map<string, string>();
+
                 for await (const [namespace, chunk] of graphStream as any) {
                     chunkCount++;
                     const isSubagent = Array.isArray(namespace) && namespace.length > 0;
@@ -190,43 +197,92 @@ export async function POST(req: NextRequest) {
                     });
 
                     if (isSubagent) {
-                        // Subagent event — identify by tool call ID embedded in namespace
-                        const toolCallId =
+                        // Resolve namespace tool-call UUID → outer subagent id.
+                        // The namespace array looks like ["subgraph_name:uuid", "tools:uuid"].
+                        // We extract the `tools:` segment UUID as the namespace key.
+                        const nsToolCallId =
                             (namespace as string[])
                                 .find((s: string) => s.startsWith('tools:'))
-                                ?.split(':')[1] ?? 'unknown';
+                                ?.split(':')[1] ?? (namespace as string[])[0] ?? 'unknown';
 
-                        // Extract subagent type from chunk keys
+                        // If we already mapped this namespace to an outer ID use it;
+                        // otherwise do a FIFO match with the next pending subagent event.
+                        let resolvedToolCallId = nsIdToOuterId.get(nsToolCallId);
+                        if (!resolvedToolCallId) {
+                            // Find the oldest pending/running subagent that has not yet
+                            // been associated with any namespace chunk.
+                            const unmapped = subagentEvents.find(
+                                se => se.status !== 'complete' && se.status !== 'error' &&
+                                    ![...nsIdToOuterId.values()].includes(se.id),
+                            );
+                            if (unmapped) {
+                                nsIdToOuterId.set(nsToolCallId, unmapped.id);
+                                resolvedToolCallId = unmapped.id;
+                                log.debug('Namespace mapped to outer subagent', {
+                                    threadId, nsToolCallId, outerId: unmapped.id,
+                                });
+                            } else {
+                                // Fallback — use namespace UUID directly; client will
+                                // do secondary resolution against the running subagent.
+                                resolvedToolCallId = nsToolCallId;
+                            }
+                        }
+
                         const chunkKeys = Object.keys(chunk || {});
 
                         for (const key of chunkKeys) {
                             const nodeData = (chunk as any)[key];
 
-                            // Subagent start (call_model)
+                            // Subagent text delta (call_model node)
                             if (key === 'call_model' && nodeData?.messages) {
-                                const msgs = nodeData.messages;
-                                for (const msg of msgs) {
+                                for (const msg of nodeData.messages) {
                                     if (msg?.content) {
                                         const text = extractText(msg.content);
                                         if (text) {
-                                            log.debug('Subagent text delta', { threadId, toolCallId, textLen: text.length });
-                                            enqueue('subagent-delta', { toolCallId, text });
+                                            log.debug('Subagent text delta', { threadId, resolvedToolCallId, textLen: text.length });
+                                            enqueue('subagent-delta', { toolCallId: resolvedToolCallId, text });
                                         }
                                     }
                                 }
                             }
 
-                            // Subagent tool calls
+                            // Subagent tool results (tools node)
                             if (key === 'tools' && nodeData?.messages) {
                                 for (const msg of nodeData.messages) {
                                     const toolName = msg?.name || 'tool';
                                     const content = extractText(msg?.content);
-                                    log.info('Subagent tool result', { threadId, toolCallId, toolName, resultLen: content.length });
+                                    log.info('Subagent tool result', { threadId, resolvedToolCallId, toolName, resultLen: content.length });
                                     enqueue('subagent-tool', {
-                                        toolCallId,
+                                        toolCallId: resolvedToolCallId,
                                         toolName,
                                         result: truncateToolOutput(content),
                                     });
+
+                                    // Parse subagent internal todo updates and surface
+                                    // them in the main todo panel.
+                                    const todoMatch = content.match(/Updated todo list to (\[[\s\S]*?\])(?:\s|$)/);
+                                    if (todoMatch) {
+                                        try {
+                                            const rawItems: Array<{ content: string; status: string }> =
+                                                JSON.parse(todoMatch[1]);
+                                            const mapped: TodoItem[] = rawItems.map((t, i) => ({
+                                                id: `subagent-todo-${i}`,
+                                                title: t.content,
+                                                status: (
+                                                    t.status === 'completed' ? 'done'
+                                                        : t.status === 'in_progress' ? 'in_progress'
+                                                            : 'pending'
+                                                ) as TodoItem['status'],
+                                                createdAt: new Date().toISOString(),
+                                                updatedAt: new Date().toISOString(),
+                                            }));
+                                            todos = mapped;
+                                            enqueue('todo-update', { todos: mapped });
+                                            await upsertTodos(threadId, mapped);
+                                        } catch {
+                                            /* ignore parse errors */
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -257,16 +313,19 @@ export async function POST(req: NextRequest) {
                                 continue;
                             }
 
-                            // Main agent output
+                            // Main agent messages
                             if (nodeData?.messages) {
                                 for (const msg of nodeData.messages) {
                                     if (!msg) continue;
 
-                                    // Text delta
-                                    const text = extractText(msg.content);
-                                    if (text) {
-                                        accumulatedText += text;
-                                        enqueue('text-delta', { text });
+                                    // Text delta — only from AI messages; skip tool-result nodes
+                                    // to prevent raw JSON from bleeding into the assistant bubble.
+                                    if (key !== 'tools') {
+                                        const text = extractText(msg.content);
+                                        if (text) {
+                                            accumulatedText += text;
+                                            enqueue('text-delta', { text });
+                                        }
                                     }
 
                                     // Tool calls (task delegations to subagents)
@@ -313,7 +372,7 @@ export async function POST(req: NextRequest) {
                                 }
                             }
 
-                            // Tool results
+                            // Tool results from main graph
                             if (key === 'tools' && nodeData?.messages) {
                                 for (const msg of nodeData.messages) {
                                     const content = extractText(msg?.content);
@@ -347,7 +406,7 @@ export async function POST(req: NextRequest) {
                                 }
                             }
 
-                            // Todo updates from write_todos tool
+                            // Todo updates from main graph write_todos tool
                             if (nodeData?.todos) {
                                 todos = nodeData.todos;
                                 enqueue('todo-update', { todos });
@@ -355,7 +414,7 @@ export async function POST(req: NextRequest) {
                             }
                         }
 
-                        // Check for interrupts at the top level of the chunk
+                        // Top-level interrupt check
                         if ((chunk as any)?.__interrupt__) {
                             const interrupts = (chunk as any).__interrupt__[0]?.value;
                             if (interrupts) {

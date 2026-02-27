@@ -72,6 +72,13 @@ export interface PendingApproval {
 
 export type SubagentStatus = 'pending' | 'running' | 'complete' | 'error';
 
+/** A single tool call made by a subagent while it executes. */
+export interface SubagentToolItem {
+    toolName: string;
+    result: string;
+    timestamp: string; // ISO
+}
+
 export interface SubagentEvent {
     id: string;          // Tool call ID
     name: string;        // Subagent name (e.g. "aws-ops")
@@ -81,6 +88,10 @@ export interface SubagentEvent {
     completedAt?: string;
     result?: string;
     error?: string;
+    /** Live streaming thinking text (from subagent-delta events) */
+    deltaText?: string;
+    /** Tool invocations made by this subagent (from subagent-tool events) */
+    tools?: SubagentToolItem[];
 }
 
 // ---------------------------------------------------------------------------
