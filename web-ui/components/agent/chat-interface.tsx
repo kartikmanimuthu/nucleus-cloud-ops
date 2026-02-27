@@ -42,6 +42,7 @@ import {
 const AGENT_MODES = [
   { id: "plan", label: "Plan & Execute" },
   { id: "fast", label: "Fast (ReAct)" },
+  { id: "deep", label: "Deep Agent" },
 ];
 
 import React, { useCallback, useEffect, useRef, useState } from "react";

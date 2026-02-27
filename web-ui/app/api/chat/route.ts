@@ -1,7 +1,7 @@
 import { HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
 import { NextResponse } from 'next/server';
 import { createUIMessageStreamResponse, UIMessageChunk } from 'ai';
-import { createReflectionGraph, createFastGraph } from '@/lib/agent/graph-factory';
+import { createReflectionGraph, createFastGraph, createDeepGraph } from '@/lib/agent/graph-factory';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -75,9 +75,14 @@ export async function POST(req: Request) {
             mcpServerIds: mcpServerIds || [],       // Pass MCP server IDs for dynamic tool loading
         };
 
-        const graph = mode === 'fast'
-            ? await createFastGraph(graphConfig)
-            : await createReflectionGraph(graphConfig);
+        let graph;
+        if (mode === 'deep') {
+            graph = await createDeepGraph(graphConfig);
+        } else if (mode === 'fast') {
+            graph = await createFastGraph(graphConfig);
+        } else {
+            graph = await createReflectionGraph(graphConfig);
+        }
 
         const lastMessage = messages[messages.length - 1];
         let input: { messages: (HumanMessage | AIMessage | ToolMessage)[] } | null = null;
@@ -232,6 +237,10 @@ function getPhaseFromNode(node: string): AgentPhase {
             return 'final';
         case 'agent':
             return 'execution';
+        case 'call_model':
+            return 'execution';   // Deep Agent main model node
+        case 'tools':
+            return 'execution';   // Deep Agent tool execution
         default:
             return 'text';
     }

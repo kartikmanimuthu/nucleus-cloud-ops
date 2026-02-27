@@ -1,0 +1,294 @@
+# Deep Agent — Segregated Module (Full Feature Implementation)
+
+Complete re-implementation leveraging the `deepagents` npm package natively with all features: **subagents**, **HITL approval** (approve/edit/reject), **short-term + long-term memory**, **skills**, **todo management**, **persistent chat history**, and a **revamped UI**.
+
+---
+
+## Database Recommendation
+
+> [!IMPORTANT]
+> **MongoDB/DocumentDB** for chat history persistence. The deepagents [Store](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/store/thread-store.ts#25-103) API handles long-term memory internally via `InMemoryStore` (dev) or `PostgresStore` (prod). Chat history is separate — we use MongoDB for thread/message persistence since it's document-shaped, append-heavy data.
+
+---
+
+## Architecture Overview
+
+```mermaid
+graph TB
+    UI["/deep-agent Page"] --> API["/api/deep-agent/chat"]
+    API --> DA["createDeepAgent()"]
+    DA --> CB["CompositeBackend"]
+    CB --> SB["StateBackend (Short-term)"]
+    CB --> STB["StoreBackend @ /memories/ (Long-term)"]
+    DA --> SA1["SubAgent: aws-ops"]
+    DA --> SA2["SubAgent: research"]
+    DA --> SA3["SubAgent: code-iac"]
+    DA --> HITL["interruptOn (HITL)"]
+    DA --> SK["Skills from /skills/"]
+    DA --> CP["DynamoDB/S3 Checkpointer"]
+    API --> MDB["MongoDB (Chat History + Todos)"]
+    STB --> Store["InMemoryStore / MongoStore"]
+```
+
+---
+
+## Proposed Changes
+
+### 1. Backend Module — `web-ui/lib/deep-agent/`
+
+---
+
+#### [NEW] [types.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/deep-agent/types.ts)
+
+- `DeepAgentConfig` — extends `GraphConfig` with memory/store options
+- `TodoItem` — `{id, title, status: pending|in_progress|done|blocked, createdAt, updatedAt}`
+- `ApprovalRequest` — `{toolCallId, toolName, args, allowedDecisions, status}`
+- `DeepAgentThread` — `{threadId, title, model, messages[], todos[], createdAt, updatedAt}`
+- `SubagentStatus` — `{id, name, status: pending|running|complete|error, result}`
+
+---
+
+#### [NEW] [deep-agent-graph.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/deep-agent/deep-agent-graph.ts)
+
+Uses `createDeepAgent()` from the `deepagents` package with **all** features:
+
+```typescript
+import { createDeepAgent, CompositeBackend, StateBackend, StoreBackend } from "deepagents";
+import { InMemoryStore } from "@langchain/langgraph";
+
+const store = new InMemoryStore(); // or MongoStore for prod
+
+const agent = await createDeepAgent({
+  model: bedrockModel,
+  tools: [...customTools, ...mcpTools],
+  systemPrompt: systemPrompt,
+  subagents: [awsOpsSubagent, researchSubagent, codeIacSubagent],
+  checkpointer: checkpointer,         // DynamoDB/S3 saver
+  store: store,                        // For long-term memory
+  backend: (config) => new CompositeBackend(
+    new StateBackend(config),          // Short-term (thread-scoped)
+    { "/memories/": new StoreBackend(config) }  // Long-term (cross-thread)
+  ),
+  memory: ["/AGENTS.md"],              // Auto-loaded memory files
+  skills: skillPaths,                  // e.g. ["/skills/devops/"]
+  interruptOn: autoApprove ? undefined : {
+    execute_command: true,             // approve, edit, reject
+    write_file: { allowedDecisions: ["approve", "reject"] },
+    edit_file: { allowedDecisions: ["approve", "reject"] },
+    delete_file: true,
+  },
+});
+```
+
+**Key features integrated:**
+- **SubAgents** — 3 domain subagents (aws-ops, research, code-iac) with per-subagent tools, system prompts, and optional skill paths
+- **HITL** — `interruptOn` with per-tool granularity; `Command({resume: {decisions}})` for approval/edit/reject
+- **Short-term memory** — `StateBackend` stores transient files within thread scope (notes, drafts)
+- **Long-term memory** — `StoreBackend` at `/memories/` path persists preferences/knowledge across threads
+- **Skills** — Loaded from virtual filesystem paths; if none selected, all available skills auto-loaded
+- **Memory files** — `memory: ["/AGENTS.md"]` for persistent context
+- **Todos** — Built-in `write_todos` tool for task planning
+
+---
+
+#### [NEW] [memory-store.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/deep-agent/memory-store.ts)
+
+MongoDB-backed store implementing `BaseStore` for production long-term memory:
+- [get(namespace, key)](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/agent/tools.ts#456-463) — retrieve a memory item
+- [put(namespace, key, value)](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/agent/dynamodb-s3-saver.ts#178-261) — store a memory item
+- [delete(namespace, key)](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/store/thread-store.ts#81-102) — remove a memory item
+- `search(namespace)` — list all items in namespace
+- Falls back to `InMemoryStore` when `MONGODB_URI` is not set
+
+---
+
+#### [NEW] [todo-manager.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/deep-agent/todo-manager.ts)
+
+Wraps the deepagents built-in `write_todos` with MongoDB persistence:
+- Listens for todo updates from agent state
+- Persists to MongoDB `deep_agent_todos` collection
+- Exposes REST-friendly CRUD for the UI panel
+
+---
+
+#### [NEW] [index.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/deep-agent/index.ts)
+
+Barrel export.
+
+---
+
+### 2. Database Layer — `web-ui/lib/deep-agent/db/`
+
+---
+
+#### [NEW] [mongo-client.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/deep-agent/db/mongo-client.ts)
+
+Singleton `MongoClient` reading `MONGODB_URI` from env. Database: `nucleus_deep_agent`.
+
+---
+
+#### [NEW] [chat-history-store.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/deep-agent/db/chat-history-store.ts)
+
+- [createThread(id, title, model)](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/store/thread-store.ts#53-66) / [getThread(id)](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/store/thread-store.ts#48-52) / [listThreads(limit, skip)](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/store/thread-store.ts#44-47) / [deleteThread(id)](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/store/thread-store.ts#81-102)
+- `appendMessage(threadId, message)` — persists each message with role, content, tool calls, phase, timestamp
+- [updateThread(id, updates)](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/store/thread-store.ts#67-80) — title, updatedAt
+- Indexes: `{threadId: 1}` (unique), `{updatedAt: -1}`
+
+---
+
+#### [NEW] [todo-store.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/deep-agent/db/todo-store.ts)
+
+`upsertTodos(threadId, todos)` / `getTodos(threadId)` / `deleteTodo(threadId, todoId)`
+
+---
+
+### 3. API Routes — `web-ui/app/api/deep-agent/`
+
+---
+
+#### [NEW] [chat/route.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/app/api/deep-agent/chat/route.ts)
+
+- Creates deep agent graph with all features
+- Streams via `graph.stream({...}, {streamMode: "updates", subgraphs: true})` for subagent visibility
+- Handles HITL resume: `graph.invoke(new Command({resume: {decisions}}), config)`
+- Extracts `__interrupt__` with `actionRequests` and `reviewConfigs` for pending approvals
+- Persists messages to MongoDB after each turn
+- Returns subagent events with namespace tracking
+
+---
+
+#### [NEW] [threads/route.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/app/api/deep-agent/threads/route.ts)
+
+GET list / POST create / DELETE remove.
+
+#### [NEW] [threads/[threadId]/route.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/app/api/deep-agent/threads/%5BthreadId%5D/route.ts)
+
+GET thread with full history.
+
+---
+
+#### [NEW] [todos/route.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/app/api/deep-agent/todos/route.ts)
+
+GET / POST / PATCH / DELETE for todo items.
+
+---
+
+#### [NEW] [approve/route.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/app/api/deep-agent/approve/route.ts)
+
+POST — receives `{threadId, decisions: [{type: "approve"|"edit"|"reject", args?}]}`, invokes `Command({resume: {decisions}})`.
+
+---
+
+### 4. Frontend — `web-ui/components/deep-agent/` + `web-ui/app/deep-agent/`
+
+Revamped UI with premium dark-mode design, 3-panel layout, and real-time subagent visualization.
+
+---
+
+#### [NEW] [page.tsx](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/app/deep-agent/page.tsx) + [layout.tsx](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/app/deep-agent/layout.tsx)
+
+Next.js page and layout.
+
+---
+
+#### [NEW] [deep-agent-chat.tsx](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/components/deep-agent/deep-agent-chat.tsx)
+
+Main chat component — **resizable 3-panel layout**:
+- **Left**: Thread sidebar (history from MongoDB)
+- **Center**: Chat area with streaming messages, subagent cards, approval inline
+- **Right**: Todo panel (real-time updates)
+
+Features:
+- Streaming via `useChat` or custom `streamEvents` handler pointed at `/api/deep-agent/chat`
+- **Subagent cards** — shows active subagents with name, status (pending/running/complete), progress
+- **Phase indicators** — planning → execution → approval → complete with animations
+- **Model/MCP/Skill selector** — unified toolbar at bottom
+- **Auto-approve toggle** — prominent switch; when off, approval dialogs appear inline
+- **If no skill selected** — auto-loads all available skills
+
+---
+
+#### [NEW] [subagent-card.tsx](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/components/deep-agent/subagent-card.tsx)
+
+Expandable card for each subagent showing:
+- Name + description (from SubAgent config)
+- Status badge (pending/running/complete/error)
+- Messages (streaming content within subagent)
+- Tool calls with input/output
+- Collapse/expand with smooth animation
+
+---
+
+#### [NEW] [todo-panel.tsx](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/components/deep-agent/todo-panel.tsx)
+
+Right panel with real-time todo updates:
+- Status indicators: ⬜ pending, 🔶 in_progress, ✅ done, 🔴 blocked
+- User can add/edit/delete todos manually
+- Syncs with agent's `write_todos` output
+- Collapsible panel with drag handle
+
+---
+
+#### [NEW] [approval-dialog.tsx](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/components/deep-agent/approval-dialog.tsx)
+
+Inline HITL approval with 3 decision types:
+- **Approve** — execute tool as-is
+- **Edit** — modify args before execution (editable JSON form)
+- **Reject** — skip tool call, optionally provide feedback
+- Shows `allowedDecisions` from `reviewConfigs`
+- Batch approval: "Approve All" for multiple pending tool calls
+- Animated slide-in appearance
+
+---
+
+#### [NEW] [mcp-skill-selector.tsx](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/components/deep-agent/mcp-skill-selector.tsx)
+
+- MCP server multi-select
+- Skill dropdown with "Auto-load all" toggle
+- Compact toolbar integration
+
+---
+
+#### [NEW] [thread-sidebar.tsx](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/components/deep-agent/thread-sidebar.tsx)
+
+- Thread list from MongoDB (persistent across sessions)
+- Create new / delete with confirmation
+- Active thread highlighting
+- Search/filter
+
+---
+
+### 5. Navigation & Dependencies
+
+#### [MODIFY] Sidebar navigation — add "Deep Agent" link pointing to `/deep-agent` with `Brain` icon
+
+#### [MODIFY] [package.json](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/package.json) — add `mongodb` driver
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Memory architecture**: The `deepagents` library uses `CompositeBackend` with `StateBackend` (short-term, thread-scoped) + `StoreBackend` (long-term, cross-thread at `/memories/`). For production, the docs recommend `PostgresStore`. Since we're adding MongoDB for chat history anyway, I'll implement a **MongoStore** adapter that implements `BaseStore` — this avoids adding a second database (PostgreSQL). Alternatively, we could use `InMemoryStore` for memory and only MongoDB for chat history. **Which approach do you prefer?**
+
+> [!WARNING]
+> **Existing module untouched**: No changes to [chat-interface.tsx](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/components/agent/chat-interface.tsx), existing [route.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/app/api/chat/route.ts), [thread-store.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/store/thread-store.ts), [planning-agent.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/agent/planning-agent.ts), [fast-agent.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/agent/fast-agent.ts), or the current [deep-agent.ts](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/lib/agent/deep-agent.ts). The existing agent modes continue to work independently.
+
+---
+
+## Verification Plan
+
+### Automated
+1. `cd web-ui && npm run build` — TypeScript compiles
+2. `cd web-ui && npm run lint` — no ESLint errors
+
+### Manual
+1. Start MongoDB: `docker run -d -p 27017:27017 --name nucleus-mongo mongo:7`
+2. Set `MONGODB_URI=mongodb://localhost:27017/nucleus_deep_agent` in [.env.local](file:///Users/kartik/Documents/git-repo/nucleus-cloud-ops/web-ui/.env.local)
+3. `npm run dev` → navigate to `/deep-agent`
+4. Create thread → send message → verify streaming + subagent cards
+5. Check todo panel updates in real-time
+6. Disable auto-approve → trigger tool → verify approve/edit/reject dialog
+7. Write to `/memories/preferences.txt` in one thread → verify readable from new thread (long-term memory)
+8. Refresh page → verify old threads load from MongoDB (persistent chat history)
+9. Select MCP servers / skills → verify they're passed to agent
