@@ -17,6 +17,17 @@ import type {
     DeepAgentMessage,
 } from '../../../../lib/deep-agent/types';
 
+// Attempt to infer subagent name from a LangGraph namespace array.
+// Namespace entries look like "subgraph_name:uuid" or "tools:uuid".
+function inferSubagentName(namespace: string[]): string {
+    for (const part of namespace) {
+        if (part.startsWith('tools:')) continue;
+        const name = part.split(':')[0];
+        if (name && name !== 'tools') return name;
+    }
+    return 'aws-ops'; // safe fallback
+}
+
 export async function POST(req: NextRequest) {
     let body: DeepAgentApproveRequest & { config: any };
     try {
@@ -70,34 +81,78 @@ export async function POST(req: NextRequest) {
 
                 let accumulatedText = '';
 
+                // Namespace → synthetic outer ID mapping (same pattern as chat/route.ts).
+                // During resume the original subagent outer IDs are not available, so we
+                // generate a fresh UUID per subgraph namespace and emit a synthetic
+                // subagent-start so the UI can create a card in the new assistant message.
+                const namespaceToOuterId = new Map<string, string>();
+                const announcedNamespaces = new Set<string>();
+
+                function extractText(content: unknown): string {
+                    if (typeof content === 'string') return content;
+                    if (Array.isArray(content)) {
+                        return (content as any[]).map(c => c?.text ?? c?.content ?? '').filter(Boolean).join('');
+                    }
+                    return '';
+                }
+
                 for await (const [namespace, chunk] of graphStream as any) {
                     const isSubagent = Array.isArray(namespace) && namespace.length > 0;
                     const chunkKeys = Object.keys(chunk || {});
 
-                    for (const key of chunkKeys) {
-                        const nodeData = (chunk as any)[key];
+                    if (isSubagent) {
+                        // Resolve or create the outer ID for this subgraph namespace
+                        const nsKey = (namespace as string[]).join('|');
+                        if (!namespaceToOuterId.has(nsKey)) {
+                            namespaceToOuterId.set(nsKey, uuidv4());
+                        }
+                        const resolvedId = namespaceToOuterId.get(nsKey)!;
 
-                        if (isSubagent) {
-                            if (nodeData?.messages) {
+                        // Announce once so the UI creates a SubagentCard in the new message
+                        if (!announcedNamespaces.has(nsKey)) {
+                            announcedNamespaces.add(nsKey);
+                            enqueue('subagent-start', {
+                                id: resolvedId,
+                                name: inferSubagentName(namespace as string[]),
+                                description: 'Resuming after approval…',
+                                status: 'running',
+                                startedAt: new Date().toISOString(),
+                            });
+                        }
+
+                        for (const key of chunkKeys) {
+                            const nodeData = (chunk as any)[key];
+
+                            // Subagent text delta
+                            if (key === 'call_model' && nodeData?.messages) {
                                 for (const msg of nodeData.messages ?? []) {
-                                    const text =
-                                        typeof msg?.content === 'string'
-                                            ? msg.content
-                                            : Array.isArray(msg?.content)
-                                                ? msg.content.map((c: any) => c?.text ?? '').join('')
-                                                : '';
-                                    if (text) enqueue('subagent-delta', { text });
+                                    const text = extractText(msg?.content);
+                                    if (text) enqueue('subagent-delta', { toolCallId: resolvedId, text });
                                 }
                             }
-                        } else {
+
+                            // Subagent tool results
+                            if (key === 'tools' && nodeData?.messages) {
+                                for (const msg of nodeData.messages ?? []) {
+                                    const toolName = msg?.name || 'tool';
+                                    const content = extractText(msg?.content);
+                                    if (content) {
+                                        enqueue('subagent-tool', {
+                                            toolCallId: resolvedId,
+                                            toolName,
+                                            result: content.slice(0, 8000),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        for (const key of chunkKeys) {
+                            const nodeData = (chunk as any)[key];
+
                             if (nodeData?.messages) {
                                 for (const msg of nodeData.messages ?? []) {
-                                    const text =
-                                        typeof msg?.content === 'string'
-                                            ? msg.content
-                                            : Array.isArray(msg?.content)
-                                                ? msg.content.map((c: any) => c?.text ?? '').join('')
-                                                : '';
+                                    const text = extractText(msg?.content);
                                     if (text) {
                                         accumulatedText += text;
                                         enqueue('text-delta', { text });
@@ -117,12 +172,11 @@ export async function POST(req: NextRequest) {
 
                             if (key === 'tools' && nodeData?.messages) {
                                 for (const msg of nodeData.messages ?? []) {
-                                    const content =
-                                        typeof msg?.content === 'string' ? msg.content : JSON.stringify(msg?.content);
+                                    const content = extractText(msg?.content) || JSON.stringify(msg?.content ?? '');
                                     enqueue('tool-result', {
                                         toolCallId: msg?.tool_call_id,
                                         toolName: msg?.name,
-                                        result: content?.slice(0, 8000) ?? '',
+                                        result: content.slice(0, 8000),
                                     });
                                 }
                             }
@@ -139,6 +193,17 @@ export async function POST(req: NextRequest) {
                                 }
                             }
                         }
+                    }
+                }
+
+                // Mark any announced subagents as complete
+                for (const [nsKey, resolvedId] of namespaceToOuterId) {
+                    if (announcedNamespaces.has(nsKey)) {
+                        enqueue('subagent-complete', {
+                            id: resolvedId,
+                            status: 'complete',
+                            completedAt: new Date().toISOString(),
+                        });
                     }
                 }
 

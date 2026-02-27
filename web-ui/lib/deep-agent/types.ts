@@ -72,6 +72,12 @@ export interface PendingApproval {
 
 export type SubagentStatus = 'pending' | 'running' | 'complete' | 'error';
 
+export interface SubagentToolItem {
+    toolName: string;
+    result: string;
+    timestamp: string;
+}
+
 export interface SubagentEvent {
     id: string;          // Tool call ID
     name: string;        // Subagent name (e.g. "aws-ops")
@@ -81,6 +87,8 @@ export interface SubagentEvent {
     completedAt?: string;
     result?: string;
     error?: string;
+    tools?: SubagentToolItem[];  // Tool calls made within this subagent
+    deltaText?: string;           // Accumulated streaming text from subagent thinking
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +130,8 @@ export type DeepAgentStreamEventType =
     | 'approval-required'
     | 'approval-resolved'
     | 'subagent-start'
+    | 'subagent-delta'
+    | 'subagent-tool'
     | 'subagent-complete'
     | 'subagent-error'
     | 'todo-update'

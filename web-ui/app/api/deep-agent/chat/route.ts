@@ -177,6 +177,14 @@ export async function POST(req: NextRequest) {
                 let todos: TodoItem[] = [];
                 let chunkCount = 0;
 
+                // Map LangGraph internal namespace key → outer Anthropic tool-use ID.
+                // LangGraph assigns its own UUIDs to subgraph invocations that differ from
+                // the Anthropic tool_call_id used when the main agent dispatched the subagent.
+                // We resolve this by associating the first namespace chunk we see from each
+                // subgraph with the oldest pending outer tool call ID (FIFO order).
+                const namespaceToOuterId = new Map<string, string>();
+                const pendingSubagentIds: string[] = [];
+
                 for await (const [namespace, chunk] of graphStream as any) {
                     chunkCount++;
                     const isSubagent = Array.isArray(namespace) && namespace.length > 0;
@@ -190,40 +198,39 @@ export async function POST(req: NextRequest) {
                     });
 
                     if (isSubagent) {
-                        // Subagent event — identify by tool call ID embedded in namespace
-                        const toolCallId =
-                            (namespace as string[])
-                                .find((s: string) => s.startsWith('tools:'))
-                                ?.split(':')[1] ?? 'unknown';
+                        // Resolve namespace → outer tool call ID
+                        const nsKey = (namespace as string[]).join('|');
+                        if (!namespaceToOuterId.has(nsKey) && pendingSubagentIds.length > 0) {
+                            namespaceToOuterId.set(nsKey, pendingSubagentIds.shift()!);
+                        }
+                        const resolvedId = namespaceToOuterId.get(nsKey) ?? nsKey;
 
-                        // Extract subagent type from chunk keys
                         const chunkKeys = Object.keys(chunk || {});
 
                         for (const key of chunkKeys) {
                             const nodeData = (chunk as any)[key];
 
-                            // Subagent start (call_model)
+                            // Subagent text delta (call_model node)
                             if (key === 'call_model' && nodeData?.messages) {
-                                const msgs = nodeData.messages;
-                                for (const msg of msgs) {
+                                for (const msg of nodeData.messages) {
                                     if (msg?.content) {
                                         const text = extractText(msg.content);
                                         if (text) {
-                                            log.debug('Subagent text delta', { threadId, toolCallId, textLen: text.length });
-                                            enqueue('subagent-delta', { toolCallId, text });
+                                            log.debug('Subagent text delta', { threadId, resolvedId, textLen: text.length });
+                                            enqueue('subagent-delta', { toolCallId: resolvedId, text });
                                         }
                                     }
                                 }
                             }
 
-                            // Subagent tool calls
+                            // Subagent tool results (tools node)
                             if (key === 'tools' && nodeData?.messages) {
                                 for (const msg of nodeData.messages) {
                                     const toolName = msg?.name || 'tool';
                                     const content = extractText(msg?.content);
-                                    log.info('Subagent tool result', { threadId, toolCallId, toolName, resultLen: content.length });
+                                    log.info('Subagent tool result', { threadId, resolvedId, toolName, resultLen: content.length });
                                     enqueue('subagent-tool', {
-                                        toolCallId,
+                                        toolCallId: resolvedId,
                                         toolName,
                                         result: truncateToolOutput(content),
                                     });
@@ -293,6 +300,7 @@ export async function POST(req: NextRequest) {
                                                     description: evt.description?.slice(0, 120),
                                                 });
                                                 subagentEvents.push(evt);
+                                                pendingSubagentIds.push(evt.id); // track for namespace→id mapping
                                                 enqueue('subagent-start', evt);
                                             } else {
                                                 // Regular tool call

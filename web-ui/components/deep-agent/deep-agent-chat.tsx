@@ -348,6 +348,40 @@ export function DeepAgentChat() {
         ));
         break;
 
+      case 'subagent-delta':
+        setMessages(prev => prev.map(m => {
+          if (m.id !== assistantId) return m;
+          return {
+            ...m,
+            subagentEvents: (m.subagentEvents ?? []).map(se =>
+              se.id === data.toolCallId
+                ? { ...se, deltaText: (se.deltaText ?? '') + (data.text ?? '') }
+                : se,
+            ),
+          };
+        }));
+        break;
+
+      case 'subagent-tool':
+        setMessages(prev => prev.map(m => {
+          if (m.id !== assistantId) return m;
+          return {
+            ...m,
+            subagentEvents: (m.subagentEvents ?? []).map(se =>
+              se.id === data.toolCallId
+                ? {
+                    ...se,
+                    tools: [
+                      ...(se.tools ?? []),
+                      { toolName: data.toolName, result: data.result, timestamp: new Date().toISOString() },
+                    ],
+                  }
+                : se,
+            ),
+          };
+        }));
+        break;
+
       case 'subagent-complete':
         setMessages(prev => prev.map(m => {
           if (m.id !== assistantId) return m;
