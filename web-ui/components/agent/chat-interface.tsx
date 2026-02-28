@@ -227,12 +227,15 @@ interface ChatInterfaceProps {
 
 interface MessageRowProps {
   message: any;
+  isLastMessage?: boolean;
+  isActivelyStreaming?: boolean;
   renderPhaseBlock: (phase: AgentPhase, content: string, key: string, isLastMessage?: boolean) => React.ReactNode;
   renderToolInvocation: (part: any, messageId: string, index: number) => React.ReactNode;
 }
 
-const MessageRow = React.memo(function MessageRow({ message, renderPhaseBlock, renderToolInvocation }: MessageRowProps) {
+const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isActivelyStreaming, renderPhaseBlock, renderToolInvocation }: MessageRowProps) {
   const isUser = message.role === "user";
+  const parts: any[] = message.parts || [];
   return (
     <div
       className={cn(
@@ -259,15 +262,27 @@ const MessageRow = React.memo(function MessageRow({ message, renderPhaseBlock, r
         )}
       >
         {/* Render parts */}
-        {message.parts &&
-          message.parts.map((part: any, index: number) => {
+        {parts.length > 0 &&
+          parts.map((part: any, index: number) => {
             // Text part
             if (part.type === "text") {
               const text = part.text || "";
               if (!text.trim()) return null;
+              // While the last part of the last message is actively streaming, skip the
+              // expensive ReactMarkdown + remarkGfm AST parse on every delta. Render as
+              // plain pre instead — markdown kicks in automatically on the next render
+              // after the stream ends and isActivelyStreaming becomes false.
+              const isLastPart = index === parts.length - 1;
+              const skipMarkdown = isLastMessage && isActivelyStreaming && isLastPart;
               return (
                 <div key={`${message.id}-part-${index}`}>
-                  <MarkdownContent content={text} />
+                  {skipMarkdown ? (
+                    <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-sans break-words m-0 p-0 bg-transparent border-none">
+                      {text}
+                    </pre>
+                  ) : (
+                    <MarkdownContent content={text} />
+                  )}
                 </div>
               );
             }
@@ -293,7 +308,7 @@ const MessageRow = React.memo(function MessageRow({ message, renderPhaseBlock, r
           })}
 
         {/* Fallback for simple content */}
-        {!message.parts && message.content && (
+        {parts.length === 0 && message.content && (
           <MarkdownContent
             content={
               typeof message.content === "string"
@@ -497,6 +512,9 @@ export function ChatInterface({
   const { messages, sendMessage, isLoading, setMessages, addToolResult, stop } =
     useChat({
       api: "/api/chat",
+      // Batch micro-delta SSE chunks into 50ms windows, reducing ~4000+ renders → ~80-100.
+      // Without this, every 1-8 byte token fires a full React reconciliation cycle.
+      experimental_throttle: 500,
       maxSteps: 10,
       body: {
         threadId,
@@ -523,6 +541,10 @@ export function ChatInterface({
       },
       onError: (error) => {
         console.error("[ChatInterface] Chat error:", error);
+        // 409 means a duplicate request was blocked by the per-thread lock
+        if (error?.message?.includes("409") || (error as any)?.status === 409) {
+          console.warn("[ChatInterface] Thread is already processing — duplicate request blocked.");
+        }
       },
     }) as any;
 
@@ -571,7 +593,6 @@ export function ChatInterface({
   });
 
   useEffect(() => {
-    console.log("[ChatInterface] Messages State Updated:", messages);
     if (messages.length > 0) {
       setHasStarted(true);
 
@@ -1131,10 +1152,12 @@ export function ChatInterface({
           )}
 
           {/* Render messages */}
-          {messages.map((message: any) => (
+          {messages.map((message: any, msgIndex: number) => (
             <MessageRow
               key={message.id}
               message={message}
+              isLastMessage={msgIndex === messages.length - 1}
+              isActivelyStreaming={isLoading || isStreaming}
               renderPhaseBlock={renderPhaseBlock}
               renderToolInvocation={renderToolInvocation}
             />

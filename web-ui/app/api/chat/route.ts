@@ -5,6 +5,11 @@ import { createReflectionGraph, createFastGraph, createDeepGraph } from '@/lib/a
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
+// Per-thread execution lock: prevents duplicate/parallel LangGraph executions on the same thread.
+// useChat's maxSteps fires follow-up POSTs when a streaming response ends; without this guard a
+// second graph execution re-plans from scratch, doubling LLM API cost and interleaving checkpoints.
+const activeThreads = new Map<string, boolean>();
+
 // Phase types for UI segregation
 type AgentPhase = 'planning' | 'execution' | 'reflection' | 'revision' | 'final' | 'text';
 
@@ -39,6 +44,16 @@ export async function POST(req: Request) {
             mcpServerIds    // MCP server IDs to activate for this session
         } = await req.json();
         const threadId = requestThreadId || Date.now().toString();
+
+        // Reject duplicate requests on the same thread (e.g. from useChat maxSteps retries)
+        if (activeThreads.has(threadId)) {
+            return new Response(
+                JSON.stringify({ error: "Thread is already processing a request. Please wait for it to finish." }),
+                { status: 409, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+        activeThreads.set(threadId, true);
+        const releaseThreadLock = () => activeThreads.delete(threadId);
 
         // Ensure thread exists in store
         // We do this asynchronously to not block the chat start, or we can await it.
@@ -185,7 +200,7 @@ export async function POST(req: Request) {
             );
 
             return createUIMessageStreamResponse({
-                stream: processStream(streamEvents, autoApprove, resumedToolCallId)
+                stream: processStream(streamEvents, autoApprove, resumedToolCallId, releaseThreadLock)
             });
         } else {
             const result = await graph.invoke(
@@ -202,6 +217,7 @@ export async function POST(req: Request) {
             let content = lastMsg.content;
 
             // Also include tool calls if present, though likely handled by the loop if not simple text
+            releaseThreadLock();
             return NextResponse.json({
                 role: 'assistant',
                 content: content,
@@ -210,6 +226,7 @@ export async function POST(req: Request) {
         }
 
     } catch (error) {
+        releaseThreadLock();
         console.error('[API Error]:', error);
         return new Response(
             JSON.stringify({
@@ -291,7 +308,8 @@ interface StreamEvent {
 function processStream(
     stream: AsyncIterable<StreamEvent>,
     autoApprove: boolean,
-    resumedToolCallId?: string
+    resumedToolCallId?: string,
+    onDone?: () => void
 ): ReadableStream<UIMessageChunk> {
     return new ReadableStream({
         async start(controller) {
@@ -517,6 +535,9 @@ function processStream(
                 } catch (e) {
                     // Ignore if already closed
                 }
+            } finally {
+                // Release the per-thread lock so subsequent requests can proceed
+                onDone?.();
             }
         }
     });

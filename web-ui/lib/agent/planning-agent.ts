@@ -200,8 +200,17 @@ Work through three phases when building the plan:
 - get_aws_credentials(accountId): Obtain a named CLI profile for an AWS account (required before any AWS CLI command)
 ${accountContext}
 
+## Report Generation Strategy
+
+When the task involves generating a report or summary document:
+- Collect ALL data you need first (run all AWS/CLI commands, gather all metrics) — do not write to any file until data collection is complete.
+- Write the COMPLETE report in a SINGLE write_file call at the very end of the plan.
+- Do NOT write partial sections across multiple steps (e.g. "write executive summary", then "write EC2 section" separately) — this wastes LLM iterations and inflates checkpoint state.
+- Do NOT use write_file for intermediate/scratch data — keep intermediate results in the conversation context.
+- Only include a read_file step if you genuinely need to read an existing file for modification.
+
 IMPORTANT: Return your plan as a JSON array of concise, action-oriented step descriptions. Each step must be independently executable by the executor agent.
-Example: ["Call list_aws_accounts to identify the target account", "Call get_aws_credentials for the matched account ID", "Describe all running EC2 instances using --output json and the obtained profile", "Query CloudWatch for CPUUtilization metrics on each instance over the past 7 days", "Generate a markdown report of idle instances with estimated monthly savings"]
+Example: ["Call list_aws_accounts to identify the target account", "Call get_aws_credentials for the matched account ID", "Describe all running EC2 instances using --output json and the obtained profile", "Query CloudWatch for CPUUtilization metrics on each instance over the past 7 days", "Write the complete markdown report with all findings to /tmp/report.md in a single write_file call"]
 
 Only return the JSON array, nothing else.`);
 
@@ -284,6 +293,11 @@ Apply these standards to every AWS CLI command you run:
 - Before any mutation command (create, delete, stop, start, update, modify, attach, detach, put, terminate): run the corresponding describe or list command first to confirm the resource exists and is in the expected state.
 - Where --dry-run is supported (e.g., aws ec2 run-instances --dry-run), use it to validate permissions before the real call when operating in an unfamiliar account.
 - AWS Cost Explorer only provides data for the last 14 months. Do not request data older than 14 months.
+- This runtime is macOS (Darwin). For date arithmetic in shell commands use BSD date syntax:
+  - Correct: date -v-3m +%Y-%m-01   (3 months ago, first of month)
+  - Correct: date -v-6m +%Y-%m-01   (6 months ago)
+  - Wrong:   date -d '3 months ago'  (GNU/Linux only — will fail on macOS)
+  - For portability, prefer Python: python3 -c "from datetime import date; from dateutil.relativedelta import relativedelta; print((date.today().replace(day=1) - relativedelta(months=3)).strftime('%Y-%m-01'))"
 
 ## Available Tools
 
@@ -483,14 +497,27 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
 
             const jsonMatch = content.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
-                analysis = parsed.analysis || "";
-                issues = parsed.issues || "None";
-                suggestions = parsed.suggestions || "None";
-                // Only mark complete if explicitly true in parsed JSON
-                isComplete = parsed.isComplete === true;
-                if (parsed.updatedPlan && Array.isArray(parsed.updatedPlan) && parsed.updatedPlan.length > 0) {
-                    updatedPlan = parsed.updatedPlan;
+                try {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    analysis = parsed.analysis || "";
+                    issues = parsed.issues || "None";
+                    suggestions = parsed.suggestions || "None";
+                    // Only mark complete if explicitly true in parsed JSON
+                    isComplete = parsed.isComplete === true;
+                    if (parsed.updatedPlan && Array.isArray(parsed.updatedPlan) && parsed.updatedPlan.length > 0) {
+                        updatedPlan = parsed.updatedPlan;
+                    }
+                } catch (parseErr) {
+                    // JSON.parse failed (e.g. unescaped newlines in the model's string values).
+                    // Fall back to a regex check for isComplete to avoid infinite looping.
+                    console.warn("[Reflector] JSON.parse failed, using isComplete regex fallback:", parseErr);
+                    if (/["']?isComplete["']?\s*:\s*true/.test(jsonMatch[0])) {
+                        isComplete = true;
+                        analysis = "Task completed (reflector JSON parse failed but isComplete detected)";
+                    } else {
+                        analysis = "Reflection JSON parse failed. Continuing.";
+                        isComplete = false;
+                    }
                 }
             } else {
                 console.log("[Reflector] No JSON found, using raw content fallback");
