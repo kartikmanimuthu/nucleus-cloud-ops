@@ -17,13 +17,14 @@ import {
 import { getSkillContent } from "./skills/skill-loader";
 import {
     GraphConfig,
-    checkpointer,
+    getCheckpointer,
     getActiveMCPTools,
 } from "./agent-shared";
 
 // --- DEEP GRAPH (Deep Agent Mode) ---
 export async function createDeepGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
+    const checkpointer = await getCheckpointer();
 
     // --- Skill loading (same pattern as fast-agent.ts) ---
     let skillSection = '';

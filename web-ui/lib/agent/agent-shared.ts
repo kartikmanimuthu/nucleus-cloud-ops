@@ -4,6 +4,8 @@ import { FileSaver } from "./file-saver";
 import { DynamoDBSaver } from "@rwai/langgraphjs-checkpoint-dynamodb";
 import { DynamoDBS3Saver } from "./dynamodb-s3-saver";
 import { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import { SafeMongoDBSaver } from "../deep-agent/db/safe-mongo-saver";
+import { getMongoClient } from "../db/mongo-client";
 
 // --- Components & Interfaces ---
 
@@ -421,13 +423,32 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string)
 }
 
 // --- State Definition ---
-// Shared checkpointer for the session (backed by file system or DynamoDB)
+// Shared checkpointer for the session (backed by MongoDB, DynamoDB, or file system)
 // Usage of globalThis ensures the checkpointer survives Next.js hot reloads in dev mode
-const globalForCheckpointer = globalThis as unknown as { checkpointer: BaseCheckpointSaver };
+const globalForCheckpointer = globalThis as unknown as {
+    checkpointer: BaseCheckpointSaver | undefined;
+    checkpointerPromise: Promise<BaseCheckpointSaver> | undefined;
+};
 
-function getCheckpointer() {
-    if (globalForCheckpointer.checkpointer) return globalForCheckpointer.checkpointer;
+async function initCheckpointer(): Promise<BaseCheckpointSaver> {
+    // Priority 1: MongoDB (preferred)
+    if (process.env.MONGODB_URI) {
+        try {
+            const mongoClient = await getMongoClient();
+            const saver = new SafeMongoDBSaver({
+                client: mongoClient as any,
+                dbName: process.env.MONGODB_DB_NAME || process.env.DEEP_AGENT_DB_NAME || 'nucleus_deep_agent',
+                checkpointCollectionName: 'agent_checkpoints',
+                checkpointWritesCollectionName: 'agent_checkpoint_writes',
+            });
+            console.log("Using MongoDB Checkpointer (agent_checkpoints)");
+            return saver;
+        } catch (err) {
+            console.warn("MongoDB checkpointer init failed, trying DynamoDB fallback:", err);
+        }
+    }
 
+    // Priority 2: DynamoDB (existing behavior)
     if (process.env.DYNAMODB_CHECKPOINT_TABLE && process.env.DYNAMODB_WRITES_TABLE) {
         console.log("Using DynamoDB Checkpointer with tables:", process.env.DYNAMODB_CHECKPOINT_TABLE, process.env.DYNAMODB_WRITES_TABLE);
 
@@ -456,9 +477,18 @@ function getCheckpointer() {
         });
     }
 
+    // Priority 3: File system fallback
     console.log("Using FileSystem Checkpointer");
     return new FileSaver();
 }
 
-export const checkpointer = getCheckpointer();
-if (process.env.NODE_ENV !== "production") globalForCheckpointer.checkpointer = checkpointer;
+export async function getCheckpointer(): Promise<BaseCheckpointSaver> {
+    if (globalForCheckpointer.checkpointer) return globalForCheckpointer.checkpointer;
+    if (!globalForCheckpointer.checkpointerPromise) {
+        globalForCheckpointer.checkpointerPromise = initCheckpointer().then(cp => {
+            globalForCheckpointer.checkpointer = cp;
+            return cp;
+        });
+    }
+    return globalForCheckpointer.checkpointerPromise;
+}

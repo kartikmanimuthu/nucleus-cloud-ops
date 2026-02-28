@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { checkpointer } from '@/lib/agent/agent-shared';
+import { getCheckpointer } from '@/lib/agent/agent-shared';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
+import * as agentStore from '@/lib/db/agent-chat-history-store';
 
 interface HistoryMessage {
     id: string;
@@ -93,7 +94,8 @@ function convertMessage(msg: BaseMessage, index: number): HistoryMessage | null 
 
 /**
  * GET /api/threads/[threadId]/history
- * Retrieves the conversation history for a given thread from the LangGraph checkpoint
+ * Retrieves the conversation history for a given thread.
+ * MongoDB-first: tries agent_threads collection, falls back to LangGraph checkpoint.
  */
 export async function GET(
     req: Request,
@@ -108,7 +110,21 @@ export async function GET(
 
         console.log(`[History API] Fetching history for thread: ${threadId}`);
 
-        // Get the checkpoint state for this thread
+        // MongoDB-first: try loading from agent_threads collection
+        if (process.env.MONGODB_URI) {
+            try {
+                const thread = await agentStore.getThread(threadId);
+                if (thread && thread.messages.length > 0) {
+                    console.log(`[History API] Loaded ${thread.messages.length} messages from MongoDB for thread: ${threadId}`);
+                    return NextResponse.json({ messages: thread.messages });
+                }
+            } catch (err) {
+                console.warn(`[History API] MongoDB lookup failed, falling back to checkpoint:`, err);
+            }
+        }
+
+        // Fallback: extract from LangGraph checkpoint
+        const checkpointer = await getCheckpointer();
         const config = { configurable: { thread_id: threadId } };
         const checkpoint = await checkpointer.getTuple(config);
 

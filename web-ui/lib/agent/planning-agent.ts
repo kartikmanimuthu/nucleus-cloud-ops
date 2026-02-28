@@ -24,7 +24,7 @@ import {
     getRecentMessages,
     sanitizeMessagesForBedrock,
     llmAuditLog,
-    checkpointer,
+    getCheckpointer,
     getActiveMCPTools,
     getMCPToolsDescription,
     getMCPManager
@@ -33,6 +33,7 @@ import {
 // Factory function to create a configured reflection graph
 export async function createReflectionGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
+    const checkpointer = await getCheckpointer();
 
     // Load skill content if a skill is selected. The SKILL.md file contains
     // all privilege, safety, and workflow instructions for that skill.

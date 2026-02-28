@@ -55,20 +55,24 @@ export async function POST(req: Request) {
         activeThreads.set(threadId, true);
         const releaseThreadLock = () => activeThreads.delete(threadId);
 
-        // Ensure thread exists in store
-        // We do this asynchronously to not block the chat start, or we can await it.
-        // Importing dynamically to avoid circular deps if any, but regular import is fine.
-        const { threadStore } = await import('@/lib/store/thread-store');
-        const existing = await threadStore.getThread(threadId);
-        if (!existing) {
-            const firstUserMsg = messages.find((m: Message) => m.role === 'user');
-            const title = firstUserMsg?.content
-                ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content.slice(0, 30) : "New Conversation")
-                : "New Chat";
-            await threadStore.createThread(threadId, title, model);
-        } else if (model) {
-            // Update model if changed?
-            // await threadStore.updateThread(threadId, { model });
+        // Ensure thread exists in store (without persisting messages yet)
+        const firstUserMsg = messages.find((m: Message) => m.role === 'user');
+        const title = firstUserMsg?.content
+            ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content.slice(0, 60) : "New Conversation")
+            : "New Chat";
+
+        if (process.env.MONGODB_URI) {
+            const agentStore = await import('@/lib/db/agent-chat-history-store');
+            const existing = await agentStore.getThread(threadId);
+            if (!existing) {
+                await agentStore.createThread(threadId, title, model, mode === 'fast' ? 'fast' : 'plan');
+            }
+        } else {
+            const { threadStore } = await import('@/lib/store/thread-store');
+            const existing = await threadStore.getThread(threadId);
+            if (!existing) {
+                await threadStore.createThread(threadId, title, model);
+            }
         }
 
         console.log(`\n🚀 [API] New Request Started`);
@@ -200,7 +204,15 @@ export async function POST(req: Request) {
             );
 
             return createUIMessageStreamResponse({
-                stream: processStream(streamEvents, autoApprove, resumedToolCallId, releaseThreadLock)
+                stream: processStream(
+                    streamEvents,
+                    autoApprove,
+                    resumedToolCallId,
+                    releaseThreadLock,
+                    threadId,
+                    graph,
+                    { configurable: { thread_id: threadId } }
+                )
             });
         } else {
             const result = await graph.invoke(
@@ -309,7 +321,10 @@ function processStream(
     stream: AsyncIterable<StreamEvent>,
     autoApprove: boolean,
     resumedToolCallId?: string,
-    onDone?: () => void
+    onDone?: () => void,
+    threadId?: string,
+    graph?: any,
+    config?: any
 ): ReadableStream<UIMessageChunk> {
     return new ReadableStream({
         async start(controller) {
@@ -536,6 +551,68 @@ function processStream(
                     // Ignore if already closed
                 }
             } finally {
+                // Persist complete message history to MongoDB if configured
+                if (process.env.MONGODB_URI && threadId && graph && config) {
+                    try {
+                        const finalState = await graph.getState(config);
+                        if (finalState && finalState.values && finalState.values.messages) {
+                            const agentStore = await import('@/lib/db/agent-chat-history-store');
+
+                            // Convert all LangChain messages to AgentMessage format
+                            const convertedMessages: any[] = [];
+                            const langChainMessages = finalState.values.messages;
+                            let msgOrder = 0;
+
+                            for (const msg of langChainMessages) {
+                                const msgType = msg._getType?.() || 'unknown';
+                                msgOrder++;
+                                const msgId = `msg-${threadId}-${msgOrder}`;
+                                const content = typeof msg.content === 'string'
+                                    ? msg.content
+                                    : JSON.stringify(msg.content);
+
+                                let agentMsg: any = {
+                                    id: msgId,
+                                    content,
+                                    timestamp: new Date().toISOString(),
+                                };
+
+                                if (msgType === 'human') {
+                                    agentMsg.role = 'user';
+                                    agentMsg.parts = [{ type: 'text', text: content }];
+                                } else if (msgType === 'ai') {
+                                    agentMsg.role = 'assistant';
+                                    agentMsg.parts = [{ type: 'text', text: content }];
+                                    // Include tool calls if present
+                                    if (msg.tool_calls && msg.tool_calls.length > 0) {
+                                        agentMsg.toolCalls = msg.tool_calls.map((tc: any) => ({
+                                            name: tc.name,
+                                            args: tc.args,
+                                            id: tc.id,
+                                        }));
+                                    }
+                                } else if (msgType === 'tool') {
+                                    agentMsg.role = 'tool';
+                                    agentMsg.toolCallId = msg.tool_call_id;
+                                    agentMsg.toolName = msg.name;
+                                    agentMsg.parts = [{ type: 'tool-invocation', toolCallId: msg.tool_call_id, result: content, state: 'result' }];
+                                } else {
+                                    continue; // Skip unknown message types
+                                }
+
+                                convertedMessages.push(agentMsg);
+                            }
+
+                            // Replace all messages for this thread at once (avoids duplicates)
+                            if (convertedMessages.length > 0) {
+                                await agentStore.replaceMessages(threadId, convertedMessages);
+                                console.log(`[Chat API] Persisted ${convertedMessages.length} messages for thread ${threadId}`);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('[Chat API] Failed to persist full message history to MongoDB:', err);
+                    }
+                }
                 // Release the per-thread lock so subsequent requests can proceed
                 onDone?.();
             }

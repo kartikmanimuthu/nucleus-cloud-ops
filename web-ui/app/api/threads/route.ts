@@ -1,8 +1,32 @@
 import { NextResponse } from 'next/server';
-import { threadStore } from '@/lib/store/thread-store';
+
+const useMongo = !!process.env.MONGODB_URI;
+
+interface NormalizedThread {
+    id: string;
+    title: string;
+    createdAt: number;
+    updatedAt: number;
+    model?: string;
+}
 
 export async function GET() {
     try {
+        if (useMongo) {
+            const { listThreads } = await import('@/lib/db/agent-chat-history-store');
+            const mongoThreads = await listThreads(100, 0);
+            // Normalize MongoDB threads to match expected format
+            const normalized: NormalizedThread[] = mongoThreads.map((t: any) => ({
+                id: t.threadId,
+                title: t.title,
+                createdAt: new Date(t.createdAt).getTime(),
+                updatedAt: new Date(t.updatedAt).getTime(),
+                model: t.model,
+            }));
+            return NextResponse.json(normalized);
+        }
+
+        const { threadStore } = await import('@/lib/store/thread-store');
         const threads = await threadStore.listThreads();
         return NextResponse.json(threads);
     } catch (error) {
@@ -19,6 +43,21 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Thread ID is required' }, { status: 400 });
         }
 
+        if (useMongo) {
+            const { createThread } = await import('@/lib/db/agent-chat-history-store');
+            const thread = await createThread(id, title || 'New Chat', model);
+            // Normalize MongoDB thread to match expected format
+            const normalized: NormalizedThread = {
+                id: thread.threadId,
+                title: thread.title,
+                createdAt: new Date(thread.createdAt).getTime(),
+                updatedAt: new Date(thread.updatedAt).getTime(),
+                model: thread.model,
+            };
+            return NextResponse.json(normalized);
+        }
+
+        const { threadStore } = await import('@/lib/store/thread-store');
         const thread = await threadStore.createThread(id, title, model);
         return NextResponse.json(thread);
     } catch (error) {

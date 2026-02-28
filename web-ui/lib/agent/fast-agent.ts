@@ -21,7 +21,7 @@ import {
     MAX_ITERATIONS,
     truncateOutput,
     getRecentMessages,
-    checkpointer,
+    getCheckpointer,
     getActiveMCPTools,
     getMCPManager,
     getMCPToolsDescription
@@ -30,6 +30,7 @@ import {
 // --- FAST GRAPH (Reflection Agent Mode) ---
 export async function createFastGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
+    const checkpointer = await getCheckpointer();
 
     // Load skill content if a skill is selected. The SKILL.md file contains
     // all privilege, safety, and workflow instructions for that skill.

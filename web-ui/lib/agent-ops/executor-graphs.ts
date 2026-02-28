@@ -20,7 +20,7 @@ import {
     MAX_ITERATIONS,
     truncateOutput,
     getRecentMessages,
-    checkpointer,
+    getCheckpointer,
     getActiveMCPTools,
     getMCPManager,
     getMCPToolsDescription
@@ -33,6 +33,7 @@ import { ReflectionState, graphState, PlanStep, RequestEvaluation } from "./exec
 
 export async function createDynamicExecutorGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, mcpServerIds, tenantId } = config;
+    const checkpointer = await getCheckpointer();
 
     const model = new ChatBedrockConverse({
         region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
