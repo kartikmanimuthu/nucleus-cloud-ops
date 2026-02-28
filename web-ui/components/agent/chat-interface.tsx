@@ -470,11 +470,6 @@ export function ChatInterface({
         if (res.ok) {
           const data = await res.json();
           setMcpServers(data.servers || []);
-          // Auto-select any pre-enabled servers
-          const preEnabled = (data.servers || [])
-            .filter((s: any) => s.enabled)
-            .map((s: any) => s.id);
-          if (preEnabled.length > 0) setSelectedMcpServerIds(preEnabled);
           console.log(
             "[ChatInterface] Loaded MCP servers:",
             data.servers?.length || 0,
@@ -1093,145 +1088,6 @@ export function ChatInterface({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* AWS Account Multi-Select with Search */}
-          <div className="relative" ref={accountDropdownRef}>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs gap-1 px-3 min-w-[180px] justify-between"
-              onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
-            >
-              <div className="flex items-center gap-1.5">
-                <Cloud
-                  className={cn(
-                    "w-3.5 h-3.5",
-                    selectedAccountIds.length > 0
-                      ? "text-amber-500"
-                      : "text-muted-foreground",
-                  )}
-                />
-                <span className="truncate max-w-[140px]">
-                  {accountsLoading
-                    ? "Loading..."
-                    : selectedAccountIds.length === 0
-                      ? "Select Accounts"
-                      : selectedAccountIds.length === 1
-                        ? accounts.find(
-                            (a) => a.accountId === selectedAccountIds[0],
-                          )?.name || "1 Account"
-                        : `${selectedAccountIds.length} Accounts`}
-                </span>
-              </div>
-            </Button>
-            {accountDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1 z-50 w-[320px] rounded-lg border bg-popover shadow-lg">
-                {/* Search Input */}
-                <div className="p-2 border-b">
-                  <input
-                    type="text"
-                    placeholder="Search accounts..."
-                    value={accountSearch}
-                    onChange={(e) => setAccountSearch(e.target.value)}
-                    className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    autoFocus
-                  />
-                </div>
-
-                {/* Account List */}
-                <div className="max-h-[300px] overflow-y-auto p-1">
-                  {accounts.length === 0 && !accountsLoading && (
-                    <p className="text-xs text-muted-foreground p-3 text-center">
-                      No accounts available
-                    </p>
-                  )}
-                  {accounts
-                    .filter(
-                      (account) =>
-                        account.name
-                          .toLowerCase()
-                          .includes(accountSearch.toLowerCase()) ||
-                        account.accountId.includes(accountSearch),
-                    )
-                    .map((account) => (
-                      <label
-                        key={account.accountId}
-                        className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted cursor-pointer text-sm transition-colors"
-                      >
-                        <Checkbox
-                          checked={selectedAccountIds.includes(
-                            account.accountId,
-                          )}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setSelectedAccountIds([
-                                ...selectedAccountIds,
-                                account.accountId,
-                              ]);
-                            } else {
-                              setSelectedAccountIds(
-                                selectedAccountIds.filter(
-                                  (id) => id !== account.accountId,
-                                ),
-                              );
-                            }
-                          }}
-                          className="h-4 w-4"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{account.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {account.accountId}
-                          </p>
-                        </div>
-                      </label>
-                    ))}
-                  {accounts.filter(
-                    (a) =>
-                      a.name
-                        .toLowerCase()
-                        .includes(accountSearch.toLowerCase()) ||
-                      a.accountId.includes(accountSearch),
-                  ).length === 0 &&
-                    accountSearch && (
-                      <p className="text-xs text-muted-foreground p-3 text-center">
-                        No matching accounts
-                      </p>
-                    )}
-                </div>
-
-                {/* Footer Actions */}
-                <div className="p-2 border-t flex justify-between items-center">
-                  <span className="text-xs text-muted-foreground">
-                    {selectedAccountIds.length} selected
-                  </span>
-                  <div className="flex gap-2">
-                    {selectedAccountIds.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs h-7"
-                        onClick={() => setSelectedAccountIds([])}
-                      >
-                        Clear
-                      </Button>
-                    )}
-                    <Button
-                      variant="default"
-                      size="sm"
-                      className="text-xs h-7"
-                      onClick={() => {
-                        setAccountDropdownOpen(false);
-                        setAccountSearch("");
-                      }}
-                    >
-                      Done
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Skills Selector Dropdown */}
         </div>
       </div>
@@ -1326,6 +1182,148 @@ export function ChatInterface({
           {/* Header: Model Selection & AWS Account & Settings */}
           <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/20">
             <div className="flex items-center gap-2">
+              {/* AWS Account Multi-Select with Search */}
+              <div className="relative" ref={accountDropdownRef}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[150px] justify-start"
+                  onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Cloud
+                      className={cn(
+                        "w-3 h-3",
+                        selectedAccountIds.length > 0
+                          ? "text-amber-500"
+                          : "text-muted-foreground",
+                      )}
+                    />
+                    <span className="truncate max-w-[120px] font-normal">
+                      {accountsLoading
+                        ? "Loading..."
+                        : selectedAccountIds.length === 0
+                          ? "Select Accounts"
+                          : selectedAccountIds.length === 1
+                            ? accounts.find(
+                                (a) => a.accountId === selectedAccountIds[0],
+                              )?.name || "1 Account"
+                            : `${selectedAccountIds.length} Accounts`}
+                    </span>
+                  </div>
+                </Button>
+                {accountDropdownOpen && (
+                  <div className="absolute left-0 bottom-full mb-1 z-50 w-[320px] rounded-lg border bg-popover shadow-lg">
+                    {/* Search Input */}
+                    <div className="p-2 border-b">
+                      <input
+                        type="text"
+                        placeholder="Search accounts..."
+                        value={accountSearch}
+                        onChange={(e) => setAccountSearch(e.target.value)}
+                        className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        autoFocus
+                      />
+                    </div>
+
+                    {/* Account List */}
+                    <div className="max-h-[300px] overflow-y-auto p-1">
+                      {accounts.length === 0 && !accountsLoading && (
+                        <p className="text-xs text-muted-foreground p-3 text-center">
+                          No accounts available
+                        </p>
+                      )}
+                      {accounts
+                        .filter(
+                          (account) =>
+                            account.name
+                              .toLowerCase()
+                              .includes(accountSearch.toLowerCase()) ||
+                            account.accountId.includes(accountSearch),
+                        )
+                        .map((account) => (
+                          <label
+                            key={account.accountId}
+                            className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted cursor-pointer text-sm transition-colors"
+                          >
+                            <Checkbox
+                              checked={selectedAccountIds.includes(
+                                account.accountId,
+                              )}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedAccountIds([
+                                    ...selectedAccountIds,
+                                    account.accountId,
+                                  ]);
+                                } else {
+                                  setSelectedAccountIds(
+                                    selectedAccountIds.filter(
+                                      (id) => id !== account.accountId,
+                                    ),
+                                  );
+                                }
+                              }}
+                              className="h-4 w-4"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate">{account.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {account.accountId}
+                              </p>
+                            </div>
+                          </label>
+                        ))}
+                      {accounts.filter(
+                        (a) =>
+                          a.name
+                            .toLowerCase()
+                            .includes(accountSearch.toLowerCase()) ||
+                          a.accountId.includes(accountSearch),
+                      ).length === 0 &&
+                        accountSearch && (
+                          <p className="text-xs text-muted-foreground p-3 text-center">
+                            No matching accounts
+                          </p>
+                        )}
+                    </div>
+
+                    {/* Footer Actions */}
+                    <div className="p-2 border-t flex justify-between items-center bg-muted/20 rounded-b-lg">
+                      <span className="text-xs text-muted-foreground">
+                        {selectedAccountIds.length} selected
+                      </span>
+                      <div className="flex gap-2">
+                        {selectedAccountIds.length > 0 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs h-7"
+                            onClick={() => setSelectedAccountIds([])}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          className="text-xs h-7"
+                          onClick={() => {
+                            setAccountDropdownOpen(false);
+                            setAccountSearch("");
+                          }}
+                        >
+                          Done
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Model Selector */}
               <Select value={selectedModel} onValueChange={setSelectedModel}>
                 <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px]">
