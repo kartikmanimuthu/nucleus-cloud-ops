@@ -5,9 +5,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { cn } from '@/lib/utils';
 import { ThreadSidebar } from './thread-sidebar';
 import { TodoPanel } from './todo-panel';
-import { SubagentCard } from './subagent-card';
 import { ApprovalDialog } from './approval-dialog';
 import { McpSkillSelector } from './mcp-skill-selector';
+import { AccountSelector } from './account-selector';
 import {
   Send,
   Bot,
@@ -36,8 +36,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type {
   TodoItem,
-  SubagentEvent,
-  SubagentToolItem,
   PendingApproval,
   ApprovalDecision,
   DeepAgentMessage,
@@ -59,7 +57,6 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  subagentEvents?: SubagentEvent[];
   toolCalls?: ToolCallItem[];
   approvalRequest?: PendingApproval;
   isStreaming?: boolean;
@@ -104,9 +101,6 @@ export function DeepAgentChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
-  // Maps namespace UUIDs (from subagent-tool/subagent-delta events) to their
-  // matching subagent card ID (from subagent-start). Reset on each new request.
-  const subagentIdMapRef = useRef<Map<string, string>>(new Map());
 
   // --- Scroll to bottom ---
   const scrollToBottom = useCallback(() => {
@@ -146,7 +140,6 @@ export function DeepAgentChat() {
           id: m.id,
           role: m.role === 'tool' ? 'assistant' : m.role,
           content: m.content,
-          subagentEvents: m.subagentEvents,
           timestamp: new Date(m.timestamp),
         })),
       );
@@ -248,7 +241,6 @@ export function DeepAgentChat() {
     setInput('');
     setIsLoading(true);
     setPendingApproval(null);
-    subagentIdMapRef.current = new Map(); // reset ID mapping for fresh stream
 
     // Append user message to UI
     const userMsg: ChatMessage = {
@@ -265,7 +257,6 @@ export function DeepAgentChat() {
       id: assistantId,
       role: 'assistant',
       content: '',
-      subagentEvents: [],
       toolCalls: [],
       isStreaming: true,
       timestamp: new Date(),
@@ -304,32 +295,6 @@ export function DeepAgentChat() {
   // Handle stream events from server
   // ---------------------------------------------------------------------------
 
-  /**
-   * Resolves a potentially-unknown external subagent ID (LangGraph namespace UUID)
-   * to the internal subagent card ID (Anthropic tool call ID from subagent-start).
-   *
-   * The server tries to resolve this but may fail when subgraph chunks arrive
-   * before the main agent's tool-call chunk. This client-side fallback associates
-   * any unknown ID with the most recently started running subagent.
-   */
-  function resolveSubagentId(externalId: string, events: SubagentEvent[]): string {
-    const map = subagentIdMapRef.current;
-    // Already mapped — return cached result
-    if (map.has(externalId)) return map.get(externalId)!;
-    // Direct match — no mapping needed
-    if (events.some(se => se.id === externalId)) return externalId;
-    // Find the most recently started subagent that is still running and unmapped
-    const mapped = new Set(map.values());
-    const running = [...events].reverse().find(
-      se => (se.status === 'running' || se.status === 'pending') && !mapped.has(se.id),
-    );
-    if (running) {
-      map.set(externalId, running.id);
-      return running.id;
-    }
-    return externalId;
-  }
-
   function handleStreamEvent(assistantId: string, event: string, data: any) {
     switch (event) {
       case 'text-delta':
@@ -360,74 +325,6 @@ export function DeepAgentChat() {
             ...m,
             toolCalls: (m.toolCalls ?? []).map(tc =>
               tc.toolCallId === data.toolCallId ? { ...tc, result: data.result } : tc,
-            ),
-          };
-        }));
-        break;
-
-      case 'subagent-start':
-        setMessages(prev => prev.map(m =>
-          m.id === assistantId
-            ? {
-                ...m,
-                subagentEvents: [
-                  ...(m.subagentEvents ?? []),
-                  { ...data, status: 'running' } as SubagentEvent,
-                ],
-              }
-            : m,
-        ));
-        break;
-
-      case 'subagent-delta':
-        // Append live thinking text to the matching subagent event
-        setMessages(prev => prev.map(m => {
-          if (m.id !== assistantId) return m;
-          const events = m.subagentEvents ?? [];
-          const resolvedId = resolveSubagentId(data.toolCallId, events);
-          return {
-            ...m,
-            subagentEvents: events.map(se =>
-              se.id === resolvedId
-                ? { ...se, deltaText: (se.deltaText ?? '') + (data.text ?? '') }
-                : se,
-            ),
-          };
-        }));
-        break;
-
-      case 'subagent-tool':
-        // Push a new tool-call record into the matching subagent event
-        setMessages(prev => prev.map(m => {
-          if (m.id !== assistantId) return m;
-          const events = m.subagentEvents ?? [];
-          const resolvedId = resolveSubagentId(data.toolCallId, events);
-          return {
-            ...m,
-            subagentEvents: events.map(se =>
-              se.id === resolvedId
-                ? {
-                    ...se,
-                    tools: [
-                      ...(se.tools ?? []),
-                      { toolName: data.toolName, result: data.result, timestamp: new Date().toISOString() } as SubagentToolItem,
-                    ],
-                  }
-                : se,
-            ),
-          };
-        }));
-        break;
-
-      case 'subagent-complete':
-        setMessages(prev => prev.map(m => {
-          if (m.id !== assistantId) return m;
-          return {
-            ...m,
-            subagentEvents: (m.subagentEvents ?? []).map(se =>
-              se.id === data.id
-                ? { ...se, status: 'complete', result: data.result, completedAt: data.completedAt }
-                : se,
             ),
           };
         }));
@@ -500,7 +397,6 @@ export function DeepAgentChat() {
     if (!activeThreadId) return;
     setPendingApproval(null);
     setIsLoading(true);
-    subagentIdMapRef.current = new Map(); // reset ID mapping for resume stream
 
     // Reuse the last assistant message that has the approval context,
     // instead of creating a new empty placeholder that renders as an empty bubble.
@@ -533,7 +429,6 @@ export function DeepAgentChat() {
           id: assistantId,
           role: 'assistant' as const,
           content: '',
-          subagentEvents: [],
           toolCalls: [],
           isStreaming: true,
           timestamp: new Date(),
@@ -694,6 +589,8 @@ export function DeepAgentChat() {
                 onMcpServersChange={setSelectedMcpServers}
               />
 
+              <AccountSelector selectedAccounts={selectedAccounts} onAccountsChange={setSelectedAccounts} />
+
               {isLoading && (
                 <div className="flex items-center gap-1.5 text-xs text-violet-500 dark:text-violet-400 ml-auto">
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -739,9 +636,11 @@ export function DeepAgentChat() {
               </div>
             </div>
 
-            <p className="text-center text-[10px] text-muted-foreground mt-1.5">
-              Deep Agent • Subagents: aws-ops · research · code-iac • Memory: thread-scoped + cross-thread
-            </p>
+            <div className="flex items-center justify-between mt-2 flex-wrap">
+               <p className="text-right text-[10px] text-muted-foreground ml-auto">
+                 Deep Agent • Memory: thread-scoped + cross-thread
+               </p>
+            </div>
           </div>
         </div>
       </div>
@@ -776,15 +675,13 @@ function EmptyState() {
       <div className="text-center max-w-md">
         <h2 className="text-xl font-semibold text-foreground mb-2">Deep Agent</h2>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          An AI orchestrator with specialized subagents for AWS operations, research, and Infrastructure as Code.
+          An AI orchestrator for AWS cloud operations, Infrastructure as Code, and general cloud DevOps tasks.
           Maintains memory across all of your conversations.
         </p>
       </div>
       <div className="flex flex-wrap gap-2 justify-center max-w-lg">
         {[
           { icon: Zap, label: 'AWS Operations', color: 'amber' },
-          { icon: Brain, label: 'Research', color: 'violet' },
-          { icon: Terminal, label: 'Code & IaC', color: 'cyan' },
           { icon: MemoryStick, label: 'Long-term memory', color: 'emerald' },
           { icon: Shield, label: 'Human-in-the-loop', color: 'rose' },
         ].map(({ icon: Icon, label, color }) => (
@@ -841,13 +738,12 @@ function RenderMarkdown({ content }: { content: string }) {
 
 function MessageBubble({ message, isLoading }: { message: ChatMessage; isLoading?: boolean }) {
   const isUser = message.role === 'user';
-  const hasSubagents = (message.subagentEvents ?? []).length > 0;
   const hasToolCalls = (message.toolCalls ?? []).length > 0;
   const hasApproval = !!message.approvalRequest;
   const hasContent = !!(message.content?.trim());
 
   // Skip rendering completely empty assistant messages (e.g. stale resume placeholders)
-  if (!isUser && !hasSubagents && !hasToolCalls && !hasApproval && !hasContent && !isLoading) {
+  if (!isUser && !hasToolCalls && !hasApproval && !hasContent && !isLoading) {
     return null;
   }
 
@@ -949,18 +845,7 @@ function MessageBubble({ message, isLoading }: { message: ChatMessage; isLoading
       );
     }
 
-    // 3. Subagents
-    if (hasSubagents) {
-      renderItems.push(
-        <div key="subagents" className="w-full space-y-2">
-          {message.subagentEvents!.map(evt => (
-            <SubagentCard key={evt.id} event={evt} />
-          ))}
-        </div>
-      );
-    }
-
-    // 4. Tool Calls
+    // 3. Tool Calls
     if (hasToolCalls) {
       renderItems.push(
         <div key="tools" className="w-full space-y-1.5">

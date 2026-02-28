@@ -71,34 +71,6 @@ export interface PendingApproval {
 }
 
 // ---------------------------------------------------------------------------
-// Subagent Tracking
-// ---------------------------------------------------------------------------
-
-export type SubagentStatus = 'pending' | 'running' | 'complete' | 'error';
-
-/** A single tool call made by a subagent while it executes. */
-export interface SubagentToolItem {
-    toolName: string;
-    result: string;
-    timestamp: string; // ISO
-}
-
-export interface SubagentEvent {
-    id: string;          // Tool call ID
-    name: string;        // Subagent name (e.g. "aws-ops")
-    description: string; // Task description
-    status: SubagentStatus;
-    startedAt?: string;
-    completedAt?: string;
-    result?: string;
-    error?: string;
-    /** Live streaming thinking text (from subagent-delta events) */
-    deltaText?: string;
-    /** Tool invocations made by this subagent (from subagent-tool events) */
-    tools?: SubagentToolItem[];
-}
-
-// ---------------------------------------------------------------------------
 // Chat History
 // ---------------------------------------------------------------------------
 
@@ -110,7 +82,6 @@ export interface DeepAgentMessage {
     toolCallId?: string;    // For tool result messages
     toolName?: string;      // For tool result messages
     approvalRequest?: PendingApproval;
-    subagentEvents?: SubagentEvent[];
     phase?: 'planning' | 'execution' | 'approval' | 'complete';
     timestamp: string;
 }
@@ -136,9 +107,6 @@ export type DeepAgentStreamEventType =
     | 'tool-result'
     | 'approval-required'
     | 'approval-resolved'
-    | 'subagent-start'
-    | 'subagent-complete'
-    | 'subagent-error'
     | 'todo-update'
     | 'error'
     | 'done';

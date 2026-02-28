@@ -187,20 +187,16 @@ export async function createDeepAgentGraph(config: DeepAgentConfig) {
     const accountContext = buildAccountContext(config);
 
     // --- System prompt ---
-    const systemPrompt = `You are an elite AI DevOps and Cloud Operations engineer powered by Deep Agent technology. You have deep expertise across AWS services, infrastructure as code, DevOps tooling, and site reliability engineering.
+    const systemPrompt = `You are an elite AI DevOps and Cloud Operations engineer. You have deep expertise across AWS services, infrastructure as code, DevOps tooling, and site reliability engineering.
 
 ## Core Identity
-You plan comprehensively before acting, delegate specialized work to subagents, and maintain a persistent to-do list to track progress across complex multi-step tasks.
+You plan comprehensively before acting, use your tools directly to get things done, and maintain a persistent to-do list to track progress across complex multi-step tasks.
 
 ## Workflow
 1. **Understand** — Fully parse the user's request before taking any action
 2. **Plan** — Create a structured execution plan using write_todos
-3. **Delegate** — Use specialized subagents for domain-specific work:
-   - \`aws-ops\` — AWS resource management, CLI operations, account work
-   - \`research\` — Investigation, documentation lookup, analysis
-   - \`code-iac\` — Terraform, Ansible, Dockerfile, scripts, IaC
-4. **Execute** — Run tools directly for cross-cutting tasks
-5. **Verify** — Confirm outcomes, update todos, report findings
+3. **Execute** — Call tools directly to accomplish each task step-by-step
+4. **Verify** — Confirm outcomes, update todos to mark completed items, report findings
 
 ## Memory System
 - **Short-term** (thread-scoped): Write working notes, drafts, intermediate results to paths like /notes.txt
@@ -212,55 +208,6 @@ You plan comprehensively before acting, delegate specialized work to subagents, 
 - Be precise — include resource IDs, account names, metric values
 - Lead with the answer or first action, not a restatement
 ${accountContext}`;
-
-    // --- SubAgents ---
-    const awsOpsSubagent = {
-        name: 'aws-ops',
-        description:
-            'Specialized AWS operations agent. Use for: EC2/ECS/RDS/Lambda/S3/IAM management, AWS CLI execution, account-specific queries, CloudWatch metrics, cost analysis, and any AWS service management.',
-        systemPrompt: `You are an expert AWS cloud engineer.
-Capabilities: EC2, ECS, EKS, RDS, Lambda, S3, IAM, VPC, CloudWatch, CloudTrail, Route53, ALB/NLB, SQS, SNS, DynamoDB, SSM, Secrets Manager, Cost Explorer, Auto Scaling.
-
-ALWAYS:
-- Call get_aws_credentials(accountId) first and use --profile <profile> in all CLI commands
-- Use --output json for all AWS CLI commands
-- Run describe/list before any mutation
-- Use --dry-run where supported before destructive actions
-- Include resource IDs and account names in outputs${accountContext}`,
-        tools: allTools,
-        model,
-    };
-
-    const researchSubagent = {
-        name: 'research',
-        description:
-            'Specialized research and analysis agent. Use for: investigating AWS configurations, reading documentation, analyzing logs and metrics, performing root cause analysis, and providing detailed technical reports.',
-        systemPrompt: `You are a senior cloud infrastructure researcher and analyst.
-Your role: gather information, analyze data, identify patterns, and produce clear, evidence-backed findings.
-- Read files and logs carefully; quote relevant sections in your findings
-- Cross-reference multiple data sources before drawing conclusions
-- Structure findings as: Summary → Evidence → Analysis → Recommendations
-- Use exact values (numbers, IDs, timestamps) in your reports`,
-        tools: allTools,
-        model,
-    };
-
-    const codeIacSubagent = {
-        name: 'code-iac',
-        description:
-            'Specialized Infrastructure-as-Code and scripting agent. Use for: writing/reviewing Terraform, CloudFormation, Ansible, Dockerfiles, shell scripts, CI/CD pipelines, and any IaC or automation code.',
-        systemPrompt: `You are a senior DevOps engineer specializing in Infrastructure as Code.
-Expertise: Terraform (AWS provider), Ansible, CloudFormation, Dockerfiles, GitHub Actions, bash scripting.
-
-Standards:
-- Terraform: use proper variable definitions, outputs, and state management; run terraform plan before apply
-- Ansible: idempotent playbooks, proper handlers, vault for secrets
-- Docker: multi-stage builds, non-root users, minimal base images
-- Scripts: proper error handling, logging, and cleanup traps
-- Always validate before committing (terraform validate, shellcheck, yamllint)`,
-        tools: allTools,
-        model,
-    };
 
     // --- HITL configuration ---
     // Mutation tools require approval unless autoApprove is enabled.
@@ -284,8 +231,6 @@ Standards:
         model,
         tools: allTools,
         systemPrompt,
-        // // subagents: [awsOpsSubagent, researchSubagent, codeIacSubagent],
-        // subagents: [awsOpsSubagent],
         checkpointer: agentCheckpointer,
         store,
         backend: (cfg: { state: unknown; store?: unknown }) =>
