@@ -88,6 +88,7 @@ import {
 } from "@/components/ui/popover";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
+import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
 
 // Available models
 const AVAILABLE_MODELS = [
@@ -236,6 +237,8 @@ interface MessageRowProps {
 const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isActivelyStreaming, renderPhaseBlock, renderToolInvocation }: MessageRowProps) {
   const isUser = message.role === "user";
   const parts: any[] = message.parts || [];
+  const attachments = (message as any).experimental_attachments || [];
+  
   return (
     <div
       className={cn(
@@ -261,6 +264,20 @@ const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isAc
             : "bg-muted/50 border",
         )}
       >
+        {/* Render attachments */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {attachments.map((att: any, idx: number) => (
+              <img
+                key={idx}
+                src={att.url}
+                alt={att.name}
+                className="max-w-xs max-h-48 rounded border object-contain"
+              />
+            ))}
+          </div>
+        )}
+        
         {/* Render parts */}
         {parts.length > 0 &&
           parts.map((part: any, index: number) => {
@@ -428,6 +445,9 @@ export function ChatInterface({
   const [mcpServersLoading, setMcpServersLoading] = useState(false);
   const [mcpDropdownOpen, setMcpDropdownOpen] = useState(false);
   const mcpDropdownRef = useRef<HTMLDivElement>(null);
+
+  // File attachments state
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
 
   // Fetch accounts on mount
   useEffect(() => {
@@ -718,7 +738,9 @@ export function ChatInterface({
     if (!inputValue.trim() || isLoading) return;
 
     const value = inputValue;
+    const files = attachments;
     setInputValue("");
+    setAttachments([]);
     setHasStarted(true);
     setWasStopped(false);
     setUserHasScrolledUp(false); // Reset scroll state on new message
@@ -727,6 +749,11 @@ export function ChatInterface({
       {
         content: value,
         role: "user",
+        experimental_attachments: files.length > 0 ? files.map(f => ({
+          name: f.name,
+          contentType: f.type,
+          url: `data:${f.type};base64,${f.data}`
+        })) : undefined,
       },
       {
         body: {
@@ -1611,6 +1638,15 @@ export function ChatInterface({
               placeholder="Ask the agent to plan, execute, reflect, and revise..."
               disabled={isLoading}
               className="min-h-[80px] max-h-[500px] w-full border-0 focus-visible:ring-0 resize-y overflow-y-auto p-3 text-sm bg-transparent"
+            />
+          </div>
+
+          {/* File Upload */}
+          <div className="px-3">
+            <FileUpload
+              files={attachments}
+              onFilesChange={setAttachments}
+              disabled={isLoading}
             />
           </div>
 

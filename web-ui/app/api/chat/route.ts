@@ -154,13 +154,27 @@ export async function POST(req: Request) {
 
             // Convert Vercel AI SDK messages to LangChain messages
             const validMessages = messagesToProcess.map((m: Message) => {
-                let content = m.content;
-                if (!content && m.parts) {
+                let content: string | Array<any> = m.content;
+                
+                // Handle multimodal content with attachments
+                if ((m as any).experimental_attachments?.length > 0) {
+                    const textContent = typeof m.content === 'string' ? m.content : 
+                        (m.parts?.filter((p) => p.type === 'text').map((p) => p.text).join('') || '');
+                    
+                    content = [
+                        { type: 'text', text: textContent },
+                        ...(m as any).experimental_attachments.map((att: any) => ({
+                            type: 'image_url',
+                            image_url: { url: att.url }
+                        }))
+                    ];
+                } else if (!content && m.parts) {
                     content = m.parts
                         .filter((p) => p.type === 'text')
                         .map((p) => p.text)
                         .join('');
                 }
+                
                 content = content || "";
 
                 if (m.role === 'user') {
@@ -180,7 +194,7 @@ export async function POST(req: Request) {
                 } else if (m.role === 'tool') {
                     return new ToolMessage({
                         tool_call_id: m.toolCallId || '',
-                        content: content
+                        content: content as string
                     });
                 }
                 return new HumanMessage({ content });
