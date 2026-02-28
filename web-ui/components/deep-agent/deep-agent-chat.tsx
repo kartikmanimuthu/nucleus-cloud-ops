@@ -434,16 +434,28 @@ export function DeepAgentChat() {
         break;
 
       case 'todo-update':
-        setTodos(data.todos ?? []);
+        // Normalize incoming todo items — server may send `content` instead of `title`
+        setTodos((data.todos ?? []).map((t: any, i: number) => ({
+          ...t,
+          id: t.id || `subagent-todo-${i}`,
+          title: t.title || t.content || t.description || t.task || '',
+          status: t.status || 'pending',
+          createdAt: t.createdAt || new Date().toISOString(),
+          updatedAt: t.updatedAt || new Date().toISOString(),
+        })));
         break;
 
-      case 'approval-required':
+      case 'approval-required': {
+        // Deduplicate: skip if same approval timestamp already pending
+        const isDuplicate = pendingApproval?.timestamp === data.timestamp;
+        if (isDuplicate) break;
         setPendingApproval(data);
         setIsLoading(false);
         setMessages(prev => prev.map(m =>
           m.id === assistantId ? { ...m, isStreaming: false, approvalRequest: data } : m,
         ));
         break;
+      }
 
       case 'error':
         setMessages(prev => prev.map(m =>
@@ -454,6 +466,29 @@ export function DeepAgentChat() {
 
       default:
         break;
+    }
+    
+    // Fallback: observe write_todos calls directly since we have the args in real-time
+    if (event === 'tool-call' && data.toolName === 'write_todos') {
+      try {
+        if (data.args && Array.isArray(data.args.todos)) {
+           // Provide fallback IDs if missing
+           const parsedTodos = data.args.todos.map((t: any, i: number) => {
+              const desc = typeof t === 'string' ? t : (t.description ?? t.task ?? t.title ?? JSON.stringify(t));
+              return {
+                 ...t,
+                 id: t.id || `todo-${Date.now()}-${i}`,
+                 description: desc,
+                 status: t.status || 'pending',
+                 createdAt: t.createdAt || new Date().toISOString(),
+                 updatedAt: t.updatedAt || new Date().toISOString(),
+              };
+           });
+           setTodos(parsedTodos);
+        }
+      } catch (e) {
+        // ignore parse error
+      }
     }
   }
 
@@ -467,17 +502,44 @@ export function DeepAgentChat() {
     setIsLoading(true);
     subagentIdMapRef.current = new Map(); // reset ID mapping for resume stream
 
-    const assistantId = uuidv4();
-    const placeholder: ChatMessage = {
-      id: assistantId,
-      role: 'assistant',
-      content: '',
-      subagentEvents: [],
-      toolCalls: [],
-      isStreaming: true,
-      timestamp: new Date(),
-    };
-    setMessages(prev => [...prev, placeholder]);
+    // Reuse the last assistant message that has the approval context,
+    // instead of creating a new empty placeholder that renders as an empty bubble.
+    let assistantId = '';
+    setMessages(prev => {
+      const lastWithApproval = [...prev].reverse().find(
+        m => m.role === 'assistant' && m.approvalRequest,
+      );
+      if (lastWithApproval) {
+        assistantId = lastWithApproval.id;
+        return prev.map(m =>
+          m.id === assistantId
+            ? {
+                ...m,
+                isStreaming: true,
+                approvalRequest: {
+                  ...m.approvalRequest!,
+                  resolved: true,
+                  resolvedDecisions: decisions,
+                },
+              }
+            : m,
+        );
+      }
+      // Fallback: create a new placeholder only if none exists
+      assistantId = uuidv4();
+      return [
+        ...prev,
+        {
+          id: assistantId,
+          role: 'assistant' as const,
+          content: '',
+          subagentEvents: [],
+          toolCalls: [],
+          isStreaming: true,
+          timestamp: new Date(),
+        },
+      ];
+    });
 
     const config = {
       model: selectedModel,
@@ -747,6 +809,33 @@ function EmptyState() {
 }
 
 // ---------------------------------------------------------------------------
+// Markdown Rendering Components
+// ---------------------------------------------------------------------------
+
+function RenderMarkdown({ content }: { content: string }) {
+  if (!content) return null;
+  return (
+    <div className="prose dark:prose-invert prose-sm max-w-none
+      prose-p:my-2 prose-p:leading-relaxed
+      prose-headings:font-semibold prose-headings:text-foreground
+      prose-strong:text-foreground prose-strong:font-semibold
+      prose-code:text-violet-600 dark:prose-code:text-violet-300 prose-code:bg-violet-500/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[0.8em] prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+      prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-pre:rounded-xl prose-pre:text-[0.8em]
+      prose-blockquote:border-l-violet-500 prose-blockquote:text-muted-foreground
+      prose-table:w-full
+      prose-th:bg-muted prose-th:border prose-th:border-border prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:text-xs prose-th:font-semibold prose-th:text-foreground
+      prose-td:border prose-td:border-border prose-td:px-3 prose-td:py-2 prose-td:text-xs
+      prose-a:text-violet-600 dark:prose-a:text-violet-400 prose-a:no-underline hover:prose-a:underline
+      prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5
+    ">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Message Bubble
 // ---------------------------------------------------------------------------
 
@@ -754,6 +843,153 @@ function MessageBubble({ message, isLoading }: { message: ChatMessage; isLoading
   const isUser = message.role === 'user';
   const hasSubagents = (message.subagentEvents ?? []).length > 0;
   const hasToolCalls = (message.toolCalls ?? []).length > 0;
+  const hasApproval = !!message.approvalRequest;
+  const hasContent = !!(message.content?.trim());
+
+  // Skip rendering completely empty assistant messages (e.g. stale resume placeholders)
+  if (!isUser && !hasSubagents && !hasToolCalls && !hasApproval && !hasContent && !isLoading) {
+    return null;
+  }
+
+  // Interleave tool calls and thinking blocks
+  const renderItems: React.ReactNode[] = [];
+  
+  if (isUser) {
+    if (message.content) {
+      renderItems.push(
+        <div key="text" className="relative text-sm leading-relaxed bg-gradient-to-br from-violet-600 to-indigo-700 text-white rounded-2xl rounded-tr-sm px-4 py-3 shadow-md shadow-violet-500/20">
+          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        </div>
+      );
+    }
+  } else {
+    let currentText = message.content || '';
+    
+    // Simple state machine to extract <think> blocks
+    const parsedBlocks: Array<{ type: 'text' | 'think', content: string }> = [];
+    let parsingText = currentText;
+    
+    while (parsingText) {
+      const thinkStart = parsingText.indexOf('<think>');
+      if (thinkStart !== -1) {
+        if (thinkStart > 0) {
+          parsedBlocks.push({ type: 'text', content: parsingText.substring(0, thinkStart) });
+        }
+        
+        const thinkEnd = parsingText.indexOf('</think>', thinkStart);
+        if (thinkEnd !== -1) {
+          parsedBlocks.push({ type: 'think', content: parsingText.substring(thinkStart + 7, thinkEnd) });
+          parsingText = parsingText.substring(thinkEnd + 8);
+        } else {
+          // Unclosed think block (streaming)
+          parsedBlocks.push({ type: 'think', content: parsingText.substring(thinkStart + 7) });
+          parsingText = '';
+        }
+      } else {
+        parsedBlocks.push({ type: 'text', content: parsingText });
+        parsingText = '';
+      }
+    }
+
+    // Now interleave the parsed blocks with Subagents and ToolCalls
+    // For simplicity, we'll place subagents first, then tools, then text/think blocks.
+    // However, if we want sequential interleaving, we ideally need timelines.
+    // But since subagents and tool calls don't have exact ordering preserved against text blocks 
+    // unless we use message indices, we can group them logically. 
+    // Model usually Thinks -> Calls Tools -> Writes Text. 
+    // Let's render: Think Blocks -> Subagents -> Tool Calls -> Text Blocks.
+    
+    // 1. Thinking Blocks
+    parsedBlocks.filter(b => b.type === 'think').forEach((b, idx) => {
+      if (b.content.trim()) {
+        renderItems.push(
+          <div key={`think-${idx}`} className="w-full text-xs text-muted-foreground bg-muted/30 border border-border/50 rounded-xl px-4 py-3 italic font-mono whitespace-pre-wrap break-words">
+            <div className="text-[10px] uppercase font-bold tracking-widest text-violet-500/70 not-italic mb-2 flex items-center gap-2">
+              <Brain className="w-3 h-3" /> Agent Thinking
+            </div>
+            {b.content.trim()}
+          </div>
+        );
+      }
+    });
+
+    // 2. Resolved approval summary (compact card shown after user approved)
+    if (message.approvalRequest?.resolved) {
+      const approval = message.approvalRequest;
+      const count = approval.actionRequests.length;
+      const allApproved = approval.resolvedDecisions?.every(d => d.type === 'approve');
+      const allRejected = approval.resolvedDecisions?.every(d => d.type === 'reject');
+      const summaryLabel = allApproved
+        ? `Approved ${count} action${count !== 1 ? 's' : ''}`
+        : allRejected
+          ? `Rejected ${count} action${count !== 1 ? 's' : ''}`
+          : `Resolved ${count} action${count !== 1 ? 's' : ''}`;
+      const summaryIcon = allRejected ? '❌' : '✅';
+      const borderCls = allRejected
+        ? 'border-rose-500/30 bg-rose-500/5'
+        : 'border-emerald-500/30 bg-emerald-500/5';
+      const textCls = allRejected
+        ? 'text-rose-600 dark:text-rose-400'
+        : 'text-emerald-600 dark:text-emerald-400';
+
+      renderItems.push(
+        <div
+          key="approval-resolved"
+          className={cn(
+            'w-full flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-xs font-medium',
+            borderCls, textCls,
+          )}
+        >
+          <span className="text-sm">{summaryIcon}</span>
+          <span>{summaryLabel}</span>
+          <span className="ml-auto text-[10px] text-muted-foreground font-normal">
+            {new Date(approval.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>,
+      );
+    }
+
+    // 3. Subagents
+    if (hasSubagents) {
+      renderItems.push(
+        <div key="subagents" className="w-full space-y-2">
+          {message.subagentEvents!.map(evt => (
+            <SubagentCard key={evt.id} event={evt} />
+          ))}
+        </div>
+      );
+    }
+
+    // 4. Tool Calls
+    if (hasToolCalls) {
+      renderItems.push(
+        <div key="tools" className="w-full space-y-1.5">
+          {message.toolCalls!.map(tc => (
+            <ToolCallBlock key={tc.toolCallId} toolCall={tc} />
+          ))}
+        </div>
+      );
+    }
+
+    // 4. Main Text Blocks
+    const textBlocks = parsedBlocks.filter(b => b.type === 'text' && b.content.trim());
+    if (textBlocks.length > 0 || isLoading) {
+      renderItems.push(
+        <div key="text" className="w-full relative text-sm leading-relaxed bg-card border border-border text-foreground rounded-2xl rounded-tl-sm px-4 py-3">
+          {textBlocks.map((b, idx) => (
+            <RenderMarkdown key={idx} content={b.content.trim()} />
+          ))}
+          {isLoading && (
+            <span className="inline-flex gap-0.5 ml-0.5 mt-2 align-bottom">
+              <span className="inline-block w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="inline-block w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="inline-block w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            </span>
+          )}
+        </div>
+      );
+    }
+  }
 
   return (
     <div className={cn('flex gap-3', isUser ? 'justify-end' : 'justify-start')}>
@@ -765,69 +1001,10 @@ function MessageBubble({ message, isLoading }: { message: ChatMessage; isLoading
       )}
 
       <div className={cn(
-        'min-w-0 flex flex-col gap-2',
+        'min-w-0 flex flex-col gap-3',
         isUser ? 'items-end max-w-[65%]' : 'items-start flex-1 max-w-[85%]',
       )}>
-        {/* Subagent cards */}
-        {hasSubagents && (
-          <div className="w-full space-y-2">
-            {message.subagentEvents!.map(evt => (
-              <SubagentCard key={evt.id} event={evt} />
-            ))}
-          </div>
-        )}
-
-        {/* Tool calls */}
-        {hasToolCalls && (
-          <div className="w-full space-y-1.5">
-            {message.toolCalls!.map(tc => (
-              <ToolCallBlock key={tc.toolCallId} toolCall={tc} />
-            ))}
-          </div>
-        )}
-
-        {/* Main message bubble */}
-        {(message.content || isLoading) && (
-          <div
-            className={cn(
-              'relative text-sm leading-relaxed',
-              isUser
-                ? 'bg-gradient-to-br from-violet-600 to-indigo-700 text-white rounded-2xl rounded-tr-sm px-4 py-3 shadow-md shadow-violet-500/20'
-                : 'bg-card border border-border text-foreground rounded-2xl rounded-tl-sm px-4 py-3 w-full',
-            )}
-          >
-            {isUser ? (
-              <p className="whitespace-pre-wrap break-words">{message.content}</p>
-            ) : (
-              <>
-                <div className="prose dark:prose-invert prose-sm max-w-none
-                  prose-p:my-2 prose-p:leading-relaxed
-                  prose-headings:font-semibold prose-headings:text-foreground
-                  prose-strong:text-foreground prose-strong:font-semibold
-                  prose-code:text-violet-600 dark:prose-code:text-violet-300 prose-code:bg-violet-500/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[0.8em] prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                  prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-pre:rounded-xl prose-pre:text-[0.8em]
-                  prose-blockquote:border-l-violet-500 prose-blockquote:text-muted-foreground
-                  prose-table:w-full
-                  prose-th:bg-muted prose-th:border prose-th:border-border prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:text-xs prose-th:font-semibold prose-th:text-foreground
-                  prose-td:border prose-td:border-border prose-td:px-3 prose-td:py-2 prose-td:text-xs
-                  prose-a:text-violet-600 dark:prose-a:text-violet-400 prose-a:no-underline hover:prose-a:underline
-                  prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5
-                ">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {message.content || ''}
-                  </ReactMarkdown>
-                </div>
-                {isLoading && (
-                  <span className="inline-flex gap-0.5 ml-0.5 align-bottom">
-                    <span className="inline-block w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="inline-block w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="inline-block w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-        )}
+        {renderItems}
 
         {/* Timestamp */}
         <span className="text-[10px] text-muted-foreground px-1 select-none">

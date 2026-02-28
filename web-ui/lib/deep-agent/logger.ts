@@ -41,8 +41,8 @@ const COLORS: Record<LogLevel, string> = {
 const RESET = '\x1b[0m';
 
 function getConfiguredLevel(): number {
-    const raw = (process.env.DEEP_AGENT_LOG_LEVEL || 'info').toLowerCase() as LogLevel;
-    return LEVELS[raw] ?? LEVELS.info;
+    const raw = (process.env.DEEP_AGENT_LOG_LEVEL || 'debug').toLowerCase() as LogLevel;
+    return LEVELS[raw] ?? LEVELS.debug;
 }
 
 function ts(): string {

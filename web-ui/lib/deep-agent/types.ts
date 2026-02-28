@@ -64,6 +64,10 @@ export interface PendingApproval {
     actionRequests: ApprovalActionRequest[];
     reviewConfigs: ApprovalReviewConfig[];
     timestamp: string;
+    /** Set to true after the user has submitted their decisions */
+    resolved?: boolean;
+    /** The decisions the user made (stored for display after resolution) */
+    resolvedDecisions?: ApprovalDecision[];
 }
 
 // ---------------------------------------------------------------------------

@@ -18,58 +18,60 @@ interface ApprovalDialogProps {
 export function ApprovalDialog({ approval, onDecide }: ApprovalDialogProps) {
   const { actionRequests, reviewConfigs } = approval;
 
+  // Build a config lookup: index -> reviewConfig for that action's name
   const configMap = Object.fromEntries(
     (reviewConfigs ?? []).map(cfg => [cfg.actionName, cfg]),
   );
 
-  const [decisions, setDecisions] = useState<Record<string, ApprovalDecision>>(
-    Object.fromEntries(actionRequests.map(req => [req.name, { type: 'approve' }])),
+  // ── State keyed by INDEX so duplicate tool names (e.g. 14× write_file) work ──
+  const [decisions, setDecisions] = useState<Record<number, ApprovalDecision>>(
+    Object.fromEntries(actionRequests.map((_, idx) => [idx, { type: 'approve' }])),
   );
-  const [editedArgs, setEditedArgs] = useState<Record<string, string>>(
+  const [editedArgs, setEditedArgs] = useState<Record<number, string>>(
     Object.fromEntries(
-      actionRequests.map(req => [req.name, JSON.stringify(req.args, null, 2)]),
+      actionRequests.map((req, idx) => [idx, JSON.stringify(req.args, null, 2)]),
     ),
   );
-  const [expandedTool, setExpandedTool] = useState<string | null>(
-    actionRequests[0]?.name ?? null,
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(
+    actionRequests.length > 0 ? 0 : null,
   );
 
-  function setDecision(toolName: string, type: ApprovalDecisionType) {
+  function setDecision(idx: number, type: ApprovalDecisionType) {
     setDecisions(prev => ({
       ...prev,
-      [toolName]: {
+      [idx]: {
         type,
-        ...(type === 'edit' ? { args: tryParseJson(editedArgs[toolName]) } : {}),
+        ...(type === 'edit' ? { args: tryParseJson(editedArgs[idx]) } : {}),
       },
     }));
   }
 
-  function handleArgChange(toolName: string, value: string) {
-    setEditedArgs(prev => ({ ...prev, [toolName]: value }));
-    if (decisions[toolName]?.type === 'edit') {
+  function handleArgChange(idx: number, value: string) {
+    setEditedArgs(prev => ({ ...prev, [idx]: value }));
+    if (decisions[idx]?.type === 'edit') {
       setDecisions(prev => ({
         ...prev,
-        [toolName]: { type: 'edit', args: tryParseJson(value) },
+        [idx]: { type: 'edit', args: tryParseJson(value) },
       }));
     }
   }
 
   function approveAll() {
-    const all = Object.fromEntries(actionRequests.map(req => [req.name, { type: 'approve' as const }]));
+    const all = Object.fromEntries(actionRequests.map((_, idx) => [idx, { type: 'approve' as const }]));
     setDecisions(all);
     onDecide(actionRequests.map(() => ({ type: 'approve' as const })));
   }
 
   function rejectAll() {
-    const all = Object.fromEntries(actionRequests.map(req => [req.name, { type: 'reject' as const }]));
+    const all = Object.fromEntries(actionRequests.map((_, idx) => [idx, { type: 'reject' as const }]));
     setDecisions(all);
     onDecide(actionRequests.map(() => ({ type: 'reject' as const })));
   }
 
   function submit() {
-    const decisionList = actionRequests.map(req => {
-      const d = decisions[req.name];
-      if (d.type === 'edit') return { type: 'edit' as const, args: tryParseJson(editedArgs[req.name]) };
+    const decisionList = actionRequests.map((_, idx) => {
+      const d = decisions[idx];
+      if (d.type === 'edit') return { type: 'edit' as const, args: tryParseJson(editedArgs[idx]) };
       return d;
     });
     onDecide(decisionList);
@@ -92,12 +94,12 @@ export function ApprovalDialog({ approval, onDecide }: ApprovalDialogProps) {
         </div>
 
         {/* Action list */}
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
           {actionRequests.map((req, idx) => {
             const reviewConfig = configMap[req.name];
             const allowed = reviewConfig?.allowedDecisions ?? ['approve', 'edit', 'reject'];
-            const currentDecision = decisions[req.name]?.type ?? 'approve';
-            const isExpanded = expandedTool === req.name;
+            const currentDecision = decisions[idx]?.type ?? 'approve';
+            const isExpanded = expandedIdx === idx;
 
             const borderCls =
               currentDecision === 'approve' ? 'border-emerald-500/30' :
@@ -105,17 +107,31 @@ export function ApprovalDialog({ approval, onDecide }: ApprovalDialogProps) {
               currentDecision === 'edit'    ? 'border-blue-500/30' :
               'border-border';
 
+            // Show a human-readable label — for file ops, extract the file path
+            const displayLabel = req.name;
+            const filePath = req.args?.file_path as string | undefined;
+
             return (
               <div
-                key={`${req.name}-${idx}`}
+                key={idx}
                 className={cn('rounded-xl border overflow-hidden transition-all bg-muted/40', borderCls)}
               >
                 <button
-                  onClick={() => setExpandedTool(isExpanded ? null : req.name)}
+                  onClick={() => setExpandedIdx(isExpanded ? null : idx)}
                   className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent transition-colors"
                 >
                   <Terminal className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                  <span className="text-sm font-mono text-foreground flex-1">{req.name}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-mono text-foreground">{displayLabel}</span>
+                    {filePath && (
+                      <span className="block text-[10px] text-muted-foreground truncate font-mono mt-0.5">
+                        {filePath}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {idx + 1}/{actionRequests.length}
+                  </span>
                   {isExpanded
                     ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
                     : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
@@ -128,8 +144,8 @@ export function ApprovalDialog({ approval, onDecide }: ApprovalDialogProps) {
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold mb-2">Arguments</p>
                       {currentDecision === 'edit' ? (
                         <textarea
-                          value={editedArgs[req.name]}
-                          onChange={e => handleArgChange(req.name, e.target.value)}
+                          value={editedArgs[idx]}
+                          onChange={e => handleArgChange(idx, e.target.value)}
                           rows={6}
                           className="w-full bg-background border border-border rounded-lg p-3 text-xs font-mono text-foreground outline-none focus:border-blue-500/50 transition-colors resize-none"
                         />
@@ -143,7 +159,7 @@ export function ApprovalDialog({ approval, onDecide }: ApprovalDialogProps) {
                     <div className="flex gap-2">
                       {(allowed as ApprovalDecisionType[]).includes('approve') && (
                         <button
-                          onClick={() => setDecision(req.name, 'approve')}
+                          onClick={() => setDecision(idx, 'approve')}
                           className={cn(
                             'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all flex-1 justify-center border',
                             currentDecision === 'approve'
@@ -156,7 +172,7 @@ export function ApprovalDialog({ approval, onDecide }: ApprovalDialogProps) {
                       )}
                       {(allowed as ApprovalDecisionType[]).includes('edit') && (
                         <button
-                          onClick={() => setDecision(req.name, 'edit')}
+                          onClick={() => setDecision(idx, 'edit')}
                           className={cn(
                             'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all flex-1 justify-center border',
                             currentDecision === 'edit'
@@ -169,7 +185,7 @@ export function ApprovalDialog({ approval, onDecide }: ApprovalDialogProps) {
                       )}
                       {(allowed as ApprovalDecisionType[]).includes('reject') && (
                         <button
-                          onClick={() => setDecision(req.name, 'reject')}
+                          onClick={() => setDecision(idx, 'reject')}
                           className={cn(
                             'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all flex-1 justify-center border',
                             currentDecision === 'reject'

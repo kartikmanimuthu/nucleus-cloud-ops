@@ -21,16 +21,16 @@ let _db: Db | undefined;
 
 export async function getMongoClient(): Promise<MongoClient> {
     if (globalForMongo.mongoClient) {
-        log.debug('Reusing existing global MongoClient');
+        // // log.debug('Reusing existing global MongoClient');
         return globalForMongo.mongoClient;
     }
 
     if (!_client) {
-        log.info('Creating new MongoClient', {
-            host: MONGODB_URI.split('@').pop(),
-            db: DB_NAME,
-            maxPoolSize: 10,
-        });
+        // log.info('Creating new MongoClient', {
+        //     host: MONGODB_URI.split('@').pop(),
+        //     db: DB_NAME,
+        //     maxPoolSize: 10,
+        // });
 
         _client = new MongoClient(MONGODB_URI, {
             maxPoolSize: 10,
@@ -40,15 +40,15 @@ export async function getMongoClient(): Promise<MongoClient> {
 
         try {
             await _client.connect();
-            log.info('MongoDB connected successfully', { host: MONGODB_URI.split('@').pop() });
+            // log.info('MongoDB connected successfully', { host: MONGODB_URI.split('@').pop() });
         } catch (err: any) {
-            log.error('MongoDB connection failed', { error: err.message, stack: err.stack });
+            // log.error('MongoDB connection failed', { error: err.message, stack: err.stack });
             throw err;
         }
 
         if (process.env.NODE_ENV !== 'production') {
             globalForMongo.mongoClient = _client;
-            log.debug('MongoClient stored in globalThis (dev hot-reload safe)');
+            // // log.debug('MongoClient stored in globalThis (dev hot-reload safe)');
         }
     }
 
@@ -57,17 +57,17 @@ export async function getMongoClient(): Promise<MongoClient> {
 
 export async function getDb(): Promise<Db> {
     if (globalForMongo.mongoDb) {
-        log.debug('Reusing existing global Db instance', { db: DB_NAME });
+        // // log.debug('Reusing existing global Db instance', { db: DB_NAME });
         return globalForMongo.mongoDb;
     }
     if (_db) {
-        log.debug('Reusing module-level Db instance', { db: DB_NAME });
+        // // log.debug('Reusing module-level Db instance', { db: DB_NAME });
         return _db;
     }
 
     const client = await getMongoClient();
     _db = client.db(DB_NAME);
-    log.info('Database handle acquired', { db: DB_NAME });
+    // log.info('Database handle acquired', { db: DB_NAME });
 
     if (process.env.NODE_ENV !== 'production') {
         globalForMongo.mongoDb = _db;
@@ -78,14 +78,14 @@ export async function getDb(): Promise<Db> {
 
 export async function closeMongoConnection(): Promise<void> {
     if (_client) {
-        log.info('Closing MongoDB connection...');
+        // log.info('Closing MongoDB connection...');
         await _client.close();
         _client = undefined;
         _db = undefined;
         globalForMongo.mongoClient = undefined;
         globalForMongo.mongoDb = undefined;
-        log.info('MongoDB connection closed');
+        // log.info('MongoDB connection closed');
     } else {
-        log.debug('closeMongoConnection called but no active client');
+        // // log.debug('closeMongoConnection called but no active client');
     }
 }

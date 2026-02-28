@@ -284,7 +284,8 @@ Standards:
         model,
         tools: allTools,
         systemPrompt,
-        subagents: [awsOpsSubagent, researchSubagent, codeIacSubagent],
+        // // subagents: [awsOpsSubagent, researchSubagent, codeIacSubagent],
+        // subagents: [awsOpsSubagent],
         checkpointer: agentCheckpointer,
         store,
         backend: (cfg: { state: unknown; store?: unknown }) =>

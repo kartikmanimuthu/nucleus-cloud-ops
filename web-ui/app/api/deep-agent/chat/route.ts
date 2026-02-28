@@ -38,15 +38,41 @@ function safeStringify(value: unknown): string {
     return JSON.stringify(value);
 }
 
-function extractText(content: unknown): string {
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-        return content
-            .map((c: any) => c?.text ?? c?.content ?? '')
+function extractText(msgOrContent: any): string {
+    if (!msgOrContent) return '';
+    const content = msgOrContent.content ?? msgOrContent;
+
+    let result = '';
+
+    // Check for thinking in additional_kwargs (LangChain Bedrock Converse / Anthropic style)
+    if (msgOrContent.additional_kwargs?.reasoningContent) {
+        const rc = msgOrContent.additional_kwargs.reasoningContent;
+        if (typeof rc === 'string') {
+            result += `<think>\n${rc}\n</think>\n`;
+        } else if (rc && typeof rc.text === 'string') {
+            result += `<think>\n${rc.text}\n</think>\n`;
+        }
+    }
+    // Deepseek uses reasoning_content
+    if (msgOrContent.additional_kwargs?.reasoning_content) {
+        result += `<think>\n${msgOrContent.additional_kwargs.reasoning_content}\n</think>\n`;
+    }
+
+    if (typeof content === 'string') {
+        result += content;
+    } else if (Array.isArray(content)) {
+        result += content
+            .map((c: any) => {
+                if (c.type === 'thinking' || c.type === 'reasoning_content') {
+                    const t = c.text ?? c.thinking ?? c.reasoning_content ?? c.content ?? '';
+                    if (t) return `<think>\n${t}\n</think>\n`;
+                }
+                return c?.text ?? c?.content ?? '';
+            })
             .filter(Boolean)
             .join('');
     }
-    return '';
+    return result;
 }
 
 // Truncate large tool outputs for streaming to avoid UI hangs
@@ -250,7 +276,7 @@ export async function POST(req: NextRequest) {
                             if (key === 'tools' && nodeData?.messages) {
                                 for (const msg of nodeData.messages) {
                                     const toolName = msg?.name || 'tool';
-                                    const content = extractText(msg?.content);
+                                    const content = extractText(msg);
                                     log.info('Subagent tool result', { threadId, resolvedToolCallId, toolName, resultLen: content.length });
                                     enqueue('subagent-tool', {
                                         toolCallId: resolvedToolCallId,
@@ -321,15 +347,17 @@ export async function POST(req: NextRequest) {
                                     // Text delta — only from AI messages; skip tool-result nodes
                                     // to prevent raw JSON from bleeding into the assistant bubble.
                                     if (key !== 'tools') {
-                                        const text = extractText(msg.content);
+                                        const text = extractText(msg);
                                         if (text) {
                                             accumulatedText += text;
+                                            log.debug('Emitting text-delta', { threadId, textLen: text.length, totalAccumulated: accumulatedText.length });
                                             enqueue('text-delta', { text });
                                         }
                                     }
 
                                     // Tool calls (task delegations to subagents)
                                     if (msg.tool_calls && msg.tool_calls.length > 0) {
+                                        log.debug('Processing tool_calls from message', { threadId, count: msg.tool_calls.length, names: msg.tool_calls.map((t: any) => t.name) });
                                         for (const tc of msg.tool_calls) {
                                             const isSubagentCall =
                                                 tc.name === 'task' ||
@@ -345,7 +373,7 @@ export async function POST(req: NextRequest) {
                                                     status: 'pending',
                                                     startedAt: new Date().toISOString(),
                                                 };
-                                                log.info('Subagent dispatched', {
+                                                log.info('Emitting subagent-start', {
                                                     threadId,
                                                     subagentName: evt.name,
                                                     toolCallId: evt.id,
@@ -355,7 +383,7 @@ export async function POST(req: NextRequest) {
                                                 enqueue('subagent-start', evt);
                                             } else {
                                                 // Regular tool call
-                                                log.info('Tool call', {
+                                                log.info('Emitting tool-call', {
                                                     threadId,
                                                     toolName: tc.name,
                                                     toolCallId: tc.id,
@@ -366,6 +394,27 @@ export async function POST(req: NextRequest) {
                                                     toolName: tc.name,
                                                     args: tc.args,
                                                 });
+
+                                                // Automatically persist todos if the main graph uses write_todos
+                                                if (tc.name === 'write_todos' && tc.args?.todos && Array.isArray(tc.args.todos)) {
+                                                    try {
+                                                        const mapped: TodoItem[] = tc.args.todos.map((t: any, i: number) => {
+                                                            const desc = typeof t === 'string' ? t : (t.description ?? t.task ?? t.title ?? JSON.stringify(t));
+                                                            return {
+                                                                id: t.id || `main-todo-${i}-${Date.now()}`,
+                                                                description: desc,
+                                                                status: t.status || 'pending',
+                                                                createdAt: t.createdAt || new Date().toISOString(),
+                                                                updatedAt: t.updatedAt || new Date().toISOString(),
+                                                            };
+                                                        });
+                                                        todos = mapped;
+                                                        enqueue('todo-update', { todos: mapped });
+                                                        await upsertTodos(threadId, mapped);
+                                                    } catch {
+                                                        // ignore parser error
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -375,8 +424,8 @@ export async function POST(req: NextRequest) {
                             // Tool results from main graph
                             if (key === 'tools' && nodeData?.messages) {
                                 for (const msg of nodeData.messages) {
-                                    const content = extractText(msg?.content);
-                                    log.info('Tool result received', {
+                                    const content = extractText(msg);
+                                    log.info('Emitting tool-result', {
                                         threadId,
                                         toolName: msg?.name,
                                         toolCallId: msg?.tool_call_id,
@@ -395,7 +444,7 @@ export async function POST(req: NextRequest) {
                                         subagent.status = 'complete';
                                         subagent.completedAt = new Date().toISOString();
                                         subagent.result = truncateToolOutput(content);
-                                        log.info('Subagent completed', {
+                                        log.info('Emitting subagent-complete', {
                                             threadId,
                                             subagentName: subagent.name,
                                             toolCallId: subagent.id,
