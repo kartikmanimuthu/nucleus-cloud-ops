@@ -14,6 +14,13 @@ export interface PlanStep {
     status: 'pending' | 'in_progress' | 'completed' | 'failed';
 }
 
+export interface ToolResultEntry {
+    toolName: string;
+    output: string;      // truncated to 1000 chars
+    isError: boolean;
+    iterationIndex: number;
+}
+
 export interface ReflectionState {
     messages: BaseMessage[];
     taskDescription: string;
@@ -25,13 +32,18 @@ export interface ReflectionState {
     iterationCount: number;
     nextAction: string;
     isComplete: boolean;
-    toolResults: string[]; // Store tool results for final summary
+    toolResults: ToolResultEntry[]; // Structured tool results for reflection/summary
 }
 
 // --- Schema for StateGraph ---
 export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     messages: {
-        reducer: (x: BaseMessage[], y: BaseMessage[]) => x.concat(y),
+        reducer: (x: BaseMessage[], y: BaseMessage[]) => {
+            const combined = x.concat(y);
+            // Cap at 100 messages to prevent checkpoint bloat.
+            // getRecentMessages() handles the per-call LLM window independently.
+            return combined.length > 100 ? combined.slice(-100) : combined;
+        },
         default: () => [],
     },
     taskDescription: {
@@ -71,7 +83,7 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         default: () => false,
     },
     toolResults: {
-        reducer: (x: string[], y: string[]) => [...x, ...y].slice(-10), // cap at 10 to prevent unbounded growth
+        reducer: (x: ToolResultEntry[], y: ToolResultEntry[]) => [...x, ...y].slice(-10), // cap at 10 to prevent unbounded growth
         default: () => [],
     },
 };

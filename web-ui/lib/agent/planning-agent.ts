@@ -18,6 +18,7 @@ import {
     GraphConfig,
     ReflectionState,
     PlanStep,
+    ToolResultEntry,
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
@@ -364,16 +365,23 @@ ${accountContext}
         const result = await toolNode.invoke(state);
         console.log(`⚙️ [TOOLS] Execution complete. Result messages: ${result.messages?.length || 0}`);
 
-        // Extract tool results for final summary
-        const newToolResults: string[] = [];
+        // Extract tool results as structured entries for reflection/summary
+        const newToolResults: ToolResultEntry[] = [];
         if (result.messages) {
             for (const msg of result.messages) {
                 if (msg._getType() === 'tool') {
-                    const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-                    const truncated = truncateOutput(content, 1000);
-                    newToolResults.push(truncated);
-                    console.log(`   ✅ [TOOL RESULT] ${msg.name || 'Unknown Tool'}:`);
-                    console.log(`      ${truncateOutput(content, 200).replace(/\n/g, '\n      ')}`);
+                    const rawContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+                    const isError = rawContent.toLowerCase().includes('error') || rawContent.toLowerCase().includes('exception');
+                    const entry: ToolResultEntry = {
+                        toolName: (msg as any).name || 'unknown_tool',
+                        output: truncateOutput(rawContent, 1000),
+                        isError,
+                        iterationIndex: state.iterationCount,
+                    };
+                    newToolResults.push(entry);
+                    const icon = isError ? '❌' : '✅';
+                    console.log(`   ${icon} [TOOL RESULT] ${entry.toolName}:`);
+                    console.log(`      ${truncateOutput(rawContent, 200).replace(/\n/g, '\n      ')}`);
                 }
             }
         }
@@ -387,7 +395,7 @@ ${accountContext}
             ...result,
             plan: updatedPlan,
             toolResults: newToolResults,
-            executionOutput: newToolResults.join('\n---\n')
+            executionOutput: newToolResults.map(e => `[${e.toolName}] ${e.output}`).join('\n---\n')
         };
     }
 
@@ -472,7 +480,7 @@ Recent Assistant Output:
 ${truncateOutput(lastAiText, 1500)}
 
 Tool Results (most recent):
-${toolResults.slice(-3).join('\n---\n')}
+${toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}] ${e.output}`).join('\n---\n')}
 
 Plan Status:
 ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
@@ -646,7 +654,7 @@ Execution Summary:
 - Plan steps: ${plan.map(s => `${s.step} (${s.status})`).join(' | ')}
 
 Key Tool Outputs (most recent):
-${toolResults.slice(-3).map(r => truncateOutput(r, 500)).join('\n\n---\n\n')}
+${toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}]\n${truncateOutput(e.output, 500)}`).join('\n\n---\n\n')}
 
 Final Review Notes: ${reflection}
 

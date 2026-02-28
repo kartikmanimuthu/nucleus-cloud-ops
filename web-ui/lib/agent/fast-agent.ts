@@ -17,6 +17,7 @@ import { getSkillContent } from "./skills/skill-loader";
 import {
     GraphConfig,
     ReflectionState,
+    ToolResultEntry,
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
@@ -196,16 +197,25 @@ ${accountContext}
         const result = await toolNode.invoke(state);
         console.log(`⚙️ [FAST TOOLS] Execution complete. Result messages: ${result.messages?.length || 0}`);
 
+        const newToolResults: ToolResultEntry[] = [];
         if (result.messages) {
             for (const msg of result.messages) {
                 if (msg._getType() === 'tool') {
-                    const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-                    console.log(`   ✅ [TOOL RESULT] ${msg.name || 'Unknown Tool'}:`);
-                    console.log(`      ${truncateOutput(content, 200).replace(/\n/g, '\n      ')}`);
+                    const rawContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+                    const isError = rawContent.toLowerCase().includes('error') || rawContent.toLowerCase().includes('exception');
+                    newToolResults.push({
+                        toolName: (msg as any).name || 'unknown_tool',
+                        output: truncateOutput(rawContent, 1000),
+                        isError,
+                        iterationIndex: state.iterationCount,
+                    });
+                    const icon = isError ? '❌' : '✅';
+                    console.log(`   ${icon} [TOOL RESULT] ${(msg as any).name || 'Unknown Tool'}:`);
+                    console.log(`      ${truncateOutput(rawContent, 200).replace(/\n/g, '\n      ')}`);
                 }
             }
         }
-        return result;
+        return { ...result, toolResults: newToolResults };
     }
 
     // --- REFLECTOR NODE ---
