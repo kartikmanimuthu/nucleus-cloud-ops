@@ -20,6 +20,8 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as s3_notifications from "aws-cdk-lib/aws-s3-notifications";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as docdb from "aws-cdk-lib/aws-docdb";
 import { Construct } from "constructs";
 import { TableBucket, Namespace, Table, OpenTableFormat } from '@aws-cdk/aws-s3tables-alpha';
 import { RemovalPolicy } from "aws-cdk-lib";
@@ -61,6 +63,62 @@ export class ComputeStack extends cdk.Stack {
 
         const stackName = `${appName}`;
         const webUiStackName = `${appName}-web-ui`;
+
+        // ============================================================================
+        // DOCUMENTDB CLUSTER (MongoDB-compatible)
+        // ============================================================================
+
+        // Security group for DocumentDB — only allow inbound from within the VPC
+        const docDbSg = new ec2.SecurityGroup(this, `${appName}-DocDbSg`, {
+            vpc: props.vpc,
+            description: 'DocumentDB security group',
+            allowAllOutbound: false,
+        });
+        docDbSg.addIngressRule(
+            ec2.Peer.ipv4(props.vpc.vpcCidrBlock),
+            ec2.Port.tcp(27017),
+            'Allow DocumentDB from within VPC'
+        );
+
+        // Credentials stored in Secrets Manager
+        const docDbSecret = new secretsmanager.Secret(this, `${appName}-DocDbSecret`, {
+            secretName: `/${appName}/docdb/credentials`,
+            generateSecretString: {
+                secretStringTemplate: JSON.stringify({ username: 'nucleusadmin' }),
+                generateStringKey: 'password',
+                excludePunctuation: true,
+                passwordLength: 32,
+            },
+        });
+
+        // DocumentDB Cluster
+        const docDbCluster = new docdb.DatabaseCluster(this, `${appName}-DocDbCluster`, {
+            masterUser: {
+                username: 'nucleusadmin',
+                password: docDbSecret.secretValueFromJson('password'),
+            },
+            instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MEDIUM),
+            instances: 1,
+            vpc: props.vpc,
+            vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+            securityGroup: docDbSg,
+            storageEncrypted: true,
+            deletionProtection: false,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            dbClusterName: `${appName}-docdb`,
+            engineVersion: '5.0.0',
+        });
+
+        const docDbEndpoint = docDbCluster.clusterEndpoint.hostname;
+        const docDbPort = docDbCluster.clusterEndpoint.port;
+
+        // Build the MongoDB-compatible connection string and store it as a separate secret
+        const connectionStringSecret = new secretsmanager.Secret(this, `${appName}-DocDbConnectionString`, {
+            secretName: `/${appName}/docdb/connection-string`,
+            secretStringValue: cdk.SecretValue.unsafePlainText(
+                `mongodb://nucleusadmin:PLACEHOLDER@${docDbEndpoint}:${docDbPort}/?tls=true&tlsCAFile=/etc/ssl/certs/rds-combined-ca-bundle.pem&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false`
+            ),
+        });
 
         // Table names
         const appTableName = `${stackName}-app-table`;
@@ -847,9 +905,29 @@ export class ComputeStack extends cdk.Stack {
                 AGENT_TEMP_BUCKET: agentTempBucket.bucketName,
                 DYNAMODB_AGENT_CONVERSATIONS_TABLE: agentConversationsTable.tableName,
                 AGENT_OPS_TABLE_NAME: agentOpsTable.tableName,
+                // DocumentDB (MongoDB-compatible)
+                DOCDB_ENDPOINT: docDbEndpoint,
+                DOCDB_PORT: String(docDbPort),
+                MONGODB_URI: `mongodb://nucleusadmin:REPLACE_WITH_SECRET@${docDbEndpoint}:${docDbPort}/?tls=true&tlsCAFile=/etc/ssl/certs/rds-combined-ca-bundle.pem&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false`,
+                MONGODB_DB_NAME: `${appName.replace(/-/g, '_')}_db`,
+            },
+            secrets: {
+                // Inject DocumentDB credentials from Secrets Manager at runtime
+                DOCDB_USERNAME: ecs.Secret.fromSecretsManager(docDbSecret, 'username'),
+                DOCDB_PASSWORD: ecs.Secret.fromSecretsManager(docDbSecret, 'password'),
             },
             portMappings: [{ containerPort: 3000, hostPort: 3000, protocol: ecs.Protocol.TCP }],
         });
+
+        // Grant ECS task role permission to read DocumentDB secret
+        ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+            actions: ['secretsmanager:GetSecretValue'],
+            resources: [docDbSecret.secretArn],
+        }));
+        ecsTaskExecutionRole.addToPolicy(new iam.PolicyStatement({
+            actions: ['secretsmanager:GetSecretValue'],
+            resources: [docDbSecret.secretArn],
+        }));
 
         // Grant S3 Vectors permissions to ECS Task Role
         ecsTaskRole.addToPolicy(new iam.PolicyStatement({
@@ -1186,6 +1264,24 @@ export class ComputeStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'DiscoveryTaskDefinitionArn', {
             value: discoveryTaskDef.taskDefinitionArn,
             description: 'ECS Task Definition ARN for Discovery task',
+        });
+
+        // DocumentDB outputs
+        new cdk.CfnOutput(this, 'DocDbClusterEndpoint', {
+            value: docDbEndpoint,
+            description: 'DocumentDB cluster endpoint',
+        });
+        new cdk.CfnOutput(this, 'DocDbPort', {
+            value: String(docDbPort),
+            description: 'DocumentDB port',
+        });
+        new cdk.CfnOutput(this, 'DocDbSecretArn', {
+            value: docDbSecret.secretArn,
+            description: 'ARN of the DocumentDB credentials secret',
+        });
+        new cdk.CfnOutput(this, 'DocDbConnectionStringSecretArn', {
+            value: connectionStringSecret.secretArn,
+            description: 'ARN of the DocumentDB connection string secret',
         });
     }
 

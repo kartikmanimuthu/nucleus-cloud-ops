@@ -29,6 +29,9 @@ interface Message {
 }
 
 export async function POST(req: Request) {
+    // Declare outside try so the catch block can always call it safely
+    let releaseThreadLock: () => void = () => { };
+
     try {
         const {
             messages,
@@ -53,7 +56,7 @@ export async function POST(req: Request) {
             );
         }
         activeThreads.set(threadId, true);
-        const releaseThreadLock = () => activeThreads.delete(threadId);
+        releaseThreadLock = () => activeThreads.delete(threadId);
 
         // Ensure thread exists in store (without persisting messages yet)
         const firstUserMsg = messages.find((m: Message) => m.role === 'user');
@@ -155,12 +158,12 @@ export async function POST(req: Request) {
             // Convert Vercel AI SDK messages to LangChain messages
             const validMessages = messagesToProcess.map((m: Message) => {
                 let content: string | Array<any> = m.content;
-                
+
                 // Handle multimodal content with attachments
                 if ((m as any).experimental_attachments?.length > 0) {
-                    const textContent = typeof m.content === 'string' ? m.content : 
+                    const textContent = typeof m.content === 'string' ? m.content :
                         (m.parts?.filter((p) => p.type === 'text').map((p) => p.text).join('') || '');
-                    
+
                     content = [
                         { type: 'text', text: textContent },
                         ...(m as any).experimental_attachments.map((att: any) => ({
@@ -174,7 +177,7 @@ export async function POST(req: Request) {
                         .map((p) => p.text)
                         .join('');
                 }
-                
+
                 content = content || "";
 
                 if (m.role === 'user') {

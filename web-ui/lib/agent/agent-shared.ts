@@ -449,7 +449,7 @@ async function initCheckpointer(): Promise<BaseCheckpointSaver> {
             const mongoClient = await getMongoClient();
             const saver = new SafeMongoDBSaver({
                 client: mongoClient as any,
-                dbName: process.env.MONGODB_DB_NAME || process.env.DEEP_AGENT_DB_NAME || 'nucleus_deep_agent',
+                dbName: process.env.MONGODB_DB_NAME || process.env.DEEP_AGENT_DB_NAME || 'nucleus',
                 checkpointCollectionName: 'agent_checkpoints',
                 checkpointWritesCollectionName: 'agent_checkpoint_writes',
             });

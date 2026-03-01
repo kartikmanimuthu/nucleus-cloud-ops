@@ -149,7 +149,7 @@ export async function createDeepAgentGraph(config: DeepAgentConfig) {
             const mongoClient = await getMongoClient();
             agentCheckpointer = new SafeMongoDBSaver({
                 client: mongoClient as any,
-                dbName: process.env.DEEP_AGENT_DB_NAME || 'nucleus_deep_agent',
+                dbName: process.env.DEEP_AGENT_DB_NAME || 'nucleus',
                 checkpointCollectionName: 'checkpoints',
                 checkpointWritesCollectionName: 'checkpoint_writes',
             });

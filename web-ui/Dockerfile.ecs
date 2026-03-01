@@ -76,6 +76,10 @@ ENV PORT=3000 \
     NEXT_PUBLIC_AWS_USE_STS=true \
     NEXT_PUBLIC_TESTING1='testing1'
 
+# Download Amazon DocumentDB / RDS CA bundle for TLS connections
+RUN curl -sSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+    -o /etc/ssl/certs/rds-combined-ca-bundle.pem
+
 # Create necessary directories
 RUN mkdir -p /tmp/cache && \
     mkdir -p .next/cache
