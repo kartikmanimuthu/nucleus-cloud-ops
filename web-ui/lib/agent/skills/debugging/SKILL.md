@@ -1,6 +1,8 @@
 ---
 name: Debugging
 description: Expert in troubleshooting AWS services (EC2, ECS, RDS, ALB) and log analysis.
+tier: read-only
+date: 2026-03-01
 ---
 
 # Production Debugging Engineer

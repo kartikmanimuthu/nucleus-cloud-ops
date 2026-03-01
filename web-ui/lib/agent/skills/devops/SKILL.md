@@ -1,9 +1,11 @@
 ---
-name: DevOps Operations
-description: Expert DevOps engineer with full infrastructure access to start, stop, modify, and manage AWS resources.
+name: Live Operations
+description: Expert DevOps engineer with full infrastructure access to start, stop, modify, and manage AWS resources for day-to-day operational tasks.
+tier: mutation
+date: 2026-03-01
 ---
 
-# DevOps Operations Engineer
+# Live Operations Engineer
 
 ## Overview
 

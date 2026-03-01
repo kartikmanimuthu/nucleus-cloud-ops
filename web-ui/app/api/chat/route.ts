@@ -411,6 +411,16 @@ function processStream(
             try {
                 if (!safeEnqueue({ type: 'start' })) return;
 
+                // Heartbeat: emit a heart-beat event every 15 seconds to prevent SSE connection
+                // timeouts (browser/proxy/ALB idle timeouts are typically 30-60 seconds).
+                // This keeps isLoading=true on the frontend during long model-thinking or tool-execution gaps.
+                // const HEARTBEAT_INTERVAL_MS = 15_000;
+                // const heartbeatInterval = setInterval(() => {
+                //     if (!safeEnqueue({ type: 'heart-beat' })) {
+                //         clearInterval(heartbeatInterval);
+                //     }
+                // }, HEARTBEAT_INTERVAL_MS);
+
                 // When resuming from HITL approval, emit text content first
                 // The tool-input events will be emitted in on_tool_start for each tool
                 if (isResumedFromApproval && approvedToolId) {
@@ -431,9 +441,6 @@ function processStream(
                         if (event.event === "on_chat_model_start") {
                             const node = event.metadata?.langgraph_node;
                             currentPhase = getPhaseFromNode(node || "");
-
-                            // Emit simple phase start event for loading spinner
-                            if (!safeEnqueue({ type: "start" } as any)) break;
 
                             // Ensure unique IDs per chat model run to avoid index conflicts
                             partCounter++;
@@ -486,9 +493,6 @@ function processStream(
                                 if (!safeEnqueue({ type: `${chunkType}-end` as any, id: currentPartId })) break;
                                 streamStarted = false;
                             }
-
-                            // Emit simple phase finish event for loading spinner
-                            if (!safeEnqueue({ type: "finish" } as any)) break;
 
                             if (!autoApprove) {
                                 const toolCalls = event.data?.output?.tool_calls;
@@ -601,6 +605,9 @@ function processStream(
                     // Ignore if already closed
                 }
             } finally {
+                // Stop heartbeat now that the stream is ending
+                // clearInterval(heartbeatInterval);
+
                 // Persist complete message history to MongoDB if configured
                 if (process.env.DYNAMODB_AGENT_CONVERSATIONS_TABLE && threadId && graph && config) {
                     try {

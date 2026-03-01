@@ -1,6 +1,8 @@
 ---
 name: Security Analysis
 description: Expert in AWS security best practices, IAM analysis, and compliance checking.
+tier: read-only
+date: 2026-03-01
 ---
 
 # Security Analysis Engineer

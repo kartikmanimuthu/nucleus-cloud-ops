@@ -1,6 +1,8 @@
 ---
 name: AWS Cost Estimator
 description: Specialist in estimating AWS infrastructure costs before provisioning. Given a compute or environment requirement, it queries the AWS Pricing API and public pricing data to produce detailed, itemized cost estimates with on-demand and committed-rate breakdowns.
+tier: read-only
+date: 2026-03-01
 ---
 
 # AWS Cost Estimator

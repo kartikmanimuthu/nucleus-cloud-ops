@@ -45,7 +45,7 @@ const AGENT_MODES = [
   { id: "deep", label: "Deep Agent" },
 ];
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Plan,
   PlanHeader,
@@ -409,14 +409,8 @@ export function ChatInterface({
   const [hasStarted, setHasStarted] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [wasStopped, setWasStopped] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
-  const streamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastMessageContentRef = useRef<string>("");
   const planStepCacheRef = useRef(new Map<string, string[]>());
-  // Ref mirror of isStreaming — lets us read the current value inside effects/callbacks
-  // without adding it to dependency arrays (avoids extra re-renders).
-  const isStreamingRef = useRef(isStreaming);
   // rAF handle for debounced auto-scroll — cancelled if a new message arrives before the frame fires.
   const scrollRafRef = useRef<number | null>(null);
 
@@ -533,7 +527,7 @@ export function ChatInterface({
     selectedAccountIds.includes(a.accountId),
   );
 
-  const { messages, sendMessage, isLoading, setMessages, addToolResult, stop } =
+  const { messages, sendMessage, status, error, reload, setMessages, addToolResult, stop, regenerate } =
     useChat({
       api: "/api/chat",
       // Batch micro-delta SSE chunks into 50ms windows, reducing ~4000+ renders → ~80-100.
@@ -571,6 +565,28 @@ export function ChatInterface({
         }
       },
     }) as any;
+
+  const isLoading = status === 'submitted' || status === 'streaming';
+
+  // Derive current agent phase from the most recent reasoning part in the last message.
+  // Used to show contextual status text in the loading spinner during execution.
+  const currentPhase = useMemo(() => {
+    if (!isLoading || messages.length === 0) return "Processing";
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.role !== "assistant") return "Processing";
+    const parts = lastMsg.parts || [];
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const part = parts[i] as any;
+      if (part.type === "reasoning" && typeof part.text === "string") {
+        if (part.text.includes("PLANNING_PHASE_START")) return "Planning";
+        if (part.text.includes("EXECUTION_PHASE_START")) return "Executing";
+        if (part.text.includes("REFLECTION_PHASE_START")) return "Reflecting";
+        if (part.text.includes("REVISION_PHASE_START")) return "Revising";
+        if (part.text.includes("FINAL_PHASE_START")) return "Finalizing";
+      }
+    }
+    return "Processing";
+  }, [isLoading, messages]);
 
   // Fetch conversation history when component mounts (for existing threads)
   useEffect(() => {
@@ -611,55 +627,11 @@ export function ChatInterface({
     fetchHistory();
   }, [threadId, setMessages]);
 
-  // Keep isStreamingRef in sync so callbacks can read the current value without a dependency.
-  useEffect(() => {
-    isStreamingRef.current = isStreaming;
-  });
-
   useEffect(() => {
     if (messages.length > 0) {
       setHasStarted(true);
-
-      // Track streaming state based on message content changes
-      const lastMessage = messages[messages.length - 1];
-      // Use a lightweight fingerprint instead of JSON.stringify to avoid blocking the main thread
-      // when the last message contains large tool outputs (100KB+)
-      const parts = lastMessage.parts || [];
-      const lastPart = parts[parts.length - 1];
-      const currentContent = `${lastMessage.id}-${parts.length}-${lastPart?.type ?? ""}-${String(lastPart?.text?.length ?? lastPart?.toolCallId ?? "")}`;
-
-      // If content changed, we're actively streaming
-      if (currentContent !== lastMessageContentRef.current) {
-        lastMessageContentRef.current = currentContent;
-
-        // Only call setIsStreaming(true) when not already streaming — avoids a redundant
-        // state update (and the consequent re-render) on every streaming chunk.
-        if (!isStreamingRef.current) setIsStreaming(true);
-
-        // Clear any existing timeout
-        if (streamTimeoutRef.current) {
-          clearTimeout(streamTimeoutRef.current);
-        }
-
-        // Set streaming to false after 2 seconds of no updates
-        streamTimeoutRef.current = setTimeout(() => {
-          console.log(
-            "[ChatInterface] Stream appears to have ended (no updates for 2s)",
-          );
-          setIsStreaming(false);
-        }, 2000);
-      }
     }
   }, [messages]);
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (streamTimeoutRef.current) {
-        clearTimeout(streamTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const [inputValue, setInputValue] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -709,7 +681,7 @@ export function ChatInterface({
   };
 
   const handleEnhancePrompt = async () => {
-    if (!inputValue.trim() || isEnhancing || isLoading || isStreaming) return;
+    if (!inputValue.trim() || isEnhancing || isLoading) return;
 
     try {
       setIsEnhancing(true);
@@ -781,22 +753,10 @@ export function ChatInterface({
   };
 
   const handleStop = () => {
-    console.log(
-      "[ChatInterface] Stop button clicked, isLoading:",
-      isLoading,
-      "isStreaming:",
-      isStreaming,
-    );
+    console.log("[ChatInterface] Stop button clicked, isLoading:", isLoading);
     setWasStopped(true);
-    setIsStreaming(false);
-    if (streamTimeoutRef.current) {
-      clearTimeout(streamTimeoutRef.current);
-      streamTimeoutRef.current = null;
-    }
     stop();
-    console.log(
-      "[ChatInterface] Stop called, wasStopped set to true, isStreaming set to false",
-    );
+    console.log("[ChatInterface] Stop called, wasStopped set to true");
   };
 
   // Handle tool approval - makes explicit API call to resume LangGraph execution
@@ -1206,14 +1166,14 @@ export function ChatInterface({
               key={message.id}
               message={message}
               isLastMessage={msgIndex === messages.length - 1}
-              isActivelyStreaming={isLoading || isStreaming}
+              isActivelyStreaming={isLoading}
               renderPhaseBlock={renderPhaseBlock}
               renderToolInvocation={renderToolInvocation}
             />
           ))}
 
-          {/* Loading indicator */}
-          {(isLoading || isStreaming) && (
+          {/* Loading indicator — shown for the full agent execution lifecycle */}
+          {isLoading && (
             <div className="flex gap-3 justify-start">
               <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
                 <AvatarFallback className="bg-gradient-to-br from-primary/80 to-primary text-primary-foreground text-xs">
@@ -1222,13 +1182,13 @@ export function ChatInterface({
               </Avatar>
               <div className="bg-muted/50 border rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Processing...</span>
+                <span>{currentPhase}...</span>
               </div>
             </div>
           )}
 
           {/* Stopped indicator */}
-          {wasStopped && !isLoading && !isStreaming && (
+          {wasStopped && !isLoading && (
             <div className="flex gap-3 justify-start">
               <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
                 <AvatarFallback className="bg-gradient-to-br from-destructive/80 to-destructive text-destructive-foreground text-xs">
@@ -1237,6 +1197,59 @@ export function ChatInterface({
               </Avatar>
               <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-center gap-2 text-sm text-destructive">
                 <span>Execution stopped by user</span>
+              </div>
+            </div>
+          )}
+
+          {/* Error indicator */}
+          {status === "error" && (
+            <div className="flex gap-3 justify-start">
+              <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
+                <AvatarFallback className="bg-gradient-to-br from-destructive/80 to-destructive text-destructive-foreground text-xs">
+                  <X className="h-4 w-4" />
+                </AvatarFallback>
+              </Avatar>
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex flex-col gap-2 text-sm text-destructive">
+                <div className="font-semibold flex items-center gap-2">
+                  An error occurred
+                </div>
+                <div className="text-xs break-words max-w-lg mb-1 opacity-90">
+                  {error?.message || "Unknown error occurred during the request. Please try again."}
+                </div>
+                {(reload || regenerate) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="self-start h-7 text-xs border-destructive/30 hover:bg-destructive/10 text-destructive"
+                    onClick={() => {
+                      // Call reload or regenerate depending on which is available in the SDK
+                      const retryFn = reload || regenerate;
+                      if (retryFn) {
+                        retryFn({
+                          body: {
+                            threadId,
+                            autoApprove,
+                            model: selectedModel,
+                            mode: agentMode,
+                            accounts:
+                              selectedAccounts.length > 0
+                                ? selectedAccounts.map((a) => ({
+                                    accountId: a.accountId,
+                                    accountName: a.name,
+                                  }))
+                                : undefined,
+                            selectedSkill: selectedSkill || undefined,
+                            mcpServerIds:
+                              selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+                          }
+                        });
+                      }
+                    }}
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1.5" />
+                    Retry
+                  </Button>
+                )}
               </div>
             </div>
           )}
@@ -1736,7 +1749,7 @@ export function ChatInterface({
                 size="icon"
                 onClick={handleEnhancePrompt}
                 disabled={
-                  !inputValue.trim() || isLoading || isStreaming || isEnhancing
+                  !inputValue.trim() || isLoading || isEnhancing
                 }
                 className={cn(
                   "h-8 w-8 rounded-full shrink-0 transition-all text-muted-foreground hover:text-primary",
@@ -1751,18 +1764,18 @@ export function ChatInterface({
                 )}
               </Button>
               <Button
-                type={isLoading || isStreaming ? "button" : "submit"}
-                onClick={isLoading || isStreaming ? handleStop : undefined}
-                disabled={!(isLoading || isStreaming) && !inputValue.trim()}
+                type={isLoading ? "button" : "submit"}
+                onClick={isLoading ? handleStop : undefined}
+                disabled={!isLoading && !inputValue.trim()}
                 size="icon"
                 className={cn(
                   "h-8 w-8 rounded-full shrink-0 transition-all",
-                  isLoading || isStreaming
+                  isLoading
                     ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     : "bg-primary hover:bg-primary/90",
                 )}
               >
-                {isLoading || isStreaming ? (
+                {isLoading ? (
                   <span className="h-2.5 w-2.5 bg-current rounded-sm" />
                 ) : (
                   <Send className="h-4 w-4 ml-0.5" />
