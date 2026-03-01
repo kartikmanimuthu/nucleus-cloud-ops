@@ -11,7 +11,9 @@ import {
     globTool,
     grepTool,
     getAwsCredentialsTool,
-    listAwsAccountsTool
+    listAwsAccountsTool,
+    writeFileToS3Tool,
+    getFileFromS3Tool
 } from "./tools";
 import { getSkillContent } from "./skills/skill-loader";
 import {
@@ -92,7 +94,7 @@ You are operating as a general-purpose DevOps engineer with full read and write 
     });
 
     // Include AWS credentials tools for account-aware operations
-    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, getAwsCredentialsTool, listAwsAccountsTool];
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, getAwsCredentialsTool, listAwsAccountsTool, writeFileToS3Tool, getFileFromS3Tool];
 
     // Dynamically discover and merge MCP server tools
     const mcpTools = await getActiveMCPTools(mcpServerIds);
@@ -192,7 +194,9 @@ Work through three phases when building the plan:
 
 - execute_command: Shell commands — AWS CLI, kubectl, terraform, ansible-playbook, git, bash scripts
 - read_file(file_path, start_line?, end_line?): Read local files with optional line range
-- write_file(file_path, content): Create or overwrite local files
+- write_file(file_path, content): Create or overwrite local files (CAUTION: may fail on serverless/read-only filesystems)
+- write_file_to_s3(key, content, thread_id): Write content to S3 temporary storage (PREFERRED for reports, logs, artifacts)
+- get_file_from_s3(key, thread_id): Read content from S3 temporary storage
 - edit_file(file_path, edits): Make targeted string replacements in existing files
 - ls(path): List directory contents with metadata
 - glob(pattern, path?): Find files matching a glob pattern
@@ -206,13 +210,14 @@ ${accountContext}
 
 When the task involves generating a report or summary document:
 - Collect ALL data you need first (run all AWS/CLI commands, gather all metrics) — do not write to any file until data collection is complete.
-- Write the COMPLETE report in a SINGLE write_file call at the very end of the plan.
+- Use write_file_to_s3 (NOT write_file) to save reports, logs, or artifacts. This avoids filesystem permission errors and JSON escaping issues.
+- Write the COMPLETE report in a SINGLE write_file_to_s3 call at the very end of the plan.
 - Do NOT write partial sections across multiple steps (e.g. "write executive summary", then "write EC2 section" separately) — this wastes LLM iterations and inflates checkpoint state.
-- Do NOT use write_file for intermediate/scratch data — keep intermediate results in the conversation context.
-- Only include a read_file step if you genuinely need to read an existing file for modification.
+- Do NOT use write_file_to_s3 for intermediate/scratch data — keep intermediate results in the conversation context.
+- Only include a read_file or get_file_from_s3 step if you genuinely need to read an existing file for modification.
 
 IMPORTANT: Return your plan as a JSON array of concise, action-oriented step descriptions. Each step must be independently executable by the executor agent.
-Example: ["Call list_aws_accounts to identify the target account", "Call get_aws_credentials for the matched account ID", "Describe all running EC2 instances using --output json and the obtained profile", "Query CloudWatch for CPUUtilization metrics on each instance over the past 7 days", "Write the complete markdown report with all findings to /tmp/report.md in a single write_file call"]
+Example: ["Call list_aws_accounts to identify the target account", "Call get_aws_credentials for the matched account ID", "Describe all running EC2 instances using --output json and the obtained profile", "Query CloudWatch for CPUUtilization metrics on each instance over the past 7 days", "Write the complete markdown report with all findings to S3 using write_file_to_s3 in a single call"]
 
 Only return the JSON array, nothing else.`);
 
@@ -305,7 +310,9 @@ Apply these standards to every AWS CLI command you run:
 
 - execute_command(command): Run any shell command (AWS CLI, kubectl, terraform, git, bash)
 - read_file(file_path, start_line?, end_line?): Read local files
-- write_file(file_path, content): Write or create local files — REQUIRED: ALWAYS include BOTH file_path AND content parameters. Never call write_file with only file_path.
+- write_file(file_path, content): Write or create local files (CAUTION: may fail on serverless/read-only filesystems)
+- write_file_to_s3(key, content, thread_id): Write content to S3 temporary storage (PREFERRED for reports, logs, artifacts)
+- get_file_from_s3(key, thread_id): Read content from S3 temporary storage
 - edit_file(file_path, edits): Targeted string replacements in existing files
 - ls(path): List directory contents with metadata
 - glob(pattern, path?): Find files matching a pattern
@@ -317,7 +324,9 @@ ${accountContext}
 
 ## Critical Tool Requirements
 
-⚠️ **write_file MUST have both parameters**: Always provide BOTH file_path AND content when calling write_file. Calls with missing content will fail validation and trigger a retry loop. If you have content to write, include it in the same tool call.
+⚠️ **Prefer write_file_to_s3 over write_file**: For reports, logs, or any generated artifacts, use write_file_to_s3 instead of write_file. This avoids filesystem permission errors on serverless deployments and prevents JSON escaping issues with large content blocks.
+
+⚠️ **write_file_to_s3 parameters**: Always provide key (filename), content (the data to write), and thread_id (use the current conversation thread ID).
 
 ⚠️ **Tool Parameter Validation**: Always ensure tool calls include all required parameters. If a tool call fails with a parameter validation error, check that you provided all required fields.
 

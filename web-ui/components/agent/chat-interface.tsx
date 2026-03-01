@@ -230,7 +230,7 @@ interface MessageRowProps {
   message: any;
   isLastMessage?: boolean;
   isActivelyStreaming?: boolean;
-  renderPhaseBlock: (phase: AgentPhase, content: string, key: string, isLastMessage?: boolean) => React.ReactNode;
+  renderPhaseBlock: (phase: AgentPhase, content: string, key: string, isActivePhase?: boolean) => React.ReactNode;
   renderToolInvocation: (part: any, messageId: string, index: number) => React.ReactNode;
 }
 
@@ -310,10 +310,13 @@ const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isAc
               const { phase, cleanContent } = parsePhaseFromContent(
                 part.text || "",
               );
+              const isLastReasoningPart = index === parts.map(p => p.type).lastIndexOf("reasoning");
+              const isActivePhase = isLastMessage && isActivelyStreaming && isLastReasoningPart;
               return renderPhaseBlock(
                 phase,
                 cleanContent,
                 `${message.id}-part-${index}`,
+                isActivePhase,
               );
             }
 
@@ -408,7 +411,6 @@ export function ChatInterface({
   const [wasStopped, setWasStopped] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
-  const [phaseActive, setPhaseActive] = useState(false);
   const streamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastMessageContentRef = useRef<string>("");
   const planStepCacheRef = useRef(new Map<string, string[]>());
@@ -613,11 +615,6 @@ export function ChatInterface({
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   });
-
-  useEffect(() => {
-    // Track phase activity: show spinner while loading is active
-    setPhaseActive(isLoading);
-  }, [isLoading]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -846,7 +843,7 @@ export function ChatInterface({
     phase: AgentPhase,
     content: string,
     key: string,
-    isLastMessage: boolean = false,
+    isActivePhase: boolean = false,
   ) => {
     const config = phaseConfig[phase];
     const Icon = config.icon;
@@ -925,14 +922,14 @@ export function ChatInterface({
             <Icon className="w-3.5 h-3.5" />
             {config.label}
           </div>
-          <Plan defaultOpen={true} isStreaming={isLoading && isLastMessage}>
+          <Plan defaultOpen={true} isStreaming={isActivePhase}>
             <PlanHeader title="Execution Plan" />
             <PlanContent>
               {planSteps.map((step, i) => (
                 <PlanStep
                   key={i}
                   number={i + 1}
-                  status={i === 0 && isLoading ? "active" : "pending"}
+                  status={i === 0 && isActivePhase ? "active" : "pending"}
                 >
                   {/* Clean up step text - remove numbering prefixes */}
                   {step
@@ -966,7 +963,7 @@ export function ChatInterface({
           </div>
           <Reasoning
             defaultOpen={true}
-            isStreaming={isLoading && isLastMessage}
+            isStreaming={isActivePhase}
           >
             <ReasoningTrigger label="Agent Reflection" />
             <ReasoningContent>{cleanedContent}</ReasoningContent>
@@ -994,7 +991,7 @@ export function ChatInterface({
         >
           <Icon className="w-3.5 h-3.5" />
           {config.label}
-          {isLoading && isLastMessage && (
+          {isActivePhase && (
             <Loader2 className="w-3 h-3 animate-spin ml-auto" />
           )}
         </div>
@@ -1216,7 +1213,7 @@ export function ChatInterface({
           ))}
 
           {/* Loading indicator */}
-          {phaseActive && (
+          {(isLoading || isStreaming) && (
             <div className="flex gap-3 justify-start">
               <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
                 <AvatarFallback className="bg-gradient-to-br from-primary/80 to-primary text-primary-foreground text-xs">

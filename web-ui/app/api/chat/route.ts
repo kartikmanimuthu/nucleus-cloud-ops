@@ -48,6 +48,19 @@ export async function POST(req: Request) {
         } = await req.json();
         const threadId = requestThreadId || Date.now().toString();
 
+        // Langfuse: resolve userId from NextAuth session (best-effort, non-blocking)
+        let langfuseUserId: string | undefined;
+        if (process.env.LANGFUSE_ENABLED === "true") {
+            try {
+                const { getServerSession } = await import("next-auth");
+                const { authOptions } = await import("@/lib/auth-options");
+                const session = await getServerSession(authOptions);
+                langfuseUserId = (session?.user as any)?.sub ?? session?.user?.email ?? undefined;
+            } catch {
+                // Non-fatal: traces will just omit userId
+            }
+        }
+
         // Reject duplicate requests on the same thread (e.g. from useChat maxSteps retries)
         if (activeThreads.has(threadId)) {
             return new Response(
@@ -105,6 +118,11 @@ export async function POST(req: Request) {
         } else {
             graph = await createReflectionGraph(graphConfig);
         }
+
+        // Build Langfuse callbacks (empty array when disabled — zero overhead)
+        const { getLangfuseCallbackHandler } = await import('@/lib/agent/langfuse-config');
+        const langfuseHandler = await getLangfuseCallbackHandler(threadId, langfuseUserId);
+        const langfuseCallbacks = langfuseHandler ? [langfuseHandler as any] : [];
 
         const lastMessage = messages[messages.length - 1];
         let input: { messages: (HumanMessage | AIMessage | ToolMessage)[] } | null = null;
@@ -217,6 +235,7 @@ export async function POST(req: Request) {
                     version: "v2",
                     configurable: { thread_id: threadId },
                     recursionLimit: 100, // Higher limit for complex tasks with many tool calls
+                    ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
                 }
             );
 
@@ -238,6 +257,7 @@ export async function POST(req: Request) {
                     configurable: { thread_id: threadId },
                     recursionLimit: 100,
                     signal: req.signal,
+                    ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
                 }
             );
 
