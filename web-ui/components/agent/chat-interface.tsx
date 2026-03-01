@@ -32,6 +32,8 @@ import {
   Wand2,
   FileText,
   ChevronDown,
+  History,
+  Plus,
 } from "lucide-react";
 import {
   copyToClipboard,
@@ -89,12 +91,23 @@ import {
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
+import { ThreadSidebar } from "@/components/agent/thread-sidebar";
 
 // Available models
 const AVAILABLE_MODELS = [
   {
+    id: "global.anthropic.claude-sonnet-4-6",
+    label: "Claude 4.6 Sonnet",
+    provider: "amazon",
+  },
+  {
     id: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     label: "Claude 4.5 Sonnet",
+    provider: "amazon",
+  },
+  {
+    id: "global.amazon.nova-2-lite-v1:0",
+    label: "Nova 2 Lite",
     provider: "amazon",
   },
   {
@@ -108,20 +121,10 @@ const AVAILABLE_MODELS = [
     provider: "amazon",
   },
   {
-    id: "global.anthropic.claude-sonnet-4-6",
-    label: "Claude 4.6 Sonnet",
-    provider: "amazon",
-  },
-  {
     id: "global.anthropic.claude-opus-4-6-v1",
     label: "Claude 4.6 Opus",
     provider: "amazon",
-  },
-  {
-    id: "global.amazon.nova-2-lite-v1:0",
-    label: "Nova 2 Lite",
-    provider: "amazon",
-  },
+  }
 ];
 
 // Phase types matching backend
@@ -224,6 +227,8 @@ const phaseConfig: Record<
 
 interface ChatInterfaceProps {
   threadId: string;
+  onThreadSelect?: (threadId: string) => void;
+  onNewChat?: () => void;
 }
 
 interface MessageRowProps {
@@ -399,6 +404,8 @@ const ToolOutputWithTruncation = React.memo(function ToolOutputWithTruncation({
 
 export function ChatInterface({
   threadId: initialThreadId,
+  onThreadSelect,
+  onNewChat,
 }: ChatInterfaceProps) {
   const [threadId] = useState(initialThreadId);
 
@@ -1119,7 +1126,28 @@ export function ChatInterface({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Skills Selector Dropdown */}
+          {onNewChat && (
+            <Button variant="ghost" size="icon" onClick={onNewChat} className="text-muted-foreground hover:text-foreground">
+              <Plus className="w-5 h-5" />
+            </Button>
+          )}
+          {onThreadSelect && onNewChat && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                  <History className="w-5 h-5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-[320px] p-0 h-[600px] flex flex-col overflow-hidden">
+                <ThreadSidebar
+                  currentThreadId={threadId}
+                  onThreadSelect={onThreadSelect}
+                  onNewChat={onNewChat}
+                  className="border-none bg-background rounded-md w-full h-full"
+                />
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
       </div>
 
