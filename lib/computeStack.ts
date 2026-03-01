@@ -910,6 +910,12 @@ export class ComputeStack extends cdk.Stack {
                 DOCDB_PORT: String(docDbPort),
                 MONGODB_URI: `mongodb://nucleusadmin:REPLACE_WITH_SECRET@${docDbEndpoint}:${docDbPort}/?tls=true&tlsCAFile=/etc/ssl/certs/rds-combined-ca-bundle.pem&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false`,
                 MONGODB_DB_NAME: `${appName.replace(/-/g, '_')}_db`,
+
+                // Langfuse Observability (LLM tracing for the AI agent)
+                LANGFUSE_ENABLED: process.env.LANGFUSE_ENABLED || 'false',
+                LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY || '',
+                LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY || '',
+                LANGFUSE_HOST: process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com',
             },
             secrets: {
                 // Inject DocumentDB credentials from Secrets Manager at runtime

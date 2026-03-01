@@ -224,10 +224,16 @@ export async function POST(req: Request) {
         }
 
         if (stream) {
-            // Note: We intentionally DON'T pass req.signal to streamEvents.
-            // Passing the request's AbortSignal directly causes "Error: Aborted" 
-            // to be thrown when clients disconnect, which disrupts graph execution.
-            // Instead, we handle disconnection gracefully in safeEnqueue().
+            // Create a dedicated abort controller for graph execution.
+            // Wiring req.signal → graphAbortController lets us stop the graph
+            // when the client disconnects without passing req.signal directly
+            // (which caused unhandled "Error: Aborted" disruptions).
+            const graphAbortController = new AbortController();
+            req.signal.addEventListener('abort', () => {
+                console.log('[API] Client disconnected — aborting LangGraph execution');
+                graphAbortController.abort();
+            });
+
             // @ts-ignore
             const streamEvents = await graph.streamEvents(
                 input as any,
@@ -235,6 +241,7 @@ export async function POST(req: Request) {
                     version: "v2",
                     configurable: { thread_id: threadId },
                     recursionLimit: 100, // Higher limit for complex tasks with many tool calls
+                    signal: graphAbortController.signal,
                     ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
                 }
             );
