@@ -408,9 +408,8 @@ export function ChatInterface({
   const [wasStopped, setWasStopped] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
-  const [backendSlow, setBackendSlow] = useState(false);
+  const [phaseActive, setPhaseActive] = useState(false);
   const streamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const backendSlowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastMessageContentRef = useRef<string>("");
   const planStepCacheRef = useRef(new Map<string, string[]>());
   // Ref mirror of isStreaming — lets us read the current value inside effects/callbacks
@@ -616,6 +615,11 @@ export function ChatInterface({
   });
 
   useEffect(() => {
+    // Track phase activity: show spinner while loading is active
+    setPhaseActive(isLoading);
+  }, [isLoading]);
+
+  useEffect(() => {
     if (messages.length > 0) {
       setHasStarted(true);
 
@@ -635,15 +639,10 @@ export function ChatInterface({
         // state update (and the consequent re-render) on every streaming chunk.
         if (!isStreamingRef.current) setIsStreaming(true);
 
-        // Clear any existing timeouts
+        // Clear any existing timeout
         if (streamTimeoutRef.current) {
           clearTimeout(streamTimeoutRef.current);
         }
-        if (backendSlowTimeoutRef.current) {
-          clearTimeout(backendSlowTimeoutRef.current);
-        }
-        // Messages are arriving, so backend is not slow
-        setBackendSlow(false);
 
         // Set streaming to false after 2 seconds of no updates
         streamTimeoutRef.current = setTimeout(() => {
@@ -652,19 +651,9 @@ export function ChatInterface({
           );
           setIsStreaming(false);
         }, 2000);
-
-        // Set backend slow warning after 5 seconds of no updates while still loading
-        if (isLoading) {
-          backendSlowTimeoutRef.current = setTimeout(() => {
-            console.log(
-              "[ChatInterface] Backend appears to be slow (no updates for 5s)",
-            );
-            setBackendSlow(true);
-          }, 5000);
-        }
       }
     }
-  }, [messages, isLoading]);
+  }, [messages]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -672,21 +661,8 @@ export function ChatInterface({
       if (streamTimeoutRef.current) {
         clearTimeout(streamTimeoutRef.current);
       }
-      if (backendSlowTimeoutRef.current) {
-        clearTimeout(backendSlowTimeoutRef.current);
-      }
     };
   }, []);
-
-  // Clear backend slow flag when loading finishes
-  useEffect(() => {
-    if (!isLoading) {
-      setBackendSlow(false);
-      if (backendSlowTimeoutRef.current) {
-        clearTimeout(backendSlowTimeoutRef.current);
-      }
-    }
-  }, [isLoading]);
 
   const [inputValue, setInputValue] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1240,26 +1216,16 @@ export function ChatInterface({
           ))}
 
           {/* Loading indicator */}
-          {(isLoading || isStreaming || backendSlow) && (
+          {phaseActive && (
             <div className="flex gap-3 justify-start">
               <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
-                <AvatarFallback className={cn(
-                  "text-xs",
-                  backendSlow
-                    ? "bg-gradient-to-br from-amber-500/80 to-amber-500 text-amber-foreground"
-                    : "bg-gradient-to-br from-primary/80 to-primary text-primary-foreground"
-                )}>
+                <AvatarFallback className="bg-gradient-to-br from-primary/80 to-primary text-primary-foreground text-xs">
                   <Bot className="h-4 w-4" />
                 </AvatarFallback>
               </Avatar>
-              <div className={cn(
-                "border rounded-lg p-3 flex items-center gap-2 text-sm",
-                backendSlow
-                  ? "bg-amber-50/50 border-amber-200 text-amber-700"
-                  : "bg-muted/50 border-muted text-muted-foreground"
-              )}>
+              <div className="bg-muted/50 border rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>{backendSlow ? "Backend is processing (slow)..." : "Processing..."}</span>
+                <span>Processing...</span>
               </div>
             </div>
           )}

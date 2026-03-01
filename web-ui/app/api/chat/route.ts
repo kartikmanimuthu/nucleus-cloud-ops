@@ -405,6 +405,9 @@ function processStream(
                             const node = event.metadata?.langgraph_node;
                             currentPhase = getPhaseFromNode(node || "");
 
+                            // Emit simple phase start event for loading spinner
+                            if (!safeEnqueue({ type: "start" } as any)) break;
+
                             // Ensure unique IDs per chat model run to avoid index conflicts
                             partCounter++;
                             currentPartId = `part-${runId}-${partCounter}`;
@@ -456,6 +459,9 @@ function processStream(
                                 if (!safeEnqueue({ type: `${chunkType}-end` as any, id: currentPartId })) break;
                                 streamStarted = false;
                             }
+
+                            // Emit simple phase finish event for loading spinner
+                            if (!safeEnqueue({ type: "finish" } as any)) break;
 
                             if (!autoApprove) {
                                 const toolCalls = event.data?.output?.tool_calls;
