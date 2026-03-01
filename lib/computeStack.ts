@@ -126,6 +126,8 @@ export class ComputeStack extends cdk.Stack {
         const checkpointTableName = `${appName}-checkpoints-table`;
         const writesTableName = `${appName}-checkpoint-writes-v2-table`;
         const agentConversationsTableName = `${appName}-agent-conversations`;
+        const chatHistoryTableName = `${appName}-chat-history`;
+        const memoryTableName = `${appName}-memory`;
         const agentOpsTableName = `${appName}-agent-ops`;
 
         // ============================================================================
@@ -242,6 +244,7 @@ export class ComputeStack extends cdk.Stack {
             partitionKey: { name: 'thread_id', type: dynamodb.AttributeType.STRING },
             sortKey: { name: 'checkpoint_id', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            timeToLiveAttribute: 'ttl',
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
@@ -251,6 +254,7 @@ export class ComputeStack extends cdk.Stack {
             partitionKey: { name: 'thread_id_checkpoint_id_checkpoint_ns', type: dynamodb.AttributeType.STRING },
             sortKey: { name: 'task_id_idx', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            timeToLiveAttribute: 'ttl',
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
@@ -260,6 +264,26 @@ export class ComputeStack extends cdk.Stack {
             partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
             sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+        });
+
+        // Chat History Table (@farukada/aws-langgraph-dynamodb-ts DynamoDBChatMessageHistory)
+        const chatHistoryTable = new dynamodb.Table(this, `${appName}-ChatHistoryTable`, {
+            tableName: chatHistoryTableName,
+            partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'sessionId', type: dynamodb.AttributeType.STRING },
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            timeToLiveAttribute: 'ttl',
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+        });
+
+        // Long-Term Memory Table (@farukada/aws-langgraph-dynamodb-ts DynamoDBStore)
+        const memoryTable = new dynamodb.Table(this, `${appName}-MemoryTable`, {
+            tableName: memoryTableName,
+            partitionKey: { name: 'user_id', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'namespace_key', type: dynamodb.AttributeType.STRING },
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            timeToLiveAttribute: 'ttl',
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
@@ -739,7 +763,8 @@ export class ComputeStack extends cdk.Stack {
             actions: [
                 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem',
                 'dynamodb:Query', 'dynamodb:Scan', 'dynamodb:DeleteItem',
-                'dynamodb:BatchWriteItem', 'dynamodb:BatchGetItem', 'dynamodb:DescribeTable'
+                'dynamodb:BatchWriteItem', 'dynamodb:BatchGetItem', 'dynamodb:DescribeTable',
+                'dynamodb:TransactWriteItems',
             ],
             resources: [
                 appTable.tableArn, `${appTable.tableArn}/index/*`,
@@ -748,9 +773,17 @@ export class ComputeStack extends cdk.Stack {
                 checkpointTable.tableArn, `${checkpointTable.tableArn}/index/*`,
                 writesTable.tableArn, `${writesTable.tableArn}/index/*`,
                 agentConversationsTable.tableArn, `${agentConversationsTable.tableArn}/index/*`,
+                chatHistoryTable.tableArn, `${chatHistoryTable.tableArn}/index/*`,
+                memoryTable.tableArn, `${memoryTable.tableArn}/index/*`,
                 inventoryTable.tableArn, `${inventoryTable.tableArn}/index/*`,
                 agentOpsTable.tableArn, `${agentOpsTable.tableArn}/index/*`,
             ],
+        }));
+
+        // Bedrock permissions for embeddings (long-term memory semantic search)
+        ecsTaskRole.addToPolicy(new iam.PolicyStatement({
+            actions: ['bedrock:InvokeModel'],
+            resources: [`arn:aws:bedrock:${this.region}::foundation-model/amazon.titan-embed-text-v2:0`],
         }));
 
         // STS permissions
@@ -869,6 +902,8 @@ export class ComputeStack extends cdk.Stack {
                 DYNAMODB_CHECKPOINT_TABLE: checkpointTableName,
                 DYNAMODB_WRITES_TABLE: writesTableName,
                 CHECKPOINT_S3_BUCKET: checkpointBucket.bucketName,
+                DYNAMODB_CHAT_HISTORY_TABLE: chatHistoryTableName,
+                DYNAMODB_MEMORY_TABLE: memoryTableName,
                 DYNAMODB_USERS_TEAMS_TABLE: usersTeamsTable.tableName,
                 COGNITO_USER_POOL_ID: this.userPool.userPoolId,
                 NEXT_PUBLIC_COGNITO_USER_POOL_ID: this.userPool.userPoolId,

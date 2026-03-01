@@ -39,6 +39,8 @@ export class WebUIStack extends cdk.Stack {
         const auditTableName = `${SCHEDULER_NAME}-audit-table`;
         const checkpointTableName = `${SCHEDULER_NAME}-checkpoints-table`;
         const writesTableName = `${SCHEDULER_NAME}-checkpoint-writes-v2-table`;
+        const chatHistoryTableName = `${SCHEDULER_NAME}-chat-history`;
+        const memoryTableName = `${SCHEDULER_NAME}-memory`;
 
         // ============================================================================
         // DYNAMODB TABLES
@@ -72,43 +74,40 @@ export class WebUIStack extends cdk.Stack {
         // Create DynamoDB table for LangGraph checkpoints
         const checkpointTable = new dynamodb.Table(this, 'CheckpointTable', {
             tableName: checkpointTableName,
-            partitionKey: {
-                name: 'thread_id',
-                type: dynamodb.AttributeType.STRING,
-            },
-            sortKey: {
-                name: 'checkpoint_id',
-                type: dynamodb.AttributeType.STRING,
-            },
+            partitionKey: { name: 'thread_id', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'checkpoint_id', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            timeToLiveAttribute: 'ttl',
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
         // Create DynamoDB table for LangGraph writes
         const writesTable = new dynamodb.Table(this, 'WritesTable', {
             tableName: writesTableName,
-            partitionKey: {
-                name: 'thread_id_checkpoint_id_checkpoint_ns',
-                type: dynamodb.AttributeType.STRING,
-            },
-            sortKey: {
-                name: 'task_id_idx',
-                type: dynamodb.AttributeType.STRING,
-            },
-            // GSI for writes as per recommendation/common pattern might be needed, 
-            // but standard KV access is usually enough for basic usage. 
-            // Sticking to basic definition unless library docs specify indices.
-            // (Library uses thread_id, checkpoint_id, task_id, idx usually in single table or similar)
-            // Assuming standard PK/SK for the writes table as well:
-            // The library code suggests:
-            // Checkpoints: thread_id (PK), checkpoint_id (SK)
-            // Writes: thread_id (PK), checkpoint_id (SK), and then specific attributes like task_id, idx, etc.
-            // Since we can't define complex composite keys in Dynamo besides PK/SK, we stick to PK/SK.
-            // However, writes might need to be queried by checkpoint. 
-            // Let's ensure strict schema match if possible.
-            // Re-reading usage: "One table for storing checkpoints and one table for storing writes"
-            // The library code likely handles the schema details if we just provide the table.
+            partitionKey: { name: 'thread_id_checkpoint_id_checkpoint_ns', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'task_id_idx', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            timeToLiveAttribute: 'ttl',
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+        });
+
+        // Chat History Table (@farukada/aws-langgraph-dynamodb-ts DynamoDBChatMessageHistory)
+        const chatHistoryTable = new dynamodb.Table(this, 'ChatHistoryTable', {
+            tableName: chatHistoryTableName,
+            partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'sessionId', type: dynamodb.AttributeType.STRING },
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            timeToLiveAttribute: 'ttl',
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+        });
+
+        // Long-Term Memory Table (@farukada/aws-langgraph-dynamodb-ts DynamoDBStore)
+        const memoryTable = new dynamodb.Table(this, 'MemoryTable', {
+            tableName: memoryTableName,
+            partitionKey: { name: 'user_id', type: dynamodb.AttributeType.STRING },
+            sortKey: { name: 'namespace_key', type: dynamodb.AttributeType.STRING },
+            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+            timeToLiveAttribute: 'ttl',
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
@@ -201,7 +200,7 @@ export class WebUIStack extends cdk.Stack {
             })
         );
 
-        // Add DynamoDB permissions for Checkpoint table
+        // Add DynamoDB permissions for Checkpoint, Chat History, and Memory tables
         webUILambdaExecutionRole.addToPolicy(
             new iam.PolicyStatement({
                 effect: iam.Effect.ALLOW,
@@ -213,13 +212,27 @@ export class WebUIStack extends cdk.Stack {
                     "dynamodb:Query",
                     "dynamodb:BatchWriteItem",
                     "dynamodb:BatchGetItem",
+                    "dynamodb:TransactWriteItems",
                 ],
                 resources: [
                     `arn:aws:dynamodb:${this.region}:${this.account}:table/${checkpointTableName}`,
                     `arn:aws:dynamodb:${this.region}:${this.account}:table/${checkpointTableName}/index/*`,
                     `arn:aws:dynamodb:${this.region}:${this.account}:table/${writesTableName}`,
                     `arn:aws:dynamodb:${this.region}:${this.account}:table/${writesTableName}/index/*`,
+                    `arn:aws:dynamodb:${this.region}:${this.account}:table/${chatHistoryTableName}`,
+                    `arn:aws:dynamodb:${this.region}:${this.account}:table/${chatHistoryTableName}/index/*`,
+                    `arn:aws:dynamodb:${this.region}:${this.account}:table/${memoryTableName}`,
+                    `arn:aws:dynamodb:${this.region}:${this.account}:table/${memoryTableName}/index/*`,
                 ],
+            })
+        );
+
+        // Bedrock permissions for embeddings (long-term memory semantic search)
+        webUILambdaExecutionRole.addToPolicy(
+            new iam.PolicyStatement({
+                effect: iam.Effect.ALLOW,
+                actions: ['bedrock:InvokeModel'],
+                resources: [`arn:aws:bedrock:${this.region}::foundation-model/amazon.titan-embed-text-v2:0`],
             })
         );
 
@@ -512,6 +525,8 @@ export class WebUIStack extends cdk.Stack {
                 DYNAMODB_CHECKPOINT_TABLE: checkpointTableName,
                 DYNAMODB_WRITES_TABLE: writesTableName,
                 CHECKPOINT_S3_BUCKET: checkpointBucket.bucketName,
+                DYNAMODB_CHAT_HISTORY_TABLE: chatHistoryTableName,
+                DYNAMODB_MEMORY_TABLE: memoryTableName,
                 DYNAMODB_USERS_TEAMS_TABLE: usersTeamsTable.tableName,
                 // Cognito Configuration for NextAuth
                 COGNITO_USER_POOL_ID: this.userPool.userPoolId,
