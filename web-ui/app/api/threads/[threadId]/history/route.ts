@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCheckpointer } from '@/lib/agent/agent-shared';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
-import * as agentStore from '@/lib/db/agent-chat-history-store';
+import * as agentStore from '@/lib/db/dynamodb-s3-chat-history-store';
 
 interface HistoryMessage {
     id: string;
@@ -110,16 +110,16 @@ export async function GET(
 
         console.log(`[History API] Fetching history for thread: ${threadId}`);
 
-        // MongoDB-first: try loading from agent_threads collection
-        if (process.env.MONGODB_URI) {
+        // DynamoDB-first: try loading from agent-conversations table
+        if (process.env.DYNAMODB_AGENT_CONVERSATIONS_TABLE) {
             try {
                 const thread = await agentStore.getThread(threadId);
                 if (thread && thread.messages.length > 0) {
-                    console.log(`[History API] Loaded ${thread.messages.length} messages from MongoDB for thread: ${threadId}`);
+                    console.log(`[History API] Loaded ${thread.messages.length} messages from DynamoDB for thread: ${threadId}`);
                     return NextResponse.json({ messages: thread.messages });
                 }
             } catch (err) {
-                console.warn(`[History API] MongoDB lookup failed, falling back to checkpoint:`, err);
+                console.warn(`[History API] DynamoDB lookup failed, falling back to checkpoint:`, err);
             }
         }
 

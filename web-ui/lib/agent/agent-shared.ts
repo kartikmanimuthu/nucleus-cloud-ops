@@ -4,8 +4,7 @@ import { FileSaver } from "./file-saver";
 import { DynamoDBSaver } from "@rwai/langgraphjs-checkpoint-dynamodb";
 import { DynamoDBS3Saver } from "./dynamodb-s3-saver";
 import { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
-import { SafeMongoDBSaver } from "../deep-agent/db/safe-mongo-saver";
-import { getMongoClient } from "../db/mongo-client";
+
 
 // --- Components & Interfaces ---
 
@@ -443,53 +442,29 @@ const globalForCheckpointer = globalThis as unknown as {
 };
 
 async function initCheckpointer(): Promise<BaseCheckpointSaver> {
-    // Priority 1: MongoDB (preferred)
-    if (process.env.MONGODB_URI) {
-        try {
-            const mongoClient = await getMongoClient();
-            const saver = new SafeMongoDBSaver({
-                client: mongoClient as any,
-                dbName: process.env.MONGODB_DB_NAME || process.env.DEEP_AGENT_DB_NAME || 'nucleus',
-                checkpointCollectionName: 'agent_checkpoints',
-                checkpointWritesCollectionName: 'agent_checkpoint_writes',
-            });
-            console.log("Using MongoDB Checkpointer (agent_checkpoints)");
-            return saver;
-        } catch (err) {
-            console.warn("MongoDB checkpointer init failed, trying DynamoDB fallback:", err);
-        }
-    }
+    const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
 
-    // Priority 2: DynamoDB (existing behavior)
+    // Priority 1: DynamoDB with S3 offloading
     if (process.env.DYNAMODB_CHECKPOINT_TABLE && process.env.DYNAMODB_WRITES_TABLE) {
-        console.log("Using DynamoDB Checkpointer with tables:", process.env.DYNAMODB_CHECKPOINT_TABLE, process.env.DYNAMODB_WRITES_TABLE);
-
-        // Use S3 offloading if bucket is configured
+        console.log("Using DynamoDB Checkpointer:", process.env.DYNAMODB_CHECKPOINT_TABLE, process.env.DYNAMODB_WRITES_TABLE);
         if (process.env.CHECKPOINT_S3_BUCKET) {
-            console.log("Using S3 offloading for checkpoints:", process.env.CHECKPOINT_S3_BUCKET);
+            console.log("With S3 offloading:", process.env.CHECKPOINT_S3_BUCKET);
             return new DynamoDBS3Saver({
-                clientConfig: {
-                    region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
-                },
+                clientConfig: { region },
                 checkpointsTableName: process.env.DYNAMODB_CHECKPOINT_TABLE,
                 writesTableName: process.env.DYNAMODB_WRITES_TABLE,
                 s3BucketName: process.env.CHECKPOINT_S3_BUCKET,
-                s3ClientConfig: {
-                    region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
-                }
+                s3ClientConfig: { region },
             });
         }
-
         return new DynamoDBSaver({
-            clientConfig: {
-                region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
-            },
+            clientConfig: { region },
             checkpointsTableName: process.env.DYNAMODB_CHECKPOINT_TABLE,
-            writesTableName: process.env.DYNAMODB_WRITES_TABLE
+            writesTableName: process.env.DYNAMODB_WRITES_TABLE,
         });
     }
 
-    // Priority 3: File system fallback
+    // Priority 2: File system fallback
     console.log("Using FileSystem Checkpointer");
     return new FileSaver();
 }

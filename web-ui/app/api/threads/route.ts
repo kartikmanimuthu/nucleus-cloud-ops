@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const useMongo = !!process.env.MONGODB_URI;
+const useDynamo = !!process.env.DYNAMODB_AGENT_CONVERSATIONS_TABLE;
 
 interface NormalizedThread {
     id: string;
@@ -12,8 +12,8 @@ interface NormalizedThread {
 
 export async function GET() {
     try {
-        if (useMongo) {
-            const { listThreads } = await import('@/lib/db/agent-chat-history-store');
+        if (useDynamo) {
+            const { listThreads } = await import('@/lib/db/dynamodb-s3-chat-history-store');
             const mongoThreads = await listThreads(100, 0);
             // Normalize MongoDB threads to match expected format
             const normalized: NormalizedThread[] = mongoThreads.map((t: any) => ({
@@ -43,8 +43,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Thread ID is required' }, { status: 400 });
         }
 
-        if (useMongo) {
-            const { createThread } = await import('@/lib/db/agent-chat-history-store');
+        if (useDynamo) {
+            const { createThread } = await import('@/lib/db/dynamodb-s3-chat-history-store');
             const thread = await createThread(id, title || 'New Chat', model);
             // Normalize MongoDB thread to match expected format
             const normalized: NormalizedThread = {

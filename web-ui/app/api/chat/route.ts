@@ -64,8 +64,8 @@ export async function POST(req: Request) {
             ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content.slice(0, 60) : "New Conversation")
             : "New Chat";
 
-        if (process.env.MONGODB_URI) {
-            const agentStore = await import('@/lib/db/agent-chat-history-store');
+        if (process.env.DYNAMODB_AGENT_CONVERSATIONS_TABLE) {
+            const agentStore = await import('@/lib/db/dynamodb-s3-chat-history-store');
             const existing = await agentStore.getThread(threadId);
             if (!existing) {
                 await agentStore.createThread(threadId, title, model, mode === 'fast' ? 'fast' : 'plan');
@@ -569,11 +569,11 @@ function processStream(
                 }
             } finally {
                 // Persist complete message history to MongoDB if configured
-                if (process.env.MONGODB_URI && threadId && graph && config) {
+                if (process.env.DYNAMODB_AGENT_CONVERSATIONS_TABLE && threadId && graph && config) {
                     try {
                         const finalState = await graph.getState(config);
                         if (finalState && finalState.values && finalState.values.messages) {
-                            const agentStore = await import('@/lib/db/agent-chat-history-store');
+                            const agentStore = await import('@/lib/db/dynamodb-s3-chat-history-store');
 
                             // Convert all LangChain messages to AgentMessage format
                             const convertedMessages: any[] = [];
@@ -627,7 +627,7 @@ function processStream(
                             }
                         }
                     } catch (err) {
-                        console.warn('[Chat API] Failed to persist full message history to MongoDB:', err);
+                        console.warn('[Chat API] Failed to persist full message history to DynamoDB:', err);
                     }
                 }
                 // Release the per-thread lock so subsequent requests can proceed

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const useMongo = !!process.env.MONGODB_URI;
+const useDynamo = !!process.env.DYNAMODB_AGENT_CONVERSATIONS_TABLE;
 
 interface NormalizedThread {
     id: string;
@@ -17,8 +17,8 @@ export async function DELETE(
     try {
         const { threadId } = await params;
 
-        if (useMongo) {
-            const { deleteThread } = await import('@/lib/db/agent-chat-history-store');
+        if (useDynamo) {
+            const { deleteThread } = await import('@/lib/db/dynamodb-s3-chat-history-store');
             const success = await deleteThread(threadId);
             if (!success) {
                 return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
@@ -46,8 +46,8 @@ export async function PATCH(
         const body = await req.json();
         const { title } = body;
 
-        if (useMongo) {
-            const { updateThread, getThread } = await import('@/lib/db/agent-chat-history-store');
+        if (useDynamo) {
+            const { updateThread, getThread } = await import('@/lib/db/dynamodb-s3-chat-history-store');
             await updateThread(threadId, { title });
             const updated = await getThread(threadId);
             if (!updated) {

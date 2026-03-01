@@ -305,7 +305,7 @@ Apply these standards to every AWS CLI command you run:
 
 - execute_command(command): Run any shell command (AWS CLI, kubectl, terraform, git, bash)
 - read_file(file_path, start_line?, end_line?): Read local files
-- write_file(file_path, content): Write or create local files
+- write_file(file_path, content): Write or create local files — REQUIRED: ALWAYS include BOTH file_path AND content parameters. Never call write_file with only file_path.
 - edit_file(file_path, edits): Targeted string replacements in existing files
 - ls(path): List directory contents with metadata
 - glob(pattern, path?): Find files matching a pattern
@@ -314,6 +314,12 @@ Apply these standards to every AWS CLI command you run:
 - list_aws_accounts(): List connected AWS accounts
 - get_aws_credentials(accountId): Obtain a named CLI profile for an AWS account
 ${accountContext}
+
+## Critical Tool Requirements
+
+⚠️ **write_file MUST have both parameters**: Always provide BOTH file_path AND content when calling write_file. Calls with missing content will fail validation and trigger a retry loop. If you have content to write, include it in the same tool call.
+
+⚠️ **Tool Parameter Validation**: Always ensure tool calls include all required parameters. If a tool call fails with a parameter validation error, check that you provided all required fields.
 
 ## Execution Discipline
 
@@ -437,7 +443,7 @@ Evaluate the execution against these five dimensions:
 
 4. **Idempotency and Safety**: For mutation steps, was current state checked first? Was --dry-run used where appropriate? Is the action targeted at the correct resource (correct ID, correct account, correct region)?
 
-5. **Error Handling**: If a tool returned an error or unexpected output, was it correctly identified and addressed, or silently ignored?
+5. **Error Handling**: If a tool returned an error or unexpected output, was it correctly identified and addressed, or silently ignored? ⚠️ CRITICAL: Flag any "content is required" or parameter validation errors from write_file as blocking issues that MUST be fixed in revision.
 
 ## Completion Criteria
 
@@ -605,9 +611,10 @@ Issues to Address: ${errors.join(', ') || 'None'}
 2. For AWS CLI issues (wrong flags, missing --output json, missing pagination, wrong profile): re-run the corrected command immediately.
 3. For missing data (incomplete pagination, only first page retrieved): fetch the remaining pages using --starting-token or --no-paginate.
 4. For resource state issues (mutation attempted on resource in wrong state): run the corresponding describe command first, then re-attempt the mutation with the correct preconditions.
-5. For errors returned by tools: diagnose the root cause (permissions, resource not found, wrong region, wrong account) and fix the underlying issue rather than retrying the same command unchanged.
-6. Do not repeat actions that the reviewer marked as correctly completed — focus only on the open issues.
-7. After fixing all issues, provide a brief summary of what was corrected and what the result now shows.
+5. For write_file parameter errors (missing "content" or "file_path"): CRITICAL — Always include BOTH file_path AND content parameters together. Re-call write_file with both required parameters populated. Never skip this step.
+6. For errors returned by tools: diagnose the root cause (permissions, resource not found, wrong region, wrong account) and fix the underlying issue rather than retrying the same command unchanged.
+7. Do not repeat actions that the reviewer marked as correctly completed — focus only on the open issues.
+8. After fixing all issues, provide a brief summary of what was corrected and what the result now shows.
 
 Available tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials, list_aws_accounts
 ${accountContext}`);

@@ -235,6 +235,7 @@ interface MessageRowProps {
 }
 
 const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isActivelyStreaming, renderPhaseBlock, renderToolInvocation }: MessageRowProps) {
+  console.log("message", JSON.stringify(message, null, 2));
   const isUser = message.role === "user";
   const parts: any[] = message.parts || [];
   const attachments = (message as any).experimental_attachments || [];
@@ -407,7 +408,9 @@ export function ChatInterface({
   const [wasStopped, setWasStopped] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
+  const [backendSlow, setBackendSlow] = useState(false);
   const streamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const backendSlowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastMessageContentRef = useRef<string>("");
   const planStepCacheRef = useRef(new Map<string, string[]>());
   // Ref mirror of isStreaming — lets us read the current value inside effects/callbacks
@@ -632,10 +635,15 @@ export function ChatInterface({
         // state update (and the consequent re-render) on every streaming chunk.
         if (!isStreamingRef.current) setIsStreaming(true);
 
-        // Clear any existing timeout
+        // Clear any existing timeouts
         if (streamTimeoutRef.current) {
           clearTimeout(streamTimeoutRef.current);
         }
+        if (backendSlowTimeoutRef.current) {
+          clearTimeout(backendSlowTimeoutRef.current);
+        }
+        // Messages are arriving, so backend is not slow
+        setBackendSlow(false);
 
         // Set streaming to false after 2 seconds of no updates
         streamTimeoutRef.current = setTimeout(() => {
@@ -644,9 +652,19 @@ export function ChatInterface({
           );
           setIsStreaming(false);
         }, 2000);
+
+        // Set backend slow warning after 5 seconds of no updates while still loading
+        if (isLoading) {
+          backendSlowTimeoutRef.current = setTimeout(() => {
+            console.log(
+              "[ChatInterface] Backend appears to be slow (no updates for 5s)",
+            );
+            setBackendSlow(true);
+          }, 5000);
+        }
       }
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -654,8 +672,21 @@ export function ChatInterface({
       if (streamTimeoutRef.current) {
         clearTimeout(streamTimeoutRef.current);
       }
+      if (backendSlowTimeoutRef.current) {
+        clearTimeout(backendSlowTimeoutRef.current);
+      }
     };
   }, []);
+
+  // Clear backend slow flag when loading finishes
+  useEffect(() => {
+    if (!isLoading) {
+      setBackendSlow(false);
+      if (backendSlowTimeoutRef.current) {
+        clearTimeout(backendSlowTimeoutRef.current);
+      }
+    }
+  }, [isLoading]);
 
   const [inputValue, setInputValue] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -844,18 +875,27 @@ export function ChatInterface({
     const config = phaseConfig[phase];
     const Icon = config.icon;
 
+    // Skip rendering if content is just the phase marker with no actual content
+    const cleanedContent = content
+      .replace(/^(PLANNING_PHASE_START|EXECUTION_PHASE_START|REFLECTION_PHASE_START|REVISION_PHASE_START|FINAL_PHASE_START)\n*/i, '')
+      .trim();
+
+    if (!cleanedContent) {
+      return null; // Don't render empty phase blocks
+    }
+
     // Parse plan steps from content - handle multiple formats
     // Use cache to avoid re-parsing identical content on every render
     let planSteps: string[] = [];
 
     if (phase === "planning") {
-      const cacheKey = content;
+      const cacheKey = cleanedContent;
       const cached = planStepCacheRef.current.get(cacheKey);
       if (cached) {
         planSteps = cached;
       } else {
         // Try to parse as JSON array first (e.g., ["Step 1: ...", "Step 2: ..."])
-        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        const jsonMatch = cleanedContent.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
           try {
             const parsed = JSON.parse(jsonMatch[0]);
@@ -872,7 +912,7 @@ export function ChatInterface({
         // If no JSON array found, try line-by-line parsing
         if (planSteps.length === 0) {
           // Match lines starting with number, bullet, dash, or "Step"
-          planSteps = content.split("\n").filter((line) => {
+          planSteps = cleanedContent.split("\n").filter((line) => {
             const trimmed = line.trim();
             return (
               /^(\d+[\.\):]|\-|\*|•|Step\s*\d+)/i.test(trimmed) &&
@@ -882,9 +922,9 @@ export function ChatInterface({
         }
 
         // Also check for markdown bold headers like "**Plan Created:**"
-        if (planSteps.length === 0 && content.includes("**")) {
+        if (planSteps.length === 0 && cleanedContent.includes("**")) {
           // Extract content after headers
-          const lines = content
+          const lines = cleanedContent
             .split("\n")
             .filter((line) => line.trim().length > 0 && !line.includes("**"));
           planSteps = lines;
@@ -953,7 +993,7 @@ export function ChatInterface({
             isStreaming={isLoading && isLastMessage}
           >
             <ReasoningTrigger label="Agent Reflection" />
-            <ReasoningContent>{content}</ReasoningContent>
+            <ReasoningContent>{cleanedContent}</ReasoningContent>
           </Reasoning>
         </div>
       );
@@ -983,7 +1023,7 @@ export function ChatInterface({
           )}
         </div>
         <div className="p-3 text-muted-foreground/90 leading-relaxed text-sm overflow-hidden min-w-0 break-words [overflow-wrap:anywhere]">
-          <MarkdownContent content={content} />
+          <MarkdownContent content={cleanedContent} />
         </div>
       </div>
     );
@@ -996,7 +1036,16 @@ export function ChatInterface({
     messageId: string,
     index: number,
   ) => {
-    const toolName = part.toolName || "tool";
+    // Extract tool name from multiple possible sources
+    // Priority: toolName > name > type (tool-name format) > fallback
+    let toolName = part.toolName || part.name;
+
+    if (!toolName && part.type?.startsWith('tool-')) {
+      // Extract from "tool-execute_command" → "execute_command"
+      toolName = part.type.replace('tool-', '').replace(/_/g, ' ');
+    }
+
+    toolName = toolName || "tool";
     const args = part.args || part.input;
     const result = part.result || part.output;
     const state = part.state;
@@ -1191,16 +1240,26 @@ export function ChatInterface({
           ))}
 
           {/* Loading indicator */}
-          {(isLoading || isStreaming) && (
+          {(isLoading || isStreaming || backendSlow) && (
             <div className="flex gap-3 justify-start">
               <Avatar className="h-8 w-8 flex-shrink-0 border shadow-sm">
-                <AvatarFallback className="bg-gradient-to-br from-primary/80 to-primary text-primary-foreground text-xs">
+                <AvatarFallback className={cn(
+                  "text-xs",
+                  backendSlow
+                    ? "bg-gradient-to-br from-amber-500/80 to-amber-500 text-amber-foreground"
+                    : "bg-gradient-to-br from-primary/80 to-primary text-primary-foreground"
+                )}>
                   <Bot className="h-4 w-4" />
                 </AvatarFallback>
               </Avatar>
-              <div className="bg-muted/50 border rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <div className={cn(
+                "border rounded-lg p-3 flex items-center gap-2 text-sm",
+                backendSlow
+                  ? "bg-amber-50/50 border-amber-200 text-amber-700"
+                  : "bg-muted/50 border-muted text-muted-foreground"
+              )}>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Processing...</span>
+                <span>{backendSlow ? "Backend is processing (slow)..." : "Processing..."}</span>
               </div>
             </div>
           )}
