@@ -162,18 +162,24 @@ export function buildAwsCliStandards(): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Report generation strategy — prefer S3, single write at end.
+ * Report generation strategy — render in memory, no file/S3 writes.
  */
 export function buildReportStrategy(): string {
     return `
 ## Report Generation Strategy
 When the task involves generating a report or summary document:
-- Collect ALL data first (run all AWS/CLI commands, gather all metrics) — do not write to any file until data collection is complete.
-- Use write_file_to_s3 (NOT write_file) to save reports, logs, or artifacts. Avoids filesystem permission errors and JSON escaping issues.
-- Write the COMPLETE report in a SINGLE write_file_to_s3 call at the very end of the plan.
-- Do NOT write partial sections across multiple steps — write once, write completely.
-- Do NOT use write_file_to_s3 for intermediate scratch data — keep intermediate results in context.
-- Only include a read_file or get_file_from_s3 step if you genuinely need to read an existing file for modification.
+- Collect ALL data first (run all AWS/CLI commands, gather all metrics).
+- Keep all collected data and analysis results in memory during processing.
+- Render the COMPLETE report or summary directly in your response — do NOT use write_file or write_file_to_s3.
+- Reports and summaries should be formatted and presented in the chat response for immediate viewing.
+- Do NOT write reports to the filesystem or S3 — this adds unnecessary I/O overhead and slows execution.
+
+**S3 tools (write_file_to_s3, get_file_from_s3) are ONLY for:**
+- Saving raw API responses or logs for backup/debugging purposes
+- Storing large binary data or artifacts that cannot be displayed in chat
+- Archiving data that needs to persist beyond the conversation
+
+**Do NOT use write_file_to_s3 or write_file for reports or summaries.**
 `;
 }
 

@@ -33,12 +33,10 @@ const Tool = React.forwardRef<
 >(({ className, defaultOpen = false, state = 'pending', ...props }, ref) => {
   const [open, setOpen] = React.useState(defaultOpen);
 
-  // Auto-open when running
+  // Sync with defaultOpen when it changes
   React.useEffect(() => {
-    if (state === 'running') {
-      setOpen(true);
-    }
-  }, [state]);
+    setOpen(defaultOpen);
+  }, [defaultOpen]);
 
   return (
     <ToolContext.Provider value={{ open, setOpen, state }}>
@@ -60,7 +58,7 @@ const Tool = React.forwardRef<
 });
 Tool.displayName = "Tool";
 
-interface ToolHeaderProps extends React.ComponentPropsWithoutRef<typeof CollapsiblePrimitive.CollapsibleTrigger> {
+interface ToolHeaderProps extends Omit<React.ComponentPropsWithoutRef<typeof CollapsiblePrimitive.CollapsibleTrigger>, 'type'> {
   /** Name of the tool being invoked */
   toolName?: string;
   /** Tool type for display */

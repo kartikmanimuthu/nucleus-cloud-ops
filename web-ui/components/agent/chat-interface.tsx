@@ -404,6 +404,7 @@ export function ChatInterface({
 
   // Configuration state (before conversation starts)
   const [autoApprove, setAutoApprove] = useState(true);
+  const [showTools, setShowTools] = useState(false);
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
   const [agentMode, setAgentMode] = useState("plan");
   const [hasStarted, setHasStarted] = useState(false);
@@ -1009,7 +1010,7 @@ export function ChatInterface({
       <Tool
         key={part.toolCallId || `${messageId}-tool-${index}`}
         state={toolState}
-        defaultOpen={toolState === "running" || isPending}
+        defaultOpen={showTools || isPending}
         className="mt-2"
       >
         <ToolHeader
@@ -1078,7 +1079,7 @@ export function ChatInterface({
       </Tool>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoApprove, isLoading, handleToolApproval]);
+  }, [autoApprove, isLoading, handleToolApproval, showTools]);
 
   // Sample prompts
   const samplePrompts = [
@@ -1727,7 +1728,8 @@ export function ChatInterface({
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="show-tools"
-                  defaultChecked={true}
+                  checked={showTools}
+                  onCheckedChange={(checked) => setShowTools(checked === true)}
                   className="h-4 w-4 rounded-sm"
                 />
                 <Label

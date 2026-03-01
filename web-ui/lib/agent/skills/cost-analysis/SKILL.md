@@ -306,7 +306,7 @@ When generating a report, structure as:
 ## Best Practices
 
 - **Always specify time ranges carefully** — do not exceed 14 months lookback
-- **Use write_file_to_s3** to save JSON responses for complex multi-step analysis
+- **Keep all analysis data in memory** — render the complete report directly in your response, do NOT use write_file or write_file_to_s3 for reports
 - **Calculate ROI** — show dollar impact, not just percentages
 - **Prioritize quick wins** — sort recommendations by effort vs impact matrix
 - **Account for growth** — consider future capacity needs before recommending downsizing

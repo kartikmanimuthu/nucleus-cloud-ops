@@ -105,7 +105,7 @@ ${reportStrategy}
 ${accountContext}
 
 IMPORTANT: Return your plan as a JSON array of concise, action-oriented step descriptions. Each step must be independently executable by the executor agent.
-Example: ["Call list_aws_accounts to identify the target account", "Call get_aws_credentials for the matched account ID", "Describe all running EC2 instances using --output json and the obtained profile", "Query CloudWatch for CPUUtilization metrics on each instance over the past 7 days", "Write the complete markdown report with all findings to S3 using write_file_to_s3 in a single call"]
+Example: ["Call list_aws_accounts to identify the target account", "Call get_aws_credentials for the matched account ID", "Describe all running EC2 instances using --output json and the obtained profile", "Query CloudWatch for CPUUtilization metrics on each instance over the past 7 days", "Render the complete markdown report with all findings directly in your final response"]
 
 Only return the JSON array, nothing else.`);
 
@@ -192,7 +192,7 @@ ${accountContext}
 - If the current step is a simple question or greeting that requires no tools, answer directly and concisely.
 - After completing the step (with or without tools), provide a brief, factual summary: what was done, the key output or finding, and any error or unexpected result.
 
-⚠️ **Prefer write_file_to_s3 over write_file**: For reports, logs, or any generated artifacts, use write_file_to_s3 instead of write_file. This avoids filesystem permission errors and prevents JSON escaping issues with large content blocks.
+⚠️ **Never use write_file or write_file_to_s3 for reports**: Render all reports and summaries directly in your response. S3 tools are only for logs, raw API outputs, or backup artifacts.
 
 ⚠️ **Tool Parameter Validation**: Always ensure tool calls include all required parameters. If a tool call fails with a parameter validation error, check that you provided all required fields.`);
 

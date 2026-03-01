@@ -54,7 +54,7 @@ export function createAgentModels(modelId: string): AgentModels {
 
 export interface AssembleToolsOptions {
     /** Include S3 tools (write_file_to_s3, get_file_from_s3). Default: false.
-     *  planning-agent uses S3 tools for report generation; fast-agent does not. */
+     *  planning-agent uses S3 tools for artifacts/logs/backups, NOT for reports (reports render in-memory). */
     includeS3Tools?: boolean;
     /** MCP server IDs to dynamically load tools from. */
     mcpServerIds?: string[];
