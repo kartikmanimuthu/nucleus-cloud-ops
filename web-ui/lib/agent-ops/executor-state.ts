@@ -7,6 +7,8 @@ export interface RequestEvaluation {
     accountId: string | null;
     requiresApproval: boolean;
     reasoning: string;
+    clarificationQuestion: string | null; // Set when mode='end' — the question to post back to the user
+    missingInfo: string | null;           // Brief label of what info is needed (e.g. "AWS account ID")
 }
 
 export interface PlanStep {
@@ -27,6 +29,7 @@ export interface ReflectionState {
     isComplete: boolean;
     toolResults: string[]; // Store tool results for final summary
     evaluation: RequestEvaluation | null;
+    clarificationQuestion: string | null; // Populated by clarifyNode when awaiting user input
 }
 
 export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
@@ -77,5 +80,9 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     evaluation: {
         reducer: (x: RequestEvaluation | null, y: RequestEvaluation | null) => y || x,
         default: () => null,
-    }
+    },
+    clarificationQuestion: {
+        reducer: (x: string | null, y: string | null) => y ?? x,
+        default: () => null,
+    },
 };

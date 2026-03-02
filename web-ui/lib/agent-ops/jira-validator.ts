@@ -4,8 +4,6 @@
  * Validates Jira automation rule webhook requests.
  */
 
-const JIRA_WEBHOOK_SECRET = process.env.JIRA_WEBHOOK_SECRET || '';
-
 export interface JiraWebhookPayload {
     webhookEvent?: string;
     issue?: {
@@ -25,6 +23,17 @@ export interface JiraWebhookPayload {
             };
         };
     };
+    // Comment added to an issue (webhookEvent: 'comment_created')
+    comment?: {
+        id: string;
+        body?: string | {
+            content?: Array<{ content?: Array<{ text?: string }> }>;
+        };
+        author?: {
+            displayName: string;
+            accountId: string;
+        };
+    };
     // Automation rule specific
     automation?: {
         ruleId: string;
@@ -38,12 +47,35 @@ export interface JiraWebhookPayload {
 }
 
 /**
+ * Extract plain text from a Jira comment body (supports ADF and plain string formats).
+ */
+export function extractJiraCommentText(comment: JiraWebhookPayload['comment']): string {
+    if (!comment?.body) return '';
+    if (typeof comment.body === 'string') return comment.body.trim();
+
+    // Atlassian Document Format (ADF) — extract text nodes recursively
+    const texts: string[] = [];
+    const walk = (nodes: Array<{ text?: string; content?: any[] }> = []) => {
+        for (const node of nodes) {
+            if (node.text) texts.push(node.text);
+            if (node.content) walk(node.content);
+        }
+    };
+    walk(comment.body.content || []);
+    return texts.join('').trim();
+}
+
+/**
  * Verify the Jira webhook shared secret.
  * Jira Automation rules can include a custom header for authentication.
+ *
+ * @param authHeader - Authorization header value from the request
+ * @param webhookSecretOverride - Webhook secret from DynamoDB; falls back to JIRA_WEBHOOK_SECRET env var
  */
-export function verifyJiraSecret(authHeader: string | null): boolean {
-    if (!JIRA_WEBHOOK_SECRET) {
-        console.error('[JiraValidator] JIRA_WEBHOOK_SECRET not configured');
+export function verifyJiraSecret(authHeader: string | null, webhookSecretOverride?: string): boolean {
+    const expectedSecret = webhookSecretOverride || process.env.JIRA_WEBHOOK_SECRET || '';
+    if (!expectedSecret) {
+        console.error('[JiraValidator] Webhook secret not configured (no DynamoDB value or JIRA_WEBHOOK_SECRET env var)');
         return false;
     }
 
@@ -56,7 +88,7 @@ export function verifyJiraSecret(authHeader: string | null): boolean {
         ? authHeader.slice(7)
         : authHeader;
 
-    return secret === JIRA_WEBHOOK_SECRET;
+    return secret === expectedSecret;
 }
 
 /**

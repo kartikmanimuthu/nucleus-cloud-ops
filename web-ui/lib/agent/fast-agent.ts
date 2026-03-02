@@ -1,112 +1,66 @@
-import { BaseMessage, AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
-import { ChatBedrockConverse } from "@langchain/aws";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import {
-    executeCommandTool,
-    readFileTool,
-    writeFileTool,
-    lsTool,
-    editFileTool,
-    globTool,
-    grepTool,
-    webSearchTool,
-    getAwsCredentialsTool,
-    listAwsAccountsTool
-} from "./tools";
 import { getSkillContent } from "./skills/skill-loader";
 import {
     GraphConfig,
     ReflectionState,
+    ToolResultEntry,
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
     getRecentMessages,
-    checkpointer,
-    getActiveMCPTools,
-    getMCPToolsDescription,
-    getMCPManager
+    getCheckpointer,
+    getStore,
 } from "./agent-shared";
+import {
+    buildBaseIdentity,
+    buildEffectiveSkillSection,
+    buildAccountContext,
+    buildAwsCliStandards,
+    buildAutoApproveGuidance,
+    buildOperationalWorkflows,
+    CORE_PRINCIPLES,
+} from "./prompt-templates";
+import { createAgentModels, assembleTools } from "./model-factory";
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
 export async function createFastGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
+    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId } = config;
+    const checkpointer = await getCheckpointer();
+    const store = await getStore();
 
-    // Load skill content if a skill is selected
-    let skillContent = '';
-    const isDevOpsSkill = selectedSkill === 'devops';
-
+    // Log skill loading
     if (selectedSkill) {
         const content = getSkillContent(selectedSkill);
         if (content) {
-            skillContent = `\n\n=== SELECTED SKILL INSTRUCTIONS ===\n${content}\n\nYou MUST follow the above skill-specific instructions for this conversation. These instructions take precedence and guide your approach to handling user requests.\n=== END SKILL INSTRUCTIONS ===\n`;
             console.log(`[FastAgent] Loaded skill: ${selectedSkill}`);
         } else {
             console.warn(`[FastAgent] Failed to load skill content for: ${selectedSkill}`);
         }
     }
 
-    const readOnlyInstruction = isDevOpsSkill
-        ? `IMPORTANT: You are operating with DEVOPS MUTATION PRIVILEGES. 
-- You ARE allowed to create, update, delete, start, stop, and modify AWS infrastructure resources as requested by the user.
-- If asked to perform a mutation, execute it using the CLI cautiously.`
-        : `IMPORTANT: You are a READ-ONLY agent.
-- You MUST NOT perform any mutation operations (create, update, delete resources).
-- You MUST NOT execute dangerous commands (rm, mv, etc).
-- Your AWS IAM role is read-only.
-- If asked to perform a mutation, politely refuse and explain your read-only limitations.`;
+    // --- Shared prompt fragments (built once, reused across all nodes) ---
+    const effectiveSkillSection = buildEffectiveSkillSection(selectedSkill);
+    const accountContext = buildAccountContext({ accounts, accountId, accountName });
+    const awsCliStandards = buildAwsCliStandards();
+    const autoApproveGuidance = buildAutoApproveGuidance(autoApprove);
+    const operationalWorkflows = buildOperationalWorkflows();
+
+    // skillContent needed for the reflector's critique context
+    const skillContent = selectedSkill ? (getSkillContent(selectedSkill) || '') : '';
 
     // --- Model Initialization ---
-    const model = new ChatBedrockConverse({
-        region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
-        model: modelId,
-        maxTokens: 4096,
-        temperature: 0,
-        streaming: true,
-    });
+    const { main: model, reflector: reflectorModel } = createAgentModels(modelId);
 
-    // Include AWS credentials tools for account-aware operations
-    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool, listAwsAccountsTool];
-
-    // Dynamically discover and merge MCP server tools
-    const mcpTools = await getActiveMCPTools(mcpServerIds);
-    if (mcpTools.length > 0) {
-        console.log(`[FastAgent] Loaded ${mcpTools.length} MCP tools from servers: ${mcpServerIds?.join(', ')}`);
-    }
-    const tools = [...customTools, ...mcpTools];
-
+    // --- Tool Assembly (fast-agent does not use S3 tools) ---
+    const tools = await assembleTools({ includeS3Tools: false, includeMemoryTools: !!store, userId: config.userId, mcpServerIds, tenantId });
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
 
-    // Build account context string for prompts - supports multi-account
-    let accountContext: string;
-    if (accounts && accounts.length > 0) {
-        const accountList = accounts.map(a => `  - ${a.accountName || a.accountId} (ID: ${a.accountId})`).join('\n');
-        accountContext = `\n\nIMPORTANT - MULTI-ACCOUNT AWS CONTEXT:
-You are operating across ${accounts.length} AWS account(s):
-${accountList}
-
-For EACH account you need to query:
-1. Call get_aws_credentials with the accountId to create a session profile
-2. Use the returned profile name with ALL subsequent AWS CLI commands: --profile <profileName>
-3. Clearly label outputs with the account name/ID for clarity`;
-    } else if (accountId) {
-        // Backwards compatibility for single account
-        accountContext = `\n\nIMPORTANT - AWS ACCOUNT CONTEXT:
-You are operating in the context of AWS account: ${accountName || accountId} (ID: ${accountId}).
-Before executing any AWS CLI commands, you MUST first call the get_aws_credentials tool with accountId="${accountId}" to create a session profile.
-The tool will return a profile name. Use this profile with ALL subsequent AWS CLI commands by adding: --profile <profileName>
-NEVER use the host's default credentials - always use the profile returned from get_aws_credentials.`;
-    } else {
-        accountContext = `\n\nIMPORTANT - AUTONOMOUS AWS ACCOUNT DISCOVERY:
-No explicit AWS account was provided. If the user asks to perform AWS operations:
-1. First, call the list_aws_accounts tool to get a list of all available connected accounts.
-2. Fuzzy-match the account name or ID from the user's prompt against the list.
-3. Call the get_aws_credentials tool with the matched accountId to create a session profile.
-4. Use the returned profile name with ALL subsequent AWS CLI commands by adding: --profile <profileName>`;
-    }
-
-    // --- GENERATOR NODE (Agent) ---
+    // ---------------------------------------------------------------------------
+    // AGENT NODE
+    // ---------------------------------------------------------------------------
     async function agentNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         const { messages, iterationCount } = state;
 
@@ -115,24 +69,31 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================\n`);
 
-        const systemPrompt = new SystemMessage(`You are a capable DevOps and Cloud Infrastructure assistant.
-You have access to tools: read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, get_aws_credentials, list_aws_accounts.
-You are proficient with AWS CLI, git, shell scripting, and infrastructure management.
-${skillContent}
-${readOnlyInstruction}
+        const baseIdentity = buildBaseIdentity(selectedSkill);
 
-CONVERSATION CONTINUITY: Review the conversation history carefully.
-If this is a follow-up question, use the context from previous exchanges to provide accurate and relevant responses.
-Reference previous findings, tool outputs, and context when answering follow-up questions.
-
+        const systemPrompt = new SystemMessage(`${baseIdentity}
+${effectiveSkillSection}
+${CORE_PRINCIPLES}
+${awsCliStandards}
+${autoApproveGuidance}
+${operationalWorkflows}
 ${accountContext}
 
-Answer the user's request directly.
-If you receive a critique from the Reflector, update your previous answer to address the critique.
-Be concise and effective.`);
+## Conversation Continuity
 
-        // Filter messages to get a valid context window - increased for better follow-up handling
-        const response = await modelWithTools.invoke([systemPrompt, ...getRecentMessages(messages, 30)]);
+Review the full conversation history before responding:
+- For follow-up questions, reference findings, resource IDs, and outputs from previous turns directly — do not re-discover what is already known.
+- If a previous tool result is relevant to the current question, cite it rather than re-running the same command.
+- If the user's intent is ambiguous given prior context, state your interpretation before proceeding.
+
+## Response Discipline
+
+- Answer the user's request directly and completely.
+- If tools are needed, call them. If the question is factual or conversational, answer without tools.
+- If you receive a critique from the Reflector, address each identified issue specifically — do not restate the original answer unchanged.
+- Be precise: include resource IDs, command flags, numeric values, and account names in your responses where available.`);
+
+        const response = await modelWithTools.invoke([systemPrompt, ...getRecentMessages(messages, 20)]);
 
         if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
             console.log(`\n🛠️ [FAST AGENT] Tool Calls Generated:`);
@@ -150,58 +111,82 @@ Be concise and effective.`);
         };
     }
 
-    // Custom tool node that collects results (Added for logging parity)
+    // ---------------------------------------------------------------------------
+    // TOOL NODE (with result collection)
+    // ---------------------------------------------------------------------------
     async function collectingToolNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         console.log(`\n⚙️ [FAST TOOLS] Executing tool calls...`);
         const result = await toolNode.invoke(state);
         console.log(`⚙️ [FAST TOOLS] Execution complete. Result messages: ${result.messages?.length || 0}`);
 
+        const newToolResults: ToolResultEntry[] = [];
         if (result.messages) {
             for (const msg of result.messages) {
                 if (msg._getType() === 'tool') {
-                    const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-                    console.log(`   ✅ [TOOL RESULT] ${msg.name || 'Unknown Tool'}:`);
-                    console.log(`      ${truncateOutput(content, 200).replace(/\n/g, '\n      ')}`);
+                    const rawContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+                    const isError = rawContent.toLowerCase().includes('error') || rawContent.toLowerCase().includes('exception');
+                    newToolResults.push({
+                        toolName: (msg as any).name || 'unknown_tool',
+                        output: truncateOutput(rawContent, 1000),
+                        isError,
+                        iterationIndex: state.iterationCount,
+                    });
+                    const icon = isError ? '❌' : '✅';
+                    console.log(`   ${icon} [TOOL RESULT] ${(msg as any).name || 'Unknown Tool'}:`);
+                    console.log(`      ${truncateOutput(rawContent, 200).replace(/\n/g, '\n      ')}`);
                 }
             }
         }
-        return result;
+        return { ...result, toolResults: newToolResults };
     }
 
-    // --- REFLECTOR NODE ---
+    // ---------------------------------------------------------------------------
+    // REFLECTOR NODE
+    // ---------------------------------------------------------------------------
     async function reflectNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         const { messages } = state;
         const lastMessage = messages[messages.length - 1];
 
-        // If only tool calls, skip reflection (we need an answer to reflect on)
+        // If only tool calls, skip reflection (need an answer to reflect on)
         if ((lastMessage as AIMessage).tool_calls && ((lastMessage as AIMessage).tool_calls?.length ?? 0) > 0) {
             return {};
         }
 
         console.log(`\n================================================================================`);
-        console.log(`🤔 [FAST REFECTOR] Critiquing response`);
+        console.log(`🤔 [FAST REFLECTOR] Critiquing response`);
         console.log(`================================================================================\n`);
 
-        const reflectorPrompt = new SystemMessage(`You are a strict critic reviewing an AI assistant's response.
-Analyze the response for:
-1. Correctness
-2. Completeness (did it answer the user's request?)
-3. Missing details
-4. SECURITY: ${isDevOpsSkill ? `The assistant has MUTATION PRIVILEGES. Ensure destructive actions were performed intentionally, cautiously, and successfully.` : `Ensure the assistant acted as a READ-ONLY agent. If it performed any mutation/write/delete operations on AWS, flag this as a major error.`}
+        const skillCritiqueContext = skillContent
+            ? `The assistant is operating under the "${selectedSkill}" skill. Use the following skill instructions to verify correctness and adherence:\n\n${skillContent}`
+            : `The assistant is operating as a general-purpose agentic assistant with no specific skill constraints.`;
 
-If the response is good and complete, respond with "COMPLETE".
-If there are issues, list them clearly and concisely as feedback for the assistant to fix.
-Do not generate the fixed answer yourself, just the analysis.`);
+        const reflectorPrompt = new SystemMessage(`You are a senior AWS and DevOps engineer performing a strict quality review of an AI assistant's response.
 
-        // Construct a clean context for the Reflector to avoid Bedrock tool validation issues
-        // and to prevent the Reflector from trying to use tools itself.
+${skillCritiqueContext}
+
+Evaluate the assistant's response on these five dimensions:
+
+1. **Correctness**: Is the answer factually accurate? Are AWS CLI commands syntactically valid and semantically correct for the stated intent? Are resource IDs, service names, and flags correct?
+
+2. **Completeness**: Does the response fully address what the user asked? Are there unstated assumptions, missing steps, or gaps that would leave the user unable to act on the answer?
+
+3. **AWS CLI Quality** (if commands were used or suggested): Does the output use --output json? Is --profile used correctly? Is pagination handled for list/describe operations? Was state verified before any mutation was suggested or executed?
+
+4. **Skill Adherence** (if a skill is active): Does the response comply with the privilege rules, safety constraints, and workflow defined in the skill instructions?
+
+5. **Specificity**: Are findings specific (resource IDs, metric values, account names) or vague and generic? Vague responses are considered incomplete.
+
+If the response is correct, complete, and specific — respond with exactly: COMPLETE
+
+If there are issues — list them as concise, actionable critique points for the assistant to fix. Be specific about what is wrong and what the correct approach is. Do not generate the fixed answer yourself — only provide the critique.`);
+
         const userMessage = messages.slice().reverse().find(m => m._getType() === 'human');
         const originalQuery = userMessage ? getStringContent(userMessage.content) : "Unknown query";
         const agentResponse = getStringContent(lastMessage.content);
 
         const critiqueInput = new HumanMessage({
             content: `Here is the interaction to review:
-                
+
 <USER_QUERY>
 ${originalQuery}
 </USER_QUERY>
@@ -213,12 +198,11 @@ ${agentResponse}
 Please provide your critique.`
         });
 
-        // Use the base 'model' (no tools bound) to ensure strict text generation
-        const response = await model.invoke([reflectorPrompt, critiqueInput]);
+        const response = await reflectorModel.invoke([reflectorPrompt, critiqueInput]);
         const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
 
         if (!content) {
-            console.log(`⚠️ [FAST REFECTOR] Empty content received!`);
+            console.log(`⚠️ [FAST REFLECTOR] Empty content received!`);
             console.log(`   Input Query Length: ${originalQuery.length}`);
             console.log(`   Agent Response Length: ${agentResponse.length}`);
             console.log(`   Raw Response:`, JSON.stringify(response));
@@ -227,7 +211,6 @@ Please provide your critique.`
         console.log(`   Critique: ${truncateOutput(content, 200)}`);
 
         if (content.includes("COMPLETE")) {
-            // We're done. Return the critique message so it's visible, and mark complete.
             return {
                 messages: [response],
                 isComplete: true
@@ -249,7 +232,9 @@ Please provide your critique.`
         return JSON.stringify(content);
     }
 
-    // --- CONDITIONAL EDGES ---
+    // ---------------------------------------------------------------------------
+    // CONDITIONAL EDGES
+    // ---------------------------------------------------------------------------
     function shouldContinue(state: ReflectionState): "tools" | "reflect" | "__end__" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
@@ -259,7 +244,6 @@ Please provide your critique.`
             return "tools";
         }
 
-        // If we have text, we reflect
         if (iterationCount >= MAX_ITERATIONS) {
             console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached. Stopping.`);
             return END;
@@ -275,7 +259,9 @@ Please provide your critique.`
         return "agent";
     }
 
-    // --- GRAPH CONSTRUCTION ---
+    // ---------------------------------------------------------------------------
+    // GRAPH CONSTRUCTION
+    // ---------------------------------------------------------------------------
     const workflow = new StateGraph<ReflectionState>({ channels: graphState })
         .addNode("agent", agentNode)
         .addNode("tools", collectingToolNode)
@@ -297,10 +283,11 @@ Please provide your critique.`
         .addEdge("tools", "agent");
 
     if (autoApprove) {
-        return workflow.compile({ checkpointer });
+        return workflow.compile({ checkpointer, ...(store && { store }) });
     } else {
         return workflow.compile({
             checkpointer,
+            ...(store && { store }),
             interruptBefore: ["tools"],
         });
     }

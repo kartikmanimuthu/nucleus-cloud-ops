@@ -78,7 +78,11 @@ const MCP_SCHEMA = {
     },
 };
 
-export function MCPSettings() {
+interface MCPSettingsProps {
+    apiPath?: string;
+}
+
+export function MCPSettings({ apiPath = '/api/mcp-servers' }: MCPSettingsProps) {
     const { resolvedTheme } = useTheme();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -100,7 +104,7 @@ export function MCPSettings() {
     const fetchConfig = async () => {
         try {
             setLoading(true);
-            const res = await fetch('/api/mcp-servers');
+            const res = await fetch(apiPath);
             if (res.ok) {
                 const data = await res.json();
                 const json = JSON.stringify(data.config, null, 2);
@@ -166,7 +170,7 @@ export function MCPSettings() {
             setErrorMessage('');
 
             const config = JSON.parse(editorValue);
-            const res = await fetch('/api/mcp-servers', {
+            const res = await fetch(apiPath, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ config }),
@@ -200,7 +204,7 @@ export function MCPSettings() {
     const handleReset = async () => {
         try {
             setSaving(true);
-            const res = await fetch('/api/mcp-servers', { method: 'DELETE' });
+            const res = await fetch(apiPath, { method: 'DELETE' });
 
             if (res.ok) {
                 const data = await res.json();

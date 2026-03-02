@@ -16,17 +16,15 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 
-export function NewRunDialog({ 
-    tenantId = "default" 
-}: { 
-    tenantId?: string 
+export function NewRunDialog({
+    tenantId = "default"
+}: {
+    tenantId?: string
 }) {
     const router = useRouter()
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-
-    // Form state
     const [taskDescription, setTaskDescription] = useState("")
 
     const handleRun = async () => {
@@ -38,31 +36,22 @@ export function NewRunDialog({
         setLoading(true)
 
         try {
-            const payload = {
-                taskDescription: taskDescription.trim(),
-            }
-
-            // Using Bearer token placeholder since standard API triggers are decoupled from session auth for generic access.
-            // In a production app, the backend would accept either the session cookie or an API key. 
-            // In development, the route uses session implicitly or bypasses hard auth checks if testing locally.
             const res = await fetch("/api/v1/trigger/api", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "x-tenant-id": tenantId
+                    "x-tenant-id": tenantId,
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify({
+                    taskDescription: taskDescription.trim(),
+                }),
             })
 
             const data = await res.json()
-
-            if (!res.ok) {
-                throw new Error(data.error || "Failed to start run")
-            }
+            if (!res.ok) throw new Error(data.error || "Failed to start run")
 
             setOpen(false)
             router.push(`/agent-ops/${data.runId}?tenantId=${tenantId}`)
-
         } catch (err) {
             setError(err instanceof Error ? err.message : "An unknown error occurred")
         } finally {
@@ -86,11 +75,11 @@ export function NewRunDialog({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-6 py-4">
+                <div className="space-y-5 py-4">
                     {/* Task Description */}
                     <div className="space-y-2">
                         <Label>Objective</Label>
-                        <Textarea 
+                        <Textarea
                             placeholder="What do you want the agent to do? e.g., 'Check all Lambda functions in us-east-1 for public access'"
                             className="min-h-[100px]"
                             value={taskDescription}

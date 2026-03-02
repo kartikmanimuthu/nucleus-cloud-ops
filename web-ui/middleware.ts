@@ -30,6 +30,6 @@ export const config = {
          * - public assets (placeholder images, logos)
          * - login page
          */
-        '/((?!api/auth|api/health|_next/static|_next/image|favicon.ico|placeholder.*|smc-global-securities-logo.jpg|login).*)'
+        '/((?!api/auth|api/health|api/v1/trigger|_next/static|_next/image|favicon.ico|placeholder.*|smc-global-securities-logo.jpg|login).*)'
     ]
 }

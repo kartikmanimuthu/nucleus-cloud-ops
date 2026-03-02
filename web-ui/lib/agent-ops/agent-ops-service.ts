@@ -14,6 +14,7 @@ import type {
     AgentOpsEvent,
     AgentOpsStatus,
     AgentOpsResult,
+    AgentOpsClarification,
     AgentEventType,
     TriggerSource,
     TriggerMetadata,
@@ -35,6 +36,7 @@ export async function createRun(params: {
     accountId?: string;
     accountName?: string;
     selectedSkill?: string;
+    mcpServerIds?: string[];
 }): Promise<AgentOpsRun> {
     const runId = uuidv4();
     const threadId = `agent-ops-${runId}`;
@@ -54,6 +56,7 @@ export async function createRun(params: {
         accountId: params.accountId,
         accountName: params.accountName,
         selectedSkill: params.selectedSkill,
+        mcpServerIds: params.mcpServerIds,
         threadId,
         trigger: params.trigger,
         createdAt: now,
@@ -68,6 +71,8 @@ export async function createRun(params: {
 
 /**
  * Update the status of a run.
+ * On terminal states (completed/failed), sets completedAt and computes durationMs
+ * from the run's createdAt timestamp.
  */
 export async function updateRunStatus(
     tenantId: string,
@@ -76,16 +81,24 @@ export async function updateRunStatus(
     extra?: {
         result?: AgentOpsResult;
         error?: string;
+        clarification?: AgentOpsClarification;
     }
 ): Promise<void> {
-    const now = new Date().toISOString();
+    const now = new Date();
+    const nowIso = now.toISOString();
     const updateData: Record<string, unknown> = {
         status,
-        updatedAt: now,
+        updatedAt: nowIso,
     };
 
     if (status === 'completed' || status === 'failed') {
-        updateData.completedAt = now;
+        updateData.completedAt = nowIso;
+
+        // Fetch the run to compute durationMs from createdAt
+        const existing = await getRun(tenantId, runId);
+        if (existing?.createdAt) {
+            updateData.durationMs = now.getTime() - new Date(existing.createdAt).getTime();
+        }
     }
 
     if (extra?.result) {
@@ -94,12 +107,31 @@ export async function updateRunStatus(
     if (extra?.error) {
         updateData.error = extra.error;
     }
+    if (extra?.clarification) {
+        updateData.clarification = extra.clarification;
+    }
 
     await AgentOpsRunModel.update(
         { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
         updateData
     );
     console.log(`[AgentOpsService] Updated run ${runId} → ${status}`);
+}
+
+/**
+ * Update the trigger metadata of a run.
+ */
+export async function updateRunTrigger(
+    tenantId: string,
+    runId: string,
+    trigger: TriggerMetadata
+): Promise<void> {
+    const nowIso = new Date().toISOString();
+    await AgentOpsRunModel.update(
+        { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
+        { trigger, updatedAt: nowIso }
+    );
+    console.log(`[AgentOpsService] Updated trigger metadata for run ${runId}`);
 }
 
 /**
@@ -118,7 +150,10 @@ export async function getRun(tenantId: string, runId: string): Promise<AgentOpsR
 }
 
 /**
- * List runs for a tenant (newest first).
+ * List runs using GSI1 (time-sorted by source), with optional pagination.
+ *
+ * GSI1PK = SOURCE#<source>  (defaults to 'slack' when no source provided)
+ * GSI1SK = <ISO-timestamp>#<runId>  — sorted descending (newest first)
  */
 export async function listRuns(query: RunListQuery): Promise<{
     runs: AgentOpsRun[];
@@ -126,29 +161,57 @@ export async function listRuns(query: RunListQuery): Promise<{
 }> {
     const limit = query.limit || 25;
 
-    let q = AgentOpsRunModel.query('PK')
-        .eq(`TENANT#${query.tenantId}`)
-        .where('SK')
-        .beginsWith('RUN#')
-        .sort('descending')
-        .limit(limit);
+    let runs: AgentOpsRun[] = [];
+    let lastKey: Record<string, unknown> | undefined;
 
-    if (query.lastKey) {
-        q = q.startAt(query.lastKey);
+    if (query.source) {
+        let q = AgentOpsRunModel.query('GSI1PK')
+            .eq(`SOURCE#${query.source}`)
+            .sort('descending')
+            .limit(limit)
+            .using('GSI1');
+
+        if (query.lastKey) {
+            q = q.startAt(query.lastKey);
+        }
+
+        const result = await q.exec();
+        runs = result.toJSON() as unknown as AgentOpsRun[];
+        lastKey = result.lastKey;
+    } else {
+        // Query all sources in parallel and merge
+        const sources: TriggerSource[] = ['slack', 'jira', 'api'];
+        const promises = sources.map(src =>
+            AgentOpsRunModel.query('GSI1PK')
+                .eq(`SOURCE#${src}`)
+                .sort('descending')
+                .limit(limit)
+                .using('GSI1')
+                .exec()
+        );
+
+        const results = await Promise.all(promises);
+        for (const res of results) {
+            runs.push(...(res.toJSON() as unknown as AgentOpsRun[]));
+        }
+
+        // Sort descending by createdAt
+        runs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        runs = runs.slice(0, limit);
     }
 
-    const result = await q.exec();
+    // Filter by tenantId and optional status in-memory (GSI1 is source-partitioned)
+    if (query.tenantId && query.tenantId !== 'default' && query.tenantId !== 'all') {
+        runs = runs.filter(r => r.tenantId === query.tenantId);
+    }
 
-    let runs = result.toJSON() as unknown as AgentOpsRun[];
-
-    // Filter by status if provided
     if (query.status) {
         runs = runs.filter(r => r.status === query.status);
     }
 
     return {
         runs,
-        lastKey: result.lastKey,
+        lastKey,
     };
 }
 
@@ -230,14 +293,62 @@ export async function getRunEvents(runId: string): Promise<AgentOpsEvent[]> {
     return result.toJSON() as unknown as AgentOpsEvent[];
 }
 
+// ─── Human-in-Loop Lookup Helpers ─────────────────────────────────────
+
+/**
+ * Find a run with status 'awaiting_input' triggered by a given Jira issue key.
+ * Scans recent Jira-sourced runs (capped at 50) and filters in-memory.
+ * Since awaiting_input runs are rare, this is acceptable without a dedicated GSI.
+ */
+export async function findAwaitingRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null> {
+    const result = await AgentOpsRunModel.query('GSI1PK')
+        .eq('SOURCE#jira')
+        .sort('descending')
+        .limit(50)
+        .using('GSI1')
+        .exec();
+
+    const runs = result.toJSON() as unknown as AgentOpsRun[];
+    return runs.find(r =>
+        r.status === 'awaiting_input' &&
+        (r.trigger as any)?.issueKey === issueKey
+    ) || null;
+}
+
+/**
+ * Find a run with status 'awaiting_input' triggered in a given Slack channel+thread.
+ * Scans recent Slack-sourced runs (capped at 50) and filters in-memory.
+ */
+export async function findAwaitingRunBySlackThread(
+    channelId: string,
+    threadTs: string
+): Promise<AgentOpsRun | null> {
+    const result = await AgentOpsRunModel.query('GSI1PK')
+        .eq('SOURCE#slack')
+        .sort('descending')
+        .limit(50)
+        .using('GSI1')
+        .exec();
+
+    const runs = result.toJSON() as unknown as AgentOpsRun[];
+    return runs.find(r =>
+        r.status === 'awaiting_input' &&
+        (r.trigger as any)?.channelId === channelId &&
+        (r.trigger as any)?.threadTs === threadTs
+    ) || null;
+}
+
 // ─── Singleton export ──────────────────────────────────────────────────
 
 export const agentOpsService = {
     createRun,
     updateRunStatus,
+    updateRunTrigger,
     getRun,
     listRuns,
     listRunsBySource,
     recordEvent,
     getRunEvents,
+    findAwaitingRunByJiraIssue,
+    findAwaitingRunBySlackThread,
 };

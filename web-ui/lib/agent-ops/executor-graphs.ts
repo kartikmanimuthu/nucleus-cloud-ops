@@ -1,9 +1,7 @@
-import { BaseMessage, AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ChatBedrockConverse } from "@langchain/aws";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { z } from "zod";
-
 import {
     executeCommandTool,
     readFileTool,
@@ -22,10 +20,10 @@ import {
     MAX_ITERATIONS,
     truncateOutput,
     getRecentMessages,
-    checkpointer,
+    getCheckpointer,
     getActiveMCPTools,
-    getMCPToolsDescription,
-    getMCPManager
+    getMCPManager,
+    getMCPToolsDescription
 } from "@/lib/agent/agent-shared";
 import { ReflectionState, graphState, PlanStep, RequestEvaluation } from "./executor-state";
 
@@ -34,7 +32,8 @@ import { ReflectionState, graphState, PlanStep, RequestEvaluation } from "./exec
 // ============================================================================
 
 export async function createDynamicExecutorGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, accountName, mcpServerIds } = config;
+    const { model: modelId, autoApprove, accounts, accountId, mcpServerIds, tenantId } = config;
+    const checkpointer = await getCheckpointer();
 
     const model = new ChatBedrockConverse({
         region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
@@ -44,13 +43,16 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
         streaming: true,
     });
 
-    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, webSearchTool, getAwsCredentialsTool, listAwsAccountsTool];
+    const customTools = [executeCommandTool, readFileTool, writeFileTool, lsTool, editFileTool, globTool, grepTool, getAwsCredentialsTool, listAwsAccountsTool];
 
-    const mcpTools = await getActiveMCPTools(mcpServerIds);
+    const mcpTools = await getActiveMCPTools(mcpServerIds, tenantId);
     if (mcpTools.length > 0) {
         console.log(`[DynamicExecutorGraph] Loaded ${mcpTools.length} MCP tools from servers: ${mcpServerIds?.join(', ')}`);
     }
     const tools = [...customTools, ...mcpTools];
+
+    const mcpManager = getMCPManager();
+    const mcpContext = mcpServerIds && mcpServerIds.length > 0 ? getMCPToolsDescription(mcpManager, mcpServerIds) : '';
 
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
@@ -85,14 +87,17 @@ ${skillsContext}
 
 You must return a JSON object evaluating the request according to the following schema:
 {
-    "mode": "plan" | "fast" | "end", // "plan" for complex/multi-step/mutations. "fast" for simple read queries. "end" if the request is ambiguous or unachievable.
+    "mode": "plan" | "fast" | "end", // "plan" for complex/multi-step/mutations. "fast" for simple read queries. "end" if the request is ambiguous, incomplete, or requires clarification before proceeding.
     "skillId": "string", // The ID of the best matching skill, or null if none apply directly.
     "accountId": "string", // The AWS account ID mentioned in the prompt, or null if not found.
     "requiresApproval": boolean, // true if the request involves destructive/mutative operations (create, update, delete, start, stop).
-    "reasoning": "string" // A brief explanation of your decision.
+    "reasoning": "string", // A brief explanation of your decision.
+    "clarificationQuestion": "string | null", // REQUIRED when mode="end": A clear, specific question to ask the user for the missing information needed to proceed. null otherwise.
+    "missingInfo": "string | null" // REQUIRED when mode="end": A brief label of what is missing (e.g. "AWS account ID", "environment name"). null otherwise.
 }
 
 Determine the safest and most efficient path. Complex infrastructure deployments, security audits, and multi-step changes should use "plan" mode. Simple "how do I..." or "what is the status of..." lookups should use "fast" mode.
+Use "end" only when the request is genuinely ambiguous or missing critical information — always provide a clarificationQuestion in this case.
 
 Only return the JSON. No other text.`);
 
@@ -103,7 +108,9 @@ Only return the JSON. No other text.`);
             skillId: null,
             accountId: null,
             requiresApproval: false,
-            reasoning: "Fallback to fast mode due to parsing error."
+            reasoning: "Fallback to fast mode due to parsing error.",
+            clarificationQuestion: null,
+            missingInfo: null,
         };
 
         try {
@@ -116,7 +123,9 @@ Only return the JSON. No other text.`);
                     skillId: parsed.skillId || null,
                     accountId: parsed.accountId || null,
                     requiresApproval: !!parsed.requiresApproval,
-                    reasoning: parsed.reasoning || "Parsed successfully."
+                    reasoning: parsed.reasoning || "Parsed successfully.",
+                    clarificationQuestion: parsed.clarificationQuestion || null,
+                    missingInfo: parsed.missingInfo || null,
                 };
             }
         } catch (e) {
@@ -147,7 +156,16 @@ Only return the JSON. No other text.`);
             }
         }
 
-        if (evaluation?.requiresApproval) {
+        const isSWESkill = evaluation?.skillId === 'swe';
+
+        if (isSWESkill) {
+            readOnlyInstruction = `IMPORTANT: You are operating with SOFTWARE ENGINEER (SWE) MUTATION PRIVILEGES.
+- You ARE allowed to read, write, create, and edit files in code repositories.
+- You ARE allowed to run git commands (clone, branch, commit, push) via execute_command.
+- You ARE allowed to interact with BitBucket (PRs, reviews, merges) and JIRA (create, update, transition, comment) via MCP tools if connected.
+- You ARE allowed to write and run tests.
+- Safety guidelines: always work on a feature branch (never push to main directly), write descriptive commit messages, and include PR descriptions summarising the change.`;
+        } else if (evaluation?.requiresApproval) {
             readOnlyInstruction = `IMPORTANT: This is a MUTATIVE task. You ARE allowed to create, update, delete, start, stop, and modify infrastructure resources.
 - Follow safety guidelines: prefer dry-runs if unsure, output confirmation prompts for destructive actions, and verify resource IDs before applying changes.`;
         } else {
@@ -184,7 +202,12 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
 4. Use the returned profile name with ALL subsequent AWS CLI commands by adding: --profile <profileName>`;
         }
 
-        return { skillContent, readOnlyInstruction, accountContext };
+        let mcpInstructions = '';
+        if (mcpContext) {
+            mcpInstructions = `${mcpContext}\n\nYou MUST use these specialized MCP tools over generic bash commands whenever possible to interact with external APIs (Bitbucket, Jira, Confluence, etc.). When dealing with external systems, always check if an MCP tool exists for the action before attempting a curl or script.`;
+        }
+
+        return { skillContent, readOnlyInstruction, accountContext, mcpInstructions };
     }
 
     // ========================================================================
@@ -201,12 +224,13 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
         console.log(`🤖 [PLANNER] Initiating planning phase`);
         console.log(`================================================================================\n`);
 
-        const { skillContent, readOnlyInstruction, accountContext } = getDynamicContext(evaluation);
+        const { skillContent, readOnlyInstruction, accountContext, mcpInstructions } = getDynamicContext(evaluation);
 
         const plannerSystemPrompt = new SystemMessage(`You are an expert DevOps and Cloud Infrastructure planning agent.
 Given a task, create a clear step-by-step plan to accomplish it.
 ${skillContent}
 ${readOnlyInstruction}
+${mcpInstructions}
 
 Focus on actionable steps that can be executed using available tools.
 ${accountContext}
@@ -259,7 +283,7 @@ Only return the JSON array, nothing else.`);
         console.log(`⚡ [EXECUTOR] Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
         console.log(`================================================================================\n`);
 
-        const { skillContent, readOnlyInstruction, accountContext } = getDynamicContext(evaluation);
+        const { skillContent, readOnlyInstruction, accountContext, mcpInstructions } = getDynamicContext(evaluation);
 
         let stepContext = "";
         if (evaluation?.mode === 'plan') {
@@ -273,11 +297,12 @@ Full Plan: ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 Your goal is to execute technical tasks with precision.
 ${skillContent}
 ${readOnlyInstruction}
+${mcpInstructions}
 
 ${stepContext}
 ${accountContext}
 
-Available tools:
+Available core tools:
 - read_file, write_file, edit_file, ls, glob, grep, execute_command, web_search, list_aws_accounts, get_aws_credentials
 
 IMPORTANT: You should use tools to accomplish the task if necessary. If the task is a simple question or greeting that doesn't require tools, you may answer directly. Always remember to maintain conversation continuity.`);
@@ -327,7 +352,7 @@ IMPORTANT: You should use tools to accomplish the task if necessary. If the task
     // REFLECT NODE
     // ========================================================================
     async function reflectNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        const { messages, taskDescription, iterationCount, plan, toolResults, evaluation } = state;
+        const { messages, iterationCount, plan, toolResults, evaluation } = state;
 
         // Fast mode skip
         const lastMessage = messages[messages.length - 1];
@@ -376,7 +401,7 @@ If there are issues, list them clearly as feedback. Do not generate the fixed an
                     isComplete = parsed.isComplete === true;
                     if (parsed.updatedPlan) updatedPlan = parsed.updatedPlan;
                 }
-            } catch (e) {
+            } catch {
                 isComplete = false;
             }
 
@@ -400,12 +425,32 @@ If there are issues, list them clearly as feedback. Do not generate the fixed an
     // CONDITIONAL EDGE ROUTING
     // ========================================================================
 
-    function routeFromEvaluator(state: ReflectionState): "planner" | "generate" | "__end__" {
+    // ========================================================================
+    // CLARIFY NODE (Human-in-Loop: request missing information)
+    // ========================================================================
+    async function clarifyNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+        const { evaluation } = state;
+
+        const question = evaluation?.clarificationQuestion
+            || "I need more information to proceed. Could you please clarify your request?";
+
+        console.log(`\n================================================================================`);
+        console.log(`❓ [CLARIFY] Requesting clarification from user`);
+        console.log(`   Question: "${question}"`);
+        console.log(`================================================================================\n`);
+
+        return {
+            clarificationQuestion: question,
+            nextAction: 'awaiting_input',
+        };
+    }
+
+    function routeFromEvaluator(state: ReflectionState): "planner" | "generate" | "clarify" | "__end__" {
         if (!state.evaluation) return "generate"; // Fallback to fast mode
 
         if (state.evaluation.mode === 'plan') return "planner";
         if (state.evaluation.mode === 'fast') return "generate";
-        return "__end__"; // End mode
+        return "clarify"; // End mode → clarification
     }
 
     function routeFromGenerate(state: ReflectionState): "tools" | "reflect" | "final" | "__end__" {
@@ -445,6 +490,7 @@ If there are issues, list them clearly as feedback. Do not generate the fixed an
     // ========================================================================
     const workflow = new StateGraph<ReflectionState>({ channels: graphState })
         .addNode("evaluator", evaluatorNode)
+        .addNode("clarify", clarifyNode)
         .addNode("planner", planNode)
         .addNode("generate", generateNode)
         .addNode("tools", collectingToolNode)
@@ -464,8 +510,11 @@ If there are issues, list them clearly as feedback. Do not generate the fixed an
         .addConditionalEdges("evaluator", routeFromEvaluator, {
             planner: "planner",
             generate: "generate",
+            clarify: "clarify",
             __end__: END
         })
+
+        .addEdge("clarify", END)
 
         .addEdge("planner", "generate")
 

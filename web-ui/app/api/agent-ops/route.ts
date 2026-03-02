@@ -12,7 +12,7 @@ import type { TriggerSource, AgentOpsStatus } from '@/lib/agent-ops/types';
 export async function GET(req: Request) {
     try {
         const url = new URL(req.url);
-        const tenantId = url.searchParams.get('tenantId') || 'default';
+        const tenantId = url.searchParams.get('tenantId') || undefined;
         const source = url.searchParams.get('source') as TriggerSource | null;
         const status = url.searchParams.get('status') as AgentOpsStatus | null;
         const limit = parseInt(url.searchParams.get('limit') || '25', 10);

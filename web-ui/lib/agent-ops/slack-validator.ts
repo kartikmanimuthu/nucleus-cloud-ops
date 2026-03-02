@@ -7,7 +7,6 @@
 
 import * as crypto from 'crypto';
 
-const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET || '';
 const SLACK_TIMESTAMP_MAX_AGE = 5 * 60; // 5 minutes
 
 export interface SlackSlashCommandPayload {
@@ -26,14 +25,21 @@ export interface SlackSlashCommandPayload {
 
 /**
  * Verify the Slack request signature.
+ *
+ * @param body - Raw URL-encoded request body
+ * @param timestamp - x-slack-request-timestamp header value
+ * @param signature - x-slack-signature header value (v0=<hex>)
+ * @param signingSecretOverride - Signing secret from DynamoDB; falls back to SLACK_SIGNING_SECRET env var
  */
 export function verifySlackSignature(
     body: string,
     timestamp: string,
-    signature: string
+    signature: string,
+    signingSecretOverride?: string
 ): boolean {
-    if (!SLACK_SIGNING_SECRET) {
-        console.error('[SlackValidator] SLACK_SIGNING_SECRET not configured');
+    const secret = signingSecretOverride || process.env.SLACK_SIGNING_SECRET || '';
+    if (!secret) {
+        console.error('[SlackValidator] Signing secret not configured (no DynamoDB value or SLACK_SIGNING_SECRET env var)');
         return false;
     }
 
@@ -47,7 +53,7 @@ export function verifySlackSignature(
 
     // Compute expected signature
     const sigBasestring = `v0:${timestamp}:${body}`;
-    const hmac = crypto.createHmac('sha256', SLACK_SIGNING_SECRET);
+    const hmac = crypto.createHmac('sha256', secret);
     hmac.update(sigBasestring);
     const expectedSignature = `v0=${hmac.digest('hex')}`;
 

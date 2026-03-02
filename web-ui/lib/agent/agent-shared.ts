@@ -1,15 +1,23 @@
-import { BaseMessage, AIMessage, HumanMessage } from "@langchain/core/messages";
+import { BaseMessage, AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { StateGraphArgs } from "@langchain/langgraph";
 import { FileSaver } from "./file-saver";
-import { DynamoDBSaver } from "@rwai/langgraphjs-checkpoint-dynamodb";
-import { DynamoDBS3Saver } from "./dynamodb-s3-saver";
 import { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import { getCheckpointer as getDynamoCheckpointer, getMemoryStore } from "./persistence";
+import type { DynamoDBStore } from "@farukada/aws-langgraph-dynamodb-ts";
+
 
 // --- Components & Interfaces ---
 
 export interface PlanStep {
     step: string;
     status: 'pending' | 'in_progress' | 'completed' | 'failed';
+}
+
+export interface ToolResultEntry {
+    toolName: string;
+    output: string;      // truncated to 1000 chars
+    isError: boolean;
+    iterationIndex: number;
 }
 
 export interface ReflectionState {
@@ -23,13 +31,18 @@ export interface ReflectionState {
     iterationCount: number;
     nextAction: string;
     isComplete: boolean;
-    toolResults: string[]; // Store tool results for final summary
+    toolResults: ToolResultEntry[]; // Structured tool results for reflection/summary
 }
 
 // --- Schema for StateGraph ---
 export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     messages: {
-        reducer: (x: BaseMessage[], y: BaseMessage[]) => x.concat(y),
+        reducer: (x: BaseMessage[], y: BaseMessage[]) => {
+            const combined = x.concat(y);
+            // Cap at 100 messages to prevent checkpoint bloat.
+            // getRecentMessages() handles the per-call LLM window independently.
+            return combined.length > 100 ? combined.slice(-100) : combined;
+        },
         default: () => [],
     },
     taskDescription: {
@@ -45,7 +58,7 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         default: () => "",
     },
     executionOutput: {
-        reducer: (x: string, y: string) => y ? (x + "\n" + y) : x, // Accumulate outputs
+        reducer: (x: string, y: string) => y || x, // Replace with latest — avoids unbounded accumulation
         default: () => "",
     },
     errors: {
@@ -69,13 +82,121 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         default: () => false,
     },
     toolResults: {
-        reducer: (x: string[], y: string[]) => x.concat(y),
+        reducer: (x: ToolResultEntry[], y: ToolResultEntry[]) => [...x, ...y].slice(-10), // cap at 10 to prevent unbounded growth
         default: () => [],
     },
 };
 
 // --- Constants ---
 export const MAX_ITERATIONS = 30;
+
+// ---------------------------------------------------------------------------
+// LLM Audit Logger
+// ---------------------------------------------------------------------------
+// Logs full LLM input/output at every invoke() call for auditing & debugging.
+// Controlled by the LLM_AUDIT env var:
+//   LLM_AUDIT=1       → deep audit with full message bodies (default when truthy)
+//   LLM_AUDIT=compact → print only a 200-char excerpt of each message
+//   (not set)         → audit is DISABLED entirely
+// ---------------------------------------------------------------------------
+
+type AuditDepth = 'full' | 'compact';
+
+function getAuditDepth(): AuditDepth | null {
+    const v = process.env.LLM_AUDIT?.toLowerCase();
+    if (!v || v === '0' || v === 'false') return null;
+    if (v === 'compact') return 'compact';
+    return 'full'; // any other truthy value → full
+}
+
+/** Serialize a single message to a human-readable audit string. */
+function formatMessageForAudit(msg: BaseMessage, depth: AuditDepth): string {
+    const role = msg._getType().toUpperCase().padEnd(7);
+    let body: string;
+
+    if (msg._getType() === 'ai') {
+        const ai = msg as AIMessage;
+        const parts: string[] = [];
+
+        // Thinking / reasoning blocks (Claude extended thinking)
+        if (Array.isArray(ai.content)) {
+            for (const block of ai.content as any[]) {
+                if (block.type === 'thinking' && block.thinking) {
+                    const t = depth === 'compact' ? truncateOutput(block.thinking, 200) : block.thinking;
+                    parts.push(`[THINKING]\n${t}`);
+                } else if (block.type === 'text' && block.text) {
+                    const t = depth === 'compact' ? truncateOutput(block.text, 200) : block.text;
+                    parts.push(`[TEXT] ${t}`);
+                }
+            }
+        } else if (typeof ai.content === 'string' && ai.content) {
+            const t = depth === 'compact' ? truncateOutput(ai.content, 200) : ai.content;
+            parts.push(t);
+        }
+
+        // Tool calls
+        if (ai.tool_calls && ai.tool_calls.length > 0) {
+            for (const tc of ai.tool_calls) {
+                const args = depth === 'compact'
+                    ? truncateOutput(JSON.stringify(tc.args), 200)
+                    : JSON.stringify(tc.args, null, 2);
+                parts.push(`[TOOL_CALL] id=${tc.id}  name=${tc.name}\n${args}`);
+            }
+        }
+
+        body = parts.join('\n') || '(empty)';
+    } else {
+        const raw = typeof msg.content === 'string'
+            ? msg.content
+            : JSON.stringify(msg.content);
+        body = depth === 'compact' ? truncateOutput(raw, 200) : raw;
+    }
+
+    return `  ${role} │ ${body.replace(/\n/g, '\n            │ ')}`;
+}
+
+/**
+ * Log a full LLM invoke call for audit purposes.
+ *
+ * @param node     - Name of the graph node making the call (e.g. "PLANNER", "EXECUTOR")
+ * @param inputs   - The message array passed to model.invoke()
+ * @param response - The AIMessage returned by model.invoke()
+ * @param startMs  - Date.now() captured immediately before the invoke call
+ */
+export function llmAuditLog(
+    node: string,
+    inputs: BaseMessage[],
+    response: AIMessage,
+    startMs: number
+): void {
+    const depth = getAuditDepth();
+    if (!depth) return; // audit disabled
+
+    const latencyMs = Date.now() - startMs;
+    const usage = (response as any).usage_metadata;
+    const tokenLine = usage
+        ? `tokens_in=${usage.input_tokens ?? '?'}  tokens_out=${usage.output_tokens ?? '?'}`
+        : 'tokens=unknown';
+
+    const border = '═'.repeat(80);
+    const lines: string[] = [
+        `\n╔${border}╗`,
+        `║  🔍 LLM AUDIT  [${node}]  latency=${latencyMs}ms  ${tokenLine}`,
+        `╠${border}╣`,
+        `║  ── INPUT MESSAGES (${inputs.length}) ──`,
+    ];
+
+    for (const [i, msg] of inputs.entries()) {
+        lines.push(`║  [${i}] ${formatMessageForAudit(msg, depth)}`);
+    }
+
+    lines.push(`╠${border}╣`);
+    lines.push(`║  ── LLM RESPONSE ──`);
+    lines.push(`║  ${formatMessageForAudit(response, depth)}`);
+    lines.push(`╚${border}╝\n`);
+
+    console.log(lines.join('\n'));
+}
 
 // --- Helper Functions ---
 export function truncateOutput(text: string, maxChars: number = 500): string {
@@ -146,12 +267,16 @@ export function getRecentMessages(messages: BaseMessage[], maxMessages: number =
         }
     }
 
-    // Trim to maxMessages but respect tool groups (simple trim might break pairs, so we trust reasonable length)
-    // If strict length needed:
-    if (result.length > maxMessages) {
-        // This simple slice is risky for tools, but usually OK if maxMessages is high enough (10-12)
-        // Better to rely on "maxMessages * 2" buffer above or accept slightly longer context
-        // For now, we prioritize correctness of pairs over exact count
+    // Trim from the FRONT to enforce maxMessages, always stripping full tool-pair groups to avoid orphans.
+    // We must not split an AI-with-tool-calls and its following ToolMessages.
+    while (result.length > maxMessages) {
+        // Remove the first element
+        result.shift();
+        // If the new front is a ToolMessage, keep removing until we reach a non-tool message
+        // (we stripped the AI message that owned these tool results, so they'd be orphaned)
+        while (result.length > 0 && result[0]._getType() === 'tool') {
+            result.shift();
+        }
     }
 
     // 1. Ensure conversation starts with the first User message (Task)
@@ -199,6 +324,59 @@ export function getRecentMessages(messages: BaseMessage[], maxMessages: number =
     return formattedResult;
 }
 
+/**
+ * Ensures every AI message with tool_calls has matching ToolMessages immediately
+ * after it in the array. If a tool_call has no result (orphaned), a synthetic
+ * ToolMessage is inserted. This prevents Bedrock ValidationException:
+ * "tool_use ids were found without tool_result blocks".
+ *
+ * Call this function immediately before invoking modelWithTools.
+ */
+export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage[] {
+    const result: BaseMessage[] = [];
+
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        result.push(msg);
+
+        // Only care about AI messages that have tool_calls
+        if (msg._getType() !== 'ai') continue;
+        const aiMsg = msg as AIMessage;
+        if (!aiMsg.tool_calls || aiMsg.tool_calls.length === 0) continue;
+
+        // Collect the tool_call IDs that need to be matched
+        const pendingIds = new Set(aiMsg.tool_calls.map(tc => tc.id).filter(Boolean));
+        if (pendingIds.size === 0) continue;
+
+        // Scan ahead to consume matching ToolMessages
+        const coveredIds = new Set<string>();
+        let j = i + 1;
+        while (j < messages.length && messages[j]._getType() === 'tool') {
+            const toolMsg = messages[j] as any;
+            const toolCallId: string | undefined = toolMsg.tool_call_id;
+            if (toolCallId && pendingIds.has(toolCallId)) {
+                coveredIds.add(toolCallId);
+            }
+            result.push(messages[j]);
+            j++;
+        }
+        // Advance outer index past the consumed tool messages
+        i = j - 1;
+
+        // For any tool_call IDs that had no matching ToolMessage, insert a synthetic one
+        for (const toolCall of aiMsg.tool_calls) {
+            if (!toolCall.id || coveredIds.has(toolCall.id)) continue;
+            result.push(new ToolMessage({
+                content: '[Tool result unavailable — synthetic placeholder]',
+                tool_call_id: toolCall.id,
+                name: toolCall.name,
+            }));
+        }
+    }
+
+    return result;
+}
+
 // Configuration for graph creation
 export interface AccountContext {
     accountId: string;
@@ -208,11 +386,13 @@ export interface AccountContext {
 export interface GraphConfig {
     model: string;
     autoApprove: boolean;
-    accounts?: AccountContext[];   // Array of AWS accounts for multi-account querying
-    accountId?: string;   // Deprecated: Single account (kept for backwards compatibility)
-    accountName?: string; // Deprecated: Single account name
-    selectedSkill?: string | null; // Selected skill ID for dynamic loading
-    mcpServerIds?: string[];       // MCP server IDs to activate for this session
+    accounts?: AccountContext[];
+    accountId?: string;
+    accountName?: string;
+    selectedSkill?: string | null;
+    mcpServerIds?: string[];
+    tenantId?: string;
+    userId?: string;  // For long-term memory store scoping
 }
 
 // --- MCP Integration ---
@@ -225,7 +405,7 @@ export { createMCPTools, getMCPToolsDescription } from './mcp-tools';
  * Resolves server configs from DynamoDB (user customizations) falling back to defaults.
  * If no server IDs are provided, returns an empty array (backward compatible).
  */
-export async function getActiveMCPTools(serverIds?: string[]) {
+export async function getActiveMCPTools(serverIds?: string[], tenantId?: string) {
     if (!serverIds || serverIds.length === 0) {
         return [];
     }
@@ -239,7 +419,7 @@ export async function getActiveMCPTools(serverIds?: string[]) {
     let allConfigs;
     try {
         const { TenantConfigService } = await import('../tenant-config-service');
-        const savedJson = await TenantConfigService.getConfig('mcp-servers');
+        const savedJson = await TenantConfigService.getConfig('mcp-servers', tenantId);
         allConfigs = mergeConfigs(savedJson);
     } catch (err) {
         console.warn('[getActiveMCPTools] DynamoDB config read failed, using defaults:', err);
@@ -255,44 +435,36 @@ export async function getActiveMCPTools(serverIds?: string[]) {
 }
 
 // --- State Definition ---
-// Shared checkpointer for the session (backed by file system or DynamoDB)
+// Shared checkpointer for the session (backed by DynamoDB or file system)
 // Usage of globalThis ensures the checkpointer survives Next.js hot reloads in dev mode
-const globalForCheckpointer = globalThis as unknown as { checkpointer: BaseCheckpointSaver };
+const globalForCheckpointer = globalThis as unknown as {
+    checkpointer: BaseCheckpointSaver | undefined;
+    checkpointerPromise: Promise<BaseCheckpointSaver> | undefined;
+};
 
-function getCheckpointer() {
-    if (globalForCheckpointer.checkpointer) return globalForCheckpointer.checkpointer;
-
+async function initCheckpointer(): Promise<BaseCheckpointSaver> {
     if (process.env.DYNAMODB_CHECKPOINT_TABLE && process.env.DYNAMODB_WRITES_TABLE) {
-        console.log("Using DynamoDB Checkpointer with tables:", process.env.DYNAMODB_CHECKPOINT_TABLE, process.env.DYNAMODB_WRITES_TABLE);
-
-        // Use S3 offloading if bucket is configured
-        if (process.env.CHECKPOINT_S3_BUCKET) {
-            console.log("Using S3 offloading for checkpoints:", process.env.CHECKPOINT_S3_BUCKET);
-            return new DynamoDBS3Saver({
-                clientConfig: {
-                    region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
-                },
-                checkpointsTableName: process.env.DYNAMODB_CHECKPOINT_TABLE,
-                writesTableName: process.env.DYNAMODB_WRITES_TABLE,
-                s3BucketName: process.env.CHECKPOINT_S3_BUCKET,
-                s3ClientConfig: {
-                    region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
-                }
-            });
-        }
-
-        return new DynamoDBSaver({
-            clientConfig: {
-                region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null'
-            },
-            checkpointsTableName: process.env.DYNAMODB_CHECKPOINT_TABLE,
-            writesTableName: process.env.DYNAMODB_WRITES_TABLE
-        });
+        console.log("Using DynamoDB Checkpointer:", process.env.DYNAMODB_CHECKPOINT_TABLE, process.env.DYNAMODB_WRITES_TABLE);
+        return getDynamoCheckpointer();
     }
-
     console.log("Using FileSystem Checkpointer");
     return new FileSaver();
 }
 
-export const checkpointer = getCheckpointer();
-if (process.env.NODE_ENV !== "production") globalForCheckpointer.checkpointer = checkpointer;
+export async function getCheckpointer(): Promise<BaseCheckpointSaver> {
+    if (globalForCheckpointer.checkpointer) return globalForCheckpointer.checkpointer;
+    if (!globalForCheckpointer.checkpointerPromise) {
+        globalForCheckpointer.checkpointerPromise = initCheckpointer().then(cp => {
+            globalForCheckpointer.checkpointer = cp;
+            return cp;
+        });
+    }
+    return globalForCheckpointer.checkpointerPromise;
+}
+
+export async function getStore(): Promise<DynamoDBStore | undefined> {
+    if (process.env.DYNAMODB_MEMORY_TABLE) {
+        return getMemoryStore();
+    }
+    return undefined;
+}

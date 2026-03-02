@@ -4,20 +4,41 @@ import * as yaml from 'js-yaml';
 
 const SKILLS_DIR = path.join(process.cwd(), 'lib', 'agent', 'skills');
 
+export type SkillTier = 'read-only' | 'mutation' | 'approval-gated';
+
 export interface SkillMetadata {
-    id: string;        // Skill folder name (e.g., "production-debugging")
-    name: string;      // Display name from YAML
-    description: string; // Short description from YAML
-    content?: string;  // Full markdown content (loaded on demand)
+    id: string;           // Skill folder name (e.g., "debugging")
+    name: string;         // Display name from YAML frontmatter
+    description: string;  // Short description from YAML frontmatter
+    tier: SkillTier;      // Permission tier for UI badge display
+    content?: string;     // Full markdown content (loaded on demand)
 }
 
 interface SkillFrontmatter {
     name: string;
     description: string;
+    tier?: SkillTier;
 }
 
 /**
- * Parse a SKILL.md file and extract frontmatter + content
+ * Backward-compatibility aliases for deprecated skill IDs.
+ * Persisted conversation data referencing old skill IDs will still resolve.
+ */
+const SKILL_ALIASES: Record<string, string> = {
+    'cost-optimization': 'cost-analysis',
+    'finops': 'cost-analysis',
+    'swe': 'swe-devops',
+};
+
+/**
+ * Resolve a skill ID through the alias map if applicable.
+ */
+function resolveSkillId(skillId: string): string {
+    return SKILL_ALIASES[skillId] ?? skillId;
+}
+
+/**
+ * Parse a SKILL.md file and extract frontmatter + content.
  */
 function parseSkillFile(filePath: string): { frontmatter: SkillFrontmatter; content: string } | null {
     try {
@@ -49,7 +70,7 @@ function parseSkillFile(filePath: string): { frontmatter: SkillFrontmatter; cont
 }
 
 /**
- * Load all available skills (metadata only, content on demand)
+ * Load all available skills (metadata only, content on demand).
  */
 export function loadSkills(): SkillMetadata[] {
     const skills: SkillMetadata[] = [];
@@ -78,11 +99,12 @@ export function loadSkills(): SkillMetadata[] {
                     id: skillDir,
                     name: parsed.frontmatter.name,
                     description: parsed.frontmatter.description,
+                    tier: parsed.frontmatter.tier ?? 'read-only',
                 });
             }
         }
 
-        console.log(`[SkillLoader] Loaded ${skills.length} skills:`, skills.map(s => s.name));
+        console.log(`[SkillLoader] Loaded ${skills.length} skills:`, skills.map(s => `${s.name} (${s.tier})`));
     } catch (error) {
         console.error(`[SkillLoader] Error loading skills:`, error);
     }
@@ -91,7 +113,8 @@ export function loadSkills(): SkillMetadata[] {
 }
 
 /**
- * Get skill summaries for system prompt (progressive disclosure)
+ * Get skill summaries for system prompt (progressive disclosure).
+ * Includes tier badge for clarity.
  */
 export function getSkillSummaries(): string {
     const skills = loadSkills();
@@ -101,29 +124,36 @@ export function getSkillSummaries(): string {
     }
 
     const summaries = skills.map(skill =>
-        `- **${skill.name}** (${skill.id}): ${skill.description}`
+        `- **${skill.name}** (${skill.id}) [${skill.tier}]: ${skill.description}`
     ).join('\n');
 
     return `Available Skills:\n${summaries}`;
 }
 
 /**
- * Get a skill by its ID
+ * Get a skill by its ID. Resolves aliases automatically.
  */
 export function getSkillById(skillId: string): SkillMetadata | null {
+    const resolved = resolveSkillId(skillId);
     const skills = loadSkills();
-    return skills.find(s => s.id === skillId) || null;
+    return skills.find(s => s.id === resolved) || null;
 }
 
 /**
- * Load full skill content by ID (for runtime injection)
+ * Load full skill content by ID (for runtime injection).
+ * Resolves deprecated skill aliases automatically.
  */
 export function getSkillContent(skillId: string): string | null {
     try {
-        const skillFilePath = path.join(SKILLS_DIR, skillId, 'SKILL.md');
+        const resolved = resolveSkillId(skillId);
+        if (resolved !== skillId) {
+            console.log(`[SkillLoader] Resolved deprecated skill alias: "${skillId}" → "${resolved}"`);
+        }
+
+        const skillFilePath = path.join(SKILLS_DIR, resolved, 'SKILL.md');
 
         if (!fs.existsSync(skillFilePath)) {
-            console.error(`[SkillLoader] SKILL.md not found for skill: ${skillId}`);
+            console.error(`[SkillLoader] SKILL.md not found for skill: ${resolved}`);
             return null;
         }
 
@@ -132,7 +162,6 @@ export function getSkillContent(skillId: string): string | null {
             return null;
         }
 
-        // Return full content (instructions section)
         return parsed.content;
     } catch (error) {
         console.error(`[SkillLoader] Error loading skill content for ${skillId}:`, error);

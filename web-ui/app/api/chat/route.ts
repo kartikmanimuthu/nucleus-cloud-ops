@@ -1,9 +1,14 @@
-import { HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
+import { HumanMessage, AIMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
 import { NextResponse } from 'next/server';
 import { createUIMessageStreamResponse, UIMessageChunk } from 'ai';
-import { createReflectionGraph, createFastGraph } from '@/lib/agent/graph-factory';
+import { createReflectionGraph, createFastGraph, createDeepGraph } from '@/lib/agent/graph-factory';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
+
+// Per-thread execution lock: prevents duplicate/parallel LangGraph executions on the same thread.
+// useChat's maxSteps fires follow-up POSTs when a streaming response ends; without this guard a
+// second graph execution re-plans from scratch, doubling LLM API cost and interleaving checkpoints.
+const activeThreads = new Map<string, boolean>();
 
 // Phase types for UI segregation
 type AgentPhase = 'planning' | 'execution' | 'reflection' | 'revision' | 'final' | 'text';
@@ -24,6 +29,9 @@ interface Message {
 }
 
 export async function POST(req: Request) {
+    // Declare outside try so the catch block can always call it safely
+    let releaseThreadLock: () => void = () => { };
+
     try {
         const {
             messages,
@@ -40,20 +48,59 @@ export async function POST(req: Request) {
         } = await req.json();
         const threadId = requestThreadId || Date.now().toString();
 
-        // Ensure thread exists in store
-        // We do this asynchronously to not block the chat start, or we can await it.
-        // Importing dynamically to avoid circular deps if any, but regular import is fine.
-        const { threadStore } = await import('@/lib/store/thread-store');
-        const existing = await threadStore.getThread(threadId);
-        if (!existing) {
-            const firstUserMsg = messages.find((m: Message) => m.role === 'user');
-            const title = firstUserMsg?.content
-                ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content.slice(0, 30) : "New Conversation")
-                : "New Chat";
-            await threadStore.createThread(threadId, title, model);
-        } else if (model) {
-            // Update model if changed?
-            // await threadStore.updateThread(threadId, { model });
+        // Resolve userId from NextAuth/Cognito session — returns USER#<sub>
+        let resolvedUserId: string;
+        try {
+            const { getSessionUserId } = await import("@/lib/auth-session");
+            resolvedUserId = await getSessionUserId();
+        } catch {
+            return new Response(
+                JSON.stringify({ error: "Unauthorized" }),
+                { status: 401, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+        // Langfuse expects a plain ID without the USER# prefix
+        const langfuseUserId = resolvedUserId.replace(/^USER#/, '') || undefined;
+
+        // Reject duplicate requests on the same thread (e.g. from useChat maxSteps retries)
+        if (activeThreads.has(threadId)) {
+            return new Response(
+                JSON.stringify({ error: "Thread is already processing a request. Please wait for it to finish." }),
+                { status: 409, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+        activeThreads.set(threadId, true);
+        releaseThreadLock = () => activeThreads.delete(threadId);
+
+        // Ensure thread exists in store (without persisting messages yet)
+        const firstUserMsg = messages.find((m: Message) => m.role === 'user');
+        const title = firstUserMsg?.content
+            ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content.slice(0, 60) : "New Conversation")
+            : "New Chat";
+
+        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
+            // Eagerly create session metadata so the thread appears in the sidebar immediately
+            try {
+                const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb');
+                const { DynamoDBDocument } = await import('@aws-sdk/lib-dynamodb');
+                const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
+                const ddbDoc = DynamoDBDocument.from(new DynamoDBClient({ region }));
+                const now = Date.now();
+                await ddbDoc.update({
+                    TableName: process.env.DYNAMODB_CHAT_HISTORY_TABLE,
+                    Key: { userId: resolvedUserId, sessionId: threadId },
+                    UpdateExpression: 'SET title = if_not_exists(title, :t), createdAt = if_not_exists(createdAt, :c), updatedAt = :u, itemType = :it, messageCount = if_not_exists(messageCount, :zero)',
+                    ExpressionAttributeValues: { ':t': title, ':c': now, ':u': now, ':it': 'metadata', ':zero': 0 },
+                });
+            } catch (e) {
+                console.warn('[Chat API] Failed to seed session metadata:', e);
+            }
+        } else {
+            const { threadStore } = await import('@/lib/store/thread-store');
+            const existing = await threadStore.getThread(threadId);
+            if (!existing) {
+                await threadStore.createThread(threadId, title, model);
+            }
         }
 
         console.log(`\n🚀 [API] New Request Started`);
@@ -73,18 +120,32 @@ export async function POST(req: Request) {
             accountName: accountName,
             selectedSkill: selectedSkill || null,  // Pass selectedSkill for dynamic loading
             mcpServerIds: mcpServerIds || [],       // Pass MCP server IDs for dynamic tool loading
+            userId: resolvedUserId,                 // For memory store scoping
         };
 
-        const graph = mode === 'fast'
-            ? await createFastGraph(graphConfig)
-            : await createReflectionGraph(graphConfig);
+        let graph;
+        if (mode === 'deep') {
+            graph = await createDeepGraph(graphConfig);
+        } else if (mode === 'fast') {
+            graph = await createFastGraph(graphConfig);
+        } else {
+            graph = await createReflectionGraph(graphConfig);
+        }
+
+        // Build Langfuse callbacks (empty array when disabled — zero overhead)
+        const { getLangfuseCallbackHandler } = await import('@/lib/agent/langfuse-config');
+        const langfuseHandler = await getLangfuseCallbackHandler(threadId, langfuseUserId);
+        const langfuseCallbacks = langfuseHandler ? [langfuseHandler as any] : [];
 
         const lastMessage = messages[messages.length - 1];
         let input: { messages: (HumanMessage | AIMessage | ToolMessage)[] } | null = null;
-        const config = { configurable: { thread_id: threadId } };
+        const config = { configurable: { thread_id: threadId, user_id: resolvedUserId } };
 
         // Track the toolCallId when resuming from HITL approval
         let resumedToolCallId: string | undefined;
+
+        // Track pre-run message count so we only persist NEW messages from this turn
+        let preRunMessageCount = 0;
 
         if (lastMessage.role === 'tool') {
             // Tool result (Human-in-the-Loop approval)
@@ -93,6 +154,14 @@ export async function POST(req: Request) {
 
             // Store the toolCallId for use in the stream
             resumedToolCallId = lastMessage.toolCallId;
+
+            // Capture pre-run message count for delta persistence
+            try {
+                const preRunState = await graph.getState(config);
+                preRunMessageCount = preRunState.values?.messages?.length ?? 0;
+            } catch {
+                // new thread or state unavailable — count stays 0
+            }
 
             // "Approved" means "Execute the real tool"
             // So we DO NOT add this message to the state, we just resume
@@ -115,6 +184,7 @@ export async function POST(req: Request) {
             // Get current state
             const currentState = await graph.getState(config);
             const stateMessages = currentState.values.messages || [];
+            preRunMessageCount = stateMessages.length;
 
             let messagesToProcess = messages;
 
@@ -130,13 +200,27 @@ export async function POST(req: Request) {
 
             // Convert Vercel AI SDK messages to LangChain messages
             const validMessages = messagesToProcess.map((m: Message) => {
-                let content = m.content;
-                if (!content && m.parts) {
+                let content: string | Array<any> = m.content;
+
+                // Handle multimodal content with attachments
+                if ((m as any).experimental_attachments?.length > 0) {
+                    const textContent = typeof m.content === 'string' ? m.content :
+                        (m.parts?.filter((p) => p.type === 'text').map((p) => p.text).join('') || '');
+
+                    content = [
+                        { type: 'text', text: textContent },
+                        ...(m as any).experimental_attachments.map((att: any) => ({
+                            type: 'image_url',
+                            image_url: { url: att.url }
+                        }))
+                    ];
+                } else if (!content && m.parts) {
                     content = m.parts
                         .filter((p) => p.type === 'text')
                         .map((p) => p.text)
                         .join('');
                 }
+
                 content = content || "";
 
                 if (m.role === 'user') {
@@ -156,7 +240,7 @@ export async function POST(req: Request) {
                 } else if (m.role === 'tool') {
                     return new ToolMessage({
                         tool_call_id: m.toolCallId || '',
-                        content: content
+                        content: content as string
                     });
                 }
                 return new HumanMessage({ content });
@@ -165,30 +249,49 @@ export async function POST(req: Request) {
         }
 
         if (stream) {
-            // Note: We intentionally DON'T pass req.signal to streamEvents.
-            // Passing the request's AbortSignal directly causes "Error: Aborted" 
-            // to be thrown when clients disconnect, which disrupts graph execution.
-            // Instead, we handle disconnection gracefully in safeEnqueue().
+            // Create a dedicated abort controller for graph execution.
+            // Wiring req.signal → graphAbortController lets us stop the graph
+            // when the client disconnects without passing req.signal directly
+            // (which caused unhandled "Error: Aborted" disruptions).
+            const graphAbortController = new AbortController();
+            req.signal.addEventListener('abort', () => {
+                console.log('[API] Client disconnected — aborting LangGraph execution');
+                graphAbortController.abort();
+            });
+
             // @ts-ignore
             const streamEvents = await graph.streamEvents(
                 input as any,
                 {
                     version: "v2",
-                    configurable: { thread_id: threadId },
+                    configurable: { thread_id: threadId, user_id: resolvedUserId },
                     recursionLimit: 100, // Higher limit for complex tasks with many tool calls
+                    signal: graphAbortController.signal,
+                    ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
                 }
             );
 
             return createUIMessageStreamResponse({
-                stream: processStream(streamEvents, autoApprove, resumedToolCallId)
+                stream: processStream(
+                    streamEvents,
+                    autoApprove,
+                    resumedToolCallId,
+                    releaseThreadLock,
+                    threadId,
+                    graph,
+                    { configurable: { thread_id: threadId, user_id: resolvedUserId } },
+                    resolvedUserId,
+                    preRunMessageCount
+                )
             });
         } else {
             const result = await graph.invoke(
                 input,
                 {
-                    configurable: { thread_id: threadId },
+                    configurable: { thread_id: threadId, user_id: resolvedUserId },
                     recursionLimit: 100,
                     signal: req.signal,
+                    ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
                 }
             );
 
@@ -196,7 +299,27 @@ export async function POST(req: Request) {
             const lastMsg = result.messages[result.messages.length - 1];
             let content = lastMsg.content;
 
+            // Persist NEW messages from this turn to DynamoDB chat history (non-streaming path)
+            if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
+                try {
+                    const allMessages: BaseMessage[] = result.messages ?? [];
+                    const newMessages = allMessages.slice(preRunMessageCount);
+                    if (newMessages.length > 0) {
+                        const { getChatHistory: getHistory } = await import('@/lib/agent/persistence');
+                        const chatHistory = await getHistory();
+                        const firstHuman = allMessages.find(m => m._getType() === 'human');
+                        const sessionTitle = firstHuman
+                            ? (typeof firstHuman.content === 'string' ? firstHuman.content.slice(0, 60) : 'New Chat')
+                            : 'New Chat';
+                        await chatHistory.addMessages(resolvedUserId, threadId, newMessages, sessionTitle);
+                    }
+                } catch (err) {
+                    console.error('[Chat API] Failed to persist message history (non-stream):', err);
+                }
+            }
+
             // Also include tool calls if present, though likely handled by the loop if not simple text
+            releaseThreadLock();
             return NextResponse.json({
                 role: 'assistant',
                 content: content,
@@ -205,6 +328,7 @@ export async function POST(req: Request) {
         }
 
     } catch (error) {
+        releaseThreadLock();
         console.error('[API Error]:', error);
         return new Response(
             JSON.stringify({
@@ -232,6 +356,10 @@ function getPhaseFromNode(node: string): AgentPhase {
             return 'final';
         case 'agent':
             return 'execution';
+        case 'call_model':
+            return 'execution';   // Deep Agent main model node
+        case 'tools':
+            return 'execution';   // Deep Agent tool execution
         default:
             return 'text';
     }
@@ -282,7 +410,13 @@ interface StreamEvent {
 function processStream(
     stream: AsyncIterable<StreamEvent>,
     autoApprove: boolean,
-    resumedToolCallId?: string
+    resumedToolCallId?: string,
+    onDone?: () => void,
+    threadId?: string,
+    graph?: any,
+    config?: any,
+    resolvedUserId?: string,
+    preRunMessageCount = 0
 ): ReadableStream<UIMessageChunk> {
     return new ReadableStream({
         async start(controller) {
@@ -290,6 +424,10 @@ function processStream(
             let currentPartId = "";
             let streamStarted = false;
             let currentPhase: AgentPhase = 'text';
+
+            // Collect phases in order of on_chat_model_start events so we can
+            // annotate persisted AI messages with phase markers for history replay.
+            const phaseList: AgentPhase[] = [];
 
             // Flag to track if we're resuming from a HITL approval
             // and need to use the original toolCallId
@@ -345,6 +483,7 @@ function processStream(
                         if (event.event === "on_chat_model_start") {
                             const node = event.metadata?.langgraph_node;
                             currentPhase = getPhaseFromNode(node || "");
+                            phaseList.push(currentPhase);
 
                             // Ensure unique IDs per chat model run to avoid index conflicts
                             partCounter++;
@@ -508,6 +647,47 @@ function processStream(
                 } catch (e) {
                     // Ignore if already closed
                 }
+            } finally {
+
+                // Persist NEW messages from this turn to DynamoDB chat history
+                if (process.env.DYNAMODB_CHAT_HISTORY_TABLE && threadId && graph && config && resolvedUserId) {
+                    try {
+                        const finalState = await graph.getState(config);
+                        const allMessages: BaseMessage[] = finalState?.values?.messages ?? [];
+                        const newMessages = allMessages.slice(preRunMessageCount);
+                        console.log(`[Chat API] Final state has ${allMessages.length} messages (${newMessages.length} new) for thread ${threadId}`);
+                        if (newMessages.length > 0) {
+                            // Annotate new AI messages with phase markers before persisting so that
+                            // the history route can reconstruct reasoning/phase parts on reload.
+                            let aiIndex = 0;
+                            for (const msg of newMessages) {
+                                if (msg._getType() === 'ai') {
+                                    const phase = phaseList[aiIndex] ?? 'text';
+                                    if (phase !== 'text') {
+                                        const marker = getPhaseMarker(phase);
+                                        if (marker && typeof msg.content === 'string') {
+                                            msg.content = marker + msg.content;
+                                        }
+                                    }
+                                    aiIndex++;
+                                }
+                            }
+
+                            const { getChatHistory: getHistory } = await import('@/lib/agent/persistence');
+                            const chatHistory = await getHistory();
+                            const firstHuman = allMessages.find(m => m._getType() === 'human');
+                            const sessionTitle = firstHuman
+                                ? (typeof firstHuman.content === 'string' ? firstHuman.content.slice(0, 60) : 'New Chat')
+                                : 'New Chat';
+                            await chatHistory.addMessages(resolvedUserId, threadId, newMessages, sessionTitle);
+                            console.log(`[Chat API] Persisted ${newMessages.length} new messages for thread ${threadId} (userId=${resolvedUserId})`);
+                        }
+                    } catch (err) {
+                        console.error('[Chat API] Failed to persist message history:', err);
+                    }
+                }
+                // Release the per-thread lock so subsequent requests can proceed
+                onDone?.();
             }
         }
     });

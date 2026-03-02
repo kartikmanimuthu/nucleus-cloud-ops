@@ -7,7 +7,6 @@ import * as path from 'path';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 
-
 // Re-export AWS credentials tools
 export { getAwsCredentialsTool, listAwsAccountsTool } from './aws-credentials-tool';
 
@@ -55,9 +54,9 @@ export const executeCommandTool = tool(
     },
     {
         name: 'execute_command',
-        description: 'Execute a shell command on the system. Use this to check system status, list files, inspect processes, or run AWS CLI commands. When running AWS commands, include --profile <profileName> using the profile returned from get_aws_credentials.',
+        description: 'Executes a non-interactive shell command on the local system. Use this to check system status, install dependencies, inspect processes, or run AWS CLI commands. WARNING: Commands must be non-interactive. When running AWS commands, always append --profile <profileName> using the profile returned from get_aws_credentials.',
         schema: z.object({
-            command: z.string().describe('The shell command to execute'),
+            command: z.string().describe('The bash shell command to execute. Chain commands with && if necessary. Do not use interactive commands like `nano` or `vim`.'),
         }),
     }
 );
@@ -110,9 +109,9 @@ export const lsTool = tool(
     },
     {
         name: 'ls',
-        description: 'List files in a directory with metadata (size, modified time, type).',
+        description: 'Lists the contents of a directory, returning metadata like size, modified time, and type (DIR/FILE). Use this to explore folder structures before attempting to read or edit files.',
         schema: z.object({
-            path: z.string().describe('The directory path to list. Defaults to current directory.').default('.'),
+            path: z.string().describe('The absolute or relative directory path to list. Defaults to the current working directory (".").').default('.'),
         }),
     }
 );
@@ -144,9 +143,6 @@ export const readFileTool = tool(
                 result = selectedLines.map((line, index) => `${start + index + 1}: ${line}`).join('\n');
                 rangeInfo = ` (Lines ${start + 1}-${end})`;
             } else {
-                // For full file reading, we usually don't add line numbers unless requested, 
-                // but the prompt says "Read file contents with line numbers".
-                // Let's stick to adding line numbers for consistency with the request description.
                 result = lines.map((line, index) => `${index + 1}: ${line}`).join('\n');
             }
 
@@ -160,11 +156,11 @@ export const readFileTool = tool(
     },
     {
         name: 'read_file',
-        description: 'Read file contents with line numbers. Supports reading specific line ranges.',
+        description: 'Reads the contents of a file and prefixes each line with its line number. For large files, strongly prefer using start_line and end_line to paginate the output and avoid hitting token limits.',
         schema: z.object({
-            file_path: z.string().describe('The absolute path to the file to read'),
-            start_line: z.number().optional().describe('Start line number (1-based, inclusive)'),
-            end_line: z.number().optional().describe('End line number (1-based, inclusive)'),
+            file_path: z.string().describe('The absolute or relative path to the file you want to read.'),
+            start_line: z.number().optional().describe('The starting line number to read (1-based, inclusive). Use to read files in chunks.'),
+            end_line: z.number().optional().describe('The ending line number to read (1-based, inclusive).'),
         }),
     }
 );
@@ -172,13 +168,11 @@ export const readFileTool = tool(
 // --- Write File Tool ---
 export const writeFileTool = tool(
     async (input: { file_path: string; content: string }) => {
-        // Handle potential parameter name variations from LLM
         const file_path = input.file_path;
         const content = input.content;
 
         console.log(`[Tool] Writing file: ${file_path}`);
 
-        // Validate inputs
         if (!file_path || typeof file_path !== 'string') {
             return 'Error: file_path is required and must be a string. Use file_path parameter (not "path" or "filename").';
         }
@@ -187,7 +181,6 @@ export const writeFileTool = tool(
         }
 
         try {
-            // Ensure directory exists
             const dir = path.dirname(file_path);
             if (dir && dir !== '.') {
                 await fs.mkdir(dir, { recursive: true });
@@ -204,10 +197,10 @@ export const writeFileTool = tool(
     },
     {
         name: 'write_file',
-        description: 'Write content to a file. Creates parent directories automatically. IMPORTANT: Use exact parameter names "file_path" and "content".',
+        description: 'Creates a new file or completely overwrites an existing file with new content. Automatically creates parent directories if they do not exist. If you only need to modify part of an existing file, use `edit_file` instead.',
         schema: z.object({
-            file_path: z.string().describe('REQUIRED: The absolute file path to write to, e.g. "/tmp/output.txt"'),
-            content: z.string().describe('REQUIRED: The text content to write to the file'),
+            file_path: z.string().describe('REQUIRED: The absolute or relative file path to write to (e.g. "/tmp/output.txt"). You must use the exact parameter name "file_path".'),
+            content: z.string().describe('REQUIRED: The full text content to write into the file. Do not truncate this.'),
         }),
     }
 );
@@ -222,13 +215,11 @@ export const editFileTool = tool(
             let updatedContent = content;
 
             for (const edit of edits) {
-                // Global replace
                 const escapedOld = edit.old_string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const regex = new RegExp(escapedOld, 'g');
 
-                // Check if string exists
                 if (!content.includes(edit.old_string)) {
-                    return `Error: Target string not found in file: "${edit.old_string.substring(0, 50)}..."`;
+                    return `Error: Target string not found in file: "${edit.old_string.substring(0, 50)}..." Make sure you are matching whitespace and indentation exactly.`;
                 }
 
                 updatedContent = updatedContent.replace(regex, edit.new_string);
@@ -253,14 +244,14 @@ export const editFileTool = tool(
     },
     {
         name: 'edit_file',
-        description: 'Perform exact string replacements in a file. Supports multiple replacements in one go.',
+        description: 'Applies targeted search-and-replace string edits to a specific file. This is highly preferred over write_file for modifying existing code. You must match the `old_string` EXACTLY as it appears in the file, including all whitespace, tabs, and indentation.',
         schema: z.object({
-            file_path: z.string().describe('The absolute path to the file to edit'),
+            file_path: z.string().describe('The absolute or relative path to the file being edited.'),
             edits: z.array(z.object({
-                old_string: z.string().describe('The exact string to replace'),
-                new_string: z.string().describe('The new string to replace it with')
-            })).describe('List of edits to perform'),
-            dry_run: z.boolean().optional().describe('If true, does not write to disk, just reports what would happen')
+                old_string: z.string().describe('The exact string to be replaced. Must be an exact substring match (no regex needed, it escapes automatically). Include enough context (like surrounding lines or indentation) to ensure you are replacing the correct instance.'),
+                new_string: z.string().describe('The new string to insert in place of old_string.')
+            })).describe('An array of exact string replacements to perform sequentially.'),
+            dry_run: z.boolean().optional().describe('Set to true to test if your old_string matches without actually writing to disk.')
         }),
     }
 );
@@ -271,27 +262,12 @@ export const globTool = tool(
         console.log(`[Tool] Glob search: ${pattern} in ${basePath || '.'}`);
 
         try {
-            // Use 'find' command for globbing as it's robust and available in the environment
-            // Construct find command: find [path] -name [pattern]
             const searchPath = basePath || '.';
-            // Ensure searchPath exists
             try {
                 await fs.access(searchPath);
             } catch {
                 return `Error: Directory '${searchPath}' does not exist.`;
             }
-
-            // Clean up pattern to prevent command injection, though tricky with wildcards.
-            // A safer approach for globbing in node without 'glob' lib is using 'find'.
-            // Simple mapping: **/*.py -> find . -name "*.py"
-            // Note: classic 'find' doesn't support ** same as glob, but usually -name matches correctly recursively.
-
-            // NOTE: The user requested "glob" so they likely expect standard glob patterns.
-            // Since we don't have a glob library guaranteed, we'll try to use a safe 'find' invocation.
-            // Or simpler: exec `ls -R` and filter? No, inefficient.
-            // Let's use `find`.
-
-            // If pattern contains directory parts (e.g. src/**/*.ts), 'find -path' or -name is needed.
 
             const command = `find "${searchPath}" -name "${pattern}" -not -path '*/node_modules/*' -maxdepth 10`;
 
@@ -320,10 +296,10 @@ export const globTool = tool(
     },
     {
         name: 'glob',
-        description: 'Find files matching a pattern (e.g. "*.py", "*.ts") recursively.',
+        description: 'Finds files matching a specific naming pattern recursively. Useful for locating files across a large project (e.g., finding all tests, or a specific component file). Excludes node_modules by default.',
         schema: z.object({
-            pattern: z.string().describe('The glob pattern to match (e.g. "*.ts")'),
-            path: z.string().optional().describe('Root directory to start search from'),
+            pattern: z.string().describe('The filename pattern to match (e.g., "*.ts", "App.tsx", "*test*"). Do not include path slashes in the pattern.'),
+            path: z.string().optional().describe('The root directory to start the recursive search from. Defaults to the current directory (".").'),
         }),
     }
 );
@@ -336,29 +312,20 @@ export const grepTool = tool(
         try {
             let command = 'grep';
 
-            if (include_lines) command += ' -n'; // Line numbers
+            if (include_lines) command += ' -n';
             if (recursive) command += ' -r';
-            else command += ' -l'; // Just filenames by default if not asking for lines? 
-            // Wait, spec says "various output modes". 
-            // If include_lines is true, show context. If false, maybe just files?
-            // "files only, content with context, or counts"
+            else command += ' -l';
 
-            // Let's adjust args to map to common grep needs
             if (!include_lines && !recursive) {
-                // Default to list files? Or print matches? 
-                // Let's default to printing matches with filename
                 command += ' -H';
             }
 
-            // Escape double quotes in pattern
             const safePattern = pattern.replace(/"/g, '\\"');
             command += ` "${safePattern}"`;
 
             if (file_paths && file_paths.length > 0) {
                 command += ` ${file_paths.map(p => `"${p}"`).join(' ')}`;
             } else {
-                // If no files, assume current dir? grep usually hangs on stdin if no file.
-                // Assuming "grep -r ." if recursive
                 if (recursive) command += ' .';
                 else command += ' *';
             }
@@ -369,7 +336,6 @@ export const grepTool = tool(
 
             return truncateToolOutput(stdout || stderr);
         } catch (error: any) {
-            // grep returns exit code 1 if no matches, which triggers exception in exec
             if (error.code === 1) return "No matches found.";
 
             const errorMsg = `Grep error: ${error.message}`;
@@ -379,12 +345,12 @@ export const grepTool = tool(
     },
     {
         name: 'grep',
-        description: 'Search file contents for a pattern.',
+        description: 'Searches for a regex or string pattern inside file contents. Highly recommended for finding function definitions, variable usages, or specific code snippets within a codebase without reading whole files.',
         schema: z.object({
-            pattern: z.string().describe('The regex or string to search for'),
-            file_paths: z.array(z.string()).optional().describe('Specific files to search'),
-            recursive: z.boolean().optional().describe('Search recursively in current directory'),
-            include_lines: z.boolean().optional().describe('Show line numbers and matching lines')
+            pattern: z.string().describe('The regex or string to search for (e.g., "function handleSubmit" or "import.*react").'),
+            file_paths: z.array(z.string()).optional().describe('An array of specific file paths to restrict the search to.'),
+            recursive: z.boolean().optional().describe('Set to true to search through all files in the current directory recursively.'),
+            include_lines: z.boolean().optional().describe('Set to true to print the actual matched text and line numbers. If false, it only returns the filenames that contain the match.')
         }),
     }
 );
@@ -442,9 +408,9 @@ export const webSearchTool = tool(
     },
     {
         name: 'web_search',
-        description: 'Search the web for information using Tavily. Returns an answer and relevant sources.',
+        description: 'Performs a real-time web search. Use this when you need up-to-date documentation, recent news, or factual data outside your core knowledge base. Returns an answer and relevant source links.',
         schema: z.object({
-            query: z.string().describe('The search query'),
+            query: z.string().describe('The targeted search query string. Optimize for search engines (e.g., "React 19 server components docs").'),
         }),
     }
 );
@@ -454,9 +420,7 @@ export const webSearchTool = tool(
 const s3Client = new S3Client({});
 
 const getS3Key = (threadId: string, key: string) => {
-    // Sanitize threadId to prevent directory traversal or weird characters
     const sanitizedThreadId = threadId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    // Remove leading slashes from key to avoid double slashes
     const sanitizedKey = key.replace(/^\/+/, '');
     return `${sanitizedThreadId}/${sanitizedKey}`;
 };
@@ -476,7 +440,7 @@ export const writeFileToS3Tool = tool(
                 Bucket: bucketName,
                 Key: s3Key,
                 Body: content,
-                ContentType: 'text/plain', // Default to text/plain
+                ContentType: 'text/plain',
             }));
             const msg = `Successfully written to s3://${bucketName}/${s3Key}`;
             console.log(`[Tool] ${msg}`);
@@ -489,11 +453,11 @@ export const writeFileToS3Tool = tool(
     },
     {
         name: 'write_file_to_s3',
-        description: 'Write content to a file in the temporary S3 storage. Requires a thread_id to namespace the file.',
+        description: 'Writes or overwrites text content to a temporary S3 cloud storage bucket. Use to persist data, logs, or config files across the current conversation.',
         schema: z.object({
-            key: z.string().describe('The filename or path within the thread namespace (e.g., "output.txt" or "logs/run1.log")'),
-            content: z.string().describe('The string content to write'),
-            thread_id: z.string().describe('The unique identifier for the conversation thread to namespace the file'),
+            key: z.string().describe('The destination filename or relative path (e.g., "script.js"). Do not use leading slashes.'),
+            content: z.string().describe('The raw string content to be written to the file.'),
+            thread_id: z.string().describe('The unique identifier for the current conversation thread to namespace the file correctly.'),
         }),
     }
 );
@@ -518,7 +482,6 @@ export const getFileFromS3Tool = tool(
                 return 'Error: Empty response body from S3.';
             }
 
-            // Convert stream to string
             const streamToString = (stream: Readable): Promise<string> =>
                 new Promise((resolve, reject) => {
                     const chunks: Buffer[] = [];
@@ -527,8 +490,6 @@ export const getFileFromS3Tool = tool(
                     stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
                 });
 
-            // Handle different body types (Node.js readable stream vs browser stream)
-            // In AWS SDK v3 for Node, Body is IncomingMessage (ReadableStream)
             const content = await streamToString(response.Body as Readable);
 
             console.log(`[Tool] S3 file read successfully, length: ${content.length}`);
@@ -541,10 +502,10 @@ export const getFileFromS3Tool = tool(
     },
     {
         name: 'get_file_from_s3',
-        description: 'Read the contents of a file from the temporary S3 storage.',
+        description: 'Retrieves the text content of a file previously saved in the temporary S3 cloud storage bucket.',
         schema: z.object({
-            key: z.string().describe('The filename or path within the thread namespace'),
-            thread_id: z.string().describe('The unique identifier for the conversation thread'),
+            key: z.string().describe('The exact filename or relative path of the file to retrieve (e.g., "script.js").'),
+            thread_id: z.string().describe('The unique identifier for the current conversation thread.'),
         }),
     }
 );

@@ -31,13 +31,15 @@ interface Thread {
 interface ThreadSidebarProps {
     className?: string;
     currentThreadId: string;
+    openTabIds?: string[];
     onThreadSelect: (threadId: string) => void;
     onNewChat: () => void;
 }
 
-export function ThreadSidebar({ 
-    className, 
-    currentThreadId, 
+export function ThreadSidebar({
+    className,
+    currentThreadId,
+    openTabIds = [],
     onThreadSelect,
     onNewChat
 }: ThreadSidebarProps) {
@@ -125,6 +127,11 @@ export function ThreadSidebar({
                                 <span className="font-medium truncate leading-tight">
                                     {thread.title || "Untitled Conversation"}
                                 </span>
+                                {openTabIds.includes(thread.id) && (
+                                    <span className="shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary leading-none">
+                                        Open
+                                    </span>
+                                )}
                                 
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>

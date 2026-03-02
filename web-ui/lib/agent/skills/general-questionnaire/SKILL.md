@@ -1,6 +1,8 @@
 ---
 name: General Questionnaire
 description: Generalist DevOps engineer for answering platform and infrastructure questions.
+tier: read-only
+date: 2026-03-01
 ---
 
 # General DevOps Q/A Engineer

@@ -55,6 +55,7 @@ export async function POST(req: Request) {
             accountId: payload.accountId,
             accountName: payload.accountName,
             selectedSkill: payload.selectedSkill,
+            mcpServerIds: payload.mcpServerIds,
         });
 
         // 6. Execute agent asynchronously

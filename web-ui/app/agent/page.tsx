@@ -1,62 +1,129 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ChatInterface } from '@/components/agent/chat-interface';
-import { ThreadSidebar } from '@/components/agent/thread-sidebar';
-import { Menu } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { ChatTabBar, ChatTab } from '@/components/agent/chat-tab-bar';
+
+const MAX_TABS = 8;
+
+function makeTab(threadId?: string): ChatTab {
+  return {
+    threadId: threadId ?? Date.now().toString(),
+    title: 'New Chat',
+    status: 'idle',
+  };
+}
 
 export default function AgentPage() {
-    const [threadId, setThreadId] = useState(() => Date.now().toString());
-    const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [tabs, setTabs] = useState<ChatTab[]>(() => [makeTab()]);
+  const [activeTabId, setActiveTabId] = useState<string>(tabs[0].threadId);
 
-    const handleThreadSelect = (id: string) => {
-        setThreadId(id);
-        setIsMobileOpen(false);
-    };
+  // ── Tab management ─────────────────────────────────────────────────────────
 
-    const handleNewChat = () => {
-        setThreadId(Date.now().toString());
-        setIsMobileOpen(false);
-    };
+  const handleNewChat = useCallback(() => {
+    setTabs((prev) => {
+      if (prev.length >= MAX_TABS) return prev;
+      const tab = makeTab();
+      setActiveTabId(tab.threadId);
+      return [...prev, tab];
+    });
+  }, []);
 
-    return (
-        <div className="flex h-[calc(100vh-theme(spacing.16))] overflow-hidden bg-background">
-            {/* Desktop Sidebar */}
-            <ThreadSidebar 
-                className="w-64 hidden md:flex shrink-0" 
-                currentThreadId={threadId}
-                onThreadSelect={handleThreadSelect}
-                onNewChat={handleNewChat}
-            />
+  const handleCloseTab = useCallback((threadId: string) => {
+    setTabs((prev) => {
+      if (prev.length === 1) {
+        // Last tab: reset it to a blank chat instead of removing
+        const fresh = makeTab();
+        setActiveTabId(fresh.threadId);
+        return [fresh];
+      }
+      const idx = prev.findIndex((t) => t.threadId === threadId);
+      const next = prev.filter((t) => t.threadId !== threadId);
+      // If closing the active tab, switch to the nearest neighbour
+      if (threadId === activeTabId) {
+        const newActive = next[Math.min(idx, next.length - 1)];
+        setActiveTabId(newActive.threadId);
+      }
+      return next;
+    });
+  }, [activeTabId]);
 
-            {/* Main Content */}
-            <div className="flex-1 flex flex-col min-w-0">
-                {/* Mobile Header */}
-                <div className="md:hidden flex items-center p-4 border-b">
-                    <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
-                        <SheetTrigger asChild>
-                            <Button variant="ghost" size="icon" className="mr-2">
-                                <Menu className="h-5 w-5" />
-                            </Button>
-                        </SheetTrigger>
-                        <SheetContent side="left" className="p-0 w-72">
-                            <ThreadSidebar 
-                                currentThreadId={threadId}
-                                onThreadSelect={handleThreadSelect}
-                                onNewChat={handleNewChat}
-                                className="border-r-0"
-                            />
-                        </SheetContent>
-                    </Sheet>
-                    <span className="font-semibold">Conversations</span>
-                </div>
-                
-                <main className="flex-1 overflow-hidden relative">
-                    <ChatInterface key={threadId} threadId={threadId} />
-                </main>
-            </div>
-        </div>
+  /** Called from ThreadSidebar inside a ChatInterface's history popover */
+  const handleThreadSelect = useCallback((threadId: string) => {
+    setTabs((prev) => {
+      // Already open? Just switch to it
+      const existing = prev.find((t) => t.threadId === threadId);
+      if (existing) {
+        setActiveTabId(threadId);
+        return prev;
+      }
+      // If at limit, replace the current active tab (which the user navigated from)
+      if (prev.length >= MAX_TABS) {
+        const updated = prev.map((t) =>
+          t.threadId === activeTabId
+            ? { ...makeTab(threadId), title: 'Loading...' }
+            : t,
+        );
+        setActiveTabId(threadId);
+        return updated;
+      }
+      // Open in a new tab
+      const tab: ChatTab = { ...makeTab(threadId), title: 'Loading...' };
+      setActiveTabId(threadId);
+      return [...prev, tab];
+    });
+  }, [activeTabId]);
+
+  // ── Per-tab status / title updates from ChatInterface ─────────────────────
+
+  const handleStatusChange = useCallback(
+    (threadId: string, status: ChatTab['status']) => {
+      setTabs((prev) =>
+        prev.map((t) => (t.threadId === threadId ? { ...t, status } : t)),
+      );
+    },
+    [],
+  );
+
+  const handleTitleChange = useCallback((threadId: string, title: string) => {
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.threadId === threadId && t.title === 'New Chat'
+          ? { ...t, title }
+          : t,
+      ),
     );
+  }, []);
+
+  // ──────────────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-theme(spacing.16))] overflow-hidden bg-background">
+      <ChatTabBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onTabSelect={setActiveTabId}
+        onTabClose={handleCloseTab}
+        onNewChat={handleNewChat}
+        onThreadSelect={handleThreadSelect}
+        maxTabs={MAX_TABS}
+      />
+
+      <div className="flex-1 relative overflow-hidden p-4">
+        {tabs.map((tab) => (
+          <div
+            key={tab.threadId}
+            className="absolute inset-4"
+            style={{ display: tab.threadId === activeTabId ? 'flex' : 'none' }}
+          >
+            <ChatInterface
+              threadId={tab.threadId}
+              onStatusChange={(s) => handleStatusChange(tab.threadId, s)}
+              onTitleChange={(title) => handleTitleChange(tab.threadId, title)}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

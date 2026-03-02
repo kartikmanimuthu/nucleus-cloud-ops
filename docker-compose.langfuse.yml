@@ -1,0 +1,210 @@
+# Langfuse v3 — Local development stack
+# Usage:
+#   docker compose -f docker-compose.langfuse.yml up -d
+#   docker compose -f docker-compose.langfuse.yml down -v   # destroy all data
+#
+# UI:         http://localhost:3001
+# Login:      admin@nucleus.local / Admin1234!
+# Public key: pk-lf-nucleus-local-dev
+# Secret key: sk-lf-nucleus-local-dev
+
+services:
+  # ─── PostgreSQL (metadata, auth, project config) ─────────────────────────
+  langfuse-postgres:
+    image: postgres:16-alpine
+    container_name: langfuse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── ClickHouse (event/trace analytics store) ─────────────────────────────
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:24.12-alpine
+    container_name: langfuse-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      # Embedded Keeper config: enables ReplicatedMergeTree without external ZooKeeper
+      - ./langfuse/clickhouse-config/keeper.xml:/etc/clickhouse-server/config.d/keeper.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user langfuse --password langfuse --query 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Redis (job queue, caching) ───────────────────────────────────────────
+  langfuse-redis:
+    image: redis:7-alpine
+    container_name: langfuse-redis
+    restart: unless-stopped
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── MinIO (S3-compatible blob storage for large traces) ──────────────────
+  langfuse-minio:
+    image: minio/minio:latest
+    container_name: langfuse-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: langfuse
+      MINIO_ROOT_PASSWORD: langfuse123
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── MinIO bucket init ────────────────────────────────────────────────────
+  langfuse-minio-createbuckets:
+    image: minio/mc:latest
+    container_name: langfuse-minio-init
+    depends_on:
+      langfuse-minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://langfuse-minio:9000 langfuse langfuse123;
+        mc mb --ignore-existing local/langfuse;
+        exit 0;
+      "
+
+  # ─── Langfuse Web + API ───────────────────────────────────────────────────
+  langfuse-server:
+    image: langfuse/langfuse:3
+    container_name: langfuse-server
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio-createbuckets:
+        condition: service_completed_successfully
+    environment:
+      # Database
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      DIRECT_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+
+      # ClickHouse
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+
+      # Redis
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+
+      # S3 / MinIO
+      LANGFUSE_S3_EVENT_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: langfuse123
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: langfuse123
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+
+      # Auth secrets
+      NEXTAUTH_SECRET: langfuse-local-nextauth-secret-nucleus-dev
+      NEXTAUTH_URL: http://localhost:3001
+      SALT: langfuse-local-salt-nucleus-dev-abc123
+
+      # Encryption key (must be 64 hex chars)
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+
+      # Telemetry (disable for local dev)
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+
+      # ── Pre-seed initial org, project, user, and API keys ──────────────────
+      # These let us skip the UI signup step entirely.
+      LANGFUSE_INIT_ORG_ID: nucleus-local-org
+      LANGFUSE_INIT_ORG_NAME: "Nucleus Local"
+      LANGFUSE_INIT_PROJECT_ID: nucleus-local-project
+      LANGFUSE_INIT_PROJECT_NAME: "nucleus-cloud-ops"
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: "pk-lf-nucleus-local-dev"
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: "sk-lf-nucleus-local-dev"
+      LANGFUSE_INIT_USER_EMAIL: "admin@nucleus.local"
+      LANGFUSE_INIT_USER_NAME: "Admin"
+      LANGFUSE_INIT_USER_PASSWORD: "Admin1234!"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/public/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ─── Langfuse Worker (background job processor) ───────────────────────────
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      DIRECT_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+      SALT: langfuse-local-salt-nucleus-dev-abc123
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+      NEXTAUTH_SECRET: langfuse-local-nextauth-secret-nucleus-dev
+      LANGFUSE_S3_EVENT_UPLOAD_ENABLED: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: langfuse123
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      TELEMETRY_ENABLED: "false"
+
+volumes:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_redis_data:
+  langfuse_minio_data:

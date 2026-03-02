@@ -75,6 +75,7 @@ Natural language cloud management powered by Claude 4.5 Sonnet:
 - Security audits
 - Troubleshooting assistance
 - Automated documentation
+- **Multimodal support**: Upload images for visual analysis, diagram interpretation, and screenshot troubleshooting
 
 ![AI Agent](docs/screenshots/ai_agent_page_final.png)
 
@@ -140,6 +141,7 @@ TAVILY_API_KEY=your-tavily-key
 |----------|-------------|
 | [Architecture Guide](docs/ARCHITECTURE.md) | Technical architecture, diagrams, and data models |
 | [Features Guide](docs/FEATURES.md) | Comprehensive feature documentation with screenshots |
+| [Multimodal Support](docs/MULTIMODAL_SUPPORT.md) | Image upload and multimodal AI capabilities |
 | [Product Requirements](docs/product-requirement-document.md) | Original PRD |
 | [Technical Review](docs/technical-review-document.md) | Technical decisions and rationale |
 | [Schema Design](docs/schema-design.md) | DynamoDB table design |
