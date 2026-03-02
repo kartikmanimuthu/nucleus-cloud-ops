@@ -240,7 +240,6 @@ interface MessageRowProps {
 }
 
 const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isActivelyStreaming, renderPhaseBlock, renderToolInvocation }: MessageRowProps) {
-  console.log("message", JSON.stringify(message, null, 2));
   const isUser = message.role === "user";
   const parts: any[] = message.parts || [];
   const attachments = (message as any).experimental_attachments || [];

@@ -19,6 +19,15 @@ interface HistoryMessage {
     }>;
 }
 
+// Phase markers written by processStream before persistence — must match route.ts getPhaseMarker()
+const PHASE_MARKERS = [
+    'PLANNING_PHASE_START\n',
+    'EXECUTION_PHASE_START\n',
+    'REFLECTION_PHASE_START\n',
+    'REVISION_PHASE_START\n',
+    'FINAL_PHASE_START\n',
+];
+
 function convertMessage(msg: BaseMessage, index: number): HistoryMessage | null {
     const msgType = msg._getType();
     const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
@@ -30,7 +39,12 @@ function convertMessage(msg: BaseMessage, index: number): HistoryMessage | null 
     if (msgType === 'ai') {
         const aiMsg = msg as AIMessage;
         const parts: HistoryMessage['parts'] = [];
-        if (content) parts.push({ type: 'text', text: content });
+        if (content) {
+            // If the content was annotated with a phase marker before saving, reconstruct
+            // it as a reasoning part so the UI renders phase headers on history load.
+            const hasPhaseMarker = PHASE_MARKERS.some(m => content.startsWith(m));
+            parts.push({ type: hasPhaseMarker ? 'reasoning' : 'text', text: content });
+        }
         for (const tc of aiMsg.tool_calls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args as Record<string, unknown>, state: 'call' });
         }

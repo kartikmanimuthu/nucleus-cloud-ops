@@ -425,6 +425,10 @@ function processStream(
             let streamStarted = false;
             let currentPhase: AgentPhase = 'text';
 
+            // Collect phases in order of on_chat_model_start events so we can
+            // annotate persisted AI messages with phase markers for history replay.
+            const phaseList: AgentPhase[] = [];
+
             // Flag to track if we're resuming from a HITL approval
             // and need to use the original toolCallId
             let isResumedFromApproval = !!resumedToolCallId;
@@ -479,6 +483,7 @@ function processStream(
                         if (event.event === "on_chat_model_start") {
                             const node = event.metadata?.langgraph_node;
                             currentPhase = getPhaseFromNode(node || "");
+                            phaseList.push(currentPhase);
 
                             // Ensure unique IDs per chat model run to avoid index conflicts
                             partCounter++;
@@ -652,6 +657,22 @@ function processStream(
                         const newMessages = allMessages.slice(preRunMessageCount);
                         console.log(`[Chat API] Final state has ${allMessages.length} messages (${newMessages.length} new) for thread ${threadId}`);
                         if (newMessages.length > 0) {
+                            // Annotate new AI messages with phase markers before persisting so that
+                            // the history route can reconstruct reasoning/phase parts on reload.
+                            let aiIndex = 0;
+                            for (const msg of newMessages) {
+                                if (msg._getType() === 'ai') {
+                                    const phase = phaseList[aiIndex] ?? 'text';
+                                    if (phase !== 'text') {
+                                        const marker = getPhaseMarker(phase);
+                                        if (marker && typeof msg.content === 'string') {
+                                            msg.content = marker + msg.content;
+                                        }
+                                    }
+                                    aiIndex++;
+                                }
+                            }
+
                             const { getChatHistory: getHistory } = await import('@/lib/agent/persistence');
                             const chatHistory = await getHistory();
                             const firstHuman = allMessages.find(m => m._getType() === 'human');
