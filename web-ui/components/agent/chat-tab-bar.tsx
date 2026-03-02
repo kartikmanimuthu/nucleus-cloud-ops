@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Plus, X, History } from "lucide-react";
+import { Plus, X, History, Server } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -134,6 +134,17 @@ export function ChatTabBar({
         title={isAtLimit ? `Max ${maxTabs} chats open` : "New Chat"}
       >
         <Plus className="w-4 h-4" />
+      </Button>
+
+      {/* MCP settings button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+        onClick={() => (window.location.href = "/agent/mcp-settings")}
+        title="MCP Server Settings"
+      >
+        <Server className="w-4 h-4" />
       </Button>
 
       {/* Streaming badge */}

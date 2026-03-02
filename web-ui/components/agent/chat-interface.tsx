@@ -23,7 +23,6 @@ import {
   Flag,
   ListChecks,
   Sparkles,
-  Settings,
   Zap,
   Cloud,
   Copy,
@@ -38,11 +37,11 @@ import {
   exportToMarkdown,
   exportToPDF,
 } from "@/lib/chat-export";
+
 // Available modes
 const AGENT_MODES = [
-  { id: "plan", label: "Plan & Execute" },
   { id: "fast", label: "Fast (ReAct)" },
-  { id: "deep", label: "Deep Agent" },
+  { id: "plan", label: "Plan & Execute" },
 ];
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -86,6 +85,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
@@ -409,7 +414,7 @@ export function ChatInterface({
   const [autoApprove, setAutoApprove] = useState(true);
   const [showTools, setShowTools] = useState(false);
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
-  const [agentMode, setAgentMode] = useState("plan");
+  const [agentMode, setAgentMode] = useState("fast");
   const [hasStarted, setHasStarted] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [wasStopped, setWasStopped] = useState(false);
@@ -1124,8 +1129,8 @@ export function ChatInterface({
   return (
     <div className="flex flex-col h-full max-w-[95%] mx-auto w-full border rounded-xl overflow-hidden shadow-lg bg-background">
       {/* Header */}
-      <div className="p-4 border-b bg-gradient-to-r from-primary/10 to-primary/5 flex items-center gap-3">
-        <Avatar className="h-10 w-10 border shadow-sm shrink-0">
+      <div className="px-4 py-3 border-b bg-gradient-to-r from-primary/10 to-primary/5 flex items-center gap-3">
+        <Avatar className="h-9 w-9 border shadow-sm shrink-0">
           <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-bold">
             <Bot className="h-5 w-5" />
           </AvatarFallback>
@@ -1642,53 +1647,46 @@ export function ChatInterface({
                 <Copy className="w-3.5 h-3.5" />
               </Button>
 
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
-                onClick={async () => {
-                  await exportToMarkdown(messages, threadId);
-                }}
-                title="Export to Markdown"
-                disabled={messages.length === 0}
-              >
-                <Download className="w-3.5 h-3.5" />
-              </Button>
+              {/* Export dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
+                    title="Export"
+                    disabled={messages.length === 0}
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onClick={async () => { await exportToMarkdown(messages, threadId); }}
+                    className="gap-2 text-xs cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Export as Markdown
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={async () => { await exportToPDF(messages, threadId); }}
+                    className="gap-2 text-xs cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    Export as PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
+              {/* Clear conversation */}
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
-                onClick={async () => {
-                  await exportToPDF(messages, threadId);
-                }}
-                title="Export to PDF"
-                disabled={messages.length === 0}
-              >
-                <FileText className="w-3.5 h-3.5" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
+                className="h-7 w-7 rounded-md text-muted-foreground hover:text-destructive"
                 onClick={handleClear}
                 title="Clear conversation"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-
-              <div className="w-px h-4 bg-border mx-1" />
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 rounded-full text-muted-foreground"
-                type="button"
-                onClick={() => (window.location.href = "/agent/mcp-settings")}
-                title="MCP Server Settings"
-              >
-                <Settings className="w-3.5 h-3.5" />
               </Button>
             </div>
           </div>
