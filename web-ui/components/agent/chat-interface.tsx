@@ -32,8 +32,6 @@ import {
   Wand2,
   FileText,
   ChevronDown,
-  History,
-  Plus,
 } from "lucide-react";
 import {
   copyToClipboard,
@@ -91,7 +89,6 @@ import {
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
-import { ThreadSidebar } from "@/components/agent/thread-sidebar";
 
 // Available models
 const AVAILABLE_MODELS = [
@@ -227,8 +224,8 @@ const phaseConfig: Record<
 
 interface ChatInterfaceProps {
   threadId: string;
-  onThreadSelect?: (threadId: string) => void;
-  onNewChat?: () => void;
+  onStatusChange?: (status: "idle" | "streaming" | "error") => void;
+  onTitleChange?: (title: string) => void;
 }
 
 interface MessageRowProps {
@@ -403,8 +400,8 @@ const ToolOutputWithTruncation = React.memo(function ToolOutputWithTruncation({
 
 export function ChatInterface({
   threadId: initialThreadId,
-  onThreadSelect,
-  onNewChat,
+  onStatusChange,
+  onTitleChange,
 }: ChatInterfaceProps) {
   const [threadId] = useState(initialThreadId);
 
@@ -536,6 +533,7 @@ export function ChatInterface({
 
   const { messages, sendMessage, status, error, reload, setMessages, addToolResult, stop, regenerate } =
     useChat({
+      id: threadId,
       api: "/api/chat",
       // Batch micro-delta SSE chunks into 50ms windows, reducing ~4000+ renders → ~80-100.
       // Without this, every 1-8 byte token fires a full React reconciliation cycle.
@@ -574,6 +572,35 @@ export function ChatInterface({
     }) as any;
 
   const isLoading = status === 'submitted' || status === 'streaming';
+
+  // Use refs so the effects below only re-run when status/messages change,
+  // not when the parent re-renders and passes new inline function references.
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
+  const onTitleChangeRef = useRef(onTitleChange);
+  onTitleChangeRef.current = onTitleChange;
+
+  // Report streaming status to parent for tab indicator
+  useEffect(() => {
+    if (status === 'streaming' || status === 'submitted') {
+      onStatusChangeRef.current?.('streaming');
+    } else if (status === 'error') {
+      onStatusChangeRef.current?.('error');
+    } else {
+      onStatusChangeRef.current?.('idle');
+    }
+  }, [status]);
+
+  // Report title from first user message to parent for tab label
+  useEffect(() => {
+    const firstUserMsg = messages.find((m: any) => m.role === 'user');
+    if (firstUserMsg) {
+      const content = typeof firstUserMsg.content === 'string'
+        ? firstUserMsg.content
+        : 'Chat';
+      onTitleChangeRef.current?.(content.slice(0, 50));
+    }
+  }, [messages]);
 
   // Derive current agent phase from the most recent reasoning part in the last message.
   // Used to show contextual status text in the loading spinner during execution.
@@ -1097,56 +1124,30 @@ export function ChatInterface({
   return (
     <div className="flex flex-col h-full max-w-[95%] mx-auto w-full border rounded-xl overflow-hidden shadow-lg bg-background">
       {/* Header */}
-      <div className="p-4 border-b bg-gradient-to-r from-primary/10 to-primary/5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Avatar className="h-10 w-10 border shadow-sm">
-            <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-bold">
-              <Bot className="h-5 w-5" />
-            </AvatarFallback>
-          </Avatar>
-          <div>
-            <h2 className="font-semibold flex items-center gap-2">
-              AI Ops
-              <Sparkles className="w-4 h-4 text-warning" />
-            </h2>
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              Plan → Execute → Reflect → Revise
-              {autoApprove && (
-                <span className="text-success ml-1">(Auto-Approve ON)</span>
-              )}
-              {selectedSkill && (
-                <span className="text-purple-600 ml-1 flex items-center gap-1">
-                  • <Briefcase className="w-3 h-3" />{" "}
-                  {availableSkills.find((s) => s.id === selectedSkill)?.name}
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
+      <div className="p-4 border-b bg-gradient-to-r from-primary/10 to-primary/5 flex items-center gap-3">
+        <Avatar className="h-10 w-10 border shadow-sm shrink-0">
+          <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground font-bold">
+            <Bot className="h-5 w-5" />
+          </AvatarFallback>
+        </Avatar>
 
-        <div className="flex items-center gap-2">
-          {onNewChat && (
-            <Button variant="ghost" size="icon" onClick={onNewChat} className="text-muted-foreground hover:text-foreground">
-              <Plus className="w-5 h-5" />
-            </Button>
-          )}
-          {onThreadSelect && onNewChat && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
-                  <History className="w-5 h-5" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent side="bottom" align="end" className="w-[320px] p-0 h-[600px] flex flex-col overflow-hidden">
-                <ThreadSidebar
-                  currentThreadId={threadId}
-                  onThreadSelect={onThreadSelect}
-                  onNewChat={onNewChat}
-                  className="border-none bg-background rounded-md w-full h-full"
-                />
-              </PopoverContent>
-            </Popover>
-          )}
+        <div className="min-w-0">
+          <h2 className="font-semibold flex items-center gap-2">
+            AI Ops
+            <Sparkles className="w-4 h-4 text-warning" />
+          </h2>
+          <p className="text-xs text-muted-foreground flex items-center gap-1">
+            Plan → Execute → Reflect → Revise
+            {autoApprove && (
+              <span className="text-success ml-1">(Auto-Approve ON)</span>
+            )}
+            {selectedSkill && (
+              <span className="text-purple-600 ml-1 flex items-center gap-1">
+                • <Briefcase className="w-3 h-3" />{" "}
+                {availableSkills.find((s) => s.id === selectedSkill)?.name}
+              </span>
+            )}
+          </p>
         </div>
       </div>
 
