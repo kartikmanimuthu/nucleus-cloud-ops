@@ -169,5 +169,9 @@ export class NetworkingStack extends cdk.Stack {
             value: this.vpc.availabilityZones.join(','),
             description: "Availability Zones used by the VPC",
         });
+
+        // Retain the export manually so CloudFormation doesn't complain about ComputeStack still using it
+        this.exportValue(this.vpc.vpcCidrBlock);
     }
 }
+
