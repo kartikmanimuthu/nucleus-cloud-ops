@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-
-const useDynamo = !!process.env.DYNAMODB_AGENT_CONVERSATIONS_TABLE;
+import { getChatHistory } from '@/lib/agent/persistence';
+import { getSessionUserId } from '@/lib/auth-session';
 
 interface NormalizedThread {
     id: string;
@@ -12,23 +12,24 @@ interface NormalizedThread {
 
 export async function GET() {
     try {
-        if (useDynamo) {
-            const { listThreads } = await import('@/lib/db/dynamodb-s3-chat-history-store');
-            const mongoThreads = await listThreads(100, 0);
-            // Normalize MongoDB threads to match expected format
-            const normalized: NormalizedThread[] = mongoThreads.map((t: any) => ({
-                id: t.threadId,
-                title: t.title,
-                createdAt: new Date(t.createdAt).getTime(),
-                updatedAt: new Date(t.updatedAt).getTime(),
-                model: t.model,
+        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
+            let userId: string;
+            try { userId = await getSessionUserId(); } catch {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+            const chatHistory = await getChatHistory();
+            const sessions = await chatHistory.listSessions(userId, 100);
+            const normalized: NormalizedThread[] = sessions.map((s) => ({
+                id: s.sessionId,
+                title: s.title,
+                createdAt: s.createdAt,
+                updatedAt: s.updatedAt,
             }));
             return NextResponse.json(normalized);
         }
 
         const { threadStore } = await import('@/lib/store/thread-store');
-        const threads = await threadStore.listThreads();
-        return NextResponse.json(threads);
+        return NextResponse.json(await threadStore.listThreads());
     } catch (error) {
         return NextResponse.json({ error: 'Failed to fetch threads' }, { status: 500 });
     }
@@ -36,30 +37,38 @@ export async function GET() {
 
 export async function POST(req: Request) {
     try {
-        const body = await req.json();
-        const { id, title, model } = body;
+        const { id, title, model } = await req.json();
+        if (!id) return NextResponse.json({ error: 'Thread ID is required' }, { status: 400 });
 
-        if (!id) {
-            return NextResponse.json({ error: 'Thread ID is required' }, { status: 400 });
-        }
-
-        if (useDynamo) {
-            const { createThread } = await import('@/lib/db/dynamodb-s3-chat-history-store');
-            const thread = await createThread(id, title || 'New Chat', model);
-            // Normalize MongoDB thread to match expected format
+        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
+            let userId: string;
+            try { userId = await getSessionUserId(); } catch {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+            // Seed metadata only — no empty HumanMessage
+            const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb');
+            const { DynamoDBDocument } = await import('@aws-sdk/lib-dynamodb');
+            const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
+            const ddbDoc = DynamoDBDocument.from(new DynamoDBClient({ region }));
+            const now = Date.now();
+            await ddbDoc.update({
+                TableName: process.env.DYNAMODB_CHAT_HISTORY_TABLE,
+                Key: { userId, sessionId: id },
+                UpdateExpression: 'SET title = if_not_exists(title, :t), createdAt = if_not_exists(createdAt, :c), updatedAt = :u, messageCount = if_not_exists(messageCount, :zero)',
+                ExpressionAttributeValues: { ':t': title || 'New Chat', ':c': now, ':u': now, ':zero': 0 },
+            });
             const normalized: NormalizedThread = {
-                id: thread.threadId,
-                title: thread.title,
-                createdAt: new Date(thread.createdAt).getTime(),
-                updatedAt: new Date(thread.updatedAt).getTime(),
-                model: thread.model,
+                id,
+                title: title || 'New Chat',
+                createdAt: now,
+                updatedAt: now,
+                model,
             };
             return NextResponse.json(normalized);
         }
 
         const { threadStore } = await import('@/lib/store/thread-store');
-        const thread = await threadStore.createThread(id, title, model);
-        return NextResponse.json(thread);
+        return NextResponse.json(await threadStore.createThread(id, title, model));
     } catch (error) {
         return NextResponse.json({ error: 'Failed to create thread' }, { status: 500 });
     }

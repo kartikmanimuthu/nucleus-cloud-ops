@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-
-const useDynamo = !!process.env.DYNAMODB_AGENT_CONVERSATIONS_TABLE;
+import { getChatHistory } from '@/lib/agent/persistence';
+import { getSessionUserId } from '@/lib/auth-session';
+import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 
 interface NormalizedThread {
     id: string;
@@ -11,26 +13,25 @@ interface NormalizedThread {
 }
 
 export async function DELETE(
-    req: Request,
+    _req: Request,
     { params }: { params: Promise<{ threadId: string }> }
 ) {
     try {
         const { threadId } = await params;
 
-        if (useDynamo) {
-            const { deleteThread } = await import('@/lib/db/dynamodb-s3-chat-history-store');
-            const success = await deleteThread(threadId);
-            if (!success) {
-                return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
+        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
+            let userId: string;
+            try { userId = await getSessionUserId(); } catch {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
             }
+            const chatHistory = await getChatHistory();
+            await chatHistory.clear(userId, threadId);
             return NextResponse.json({ success: true });
         }
 
         const { threadStore } = await import('@/lib/store/thread-store');
         const success = await threadStore.deleteThread(threadId);
-        if (!success) {
-            return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
-        }
+        if (!success) return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
         return NextResponse.json({ success: true });
     } catch (error) {
         return NextResponse.json({ error: 'Failed to delete thread' }, { status: 500 });
@@ -43,32 +44,34 @@ export async function PATCH(
 ) {
     try {
         const { threadId } = await params;
-        const body = await req.json();
-        const { title } = body;
+        const { title } = await req.json();
 
-        if (useDynamo) {
-            const { updateThread, getThread } = await import('@/lib/db/dynamodb-s3-chat-history-store');
-            await updateThread(threadId, { title });
-            const updated = await getThread(threadId);
-            if (!updated) {
-                return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
+        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
+            let userId: string;
+            try { userId = await getSessionUserId(); } catch {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
             }
-            // Normalize MongoDB thread to match expected format
+            const region = process.env.AWS_REGION || 'us-east-1';
+            const client = DynamoDBDocument.from(new DynamoDBClient({ region }));
+            await client.update({
+                TableName: process.env.DYNAMODB_CHAT_HISTORY_TABLE,
+                Key: { userId, sessionId: threadId },
+                UpdateExpression: 'SET #t = :t, updatedAt = :u',
+                ExpressionAttributeNames: { '#t': 'title' },
+                ExpressionAttributeValues: { ':t': title, ':u': Date.now() },
+            });
             const normalized: NormalizedThread = {
-                id: updated.threadId,
-                title: updated.title,
-                createdAt: new Date(updated.createdAt).getTime(),
-                updatedAt: new Date(updated.updatedAt).getTime(),
-                model: updated.model,
+                id: threadId,
+                title,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
             };
             return NextResponse.json(normalized);
         }
 
         const { threadStore } = await import('@/lib/store/thread-store');
         const updated = await threadStore.updateThread(threadId, { title });
-        if (!updated) {
-            return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
-        }
+        if (!updated) return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
         return NextResponse.json(updated);
     } catch (error) {
         return NextResponse.json({ error: 'Failed to update thread' }, { status: 500 });

@@ -1,9 +1,9 @@
 import { BaseMessage, AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { StateGraphArgs } from "@langchain/langgraph";
 import { FileSaver } from "./file-saver";
-import { DynamoDBSaver } from "@rwai/langgraphjs-checkpoint-dynamodb";
-import { DynamoDBS3Saver } from "./dynamodb-s3-saver";
 import { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import { getCheckpointer as getDynamoCheckpointer, getMemoryStore } from "./persistence";
+import type { DynamoDBStore } from "@farukada/aws-langgraph-dynamodb-ts";
 
 
 // --- Components & Interfaces ---
@@ -386,12 +386,13 @@ export interface AccountContext {
 export interface GraphConfig {
     model: string;
     autoApprove: boolean;
-    accounts?: AccountContext[];   // Array of AWS accounts for multi-account querying
-    accountId?: string;   // Deprecated: Single account (kept for backwards compatibility)
-    accountName?: string; // Deprecated: Single account name
-    selectedSkill?: string | null; // Selected skill ID for dynamic loading
-    mcpServerIds?: string[];       // MCP server IDs to activate for this session
-    tenantId?: string;             // Tenant ID to use for fetching configurations
+    accounts?: AccountContext[];
+    accountId?: string;
+    accountName?: string;
+    selectedSkill?: string | null;
+    mcpServerIds?: string[];
+    tenantId?: string;
+    userId?: string;  // For long-term memory store scoping
 }
 
 // --- MCP Integration ---
@@ -434,7 +435,7 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string)
 }
 
 // --- State Definition ---
-// Shared checkpointer for the session (backed by MongoDB, DynamoDB, or file system)
+// Shared checkpointer for the session (backed by DynamoDB or file system)
 // Usage of globalThis ensures the checkpointer survives Next.js hot reloads in dev mode
 const globalForCheckpointer = globalThis as unknown as {
     checkpointer: BaseCheckpointSaver | undefined;
@@ -442,29 +443,10 @@ const globalForCheckpointer = globalThis as unknown as {
 };
 
 async function initCheckpointer(): Promise<BaseCheckpointSaver> {
-    const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
-
-    // Priority 1: DynamoDB with S3 offloading
     if (process.env.DYNAMODB_CHECKPOINT_TABLE && process.env.DYNAMODB_WRITES_TABLE) {
         console.log("Using DynamoDB Checkpointer:", process.env.DYNAMODB_CHECKPOINT_TABLE, process.env.DYNAMODB_WRITES_TABLE);
-        if (process.env.CHECKPOINT_S3_BUCKET) {
-            console.log("With S3 offloading:", process.env.CHECKPOINT_S3_BUCKET);
-            return new DynamoDBS3Saver({
-                clientConfig: { region },
-                checkpointsTableName: process.env.DYNAMODB_CHECKPOINT_TABLE,
-                writesTableName: process.env.DYNAMODB_WRITES_TABLE,
-                s3BucketName: process.env.CHECKPOINT_S3_BUCKET,
-                s3ClientConfig: { region },
-            });
-        }
-        return new DynamoDBSaver({
-            clientConfig: { region },
-            checkpointsTableName: process.env.DYNAMODB_CHECKPOINT_TABLE,
-            writesTableName: process.env.DYNAMODB_WRITES_TABLE,
-        });
+        return getDynamoCheckpointer();
     }
-
-    // Priority 2: File system fallback
     console.log("Using FileSystem Checkpointer");
     return new FileSaver();
 }
@@ -478,4 +460,11 @@ export async function getCheckpointer(): Promise<BaseCheckpointSaver> {
         });
     }
     return globalForCheckpointer.checkpointerPromise;
+}
+
+export async function getStore(): Promise<DynamoDBStore | undefined> {
+    if (process.env.DYNAMODB_MEMORY_TABLE) {
+        return getMemoryStore();
+    }
+    return undefined;
 }

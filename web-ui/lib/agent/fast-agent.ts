@@ -11,6 +11,7 @@ import {
     truncateOutput,
     getRecentMessages,
     getCheckpointer,
+    getStore,
 } from "./agent-shared";
 import {
     buildBaseIdentity,
@@ -27,6 +28,7 @@ import { createAgentModels, assembleTools } from "./model-factory";
 export async function createFastGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId } = config;
     const checkpointer = await getCheckpointer();
+    const store = await getStore();
 
     // Log skill loading
     if (selectedSkill) {
@@ -52,7 +54,7 @@ export async function createFastGraph(config: GraphConfig) {
     const { main: model, reflector: reflectorModel } = createAgentModels(modelId);
 
     // --- Tool Assembly (fast-agent does not use S3 tools) ---
-    const tools = await assembleTools({ includeS3Tools: false, mcpServerIds, tenantId });
+    const tools = await assembleTools({ includeS3Tools: false, includeMemoryTools: !!store, userId: config.userId, mcpServerIds, tenantId });
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
 
@@ -281,10 +283,11 @@ Please provide your critique.`
         .addEdge("tools", "agent");
 
     if (autoApprove) {
-        return workflow.compile({ checkpointer });
+        return workflow.compile({ checkpointer, ...(store && { store }) });
     } else {
         return workflow.compile({
             checkpointer,
+            ...(store && { store }),
             interruptBefore: ["tools"],
         });
     }

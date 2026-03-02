@@ -19,12 +19,15 @@ import {
     GraphConfig,
     getCheckpointer,
     getActiveMCPTools,
+    getStore,
 } from "./agent-shared";
+import { createMemoryTools } from "./model-factory";
 
 // --- DEEP GRAPH (Deep Agent Mode) ---
 export async function createDeepGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
     const checkpointer = await getCheckpointer();
+    const store = await getStore();
 
     // --- Skill loading (same pattern as fast-agent.ts) ---
     let skillSection = '';
@@ -113,6 +116,7 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
         // webSearchTool,
         getAwsCredentialsTool,
         listAwsAccountsTool,
+        ...(store && config.userId ? createMemoryTools(config.userId) : []),
         ...mcpTools,
     ];
 
@@ -227,6 +231,7 @@ ${accountContext}
         systemPrompt: new SystemMessage(systemPrompt),
         subagents: [awsOpsSubagent, researchSubagent, codeSubagent],
         checkpointer: checkpointer,
+        ...(store && { store }),
         interruptOn: interruptOn,
     });
 

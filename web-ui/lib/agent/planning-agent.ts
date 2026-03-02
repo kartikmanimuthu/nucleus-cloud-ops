@@ -14,6 +14,7 @@ import {
     sanitizeMessagesForBedrock,
     llmAuditLog,
     getCheckpointer,
+    getStore,
 } from "./agent-shared";
 import {
     buildBaseIdentity,
@@ -31,6 +32,7 @@ import { createAgentModels, assembleTools } from "./model-factory";
 export async function createReflectionGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId } = config;
     const checkpointer = await getCheckpointer();
+    const store = await getStore();
 
     // Log skill loading
     if (selectedSkill) {
@@ -58,7 +60,7 @@ export async function createReflectionGraph(config: GraphConfig) {
     const { main: model, reflector: reflectorModel } = createAgentModels(modelId);
 
     // --- Tool Assembly ---
-    const tools = await assembleTools({ includeS3Tools: true, mcpServerIds, tenantId });
+    const tools = await assembleTools({ includeS3Tools: true, includeMemoryTools: !!store, userId: config.userId, mcpServerIds, tenantId });
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
 
@@ -642,11 +644,12 @@ ${summaryContent}`;
 
     if (autoApprove) {
         console.log(`[Graph] Creating graph with autoApprove=true (no interrupts)`);
-        return workflow.compile({ checkpointer });
+        return workflow.compile({ checkpointer, ...(store && { store }) });
     } else {
         console.log(`[Graph] Creating graph with autoApprove=false (interrupt before tools)`);
         return workflow.compile({
             checkpointer,
+            ...(store && { store }),
             interruptBefore: ["tools"],
         });
     }
