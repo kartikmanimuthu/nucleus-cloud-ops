@@ -9,7 +9,7 @@ import { MarkdownContent } from "@/components/ui/markdown-content"
 import {
     ArrowLeft, Clock, CheckCircle2, XCircle, Loader2,
     MessageSquare, AlertCircle, Globe, Zap, Terminal, Brain, RefreshCw,
-    Wrench, FileText, ChevronDown, ChevronUp, Cpu
+    Wrench, FileText, ChevronDown, ChevronUp, Cpu, StopCircle
 } from "lucide-react"
 import type { AgentOpsRun, AgentOpsEvent, AgentEventType } from "@/lib/agent-ops/types"
 
@@ -30,6 +30,7 @@ function EventRow({ event, idx }: { event: AgentOpsEvent; idx: number }) {
     const [expanded, setExpanded] = useState(false)
     const config = EVENT_TYPE_CONFIG[event.eventType] || EVENT_TYPE_CONFIG.execution
     const EventIcon = config.icon
+    const isThinking = event.metadata?.contentType === 'thinking'
 
     const tokens = event.metadata
         ? ((event.metadata.inputTokens as number) || 0) + ((event.metadata.outputTokens as number) || 0)
@@ -48,7 +49,7 @@ function EventRow({ event, idx }: { event: AgentOpsEvent; idx: number }) {
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 flex-wrap">
                         <EventIcon className={`h-3.5 w-3.5 shrink-0 ${config.color}`} />
-                        <span className="text-xs font-semibold">{config.label}</span>
+                        <span className="text-xs font-semibold">{isThinking ? "Thinking" : config.label}</span>
                         <span className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">{event.node}</span>
                         {event.toolName && (
                             <Badge variant="outline" className="text-xs py-0 font-mono">{event.toolName}</Badge>
@@ -78,13 +79,15 @@ function EventRow({ event, idx }: { event: AgentOpsEvent; idx: number }) {
                 {mainContent && (
                     <div>
                         <div className={`relative ${
-                            event.eventType === "tool_result"
+                            isThinking
+                                ? "bg-muted/40 border border-dashed border-muted-foreground/30 rounded p-3 italic text-muted-foreground text-sm"
+                                : event.eventType === "tool_result"
                                 ? "bg-teal-50 text-foreground dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900 rounded p-3"
                                 : event.eventType === "error"
                                 ? "text-red-600 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded p-3"
                                 : "text-muted-foreground"
                         }`}>
-                            <div 
+                            <div
                                 className={isLong && !expanded ? "max-h-[300px] overflow-hidden relative" : "relative"}
                                 style={isLong && !expanded ? {
                                     maskImage: 'linear-gradient(to bottom, white 60%, transparent 100%)',
@@ -122,6 +125,22 @@ export default function RunDetailPage() {
     const [run, setRun] = useState<AgentOpsRun | null>(null)
     const [events, setEvents] = useState<AgentOpsEvent[]>([])
     const [loading, setLoading] = useState(true)
+    const [cancelling, setCancelling] = useState(false)
+
+    const handleCancel = useCallback(async () => {
+        if (!run) return;
+        setCancelling(true);
+        try {
+            await fetch(`/api/agent-ops/${run.runId}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tenantId }),
+            });
+            await fetchDetail();
+        } finally {
+            setCancelling(false);
+        }
+    }, [run, tenantId]);
 
     const fetchDetail = useCallback(async () => {
         try {
@@ -206,6 +225,10 @@ export default function RunDetailPage() {
                     </h1>
                     <p className="text-sm text-muted-foreground font-mono">{run.runId}</p>
                 </div>
+                <Button variant="outline" size="sm" onClick={fetchDetail}>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                </Button>
                 <Badge
                     variant={
                         run.status === "completed" ? "secondary" :
@@ -219,6 +242,20 @@ export default function RunDetailPage() {
                     {run.status === "failed" && <XCircle className="h-3 w-3 mr-1" />}
                     {run.status.replace("_", " ").toUpperCase()}
                 </Badge>
+                {(run.status === "in_progress" || run.status === "queued") && (
+                    <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleCancel}
+                        disabled={cancelling}
+                    >
+                        {cancelling
+                            ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            : <StopCircle className="h-4 w-4 mr-2" />
+                        }
+                        {cancelling ? "Cancelling…" : "Cancel Run"}
+                    </Button>
+                )}
             </div>
 
             {/* Run metadata grid */}

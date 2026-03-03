@@ -31,6 +31,7 @@ import {
   AlertCircle,
   Plug,
   Hash,
+  StopCircle,
 } from "lucide-react";
 import type {
   AgentOpsRun,
@@ -55,8 +56,10 @@ const STATUS_CONFIG: Record<
 > = {
   queued: { label: "Queued", variant: "outline", icon: Clock },
   in_progress: { label: "In Progress", variant: "default", icon: Loader2 },
+  awaiting_input: { label: "Awaiting Input", variant: "outline", icon: AlertCircle },
   completed: { label: "Completed", variant: "secondary", icon: CheckCircle2 },
   failed: { label: "Failed", variant: "destructive", icon: XCircle },
+  cancelled: { label: "Cancelled", variant: "outline", icon: StopCircle },
 };
 
 export default function AgentOpsPage() {
@@ -67,6 +70,22 @@ export default function AgentOpsPage() {
   const [loading, setLoading] = useState(true);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [cancellingIds, setCancellingIds] = useState<Set<string>>(new Set());
+
+  const handleCancel = useCallback(async (e: React.MouseEvent, run: AgentOpsRun) => {
+    e.stopPropagation();
+    setCancellingIds(prev => new Set(prev).add(run.runId));
+    try {
+      await fetch(`/api/agent-ops/${run.runId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: run.tenantId }),
+      });
+      await fetchRuns();
+    } finally {
+      setCancellingIds(prev => { const s = new Set(prev); s.delete(run.runId); return s; });
+    }
+  }, []);
 
   const fetchRuns = useCallback(async () => {
     setLoading(true);
@@ -299,6 +318,21 @@ export default function AgentOpsPage() {
                         />
                         {statusConfig.label}
                       </Badge>
+                      {(run.status === "in_progress" || run.status === "queued") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-destructive hover:text-destructive"
+                          onClick={(e) => handleCancel(e, run)}
+                          disabled={cancellingIds.has(run.runId)}
+                          title="Cancel run"
+                        >
+                          {cancellingIds.has(run.runId)
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <StopCircle className="h-3 w-3" />
+                          }
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );

@@ -7,8 +7,8 @@ export interface RequestEvaluation {
     accountId: string | null;
     requiresApproval: boolean;
     reasoning: string;
-    clarificationQuestion: string | null; // Set when mode='end' — the question to post back to the user
-    missingInfo: string | null;           // Brief label of what info is needed (e.g. "AWS account ID")
+    clarificationQuestion: string | null;
+    missingInfo: string | null;
 }
 
 export interface PlanStep {
@@ -16,25 +16,34 @@ export interface PlanStep {
     status: 'pending' | 'in_progress' | 'completed' | 'failed';
 }
 
+/** Structured tool result — richer than plain string for reflection/summary nodes. */
+export interface ToolResultEntry {
+    toolName: string;
+    output: string;       // truncated to 1000 chars
+    isError: boolean;
+    iterationIndex: number;
+}
+
 export interface ReflectionState {
     messages: BaseMessage[];
     taskDescription: string;
     plan: PlanStep[];
-    code: string;
-    executionOutput: string;
     errors: string[];
     reflection: string;
     iterationCount: number;
     nextAction: string;
     isComplete: boolean;
-    toolResults: string[]; // Store tool results for final summary
+    toolResults: ToolResultEntry[];
     evaluation: RequestEvaluation | null;
-    clarificationQuestion: string | null; // Populated by clarifyNode when awaiting user input
+    clarificationQuestion: string | null;
 }
 
 export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     messages: {
-        reducer: (x: BaseMessage[], y: BaseMessage[]) => x.concat(y),
+        reducer: (x: BaseMessage[], y: BaseMessage[]) => {
+            const combined = x.concat(y);
+            return combined.length > 100 ? combined.slice(-100) : combined;
+        },
         default: () => [],
     },
     taskDescription: {
@@ -45,14 +54,6 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         reducer: (x: PlanStep[], y: PlanStep[]) => y.length > 0 ? y : x,
         default: () => [],
     },
-    code: {
-        reducer: (x: string, y: string) => y || x,
-        default: () => "",
-    },
-    executionOutput: {
-        reducer: (x: string, y: string) => y ? (x + "\n" + y) : x, // Accumulate outputs
-        default: () => "",
-    },
     errors: {
         reducer: (x: string[], y: string[]) => y.length > 0 ? y : x,
         default: () => [],
@@ -62,7 +63,7 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         default: () => "",
     },
     iterationCount: {
-        reducer: (x: number, y: number) => y,
+        reducer: (_x: number, y: number) => y,
         default: () => 0,
     },
     nextAction: {
@@ -70,11 +71,11 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         default: () => "plan",
     },
     isComplete: {
-        reducer: (x: boolean, y: boolean) => y,
+        reducer: (_x: boolean, y: boolean) => y,
         default: () => false,
     },
     toolResults: {
-        reducer: (x: string[], y: string[]) => x.concat(y),
+        reducer: (x: ToolResultEntry[], y: ToolResultEntry[]) => x.concat(y),
         default: () => [],
     },
     evaluation: {
