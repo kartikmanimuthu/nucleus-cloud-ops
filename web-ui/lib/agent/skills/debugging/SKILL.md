@@ -401,6 +401,139 @@ aws ssm describe-parameters \
 - **Prefer SSM over guessing**: When logs are inconclusive, use SSM Session Manager or Run Command to get ground truth from inside the instance
 - **Port forwarding for private endpoints**: Use SSM port forwarding to reach private RDS/Redis without modifying security groups
 
+### 8. 📋 SSM Session Manager — Session Logging & Audit (Read-Only)
+
+Use this to inspect existing sessions, locate where session output is logged, and troubleshoot SSM access problems — without modifying any configuration.
+
+#### Step 1: List Active and Historical Sessions
+
+```bash
+# List currently active sessions
+aws ssm describe-sessions \
+  --state Active \
+  --profile <profile> \
+  --query 'Sessions[*].[SessionId,Target,Status,StartDate,Owner]' \
+  --output table
+
+# List recent (history) sessions for a specific instance
+aws ssm describe-sessions \
+  --state History \
+  --filters "key=Target,value=<instance-id>" \
+  --profile <profile> \
+  --query 'Sessions[*].[SessionId,Target,Status,StartDate,EndDate,Owner]' \
+  --output table
+```
+
+#### Step 2: Locate Session Logs (CloudWatch & S3)
+
+SSM Session Manager can be configured to stream session output to CloudWatch Logs and/or S3. Check the active logging configuration:
+
+```bash
+# Inspect the SSM-SessionManagerRunShell document (shows logging settings)
+aws ssm get-document \
+  --name "SSM-SessionManagerRunShell" \
+  --profile <profile> \
+  --query 'Content' --output text | python3 -m json.tool
+
+# List CloudWatch log groups used by SSM sessions
+aws logs describe-log-groups \
+  --log-group-name-prefix "/aws/ssm/" \
+  --profile <profile> \
+  --query 'logGroups[*].[logGroupName,retentionInDays,storedBytes]' \
+  --output table
+
+# List log streams for a specific session
+aws logs describe-log-streams \
+  --log-group-name "/aws/ssm/Session" \
+  --log-stream-name-prefix "<instance-id>" \
+  --profile <profile> \
+  --query 'logStreams[*].[logStreamName,lastEventTimestamp]' \
+  --output table
+
+# Read session output from CloudWatch
+aws logs get-log-events \
+  --log-group-name "/aws/ssm/Session" \
+  --log-stream-name "<stream-name>" \
+  --profile <profile> \
+  --query 'events[*].message'
+```
+
+**If logs go to S3:**
+
+```bash
+# Check S3 bucket configured for session logs (from the SSM document above)
+aws s3 ls s3://<bucket-name>/ssm-session-logs/ --profile <profile>
+
+# Download a specific session log
+aws s3 cp s3://<bucket-name>/ssm-session-logs/<session-id>.log /tmp/ --profile <profile>
+```
+
+#### Step 3: CloudTrail Audit of SSM Session API Calls
+
+Use CloudTrail to see who started sessions, when, and from which IP:
+
+```bash
+# Look up StartSession events (last 90 days)
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=StartSession \
+  --profile <profile> \
+  --query 'Events[*].[EventTime,Username,SourceIPAddress,Resources[0].ResourceName]' \
+  --output table
+
+# Also check TerminateSession events
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=TerminateSession \
+  --profile <profile> \
+  --query 'Events[*].[EventTime,Username,Resources[0].ResourceName]' \
+  --output table
+```
+
+#### Step 4: Troubleshoot SSM VPC Endpoint Connectivity (Private Subnets)
+
+Instances in private subnets need VPC Interface Endpoints to reach SSM. Check if they exist:
+
+```bash
+# Verify all three required endpoints are present: ssm, ssmmessages, ec2messages
+aws ec2 describe-vpc-endpoints \
+  --filters \
+    "Name=vpc-id,Values=<vpc-id>" \
+    "Name=service-name,Values=com.amazonaws.<region>.ssm,com.amazonaws.<region>.ssmmessages,com.amazonaws.<region>.ec2messages" \
+  --profile <profile> \
+  --query 'VpcEndpoints[*].[VpcEndpointId,ServiceName,State,PrivateDnsEnabled]' \
+  --output table
+```
+
+**If any endpoint is missing** → SSM will fail for instances in that VPC without a NAT Gateway. You cannot fix this (read-only), but provide the exact endpoint names that need to be created.
+
+#### Step 5: Verify Instance IAM Profile for SSM
+
+```bash
+# Check instance profile attached to the instance
+aws ec2 describe-instances \
+  --instance-ids <instance-id> --profile <profile> \
+  --query 'Reservations[0].Instances[0].IamInstanceProfile.[Arn,Id]'
+
+# Check which policies are attached to the role
+aws iam list-attached-role-policies \
+  --role-name <role-name> --profile <profile> \
+  --query 'AttachedPolicies[*].[PolicyName,PolicyArn]' \
+  --output table
+```
+
+**Required policy:** `AmazonSSMManagedInstanceCore` (or equivalent custom policy granting `ssm:*`, `ssmmessages:*`, `ec2messages:*`).
+
+#### Common SSM Session Manager Failures (Read-Only Diagnosis)
+
+| Symptom | Likely Cause | Read-Only Diagnosis |
+|---------|-------------|---------------------|
+| Session history is empty | Logging not enabled in SSM document | Check `SSM-SessionManagerRunShell` document for `s3BucketName`/`cloudWatchLogGroupName` |
+| Session logs missing in CloudWatch | Log group does not exist or wrong name | `aws logs describe-log-groups --log-group-name-prefix /aws/ssm/` |
+| `AccessDenied` on `DescribeSessions` | Caller lacks `ssm:DescribeSessions` | Check CloudTrail for the exact denied action |
+| No sessions visible but agent says connected | Session logging disabled at document level | Inspect `SSM-SessionManagerRunShell` document content |
+| S3 logs missing | S3 bucket lifecycle / KMS key issue | Check S3 bucket exists and KMS key is accessible to the instance role |
+
+---
+
 ## Example Workflow
 
 User: "My ALB is returning 503 errors"
