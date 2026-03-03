@@ -525,6 +525,155 @@ aws ec2 describe-vpc-endpoints --profile <profile> --query 'VpcEndpoints[*].[Vpc
 
 ---
 
+### 10. 🔌 SSM Session Manager — Network Verification from Inside the Instance (Read-Only)
+
+The network-ops 7-layer framework's Layer 7 (Application) requires verifying connectivity from *inside* a private instance. SSM Session Manager enables this without SSH, bastion hosts, or network changes. **All actions in this section are strictly read-only.**
+
+#### Step 1: Verify the Instance is SSM-Reachable
+
+```bash
+aws ssm describe-instance-information \
+  --filters "Key=InstanceIds,Values=<instance-id>" \
+  --profile <profile> \
+  --query 'InstanceInformationList[0].[InstanceId,PingStatus,LastPingDateTime,IPAddress,PlatformType]' \
+  --output table
+
+aws ssm get-connection-status \
+  --target <instance-id> \
+  --profile <profile>
+```
+
+**If `PingStatus: ConnectionLost`** in a private subnet — check VPC endpoints before anything else (Step 4).
+
+#### Step 2: Verify Network Path from Inside the Instance
+
+Prefer `start-session` (interactive, real-time output) over `send-command` (async, requires polling). Use `send-command` only when testing across multiple instances at once.
+
+**Interactive session (preferred for single-instance path verification):**
+
+```bash
+aws ssm start-session \
+  --target <instance-id> \
+  --profile <profile>
+```
+
+Once inside, run read-only connectivity diagnostics:
+
+```bash
+# TCP reachability (e.g., to RDS endpoint, internal service)
+nc -zv <target-host> <port>
+curl -v --connect-timeout 5 telnet://<target-host>:<port>
+
+# ICMP ping
+ping -c 4 <target-ip>
+
+# DNS resolution
+dig <hostname>
+nslookup <hostname>
+
+# Traceroute (identify where hops stop)
+traceroute <target-ip>
+tracepath <target-ip>
+
+# OS routing table
+ip route show
+route -n
+
+# Active connections and listening ports
+ss -tlnp
+netstat -tlnp 2>/dev/null || ss -tlnp
+```
+
+**Fan-out via `send-command` (multiple instances simultaneously):**
+
+```bash
+# Test connectivity to a target from multiple instances
+aws ssm send-command \
+  --document-name "AWS-RunShellScript" \
+  --targets "Key=tag:Environment,Values=prod" \
+  --parameters 'commands=["nc -zv <target-host> <port> && echo REACHABLE || echo UNREACHABLE"]' \
+  --profile <profile> \
+  --query 'Command.CommandId' --output text
+
+# Poll results
+aws ssm get-command-invocation \
+  --command-id <command-id> \
+  --instance-id <instance-id> \
+  --profile <profile> \
+  --query '[Status,StandardOutputContent]'
+```
+
+#### Step 3: Check SSM Session Logs to Reconstruct Past Network Tests
+
+If a network incident occurred and sessions were logged, review what commands were run:
+
+```bash
+# List session history for the instance during the incident window
+aws ssm describe-sessions \
+  --state History \
+  --filters "key=Target,value=<instance-id>" \
+  --profile <profile> \
+  --query 'Sessions[*].[SessionId,StartDate,EndDate,Owner]' \
+  --output table
+
+# Read session output from CloudWatch
+aws logs describe-log-groups \
+  --log-group-name-prefix "/aws/ssm/" \
+  --profile <profile>
+
+aws logs get-log-events \
+  --log-group-name "/aws/ssm/Session" \
+  --log-stream-name "<session-id>" \
+  --profile <profile> \
+  --query 'events[*].message'
+```
+
+#### Step 4: Validate SSM VPC Endpoints for Private Subnets
+
+Instances in private subnets require three VPC Interface Endpoints. Missing endpoints prevent SSM access and can mask network connectivity problems:
+
+```bash
+# Check all three SSM endpoints exist in the VPC
+aws ec2 describe-vpc-endpoints \
+  --filters \
+    "Name=vpc-id,Values=<vpc-id>" \
+    "Name=service-name,Values=com.amazonaws.<region>.ssm,com.amazonaws.<region>.ssmmessages,com.amazonaws.<region>.ec2messages" \
+  --profile <profile> \
+  --query 'VpcEndpoints[*].[ServiceName,State,PrivateDnsEnabled,SubnetIds]' \
+  --output table
+
+# Verify endpoint SGs allow HTTPS (443) from instance SG
+aws ec2 describe-vpc-endpoints \
+  --filters "Name=vpc-id,Values=<vpc-id>" \
+  --profile <profile> \
+  --query 'VpcEndpoints[*].[VpcEndpointId,ServiceName,Groups[*].GroupId]'
+```
+
+**Verify the endpoint's Security Group allows inbound 443 from the instance's SG:**
+
+```bash
+aws ec2 describe-security-groups \
+  --group-ids <endpoint-sg-id> \
+  --profile <profile> \
+  --query 'SecurityGroups[0].IpPermissions[?FromPort==`443`]'
+```
+
+#### Common SSM-Related Network Failures
+
+| Symptom | Network Root Cause | Diagnosis Command |
+|---------|-------------------|-------------------|
+| `PingStatus: ConnectionLost` (private subnet) | Missing VPC endpoint for `ssm`, `ssmmessages`, or `ec2messages` | `describe-vpc-endpoints` (Step 4) |
+| `PingStatus: ConnectionLost` (public subnet) | NACL blocking outbound 443 to `ssm.<region>.amazonaws.com` | `describe-network-acls` for outbound rule 443 |
+| `AccessDenied` on `start-session` | Instance role missing `ssm:StartSession` or Nucleus cross-account role missing policy | `iam list-attached-role-policies` on instance profile |
+| Session starts but immediately drops | SSM agent version too old (cannot negotiate) | `describe-instance-information` → check `AgentVersion` |
+| VPC endpoint exists but SSM still fails | Endpoint SG blocks 443 from instance | `describe-security-groups` on endpoint SG |
+| `nc -zv` succeeds from instance but app fails | App-layer issue (TLS cert, auth, app config) — not a network problem | Escalate to application team; network path is clear |
+
+> [!TIP]
+> If SSM itself is unreachable, the network problem may be **causing** the SSM failure too. Fix SSM access first, then use it to verify the actual connectivity issue.
+
+---
+
 ## Diagnostic Report Template
 
 When completing a troubleshooting session, provide a structured report:

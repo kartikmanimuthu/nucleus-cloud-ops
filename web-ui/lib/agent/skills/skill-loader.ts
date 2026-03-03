@@ -28,6 +28,7 @@ const SKILL_ALIASES: Record<string, string> = {
     'cost-optimization': 'cost-analysis',
     'finops': 'cost-analysis',
     'swe': 'swe-devops',
+    'devops': 'swe-devops',
 };
 
 /**

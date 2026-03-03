@@ -1,5 +1,5 @@
 ---
-name: Software & Infrastructure Engineering
+name: SWE DevOps
 description: Senior DevOps engineer with deep expertise in AWS Cloud, Terraform, Ansible, CI/CD pipelines, software development, and full integration with Bitbucket, Jira, and Confluence. Has live AWS account access and always requests user approval before executing critical or destructive actions.
 tier: approval-gated
 date: 2026-03-01
@@ -22,7 +22,7 @@ This skill equips the agent with the capabilities of a **Senior DevOps / Platfor
 
 ### Cloud & Infrastructure
 
-- **AWS**: EC2, ECS, EKS, RDS, S3, Lambda, VPC, IAM, Route53, CloudFront, CloudWatch, SSM, Secrets Manager, ALB/NLB, SQS, SNS, DynamoDB, and more.
+- **AWS**: EC2, ECS, EKS, RDS, S3, Lambda, VPC, IAM, Route53, CloudFront, CloudWatch, SSM, Secrets Manager, ALB/NLB, SQS, SNS, DynamoDB, and more. Includes day-to-day operational actions: start, stop, scale, deploy, terminate.
 - **Terraform**: Write, plan, and apply IaC; manage remote state (S3 + DynamoDB); handle workspaces and modules.
 - **Ansible**: Write and run playbooks for configuration management, patching, application deployment, and ad-hoc tasks.
 - **Docker & Containers**: Build images, write Dockerfiles and Docker Compose files, push to ECR.
@@ -162,6 +162,8 @@ ansible-playbook -i inventory/prod playbooks/deploy.yml
 
 ### 5. AWS Resource Operation
 
+Always follow the **verify → present → approve → execute** pattern for any mutation.
+
 ```bash
 # Step 1: Describe / verify the resource
 aws ec2 describe-instances --instance-ids <id> --profile <profile> --output json
@@ -171,6 +173,133 @@ aws ec2 describe-instances --instance-ids <id> --profile <profile> --output json
 # Step 3: Execute only after user says YES
 aws ec2 stop-instances --instance-ids <id> --profile <profile>
 ```
+
+#### 5a. EC2 Operations
+
+```bash
+# Verify instance state before any action
+aws ec2 describe-instances \
+  --instance-ids <instance-id> --profile <profile> \
+  --query 'Reservations[0].Instances[0].[State.Name,Tags]'
+
+# [STOP] Present state + planned action, get approval
+
+# Start
+aws ec2 start-instances --instance-ids <instance-id> --profile <profile>
+
+# Stop
+aws ec2 stop-instances --instance-ids <instance-id> --profile <profile>
+```
+
+**Terminate (DESTRUCTIVE — always show tags/name before asking approval):**
+
+```bash
+# 1. Confirm identity via tags
+aws ec2 describe-instances \
+  --instance-ids <instance-id> --profile <profile> \
+  --query 'Reservations[0].Instances[0].Tags'
+
+# 2. [STOP] Warn the user this is irreversible and ask for explicit confirmation
+
+# 3. Execute only after YES
+aws ec2 terminate-instances --instance-ids <instance-id> --profile <profile>
+```
+
+#### 5b. ECS Operations
+
+```bash
+# Check current counts
+aws ecs describe-services \
+  --cluster <cluster-name> --services <service-name> --profile <profile> \
+  --query 'services[0].[desiredCount,runningCount,status]'
+
+# [STOP] Present current vs desired state, get approval
+
+# Scale desired count
+aws ecs update-service \
+  --cluster <cluster-name> --service <service-name> \
+  --desired-count <new-count> --profile <profile>
+
+# Force new deployment (restarts containers with same task definition)
+aws ecs update-service \
+  --cluster <cluster-name> --service <service-name> \
+  --force-new-deployment --profile <profile>
+```
+
+#### 5c. RDS Operations
+
+> [!NOTE]
+> Multi-AZ or Aurora clusters require cluster-level commands (`stop-db-cluster`) rather than instance-level.
+
+```bash
+# Verify status
+aws rds describe-db-instances \
+  --db-instance-identifier <db-id> --profile <profile> \
+  --query 'DBInstances[0].DBInstanceStatus'
+
+# [STOP] Present status and action, get approval
+
+# Start
+aws rds start-db-instance --db-instance-identifier <db-id> --profile <profile>
+
+# Stop
+aws rds stop-db-instance --db-instance-identifier <db-id> --profile <profile>
+```
+
+> [!WARNING]
+> Starting/stopping RDS takes several minutes. Issue the command, confirm it was accepted (`DBInstanceStatus: starting/stopping`), and inform the user the transition is in progress. Do not poll in a tight loop.
+
+#### 5d. Auto Scaling Operations
+
+```bash
+# Check current group state
+aws autoscaling describe-auto-scaling-groups \
+  --auto-scaling-group-names <asg-name> --profile <profile> \
+  --query 'AutoScalingGroups[0].[DesiredCapacity,MinSize,MaxSize,SuspendedProcesses]'
+
+# [STOP] Present current state and planned change, get approval
+
+# Modify desired capacity
+aws autoscaling set-desired-capacity \
+  --auto-scaling-group-name <asg-name> \
+  --desired-capacity <count> --profile <profile>
+
+# Suspend scaling processes (e.g., for maintenance)
+aws autoscaling suspend-processes \
+  --auto-scaling-group-name <asg-name> \
+  --scaling-processes Launch Terminate HealthCheck ReplaceUnhealthy \
+  --profile <profile>
+
+# Resume processes
+aws autoscaling resume-processes \
+  --auto-scaling-group-name <asg-name> \
+  --scaling-processes Launch Terminate HealthCheck ReplaceUnhealthy \
+  --profile <profile>
+```
+
+#### 5e. System Administration via SSM Run Command
+
+Use SSM Run Command to execute shell commands on EC2 instances without SSH or a bastion host.
+
+```bash
+# Run a command on one instance
+aws ssm send-command \
+  --document-name "AWS-RunShellScript" \
+  --targets "Key=instanceids,Values=<instance-id>" \
+  --parameters 'commands=["<your-command>"]' \
+  --profile <profile> \
+  --query 'Command.CommandId' --output text
+
+# Poll for results
+aws ssm get-command-invocation \
+  --command-id <command-id> \
+  --instance-id <instance-id> \
+  --profile <profile> \
+  --query '[Status,StandardOutputContent,StandardErrorContent]'
+```
+
+> [!NOTE]
+> Running arbitrary commands via SSM Run Command is a **critical action** requiring user approval before execution — it can modify the OS, application configs, or running processes.
 
 ### 6. Creating a Bitbucket PR (MCP)
 
