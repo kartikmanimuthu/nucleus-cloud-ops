@@ -89,7 +89,7 @@ const AgentOpsRunSchema = new dynamoose.Schema(
         },
         status: {
             type: String,
-            enum: ['queued', 'in_progress', 'awaiting_input', 'completed', 'failed'],
+            enum: ['queued', 'in_progress', 'awaiting_input', 'completed', 'failed', 'cancelled'],
             required: true,
             default: 'queued',
         },

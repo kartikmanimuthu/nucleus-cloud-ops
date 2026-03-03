@@ -8,7 +8,7 @@
 
 export type TriggerSource = 'slack' | 'jira' | 'api';
 
-export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'completed' | 'failed';
+export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'completed' | 'failed' | 'cancelled';
 
 export type AgentMode = 'plan' | 'fast';
 
@@ -71,6 +71,8 @@ export interface AgentOpsRun {
     accountId?: string;
     accountName?: string;
     selectedSkill?: string;
+    autoApprove?: boolean;  // false = interrupt before tool execution for human approval
+    model?: string;         // Bedrock model ID override
     threadId: string;       // LangGraph thread ID
     mcpServerIds?: string[];
     trigger: TriggerMetadata;
@@ -116,6 +118,8 @@ export interface TriggerRequest {
     accountName?: string;
     selectedSkill?: string;
     mode?: AgentMode;
+    autoApprove?: boolean;
+    model?: string;
     mcpServerIds?: string[];
 }
 
