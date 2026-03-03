@@ -24,10 +24,10 @@ export async function GET(request: NextRequest) {
 
         const stats = await AuditService.getAuditLogStats(filters);
 
-        return NextResponse.json({
-            success: true,
-            data: stats,
-        });
+        return NextResponse.json(
+            { success: true, data: stats },
+            { headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120' } }
+        );
     } catch (error: unknown) {
         console.error('API - Error fetching audit log stats:', error);
         return NextResponse.json(

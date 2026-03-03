@@ -1,3 +1,12 @@
+# Kiro CLI
+.kiro
+
+# Claude CLI
+.claude
+
+# Open Spec
+.openspec
+
 # CDK asset staging directory
 .cdk.staging
 cdk.out/
@@ -70,3 +79,5 @@ Thumbs.db
 jest.config.js
 
 .venv/.env
+
+

@@ -1,5 +1,5 @@
 // DynamoDB service for audit log operations
-import { ScanCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { getDynamoDBDocumentClient, AUDIT_TABLE_NAME, handleDynamoDBError } from './aws-config';
 import { AuditLog } from './types';
 
@@ -134,6 +134,10 @@ export class AuditService {
                     expressionAttributeNames['#severity'] = 'severity';
                     expressionAttributeValues[':severity'] = filters.severity;
                 }
+                if (filters.userType && filters.userType !== 'all') {
+                    filterExpressions.push('userType = :userType');
+                    expressionAttributeValues[':userType'] = filters.userType;
+                }
                 if (filters.resourceType) {
                     filterExpressions.push('#resourceType = :resourceType');
                     expressionAttributeNames['#resourceType'] = 'resourceType';
@@ -177,51 +181,66 @@ export class AuditService {
             // Case 1: Filter by User (GSI2)
             // USER#<user> -> timestamp
             if (filters?.user && filters.user !== 'all') {
+                const hasRange = filters.startDate && filters.endDate;
+                const hasStart = filters.startDate && !filters.endDate;
                 command = new QueryCommand({
                     ...baseQueryConfig,
                     IndexName: 'GSI2',
-                    KeyConditionExpression: filters.startDate && filters.endDate
+                    KeyConditionExpression: hasRange
                         ? 'gsi2pk = :pkVal AND gsi2sk BETWEEN :startDate AND :endDate'
+                        : hasStart
+                        ? 'gsi2pk = :pkVal AND gsi2sk >= :startDate'
                         : 'gsi2pk = :pkVal AND gsi2sk <= :endDate',
                     ExpressionAttributeValues: {
                         ...baseQueryConfig.ExpressionAttributeValues,
                         ':pkVal': `USER#${filters.user}`,
-                        ':endDate': filters.endDate || new Date().toISOString(),
-                        ...(filters.startDate && filters.endDate ? { ':startDate': filters.startDate } : {})
+                        ...(hasRange ? { ':startDate': filters.startDate, ':endDate': filters.endDate } : {}),
+                        ...(hasStart ? { ':startDate': filters.startDate } : {}),
+                        ...(!hasRange && !hasStart ? { ':endDate': filters.endDate || new Date().toISOString() } : {}),
                     }
                 });
             }
             // Case 2: Filter by EventType (GSI3)
             // EVENT#<eventType> -> timestamp
             else if (filters?.eventType && filters.eventType !== 'all') {
+                const hasRange = filters.startDate && filters.endDate;
+                const hasStart = filters.startDate && !filters.endDate;
                 command = new QueryCommand({
                     ...baseQueryConfig,
                     IndexName: 'GSI3',
-                    KeyConditionExpression: filters.startDate && filters.endDate
+                    KeyConditionExpression: hasRange
                         ? 'gsi3pk = :pkVal AND gsi3sk BETWEEN :startDate AND :endDate'
+                        : hasStart
+                        ? 'gsi3pk = :pkVal AND gsi3sk >= :startDate'
                         : 'gsi3pk = :pkVal AND gsi3sk <= :endDate',
                     ExpressionAttributeValues: {
                         ...baseQueryConfig.ExpressionAttributeValues,
                         ':pkVal': `EVENT#${filters.eventType}`,
-                        ':endDate': filters.endDate || new Date().toISOString(),
-                        ...(filters.startDate && filters.endDate ? { ':startDate': filters.startDate } : {})
+                        ...(hasRange ? { ':startDate': filters.startDate, ':endDate': filters.endDate } : {}),
+                        ...(hasStart ? { ':startDate': filters.startDate } : {}),
+                        ...(!hasRange && !hasStart ? { ':endDate': filters.endDate || new Date().toISOString() } : {}),
                     }
                 });
             }
             // Case 3: Global Time Range (GSI1)
             // TYPE#LOG -> timestamp
             else {
+                const hasRange = filters?.startDate && filters?.endDate;
+                const hasStart = filters?.startDate && !filters?.endDate;
                 command = new QueryCommand({
                     ...baseQueryConfig,
                     IndexName: 'GSI1',
-                    KeyConditionExpression: filters?.startDate && filters?.endDate
+                    KeyConditionExpression: hasRange
                         ? 'gsi1pk = :pkVal AND gsi1sk BETWEEN :startDate AND :endDate'
+                        : hasStart
+                        ? 'gsi1pk = :pkVal AND gsi1sk >= :startDate'
                         : 'gsi1pk = :pkVal AND gsi1sk <= :endDate',
                     ExpressionAttributeValues: {
                         ...baseQueryConfig.ExpressionAttributeValues,
                         ':pkVal': 'TYPE#LOG',
-                        ':endDate': filters?.endDate || new Date().toISOString(),
-                        ...(filters?.startDate && filters?.endDate ? { ':startDate': filters.startDate } : {})
+                        ...(hasRange ? { ':startDate': filters!.startDate, ':endDate': filters!.endDate } : {}),
+                        ...(hasStart ? { ':startDate': filters!.startDate } : {}),
+                        ...(!hasRange && !hasStart ? { ':endDate': filters?.endDate || new Date().toISOString() } : {}),
                     }
                 });
             }
@@ -277,12 +296,17 @@ export class AuditService {
      */
     static async getAuditLogsByCorrelation(correlationId: string): Promise<AuditLog[]> {
         try {
-            const command = new ScanCommand({
+            // Query GSI1 (all logs) with a FilterExpression — avoids full table Scan
+            const command = new QueryCommand({
                 TableName: AUDIT_TABLE_NAME,
+                IndexName: 'GSI1',
+                KeyConditionExpression: 'gsi1pk = :pkVal',
                 FilterExpression: 'correlationId = :correlationId',
                 ExpressionAttributeValues: {
+                    ':pkVal': 'TYPE#LOG',
                     ':correlationId': correlationId,
                 },
+                ScanIndexForward: false,
             });
 
             const response = await getDynamoDBDocumentClient().send(command);
@@ -305,7 +329,7 @@ export class AuditService {
         try {
             // Re-use Logic but maybe force a larger limit for stats or separate aggregated table (not in scope)
             // We'll fetch up to 1000 logs for "Recent Stats"
-            const { logs } = await this.getAuditLogs({ ...filters, limit: 1000, nextPageToken: undefined });
+            const { logs } = await this.getAuditLogs({ ...filters, limit: 500, nextPageToken: undefined });
 
             return {
                 totalLogs: logs.length,

@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
         if (searchParams.get('resourceId')) filters.resourceId = searchParams.get('resourceId')!;
         if (searchParams.get('ipAddress')) filters.ipAddress = searchParams.get('ipAddress')!;
         if (searchParams.get('source')) filters.source = searchParams.get('source')!;
+        if (searchParams.get('searchTerm')) filters.searchTerm = searchParams.get('searchTerm')!;
         if (searchParams.get('limit')) filters.limit = parseInt(searchParams.get('limit')!);
         if (searchParams.get('nextPageToken')) filters.nextPageToken = searchParams.get('nextPageToken')!;
 

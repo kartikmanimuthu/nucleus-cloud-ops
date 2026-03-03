@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { AuditLogsTable } from "@/components/audit/audit-logs-table";
 import { AuditLogsChart } from "@/components/audit/audit-logs-chart";
+import { AuditFilters } from "@/components/audit/audit-filters";
 import { ExportAuditDialog } from "@/components/audit/export-audit-dialog";
 import { subDays, startOfDay, endOfDay } from "date-fns";
 import { AuditLog } from "@/lib/types";
@@ -87,6 +88,10 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
     };
   });
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState<Partial<AuditLogFilters>>({});
+  // Accumulate seen users across pages so the dropdown stays populated
+  const seenUsersRef = useRef<Set<string>>(new Set());
+  const [allUsers, setAllUsers] = useState<string[]>([]);
 
   // Pagination state
   const [pageSize, setPageSize] = useState(20);
@@ -108,12 +113,15 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
       if (selectedEventType !== "all") filters.eventType = selectedEventType;
       if (selectedStatus !== "all") filters.status = selectedStatus;
       if (selectedUser !== "all") filters.user = selectedUser;
+      if (searchTerm) filters.searchTerm = searchTerm;
       if (dateRange?.from) filters.startDate = dateRange.from.toISOString();
       if (dateRange?.to) {
         const end = new Date(dateRange.to);
         end.setHours(23, 59, 59, 999);
         filters.endDate = end.toISOString();
       }
+      // Merge advanced filters (correlationId, executionId, ipAddress, resourceId, severity, source)
+      Object.assign(filters, advancedFilters);
       if (pageToken) filters.nextPageToken = pageToken;
       filters.limit = pageSize;
 
@@ -126,14 +134,22 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
       if (filters.endDate) urlParams.set("endDate", filters.endDate);
       window.history.replaceState({}, "", `${window.location.pathname}${urlParams.toString() ? "?" + urlParams.toString() : ""}`);
 
+      // Fetch stats without eventType/user filter so the dropdown stays populated
+      const statsFilters: AuditLogFilters = {};
+      if (dateRange?.from) statsFilters.startDate = filters.startDate;
+      if (dateRange?.to) statsFilters.endDate = filters.endDate;
+
       const [logsResponse, statsResponse] = await Promise.all([
         ClientAuditService.getAuditLogs(filters),
-        ClientAuditService.getAuditLogStats(filters),
+        ClientAuditService.getAuditLogStats(statsFilters),
       ]);
 
       setAuditLogs(logsResponse.logs);
       setFilteredLogs(logsResponse.logs);
       setNextPageToken(logsResponse.nextPageToken);
+      // Accumulate users across pages for the dropdown
+      logsResponse.logs.forEach((log) => { if (log.user) seenUsersRef.current.add(log.user); });
+      setAllUsers(Array.from(seenUsersRef.current));
       setStats({
         totalLogs: statsResponse.totalLogs || 0,
         errorCount: statsResponse.errorCount || 0,
@@ -148,7 +164,7 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEventType, selectedStatus, selectedUser, dateRange, pageSize]);
+  }, [selectedEventType, selectedStatus, selectedUser, searchTerm, dateRange, pageSize, advancedFilters]);
 
   // Initial load on mount
   useEffect(() => {
@@ -160,31 +176,16 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
   // Re-fetch when filters change (skip on first render — initial load handles that)
   useEffect(() => {
     if (!isMounted.current) return;
-    // Reset pagination whenever filters change
+    // Reset pagination and seen users whenever filters change
     setPageHistory([]);
     setNextPageToken(undefined);
     pendingPageToken.current = undefined;
+    seenUsersRef.current = new Set();
     fetchAuditData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEventType, selectedStatus, selectedUser, dateRange, pageSize]);
+  }, [selectedEventType, selectedStatus, selectedUser, searchTerm, dateRange, pageSize, advancedFilters]);
 
-  // Client-side search filter (null-safe)
-  useEffect(() => {
-    if (!searchTerm) {
-      setFilteredLogs(auditLogs);
-      return;
-    }
-    const term = searchTerm.toLowerCase();
-    setFilteredLogs(
-      auditLogs.filter(
-        (log) =>
-          (log.action?.toLowerCase() || "").includes(term) ||
-          (log.user?.toLowerCase() || "").includes(term) ||
-          (log.resource?.toLowerCase() || "").includes(term) ||
-          (log.details?.toLowerCase() || "").includes(term)
-      )
-    );
-  }, [auditLogs, searchTerm]);
+  // searchTerm is now sent to the API — no client-side filtering needed
 
   const handleNextPage = () => {
     if (!nextPageToken || loading) return;
@@ -215,7 +216,7 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
     setSelectedEventType("all");
     setSelectedStatus("all");
     setSelectedUser("all");
-    // Setting dateRange triggers the filter useEffect which resets pagination + fetches
+    setAdvancedFilters({});
     setDateRange({
       from: startOfDay(subDays(new Date(), 7)),
       to: endOfDay(new Date()),
@@ -249,7 +250,7 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
     "Web UI Events": uniqueEventTypes.filter((t) => t.category === "Web UI Events"),
   };
 
-  const uniqueUsers = Array.from(new Set(auditLogs.map((log) => log.user).filter(Boolean)));
+  const uniqueUsers = allUsers;
 
   const getEventTypeLabel = (value: string) => {
     if (value === "all") return "All Events";
@@ -463,6 +464,9 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
         </CardContent>
       </Card>
 
+      {/* Advanced Filters */}
+      <AuditFilters onFiltersChange={setAdvancedFilters} />
+
       {/* Main Content */}
       <Tabs defaultValue="table" className="space-y-4">
         <TabsList>
@@ -484,7 +488,12 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
                 </div>
               ) : (
-                <AuditLogsTable logs={filteredLogs} />
+                <AuditLogsTable
+                  logs={filteredLogs}
+                  onFilter={(f) => {
+                    if (f.correlationId) setAdvancedFilters((prev) => ({ ...prev, correlationId: f.correlationId }));
+                  }}
+                />
               )}
             </CardContent>
           </Card>

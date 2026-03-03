@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -45,66 +45,49 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
 
   const severityOptions = [
     { value: "all", label: "All Severities", icon: null },
-    {
-      value: "info",
-      label: "Info",
-      icon: <Activity className="h-4 w-4 text-info" />,
-    },
-    {
-      value: "low",
-      label: "Low",
-      icon: <Activity className="h-4 w-4 text-success" />,
-    },
-    {
-      value: "medium",
-      label: "Medium",
-      icon: <AlertTriangle className="h-4 w-4 text-warning" />,
-    },
-    {
-      value: "high",
-      label: "High",
-      icon: <AlertTriangle className="h-4 w-4 text-warning" />,
-    },
-    {
-      value: "critical",
-      label: "Critical",
-      icon: <XCircle className="h-4 w-4 text-destructive" />,
-    },
+    { value: "info", label: "Info", icon: <Activity className="h-4 w-4 text-info" /> },
+    { value: "low", label: "Low", icon: <Activity className="h-4 w-4 text-success" /> },
+    { value: "medium", label: "Medium", icon: <AlertTriangle className="h-4 w-4 text-warning" /> },
+    { value: "high", label: "High", icon: <AlertTriangle className="h-4 w-4 text-warning" /> },
+    { value: "critical", label: "Critical", icon: <XCircle className="h-4 w-4 text-destructive" /> },
   ];
 
   const sourceOptions = [
     { value: "all", label: "All Sources", icon: null },
     { value: "web-ui", label: "Web UI", icon: <Monitor className="h-4 w-4" /> },
-    {
-      value: "lambda",
-      label: "Lambda Function",
-      icon: <Zap className="h-4 w-4" />,
-    },
+    { value: "lambda", label: "Lambda Function", icon: <Zap className="h-4 w-4" /> },
     { value: "system", label: "System", icon: <Server className="h-4 w-4" /> },
     { value: "api", label: "API", icon: <Globe className="h-4 w-4" /> },
   ];
 
+  // Derive active filters from current state — no stale closure risk
+  const computeActiveFilters = (
+    cId: string, eId: string, ip: string, rId: string, sev: string, src: string
+  ) => {
+    const active: string[] = [];
+    if (cId) active.push("correlationId");
+    if (eId) active.push("executionId");
+    if (ip) active.push("ipAddress");
+    if (rId) active.push("resourceId");
+    if (sev !== "all") active.push("severity");
+    if (src !== "all") active.push("source");
+    return active;
+  };
+
+  const buildFilters = (
+    cId: string, eId: string, ip: string, rId: string, sev: string, src: string
+  ) => ({
+    correlationId: cId || undefined,
+    executionId: eId || undefined,
+    ipAddress: ip || undefined,
+    resourceId: rId || undefined,
+    severity: sev !== "all" ? sev : undefined,
+    source: src !== "all" ? src : undefined,
+  });
+
   const applyFilters = () => {
-    const filters = {
-      correlationId: correlationId || undefined,
-      executionId: executionId || undefined,
-      ipAddress: ipAddress || undefined,
-      resourceId: resourceId || undefined,
-      severity: selectedSeverity !== "all" ? selectedSeverity : undefined,
-      source: selectedSource !== "all" ? selectedSource : undefined,
-    };
-
-    // Track active filters
-    const active = [];
-    if (correlationId) active.push("correlationId");
-    if (executionId) active.push("executionId");
-    if (ipAddress) active.push("ipAddress");
-    if (resourceId) active.push("resourceId");
-    if (selectedSeverity !== "all") active.push("severity");
-    if (selectedSource !== "all") active.push("source");
-
-    setActiveFilters(active);
-    onFiltersChange?.(filters);
+    setActiveFilters(computeActiveFilters(correlationId, executionId, ipAddress, resourceId, selectedSeverity, selectedSource));
+    onFiltersChange?.(buildFilters(correlationId, executionId, ipAddress, resourceId, selectedSeverity, selectedSource));
   };
 
   const clearAllFilters = () => {
@@ -119,32 +102,22 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
   };
 
   const removeFilter = (filterName: string) => {
-    switch (filterName) {
-      case "correlationId":
-        setCorrelationId("");
-        break;
-      case "executionId":
-        setExecutionId("");
-        break;
-      case "ipAddress":
-        setIpAddress("");
-        break;
-      case "resourceId":
-        setResourceId("");
-        break;
-      case "severity":
-        setSelectedSeverity("all");
-        break;
-      case "source":
-        setSelectedSource("all");
-        break;
-    }
-
-    const newActiveFilters = activeFilters.filter((f) => f !== filterName);
-    setActiveFilters(newActiveFilters);
-
-    // Reapply filters without the removed one
-    setTimeout(applyFilters, 0);
+    const next = {
+      cId: filterName === "correlationId" ? "" : correlationId,
+      eId: filterName === "executionId" ? "" : executionId,
+      ip: filterName === "ipAddress" ? "" : ipAddress,
+      rId: filterName === "resourceId" ? "" : resourceId,
+      sev: filterName === "severity" ? "all" : selectedSeverity,
+      src: filterName === "source" ? "all" : selectedSource,
+    };
+    if (filterName === "correlationId") setCorrelationId("");
+    if (filterName === "executionId") setExecutionId("");
+    if (filterName === "ipAddress") setIpAddress("");
+    if (filterName === "resourceId") setResourceId("");
+    if (filterName === "severity") setSelectedSeverity("all");
+    if (filterName === "source") setSelectedSource("all");
+    setActiveFilters(computeActiveFilters(next.cId, next.eId, next.ip, next.rId, next.sev, next.src));
+    onFiltersChange?.(buildFilters(next.cId, next.eId, next.ip, next.rId, next.sev, next.src));
   };
 
   return (
@@ -156,7 +129,6 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* ID Filters */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="correlationId">Correlation ID</Label>
@@ -178,7 +150,6 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
           </div>
         </div>
 
-        {/* Additional Filters */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="ipAddress">IP Address</Label>
@@ -200,14 +171,10 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
           </div>
         </div>
 
-        {/* Dropdown Filters */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Severity Level</Label>
-            <Select
-              value={selectedSeverity}
-              onValueChange={setSelectedSeverity}
-            >
+            <Select value={selectedSeverity} onValueChange={setSelectedSeverity}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -243,29 +210,20 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
           </div>
         </div>
 
-        {/* Active Filters */}
         {activeFilters.length > 0 && (
           <div className="space-y-2">
             <Label>Active Filters</Label>
             <div className="flex flex-wrap gap-2">
               {activeFilters.map((filter) => (
-                <Badge
-                  key={filter}
-                  variant="secondary"
-                  className="flex items-center gap-1"
-                >
+                <Badge key={filter} variant="secondary" className="flex items-center gap-1">
                   {filter}
-                  <X
-                    className="h-3 w-3 cursor-pointer"
-                    onClick={() => removeFilter(filter)}
-                  />
+                  <X className="h-3 w-3 cursor-pointer" onClick={() => removeFilter(filter)} />
                 </Badge>
               ))}
             </div>
           </div>
         )}
 
-        {/* Action Buttons */}
         <div className="flex justify-end space-x-2">
           <Button variant="outline" onClick={clearAllFilters}>
             Clear All

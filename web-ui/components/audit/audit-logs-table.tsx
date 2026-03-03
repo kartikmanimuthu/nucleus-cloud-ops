@@ -123,6 +123,12 @@ export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
             Medium
           </Badge>
         );
+      case "low":
+        return (
+          <Badge variant="outline" className="bg-success/10 text-success">
+            Low
+          </Badge>
+        );
       case "info":
         return (
           <Badge
@@ -307,16 +313,6 @@ export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
             )}
           </TableBody>
         </Table>
-
-        {logs.length === 0 && (
-          <div className="text-center py-12">
-            <Activity className="mx-auto h-12 w-12 text-muted-foreground" />
-            <h3 className="mt-2 text-sm font-semibold">No audit logs found</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Try adjusting your search or filter criteria.
-            </p>
-          </div>
-        )}
       </CardContent>
 
       {/* Details Dialog */}
