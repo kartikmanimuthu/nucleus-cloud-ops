@@ -41,7 +41,6 @@ import { UISchedule } from "@/lib/types";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
 import { formatDate } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
-import { Can } from "@/lib/rbac/AbilityContext";
 
 interface SchedulesTableProps {
   schedules: UISchedule[];
@@ -149,7 +148,7 @@ export function SchedulesTable({
   return (
     <Card>
       <CardContent className="p-0">
-        <Table>
+        <Table className="min-w-[900px]">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[50px]">
@@ -163,13 +162,13 @@ export function SchedulesTable({
                 />
               </TableHead>
               <TableHead>Schedule</TableHead>
-              <TableHead>Time Window</TableHead>
-              <TableHead>Days</TableHead>
-              <TableHead>Targets</TableHead>
-              <TableHead>Performance</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Next Run</TableHead>
-              <TableHead className="w-[70px]">Actions</TableHead>
+              <TableHead className="min-w-[130px]">Time Window</TableHead>
+              <TableHead className="min-w-[120px]">Days</TableHead>
+              <TableHead className="min-w-[120px]">Targets</TableHead>
+              <TableHead className="min-w-[110px]">Performance</TableHead>
+              <TableHead className="min-w-[130px]">Status</TableHead>
+              <TableHead className="min-w-[120px] whitespace-nowrap">Next Run</TableHead>
+              <TableHead className="w-[80px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -311,7 +310,7 @@ export function SchedulesTable({
                     </div>
                   </div>
                 </TableCell>
-                <TableCell>
+                <TableCell className="whitespace-nowrap">
                   {schedule.nextExecution ? (
                     <div className="text-sm">
                       <div>{formatDate(schedule.nextExecution)}</div>
@@ -327,65 +326,59 @@ export function SchedulesTable({
                     </span>
                   )}
                 </TableCell>
-                <TableCell>
+                <TableCell className="text-right">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" className="h-8 w-8 p-0">
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <Can I="read" a="Schedule">
-                          <DropdownMenuItem
-                            onClick={() =>
-                              router.push(
-                                `/schedules/${encodeURIComponent(schedule.id)}`
-                              )
-                            }
-                          >
-                            <Eye className="mr-2 h-4 w-4" />
-                            View Details
-                          </DropdownMenuItem>
-                      </Can>
-                      <Can I="update" a="Schedule">
-                          <DropdownMenuItem
-                            onClick={() =>
-                              router.push(
-                                `/schedules/${encodeURIComponent(
-                                  schedule.id
-                                )}/edit`
-                              )
-                            }
-                          >
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                      </Can>
-                      <Can I="create" a="Schedule">
-                          <DropdownMenuItem
-                            onClick={() => setDuplicatingSchedule(schedule)}
-                          >
-                            <Copy className="mr-2 h-4 w-4" />
-                            Duplicate
-                          </DropdownMenuItem>
-                      </Can>
-                      <Can I="execute" a="Schedule">
-                          <DropdownMenuItem
-                            onClick={() => executeScheduleNow(schedule.id)}
-                          >
-                            <Play className="mr-2 h-4 w-4" />
-                            Execute Now
-                          </DropdownMenuItem>
-                      </Can>
-                      <Can I="delete" a="Schedule">
-                          <DropdownMenuItem
-                            onClick={() => deleteSchedule(schedule)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                      </Can>
+                    <DropdownMenuContent align="end" className="w-[160px] z-[9999]" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenuItem
+                        className="cursor-pointer"
+                        onClick={() =>
+                          router.push(
+                            `/schedules/${encodeURIComponent(schedule.id)}`
+                          )
+                        }
+                      >
+                        <Eye className="mr-2 h-4 w-4" />
+                        View Details
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer"
+                        onClick={() =>
+                          router.push(
+                            `/schedules/${encodeURIComponent(
+                              schedule.id
+                            )}/edit`
+                          )
+                        }
+                      >
+                        <Edit className="mr-2 h-4 w-4" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer"
+                        onClick={() => setDuplicatingSchedule(schedule)}
+                      >
+                        <Copy className="mr-2 h-4 w-4" />
+                        Duplicate
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer"
+                        onClick={() => executeScheduleNow(schedule.id)}
+                      >
+                        <Play className="mr-2 h-4 w-4" />
+                        Execute Now
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="cursor-pointer text-destructive"
+                        onClick={() => deleteSchedule(schedule)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>

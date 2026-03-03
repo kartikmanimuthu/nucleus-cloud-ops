@@ -88,34 +88,8 @@ export function SchedulesGrid({
     }
   };
 
-  const deleteSchedule = async (schedule: UISchedule) => {
-    if (
-      !confirm(
-        `Are you sure you want to delete schedule "${schedule.name}"? This action cannot be undone.`
-      )
-    ) {
-      return;
-    }
-
-    try {
-      setDeletingSchedule(schedule);
-      await ClientScheduleService.deleteSchedule(schedule.id);
-      onScheduleUpdated?.();
-      toast({
-        variant: "success",
-        title: "Schedule Deleted",
-        description: `Schedule "${schedule.name}" deleted successfully.`,
-      });
-    } catch (error: any) {
-      console.error("Error deleting schedule:", error);
-      toast({
-        variant: "destructive",
-        title: "Delete Failed",
-        description: error.message || "Failed to delete schedule.",
-      });
-    } finally {
-      setDeletingSchedule(null);
-    }
+  const deleteSchedule = (schedule: UISchedule) => {
+    setDeletingSchedule(schedule);
   };
 
   const getSuccessRateColor = (rate?: number) => {
@@ -179,42 +153,53 @@ export function SchedulesGrid({
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="w-[160px] z-[9999]" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenuItem
-                      onClick={() =>
-                        router.push(
-                          `/schedules/${encodeURIComponent(schedule.id)}`
-                        )
-                      }
+                      className="cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(`/schedules/${encodeURIComponent(schedule.id)}`);
+                      }}
                     >
                       <Eye className="mr-2 h-4 w-4" />
                       View Details
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={() =>
-                        router.push(
-                          `/schedules/${encodeURIComponent(schedule.id)}/edit`
-                        )
-                      }
+                      className="cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(`/schedules/${encodeURIComponent(schedule.id)}/edit`);
+                      }}
                     >
                       <Edit className="mr-2 h-4 w-4" />
                       Edit
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={() => setDuplicatingSchedule(schedule)}
+                      className="cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDuplicatingSchedule(schedule);
+                      }}
                     >
                       <Copy className="mr-2 h-4 w-4" />
                       Duplicate
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={() => executeScheduleNow(schedule.id)}
+                      className="cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        executeScheduleNow(schedule.id);
+                      }}
                     >
                       <Play className="mr-2 h-4 w-4" />
                       Execute Now
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={() => setDeletingSchedule(schedule)}
-                      className="text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSchedule(schedule);
+                      }}
+                      className="cursor-pointer text-destructive"
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
                       Delete
@@ -405,6 +390,7 @@ export function SchedulesGrid({
           schedule={deletingSchedule}
           open={!!deletingSchedule}
           onOpenChange={(open) => !open && setDeletingSchedule(null)}
+          onDeleted={() => onScheduleUpdated?.()}
         />
       )}
     </div>

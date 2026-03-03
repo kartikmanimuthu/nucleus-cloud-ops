@@ -31,6 +31,7 @@ import {
   Wand2,
   FileText,
   ChevronDown,
+  Clock,
 } from "lucide-react";
 import {
   copyToClipboard,
@@ -402,6 +403,39 @@ const ToolOutputWithTruncation = React.memo(function ToolOutputWithTruncation({
     </>
   );
 });
+
+function AgentExecutionTimer({ isLoading }: { isLoading: boolean }) {
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isLoading) {
+      const start = Date.now();
+      setElapsedMs(0);
+      interval = setInterval(() => {
+        setElapsedMs(Date.now() - start);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLoading]);
+
+  if (elapsedMs === null) return null;
+
+  const m = Math.floor(elapsedMs / 1000 / 60).toString().padStart(2, '0');
+  const s = Math.floor((elapsedMs / 1000) % 60).toString().padStart(2, '0');
+
+  return (
+    <span className={cn(
+      "ml-2 flex items-center gap-1 font-mono text-[11px]",
+      isLoading ? "text-amber-500" : "text-muted-foreground"
+    )}>
+      <Clock className="w-3 h-3" />
+      {m}:{s}
+    </span>
+  );
+}
 
 export function ChatInterface({
   threadId: initialThreadId,
@@ -1152,6 +1186,7 @@ export function ChatInterface({
                 {availableSkills.find((s) => s.id === selectedSkill)?.name}
               </span>
             )}
+            <AgentExecutionTimer isLoading={isLoading} />
           </p>
         </div>
       </div>

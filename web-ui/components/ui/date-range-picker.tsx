@@ -62,7 +62,7 @@ export function DatePickerWithRange({ date, onDateChange, className }: DatePicke
             onSelect={handleDateSelect}
             numberOfMonths={1}
             disabled={disabledDays}
-            toDate={new Date()}
+            endMonth={new Date()}
           />
           <div className="p-2 text-xs text-muted-foreground border-t">
             Max 7 days range

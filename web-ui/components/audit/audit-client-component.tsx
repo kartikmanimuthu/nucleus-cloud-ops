@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useIsFirstRender } from "@/hooks/use-first-render";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -38,7 +37,7 @@ import {
 import { AuditLogsTable } from "@/components/audit/audit-logs-table";
 import { AuditLogsChart } from "@/components/audit/audit-logs-chart";
 import { ExportAuditDialog } from "@/components/audit/export-audit-dialog";
-import { addDays, startOfDay } from "date-fns";
+import { subDays, startOfDay, endOfDay } from "date-fns";
 import { AuditLog } from "@/lib/types";
 import { AuditLogFilters, ClientAuditService } from "@/lib/client-audit-service-api";
 import type { DateRange } from "react-day-picker";
@@ -52,9 +51,6 @@ interface AuditStats {
 }
 
 interface AuditClientProps {
-  logsResponse: AuditLog[];
-  statsResponse: AuditStats;
-  mappedStats: AuditStats;
   initialFilters?: {
     eventType?: string;
     status?: string;
@@ -64,96 +60,73 @@ interface AuditClientProps {
   };
 }
 
-/**
- * Client component that handles UI interactivity for the audit page
- * Receives initial data from server component
- */
-export default function AuditClient({
-  logsResponse,
-  statsResponse,
-  mappedStats,
-  initialFilters,
-}: AuditClientProps) {
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(logsResponse);
-  const [filteredLogs, setFilteredLogs] = useState<AuditLog[]>(logsResponse);
-  const [stats, setStats] = useState<AuditStats>(mappedStats);
+export default function AuditClient({ initialFilters }: AuditClientProps) {
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [filteredLogs, setFilteredLogs] = useState<AuditLog[]>([]);
+  const [stats, setStats] = useState<AuditStats>({
+    totalLogs: 0, errorCount: 0, warningCount: 0, successCount: 0, byEventType: {},
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Initialize states from URL parameters if available
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedEventType, setSelectedEventType] = useState<string>(initialFilters?.eventType || "all");
   const [selectedStatus, setSelectedStatus] = useState<string>(initialFilters?.status || "all");
   const [selectedUser, setSelectedUser] = useState<string>(initialFilters?.user || "all");
   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
-    // Parse date strings if provided in initialFilters
     if (initialFilters?.startDate || initialFilters?.endDate) {
       return {
-        from: initialFilters.startDate ? new Date(initialFilters.startDate) : new Date(),
+        from: initialFilters.startDate ? new Date(initialFilters.startDate) : subDays(new Date(), 7),
         to: initialFilters.endDate ? new Date(initialFilters.endDate) : new Date(),
       };
     }
-    // Default to today
+    // Default: last 7 days — consistent with API default
     return {
-      from: startOfDay(new Date()),
-      to: new Date(),
+      from: startOfDay(subDays(new Date(), 7)),
+      to: endOfDay(new Date()),
     };
   });
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  
-  // Pagination State
+
+  // Pagination state
+  const [pageSize, setPageSize] = useState(20);
   const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
-  const [currentToken, setCurrentToken] = useState<string | undefined>(undefined);
   const [pageHistory, setPageHistory] = useState<(string | undefined)[]>([]);
 
-  
-  // Debounced search term setter
-  // const debouncedSetSearchTerm = useDebouncedCallback((value: string) => {
-  //   setSearchTerm(value);
-  // }, 1000);
+  // Track whether filters have been applied at least once (skip auto-fetch on filter change before mount)
+  const isMounted = useRef(false);
+  // Track pending page token for pagination (separate from filter-driven fetches)
+  const pendingPageToken = useRef<string | undefined>(undefined);
 
-  // Update URL with current filters
-  const updateUrlWithFilters = useCallback(() => {
-    const params = new URLSearchParams();
-    if (selectedEventType !== "all") params.set('eventType', selectedEventType);
-    if (selectedStatus !== "all") params.set('status', selectedStatus);
-    if (selectedUser !== "all") params.set('user', selectedUser);
-    if (dateRange?.from) params.set('startDate', dateRange.from.toISOString());
-    if (dateRange?.to) params.set('endDate', dateRange.to.toISOString());
-    
-    // Replace the current URL with the new one including filters
-    const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
-    window.history.replaceState({}, '', newUrl);
-  }, [selectedEventType, selectedStatus, selectedUser, dateRange]);
-
-  // Fetch audit logs and stats
+  // Core fetch function — always uses API route
   const fetchAuditData = useCallback(async (pageToken?: string) => {
     try {
       setLoading(true);
       setError(null);
 
-      // Update URL first
-      updateUrlWithFilters();
-
-      // Build filters
       const filters: AuditLogFilters = {};
-      
       if (selectedEventType !== "all") filters.eventType = selectedEventType;
       if (selectedStatus !== "all") filters.status = selectedStatus;
       if (selectedUser !== "all") filters.user = selectedUser;
       if (dateRange?.from) filters.startDate = dateRange.from.toISOString();
       if (dateRange?.to) {
-        // Ensure end date covers the full day
-        const endDate = new Date(dateRange.to);
-        endDate.setHours(23, 59, 59, 999);
-        filters.endDate = endDate.toISOString();
+        const end = new Date(dateRange.to);
+        end.setHours(23, 59, 59, 999);
+        filters.endDate = end.toISOString();
       }
-      
-      if (pageToken) {
-        filters.nextPageToken = pageToken;
-      }
+      if (pageToken) filters.nextPageToken = pageToken;
+      filters.limit = pageSize;
 
-      // Fetch logs and stats in parallel
-      const [logsResponse, stats] = await Promise.all([
+      // Update URL to reflect current filters
+      const urlParams = new URLSearchParams();
+      if (filters.eventType) urlParams.set("eventType", filters.eventType);
+      if (filters.status) urlParams.set("status", filters.status);
+      if (filters.user) urlParams.set("user", filters.user);
+      if (filters.startDate) urlParams.set("startDate", filters.startDate);
+      if (filters.endDate) urlParams.set("endDate", filters.endDate);
+      window.history.replaceState({}, "", `${window.location.pathname}${urlParams.toString() ? "?" + urlParams.toString() : ""}`);
+
+      const [logsResponse, statsResponse] = await Promise.all([
         ClientAuditService.getAuditLogs(filters),
         ClientAuditService.getAuditLogStats(filters),
       ]);
@@ -161,13 +134,12 @@ export default function AuditClient({
       setAuditLogs(logsResponse.logs);
       setFilteredLogs(logsResponse.logs);
       setNextPageToken(logsResponse.nextPageToken);
-      
       setStats({
-        totalLogs: stats.totalLogs || 0,
-        errorCount: stats.errorCount || 0,
-        warningCount: stats.warningCount || 0,
-        successCount: stats.successCount || 0,
-        byEventType: stats.byEventType || {},
+        totalLogs: statsResponse.totalLogs || 0,
+        errorCount: statsResponse.errorCount || 0,
+        warningCount: statsResponse.warningCount || 0,
+        successCount: statsResponse.successCount || 0,
+        byEventType: statsResponse.byEventType || {},
       });
     } catch (err) {
       console.error("Error fetching audit data:", err);
@@ -175,81 +147,66 @@ export default function AuditClient({
     } finally {
       setLoading(false);
     }
-  }, [selectedEventType, selectedStatus, selectedUser, dateRange, updateUrlWithFilters]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEventType, selectedStatus, selectedUser, dateRange, pageSize]);
 
-  // Track if this is the first render
-  const isFirstRender = useIsFirstRender();
+  // Initial load on mount
+  useEffect(() => {
+    isMounted.current = true;
+    fetchAuditData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Apply filters handler - called explicitly via Apply button
-  const handleApplyFilters = () => {
-    // Build URL with current filters
-    const url = new URL(window.location.href);
-    
-    // Update or remove search params based on filter values
-    if (selectedEventType !== 'all') {
-      url.searchParams.set('eventType', selectedEventType);
-    } else {
-      url.searchParams.delete('eventType');
-    }
-    
-    if (selectedStatus !== 'all') {
-      url.searchParams.set('status', selectedStatus);
-    } else {
-      url.searchParams.delete('status');
-    }
-    
-    if (selectedUser !== 'all') {
-      url.searchParams.set('user', selectedUser);
-    } else {
-      url.searchParams.delete('user');
-    }
-    
-    if (dateRange?.from) {
-      url.searchParams.set('startDate', dateRange.from.toISOString());
-    } else {
-      url.searchParams.delete('startDate');
-    }
-    
-    if (dateRange?.to) {
-      url.searchParams.set('endDate', dateRange.to.toISOString());
-    } else {
-      url.searchParams.delete('endDate');
-    }
-    
-    // Update URL without page reload
-    window.history.pushState({}, '', url.toString());
-    
-    // Reset pagination and fetch data
+  // Re-fetch when filters change (skip on first render — initial load handles that)
+  useEffect(() => {
+    if (!isMounted.current) return;
+    // Reset pagination whenever filters change
     setPageHistory([]);
     setNextPageToken(undefined);
-    setCurrentToken(undefined);
+    pendingPageToken.current = undefined;
     fetchAuditData();
-  };
-  
-  // Filter logs based on search term (client-side for performance)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEventType, selectedStatus, selectedUser, dateRange, pageSize]);
+
+  // Client-side search filter (null-safe)
   useEffect(() => {
-    let filtered = auditLogs;
-
-    if (searchTerm) {
-      const lowercaseSearch = searchTerm.toLowerCase();
-      filtered = filtered.filter(
-        (log) =>
-          log.action.toLowerCase().includes(lowercaseSearch) ||
-          log.user.toLowerCase().includes(lowercaseSearch) ||
-          log.resource.toLowerCase().includes(lowercaseSearch) ||
-          log.details.toLowerCase().includes(lowercaseSearch)
-      );
+    if (!searchTerm) {
+      setFilteredLogs(auditLogs);
+      return;
     }
-
-    setFilteredLogs(filtered);
+    const term = searchTerm.toLowerCase();
+    setFilteredLogs(
+      auditLogs.filter(
+        (log) =>
+          (log.action?.toLowerCase() || "").includes(term) ||
+          (log.user?.toLowerCase() || "").includes(term) ||
+          (log.resource?.toLowerCase() || "").includes(term) ||
+          (log.details?.toLowerCase() || "").includes(term)
+      )
+    );
   }, [auditLogs, searchTerm]);
 
+  const handleNextPage = () => {
+    if (!nextPageToken || loading) return;
+    // Push current "start of this page" token to history so we can go back
+    setPageHistory((prev) => [...prev, pendingPageToken.current]);
+    pendingPageToken.current = nextPageToken;
+    fetchAuditData(nextPageToken);
+  };
 
+  const handlePrevPage = () => {
+    if (pageHistory.length === 0 || loading) return;
+    const newHistory = [...pageHistory];
+    const prevToken = newHistory.pop();
+    setPageHistory(newHistory);
+    pendingPageToken.current = prevToken;
+    fetchAuditData(prevToken);
+  };
 
   const handleRefresh = () => {
     setPageHistory([]);
     setNextPageToken(undefined);
-    setCurrentToken(undefined);
+    pendingPageToken.current = undefined;
     fetchAuditData();
   };
 
@@ -258,113 +215,46 @@ export default function AuditClient({
     setSelectedEventType("all");
     setSelectedStatus("all");
     setSelectedUser("all");
+    // Setting dateRange triggers the filter useEffect which resets pagination + fetches
     setDateRange({
-      from: startOfDay(new Date()),
-      to: new Date(),
+      from: startOfDay(subDays(new Date(), 7)),
+      to: endOfDay(new Date()),
     });
-    setPageHistory([]);
-    setNextPageToken(undefined);
-    setCurrentToken(undefined);
-    // Trigger data fetch after clearing filters
-    setTimeout(() => fetchAuditData(), 0);
   };
 
-  const handleDateRangeChange = (range: DateRange | undefined) => {
-    setDateRange(range);
-  };
-
-  // Get unique values for filter dropdowns with proper formatting
-  // Use stats.byEventType to get all available event types, not just from current page
-  const uniqueEventTypes = stats.byEventType 
+  // Derived values for dropdowns
+  const uniqueEventTypes = stats.byEventType
     ? Object.keys(stats.byEventType).map((eventType) => {
-        let category = "User Events";
-        if (eventType.startsWith("scheduler") || eventType.startsWith("system")) {
-          category = "System Events";
-        } else if (eventType.startsWith("web-ui") || eventType === "auth.login") {
-          category = "Web UI Events";
-        }
-        
+        const category =
+          eventType.startsWith("scheduler") || eventType.startsWith("system")
+            ? "System Events"
+            : eventType.startsWith("web-ui") || eventType === "auth.login"
+            ? "Web UI Events"
+            : "User Events";
         return {
           value: eventType,
           label: eventType
             .split(".")
-            .map((part) => part.replace(/_/g, " "))
-            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+            .map((p) => p.replace(/_/g, " "))
+            .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
             .join(" → "),
-          category
+          category,
         };
       })
     : [];
 
-  // Group event types
   const groupedEventTypes = {
-    "System Events": uniqueEventTypes.filter(t => t.category === "System Events"),
-    "User Events": uniqueEventTypes.filter(t => t.category === "User Events"),
-    "Web UI Events": uniqueEventTypes.filter(t => t.category === "Web UI Events"),
+    "System Events": uniqueEventTypes.filter((t) => t.category === "System Events"),
+    "User Events": uniqueEventTypes.filter((t) => t.category === "User Events"),
+    "Web UI Events": uniqueEventTypes.filter((t) => t.category === "Web UI Events"),
   };
 
-  const uniqueUsers = Array.from(new Set(auditLogs.map((log) => log.user)));
+  const uniqueUsers = Array.from(new Set(auditLogs.map((log) => log.user).filter(Boolean)));
 
-  // Helper function to get the display label for selected event type
   const getEventTypeLabel = (value: string) => {
     if (value === "all") return "All Events";
-    const eventType = uniqueEventTypes.find((type) => type.value === value);
-    return eventType ? eventType.label : value;
+    return uniqueEventTypes.find((t) => t.value === value)?.label || value;
   };
-
-  // Helper function to get the display label for selected status
-  const getStatusLabel = (value: string) => {
-    if (value === "all") return "All Statuses";
-    return value.charAt(0).toUpperCase() + value.slice(1);
-  };
-
-  // Helper function to get the display label for selected user
-  const getUserLabel = (value: string) => {
-    if (value === "all") return "All Users";
-    return value;
-  };
-
-
-
-  const handleNextPage = () => {
-    if (nextPageToken) {
-       // Save current start token to history
-       setPageHistory([...pageHistory, currentToken as string]); 
-       setCurrentToken(nextPageToken);
-       fetchAuditData(nextPageToken);
-    }
-  };
-
-  const handlePrevPage = () => {
-    if (pageHistory.length > 0) {
-      const newHistory = [...pageHistory];
-      const prevToken = newHistory.pop();
-      setPageHistory(newHistory);
-      setCurrentToken(prevToken);
-      fetchAuditData(prevToken);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Audit Logs</h1>
-            <p className="text-muted-foreground">
-              Monitor and track all system activities and events
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading audit data...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -372,9 +262,7 @@ export default function AuditClient({
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Audit Logs</h1>
-            <p className="text-muted-foreground">
-              Monitor and track all system activities and events
-            </p>
+            <p className="text-muted-foreground">Monitor and track all system activities and events</p>
           </div>
         </div>
         <div className="flex items-center justify-center h-64">
@@ -397,15 +285,11 @@ export default function AuditClient({
       <div className="flex items-center justify-between sticky top-0 z-10 bg-background p-4 border-b">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Audit Logs</h1>
-          <p className="text-muted-foreground">
-            Monitor and track all system activities and events
-          </p>
+          <p className="text-muted-foreground">Monitor and track all system activities and events</p>
         </div>
         <div className="flex items-center space-x-2">
           <Button variant="outline" onClick={handleRefresh} disabled={loading}>
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            />
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
           <Button onClick={() => setExportDialogOpen(true)}>
@@ -429,34 +313,22 @@ export default function AuditClient({
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Successful Events
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Successful Events</CardTitle>
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-success dark:text-success">
-              {stats.successCount}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              completed successfully
-            </p>
+            <div className="text-2xl font-bold text-success dark:text-success">{stats.successCount}</div>
+            <p className="text-xs text-muted-foreground">completed successfully</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Warning Events
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Warning Events</CardTitle>
             <AlertTriangle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-warning dark:text-warning">
-              {stats.warningCount}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              completed with warnings
-            </p>
+            <div className="text-2xl font-bold text-warning dark:text-warning">{stats.warningCount}</div>
+            <p className="text-xs text-muted-foreground">completed with warnings</p>
           </CardContent>
         </Card>
         <Card>
@@ -465,12 +337,8 @@ export default function AuditClient({
             <XCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive dark:text-destructive">
-              {stats.errorCount}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              failed or encountered errors
-            </p>
+            <div className="text-2xl font-bold text-destructive dark:text-destructive">{stats.errorCount}</div>
+            <p className="text-xs text-muted-foreground">failed or encountered errors</p>
           </CardContent>
         </Card>
       </div>
@@ -480,15 +348,12 @@ export default function AuditClient({
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Filters & Search</CardTitle>
-              <CardDescription>
-                Filter and search through audit log entries
-              </CardDescription>
+              <CardTitle>Filters &amp; Search</CardTitle>
+              <CardDescription>Filter and search through audit log entries</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Basic Filters */}
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -499,30 +364,16 @@ export default function AuditClient({
                 className="pl-8"
               />
             </div>
-            <DatePickerWithRange
-              date={dateRange}
-              onDateChange={handleDateRangeChange}
-              className="w-[300px]"
-            />
+            <DatePickerWithRange date={dateRange} onDateChange={setDateRange} className="w-[300px]" />
           </div>
 
-          {/* Quick Filters */}
           <div className="flex flex-wrap gap-2">
-            <Select
-              value={selectedEventType}
-              onValueChange={(value) => {
-                console.log("Event type selected:", value);
-                setSelectedEventType(value);
-              }}
-            >
+            <Select value={selectedEventType} onValueChange={setSelectedEventType}>
               <SelectTrigger className="w-[280px]">
-                <SelectValue>
-                  {getEventTypeLabel(selectedEventType)}
-                </SelectValue>
+                <SelectValue>{getEventTypeLabel(selectedEventType)}</SelectValue>
               </SelectTrigger>
               <SelectContent className="max-w-[400px]">
                 <SelectItem value="all">All Events</SelectItem>
-                
                 {groupedEventTypes["System Events"].length > 0 && (
                   <SelectGroup>
                     <SelectLabel>System Events</SelectLabel>
@@ -536,7 +387,6 @@ export default function AuditClient({
                     ))}
                   </SelectGroup>
                 )}
-
                 {groupedEventTypes["User Events"].length > 0 && (
                   <SelectGroup>
                     <SelectLabel>User Events</SelectLabel>
@@ -550,7 +400,6 @@ export default function AuditClient({
                     ))}
                   </SelectGroup>
                 )}
-
                 {groupedEventTypes["Web UI Events"].length > 0 && (
                   <SelectGroup>
                     <SelectLabel>Web UI Events</SelectLabel>
@@ -567,78 +416,48 @@ export default function AuditClient({
               </SelectContent>
             </Select>
 
-            <Select
-              value={selectedStatus}
-              onValueChange={(value) => {
-                console.log("Status selected:", value);
-                setSelectedStatus(value);
-              }}
-            >
+            <Select value={selectedStatus} onValueChange={setSelectedStatus}>
               <SelectTrigger className="w-[150px]">
-                <SelectValue>{getStatusLabel(selectedStatus)}</SelectValue>
+                <SelectValue>
+                  {selectedStatus === "all" ? "All Statuses" : selectedStatus.charAt(0).toUpperCase() + selectedStatus.slice(1)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
                 <SelectItem value="success">
-                  <div className="flex items-center space-x-2">
-                    <CheckCircle className="h-4 w-4 text-success" />
-                    <span>Success</span>
-                  </div>
+                  <div className="flex items-center space-x-2"><CheckCircle className="h-4 w-4 text-success" /><span>Success</span></div>
                 </SelectItem>
                 <SelectItem value="error">
-                  <div className="flex items-center space-x-2">
-                    <XCircle className="h-4 w-4 text-destructive" />
-                    <span>Error</span>
-                  </div>
+                  <div className="flex items-center space-x-2"><XCircle className="h-4 w-4 text-destructive" /><span>Error</span></div>
                 </SelectItem>
                 <SelectItem value="warning">
-                  <div className="flex items-center space-x-2">
-                    <AlertTriangle className="h-4 w-4 text-warning" />
-                    <span>Warning</span>
-                  </div>
+                  <div className="flex items-center space-x-2"><AlertTriangle className="h-4 w-4 text-warning" /><span>Warning</span></div>
                 </SelectItem>
                 <SelectItem value="info">
-                  <div className="flex items-center space-x-2">
-                    <Activity className="h-4 w-4 text-info" />
-                    <span>Info</span>
-                  </div>
+                  <div className="flex items-center space-x-2"><Activity className="h-4 w-4 text-info" /><span>Info</span></div>
                 </SelectItem>
               </SelectContent>
             </Select>
 
-            <Select
-              value={selectedUser}
-              onValueChange={(value) => {
-                console.log("User selected:", value);
-                setSelectedUser(value);
-              }}
-            >
+            <Select value={selectedUser} onValueChange={setSelectedUser}>
               <SelectTrigger className="w-[150px]">
-                <SelectValue>{getUserLabel(selectedUser)}</SelectValue>
+                <SelectValue>{selectedUser === "all" ? "All Users" : selectedUser}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Users</SelectItem>
                 {uniqueUsers.map((user) => (
                   <SelectItem key={user} value={user}>
                     <div className="flex items-center space-x-2">
-                      {user === "system" ? (
-                        <Server className="h-4 w-4" />
-                      ) : (
-                        <User className="h-4 w-4" />
-                      )}
+                      {user === "system" ? <Server className="h-4 w-4" /> : <User className="h-4 w-4" />}
                       <span>{user}</span>
                     </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            
-            {/* Filter Action Buttons */}
+
             <Button variant="outline" onClick={clearFilters} disabled={loading}>
               Reset Filters
-            </Button>
-            <Button onClick={handleApplyFilters} disabled={loading}>
-              Apply Filters
             </Button>
           </div>
         </CardContent>
@@ -656,11 +475,17 @@ export default function AuditClient({
             <CardHeader>
               <CardTitle>Audit Log Entries</CardTitle>
               <CardDescription>
-                {filteredLogs.length} of {auditLogs.length} total entries
+                {loading ? "Loading..." : `${filteredLogs.length} entries on this page`}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <AuditLogsTable logs={filteredLogs} />
+              {loading ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+                </div>
+              ) : (
+                <AuditLogsTable logs={filteredLogs} />
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -669,9 +494,7 @@ export default function AuditClient({
           <Card>
             <CardHeader>
               <CardTitle>Audit Log Analytics</CardTitle>
-              <CardDescription>
-                Visual representation of audit log trends and patterns
-              </CardDescription>
+              <CardDescription>Visual representation of audit log trends and patterns</CardDescription>
             </CardHeader>
             <CardContent>
               <AuditLogsChart logs={filteredLogs} />
@@ -679,34 +502,45 @@ export default function AuditClient({
           </Card>
         </TabsContent>
       </Tabs>
-      
-        {/* Pagination Controls */}
+
       {/* Pagination Controls */}
-      <div className="flex items-center justify-end space-x-2 py-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handlePrevPage}
-          disabled={pageHistory.length === 0 || loading}
-        >
-          <ChevronLeft className="h-4 w-4 mr-2" />
-          Previous
-        </Button>
-        <div className="text-sm font-medium">
-            Page {pageHistory.length + 1}
+      <div className="flex items-center justify-between py-4">
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-muted-foreground">Rows per page</span>
+          <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); }}>
+            <SelectTrigger className="w-[80px] h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[10, 20, 50, 100].map((n) => (
+                <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleNextPage}
-          disabled={!nextPageToken || loading}
-        >
-          Next
-          <ChevronRight className="h-4 w-4 ml-2" />
-        </Button>
+        <div className="flex items-center space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePrevPage}
+            disabled={pageHistory.length === 0 || loading}
+          >
+            <ChevronLeft className="h-4 w-4 mr-2" />
+            Previous
+          </Button>
+          <div className="text-sm font-medium">Page {pageHistory.length + 1}</div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleNextPage}
+            disabled={!nextPageToken || loading}
+          >
+            Next
+            <ChevronRight className="h-4 w-4 ml-2" />
+          </Button>
+        </div>
       </div>
 
-      {/* Export Dialog */}
       <ExportAuditDialog
         open={exportDialogOpen}
         onOpenChange={setExportDialogOpen}

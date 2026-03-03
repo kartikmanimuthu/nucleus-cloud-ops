@@ -226,29 +226,43 @@ export class AuditService {
                 });
             }
 
-            const response = await getDynamoDBDocumentClient().send(command);
-            let auditLogs = (response.Items || []).map(this.transformToAuditLog);
-
-            // Client-side filtering check (Search Term is hard to do with DynamoDB FilterExpression due to case sensitivity)
-            // Filter out scheduler individual resource events (ec2/ecs/rds start/stop/error)
             const schedulerResourceEventPattern = /^scheduler\.(ec2|ecs|rds)\.(start|stop|error)$/;
-            auditLogs = auditLogs.filter(l => !schedulerResourceEventPattern.test(l.eventType || ''));
+            const applyClientFilters = (items: any[]) => {
+                let result = items.map(AuditService.transformToAuditLog);
+                result = result.filter(l => !schedulerResourceEventPattern.test(l.eventType || ''));
+                if (filters?.searchTerm) {
+                    const term = filters.searchTerm.toLowerCase();
+                    result = result.filter(l =>
+                        (l.action?.toLowerCase() || '').includes(term) ||
+                        (l.details?.toLowerCase() || '').includes(term) ||
+                        (l.user?.toLowerCase() || '').includes(term)
+                    );
+                }
+                return result;
+            };
 
-            if (filters?.searchTerm) {
-                const term = filters.searchTerm.toLowerCase();
-                auditLogs = auditLogs.filter(l =>
-                    (l.action?.toLowerCase() || '').includes(term) ||
-                    (l.details?.toLowerCase() || '').includes(term) ||
-                    (l.user?.toLowerCase() || '').includes(term)
-                );
-            }
+            // Loop until we have enough records or no more pages (handles FilterExpression reducing results)
+            let auditLogs: ReturnType<typeof this.transformToAuditLog>[] = [];
+            let lastEvaluatedKey: Record<string, any> | undefined = startKey;
+            const MAX_ITERATIONS = 10;
+            let iterations = 0;
 
-            const nextPageToken = response.LastEvaluatedKey
-                ? Buffer.from(JSON.stringify(response.LastEvaluatedKey)).toString('base64')
+            do {
+                const iterCommand = this.buildQueryCommand(command, lastEvaluatedKey);
+                const response = await getDynamoDBDocumentClient().send(iterCommand);
+                const batch = applyClientFilters(response.Items || []);
+                auditLogs = auditLogs.concat(batch);
+                lastEvaluatedKey = response.LastEvaluatedKey as Record<string, any> | undefined;
+                iterations++;
+            } while (auditLogs.length < limit && lastEvaluatedKey && iterations < MAX_ITERATIONS);
+
+            // Trim to exact page size
+            const nextPageToken = lastEvaluatedKey
+                ? Buffer.from(JSON.stringify(lastEvaluatedKey)).toString('base64')
                 : undefined;
 
             return {
-                logs: auditLogs,
+                logs: auditLogs.slice(0, limit),
                 nextPageToken
             };
 
@@ -323,6 +337,11 @@ export class AuditService {
                 byResourceType: {},
             };
         }
+    }
+
+    private static buildQueryCommand(original: QueryCommand, newStartKey: Record<string, any> | undefined): QueryCommand {
+        const input = { ...original.input, ExclusiveStartKey: newStartKey };
+        return new QueryCommand(input);
     }
 
     private static transformToAuditLog(item: any): AuditLog {
