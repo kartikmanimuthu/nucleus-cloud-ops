@@ -129,3 +129,58 @@ export async function postErrorToJira(err: unknown, run: AgentOpsRun, issueKey: 
         console.error('[JiraNotifier] Failed to post error:', fetchErr);
     }
 }
+
+
+/**
+ * Post an approval request as a Jira comment (plan/tool approval flow).
+ */
+export async function postApprovalRequestToJira(
+    run: AgentOpsRun,
+    planSteps: string[],
+    issueKey: string,
+    pendingTools?: string[],
+    config?: JiraIntegrationConfig,
+): Promise<void> {
+    const planText = planSteps.map((s, i) => `${i + 1}. ${s}`).join('\n');
+    const toolsText = pendingTools?.length
+        ? `\nTools that will execute: ${pendingTools.join(', ')}`
+        : '';
+
+    const text = [
+        `🤖 Agent Ops — Approval Required`,
+        `Run ID: ${run.runId}`,
+        `Task: ${run.taskDescription}`,
+        ``,
+        `Execution Plan:`,
+        planText,
+        toolsText,
+        ``,
+        `Reply with "approved" or "rejected" to this issue to continue.`,
+    ].join('\n');
+
+    try {
+        await postComment(issueKey, text, config);
+    } catch (err) {
+        console.error('[JiraNotifier] Failed to post approval request:', err);
+    }
+}
+
+/**
+ * Post an approval/rejection response as a Jira comment.
+ */
+export async function postApprovalResponseToJira(
+    approved: boolean,
+    runId: string,
+    issueKey: string,
+    config?: JiraIntegrationConfig,
+): Promise<void> {
+    const text = approved
+        ? `✅ Agent Ops run ${runId} — Approved. Executing now...`
+        : `❌ Agent Ops run ${runId} — Rejected. Run cancelled.`;
+
+    try {
+        await postComment(issueKey, text, config);
+    } catch (err) {
+        console.error('[JiraNotifier] Failed to post approval response:', err);
+    }
+}

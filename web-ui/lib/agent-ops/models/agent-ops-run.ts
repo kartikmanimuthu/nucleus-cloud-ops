@@ -89,7 +89,7 @@ const AgentOpsRunSchema = new dynamoose.Schema(
         },
         status: {
             type: String,
-            enum: ['queued', 'in_progress', 'awaiting_input', 'completed', 'failed', 'cancelled'],
+            enum: ['queued', 'in_progress', 'awaiting_input', 'awaiting_approval', 'completed', 'failed', 'cancelled'],
             required: true,
             default: 'queued',
         },
@@ -149,6 +149,21 @@ const AgentOpsRunSchema = new dynamoose.Schema(
             schema: {
                 question: String,
                 missingInfo: String,
+            },
+        },
+        approvalRequest: {
+            type: Object,
+            schema: {
+                planSteps: {
+                    type: Array,
+                    schema: [String],
+                },
+                pendingTools: {
+                    type: Array,
+                    schema: [String],
+                },
+                approvalType: String,
+                slackMessageTs: String,
             },
         },
         result: {

@@ -32,6 +32,7 @@ import {
   Plug,
   Hash,
   StopCircle,
+  ShieldCheck,
 } from "lucide-react";
 import type {
   AgentOpsRun,
@@ -57,6 +58,7 @@ const STATUS_CONFIG: Record<
   queued: { label: "Queued", variant: "outline", icon: Clock },
   in_progress: { label: "In Progress", variant: "default", icon: Loader2 },
   awaiting_input: { label: "Awaiting Input", variant: "outline", icon: AlertCircle },
+  awaiting_approval: { label: "Awaiting Approval", variant: "outline", icon: ShieldCheck },
   completed: { label: "Completed", variant: "secondary", icon: CheckCircle2 },
   failed: { label: "Failed", variant: "destructive", icon: XCircle },
   cancelled: { label: "Cancelled", variant: "outline", icon: StopCircle },
@@ -243,6 +245,7 @@ export default function AgentOpsPage() {
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="queued">Queued</SelectItem>
             <SelectItem value="in_progress">In Progress</SelectItem>
+            <SelectItem value="awaiting_approval">Awaiting Approval</SelectItem>
             <SelectItem value="completed">Completed</SelectItem>
             <SelectItem value="failed">Failed</SelectItem>
           </SelectContent>

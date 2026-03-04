@@ -8,7 +8,7 @@
 
 export type TriggerSource = 'slack' | 'jira' | 'api';
 
-export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'completed' | 'failed' | 'cancelled';
+export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
 
 export type AgentMode = 'plan' | 'fast';
 
@@ -57,6 +57,13 @@ export interface AgentOpsClarification {
     missingInfo: string;    // Brief description of what information is needed
 }
 
+export interface AgentOpsApprovalRequest {
+    planSteps: string[];        // Human-readable plan steps to show in Slack
+    pendingTools?: string[];    // Tool names that will be called (if interrupt-before-tools)
+    approvalType: 'plan' | 'tool_execution';
+    slackMessageTs?: string;    // ts of the Block Kit approval message (for updating it)
+}
+
 export interface AgentOpsRun {
     PK: string;             // TENANT#<tenantId>
     SK: string;             // RUN#<runId>
@@ -77,7 +84,8 @@ export interface AgentOpsRun {
     mcpServerIds?: string[];
     trigger: TriggerMetadata;
     result?: AgentOpsResult;
-    clarification?: AgentOpsClarification; // Set when status is awaiting_input
+    clarification?: AgentOpsClarification;   // Set when status is awaiting_input
+    approvalRequest?: AgentOpsApprovalRequest; // Set when status is awaiting_approval
     error?: string;
     createdAt: string;
     updatedAt: string;

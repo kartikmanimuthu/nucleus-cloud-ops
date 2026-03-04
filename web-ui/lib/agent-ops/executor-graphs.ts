@@ -47,6 +47,7 @@ import { getSkillContent, loadSkills } from "@/lib/agent/skills/skill-loader";
 // ── Agent Ops-specific imports ────────────────────────────────────────────────
 import { GraphConfig } from "@/lib/agent/agent-shared";
 import { ReflectionState, graphState, PlanStep, RequestEvaluation, ToolResultEntry } from "./executor-state";
+import { filterMutativeToolCalls } from "./tool-classifier";
 
 // ============================================================================
 // AGENT OPS DYNAMIC EXECUTOR GRAPH
@@ -180,6 +181,16 @@ Return only the JSON object.`);
     }
 
     // ============================================================================
+    // NODE: APPROVAL GATE — interrupts after planner when requiresApproval=true
+    // The graph pauses here; on resume (after Slack approval), routes to generate.
+    // ============================================================================
+    async function approvalGateNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+        console.log(`[APPROVAL_GATE] Plan requires approval — pausing for human review`);
+        // Signal the executor that we're waiting for approval
+        return { nextAction: 'awaiting_approval', approvalStatus: 'pending' };
+    }
+
+    // ============================================================================
     // NODE: CLARIFY — posts clarification question back to user
     // ============================================================================
     async function clarifyNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
@@ -300,7 +311,11 @@ After completing a step, provide a brief factual summary of what was done and th
     }
 
     // ============================================================================
-    // NODE: TOOLS — executes tool calls and collects structured results
+    // NODE: TOOLS — executes tool calls and collects structured results.
+    // Read-only tools run immediately (yolo mode).
+    // Mutative tools are gated: if any are present and autoApprove=false,
+    // the graph was interrupted before this node via interruptBefore.
+    // On resume (after Slack approval), all pending tool calls execute normally.
     // ============================================================================
     async function collectingToolNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         const result = await toolNode.invoke(state);
@@ -319,7 +334,47 @@ After completing a step, provide a brief factual summary of what was done and th
             }
         }
 
-        return { ...result, toolResults: newToolResults };
+        // Reset approvalStatus after execution so the next mutative tool batch is gated again
+        return { ...result, toolResults: newToolResults, approvalStatus: null, pendingToolApprovals: [] };
+    }
+
+    // ============================================================================
+    // ROUTING: GENERATE → TOOLS — check if pending tool calls are mutative.
+    // If autoApprove=false and any tool is mutative AND not yet approved, gate them.
+    // Read-only tool calls always go straight to tools node (yolo mode).
+    // ============================================================================
+    function routeFromGenerateToTools(state: ReflectionState): 'tools' | 'mutative_approval_gate' {
+        if (autoApprove) return 'tools';
+        // If user already approved this batch (resume path), skip the gate
+        if (state.approvalStatus === 'approved') return 'tools';
+
+        const lastMessage = state.messages[state.messages.length - 1] as any;
+        const toolCalls = lastMessage?.tool_calls ?? [];
+        const mutative = filterMutativeToolCalls(toolCalls);
+
+        if (mutative.length > 0) {
+            console.log(`[TOOL_GATE] Mutative tools detected: ${mutative.map(t => t.name).join(', ')} — requesting approval`);
+            return 'mutative_approval_gate';
+        }
+        return 'tools';
+    }
+
+    // ============================================================================
+    // NODE: MUTATIVE_APPROVAL_GATE — pauses before executing mutative tools.
+    // Stores the pending tool names in state for the executor to pick up.
+    // ============================================================================
+    async function mutativeApprovalGateNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+        const lastMessage = state.messages[state.messages.length - 1] as any;
+        const toolCalls = lastMessage?.tool_calls ?? [];
+        const mutative = filterMutativeToolCalls(toolCalls);
+        const toolNames = mutative.map(t => t.name);
+
+        console.log(`[MUTATIVE_APPROVAL_GATE] Pausing for approval of: ${toolNames.join(', ')}`);
+        return {
+            nextAction: 'awaiting_tool_approval',
+            approvalStatus: 'pending',
+            pendingToolApprovals: toolNames,
+        };
     }
 
     // ============================================================================
@@ -504,9 +559,20 @@ Be specific — include resource IDs, account names, and numeric values where av
         return 'generate';
     }
 
-    function routeFromGenerate(state: ReflectionState): 'tools' | 'reflect' | 'final' | '__end__' {
+    // After planner: if approval required and not yet approved, go to approval_gate; else generate
+    function routeFromPlanner(state: ReflectionState): 'approval_gate' | 'generate' {
+        if (!autoApprove && state.evaluation?.requiresApproval && state.approvalStatus !== 'approved') {
+            return 'approval_gate';
+        }
+        return 'generate';
+    }
+
+    function routeFromGenerate(state: ReflectionState): 'tools' | 'mutative_approval_gate' | 'reflect' | 'final' | '__end__' {
         const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
-        if (lastMessage.tool_calls?.length) return 'tools';
+        if (lastMessage.tool_calls?.length) {
+            // Delegate to the selective gate router
+            return routeFromGenerateToTools(state);
+        }
         if (state.evaluation?.mode === 'plan') {
             return state.iterationCount <= 1 ? 'final' : 'reflect';
         }
@@ -527,9 +593,12 @@ Be specific — include resource IDs, account names, and numeric values where av
         return 'generate';
     }
 
-    function routeFromRevise(state: ReflectionState): 'tools' | 'reflect' {
+    function routeFromRevise(state: ReflectionState): 'tools' | 'mutative_approval_gate' | 'reflect' {
         const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
-        return lastMessage.tool_calls?.length ? 'tools' : 'reflect';
+        if (lastMessage.tool_calls?.length) {
+            return routeFromGenerateToTools(state) === 'mutative_approval_gate' ? 'mutative_approval_gate' : 'tools';
+        }
+        return 'reflect';
     }
 
     // ============================================================================
@@ -538,9 +607,11 @@ Be specific — include resource IDs, account names, and numeric values where av
     const workflow = new StateGraph<ReflectionState>({ channels: graphState })
         .addNode("evaluator", evaluatorNode)
         .addNode("clarify", clarifyNode)
+        .addNode("approval_gate", approvalGateNode)
         .addNode("planner", planNode)
         .addNode("generate", generateNode)
         .addNode("tools", collectingToolNode)
+        .addNode("mutative_approval_gate", mutativeApprovalGateNode)
         .addNode("reflect", reflectNode)
         .addNode("revise", reviseNode)
         .addNode("final", finalNode)
@@ -554,13 +625,27 @@ Be specific — include resource IDs, account names, and numeric values where av
         })
 
         .addEdge("clarify", END)
-        .addEdge("planner", "generate")
+
+        .addConditionalEdges("planner", routeFromPlanner, {
+            approval_gate: "approval_gate",
+            generate: "generate",
+        })
+
+        .addEdge("approval_gate", END)
 
         .addConditionalEdges("generate", routeFromGenerate, {
             tools: "tools",
+            mutative_approval_gate: "mutative_approval_gate",
             reflect: "reflect",
             final: "final",
             __end__: END,
+        })
+
+        .addEdge("mutative_approval_gate", END)
+
+        .addConditionalEdges("tools", routeFromTools, {
+            generate: "generate",
+            reflect: "reflect",
         })
 
         .addConditionalEdges("tools", routeFromTools, {
@@ -577,14 +662,17 @@ Be specific — include resource IDs, account names, and numeric values where av
 
         .addConditionalEdges("revise", routeFromRevise, {
             tools: "tools",
+            mutative_approval_gate: "mutative_approval_gate",
             reflect: "reflect",
         })
 
         .addEdge("final", END);
 
+    // autoApprove=false: interrupt before plan-level approval_gate and mutative_approval_gate.
+    // Read-only tools always run without interruption (yolo mode).
     const compileOptions = autoApprove
         ? { checkpointer, ...(store && { store }) }
-        : { checkpointer, ...(store && { store }), interruptBefore: ["tools" as const] };
+        : { checkpointer, ...(store && { store }), interruptBefore: ["approval_gate" as const, "mutative_approval_gate" as const] };
 
     return workflow.compile(compileOptions);
 }

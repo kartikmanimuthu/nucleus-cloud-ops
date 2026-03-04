@@ -9,7 +9,7 @@ import { MarkdownContent } from "@/components/ui/markdown-content"
 import {
     ArrowLeft, Clock, CheckCircle2, XCircle, Loader2,
     MessageSquare, AlertCircle, Globe, Zap, Terminal, Brain, RefreshCw,
-    Wrench, FileText, ChevronDown, ChevronUp, Cpu, StopCircle
+    Wrench, FileText, ChevronDown, ChevronUp, Cpu, StopCircle, ShieldCheck, ShieldX
 } from "lucide-react"
 import type { AgentOpsRun, AgentOpsEvent, AgentEventType } from "@/lib/agent-ops/types"
 
@@ -126,6 +126,8 @@ export default function RunDetailPage() {
     const [events, setEvents] = useState<AgentOpsEvent[]>([])
     const [loading, setLoading] = useState(true)
     const [cancelling, setCancelling] = useState(false)
+    const [approving, setApproving] = useState(false)
+    const [rejecting, setRejecting] = useState(false)
 
     const handleCancel = useCallback(async () => {
         if (!run) return;
@@ -139,6 +141,22 @@ export default function RunDetailPage() {
             await fetchDetail();
         } finally {
             setCancelling(false);
+        }
+    }, [run, tenantId]);
+
+    const handleApproval = useCallback(async (action: 'approve' | 'reject') => {
+        if (!run) return;
+        const setter = action === 'approve' ? setApproving : setRejecting;
+        setter(true);
+        try {
+            await fetch(`/api/agent-ops/${run.runId}/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tenantId, action }),
+            });
+            await fetchDetail();
+        } finally {
+            setter(false);
         }
     }, [run, tenantId]);
 
@@ -158,7 +176,7 @@ export default function RunDetailPage() {
     useEffect(() => {
         fetchDetail()
         const interval = setInterval(() => {
-            if (run?.status === "in_progress" || run?.status === "queued") {
+            if (run?.status === "in_progress" || run?.status === "queued" || run?.status === "awaiting_approval") {
                 fetchDetail()
             }
         }, 5000)
@@ -233,13 +251,15 @@ export default function RunDetailPage() {
                     variant={
                         run.status === "completed" ? "secondary" :
                         run.status === "failed" ? "destructive" :
-                        run.status === "in_progress" ? "default" : "outline"
+                        run.status === "in_progress" ? "default" :
+                        run.status === "awaiting_approval" ? "outline" : "outline"
                     }
-                    className="text-sm px-3 py-1"
+                    className={`text-sm px-3 py-1 ${run.status === "awaiting_approval" ? "border-amber-500 text-amber-600" : ""}`}
                 >
                     {run.status === "in_progress" && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
                     {run.status === "completed" && <CheckCircle2 className="h-3 w-3 mr-1" />}
                     {run.status === "failed" && <XCircle className="h-3 w-3 mr-1" />}
+                    {run.status === "awaiting_approval" && <ShieldCheck className="h-3 w-3 mr-1" />}
                     {run.status.replace("_", " ").toUpperCase()}
                 </Badge>
                 {(run.status === "in_progress" || run.status === "queued") && (
@@ -319,6 +339,68 @@ export default function RunDetailPage() {
                     )}
                 </CardContent>
             </Card>
+
+            {/* Approval Panel — shown when run is awaiting_approval */}
+            {run.status === "awaiting_approval" && run.approvalRequest && (
+                <Card className="border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                            <ShieldCheck className="h-4 w-4" />
+                            Approval Required
+                            <Badge variant="outline" className="text-xs border-amber-400 text-amber-600 ml-auto">
+                                {run.approvalRequest.approvalType === 'plan' ? 'Plan Approval' : 'Tool Execution Approval'}
+                            </Badge>
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="bg-background rounded-md border p-3">
+                            <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                                {run.approvalRequest.approvalType === 'plan' ? 'Execution Plan' : 'Pending Operations'}
+                            </p>
+                            <ol className="list-decimal list-inside space-y-1">
+                                {run.approvalRequest.planSteps.map((step: string, i: number) => (
+                                    <li key={i} className="text-sm">{step}</li>
+                                ))}
+                            </ol>
+                            {run.approvalRequest.pendingTools && run.approvalRequest.pendingTools.length > 0 && (
+                                <div className="flex gap-1.5 mt-3 flex-wrap">
+                                    <span className="text-xs text-muted-foreground mr-1">Mutative tools:</span>
+                                    {run.approvalRequest.pendingTools.map((tool: string) => (
+                                        <Badge key={tool} variant="outline" className="text-xs border-red-300 text-red-600">{tool}</Badge>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <Button
+                                onClick={() => handleApproval('approve')}
+                                disabled={approving || rejecting}
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                            >
+                                {approving
+                                    ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    : <ShieldCheck className="h-4 w-4 mr-2" />
+                                }
+                                {approving ? "Approving…" : "Approve & Execute"}
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                onClick={() => handleApproval('reject')}
+                                disabled={approving || rejecting}
+                            >
+                                {rejecting
+                                    ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    : <ShieldX className="h-4 w-4 mr-2" />
+                                }
+                                {rejecting ? "Rejecting…" : "Reject"}
+                            </Button>
+                            <span className="text-xs text-muted-foreground ml-auto">
+                                Source: <span className="capitalize">{run.source}</span> · Triggered {new Date(run.createdAt).toLocaleTimeString()}
+                            </span>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Result */}
             {run.result?.summary && (

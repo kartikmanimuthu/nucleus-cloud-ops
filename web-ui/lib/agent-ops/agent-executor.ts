@@ -16,7 +16,7 @@ import { createDynamicExecutorGraph } from './executor-graphs';
 import { agentOpsService } from './agent-ops-service';
 import { getMCPManager } from '../agent/mcp-manager';
 import { AgentOpsRunModel } from './models/agent-ops-run';
-import { postClarificationToSlack } from './slack-notifier';
+import { postClarificationToSlack, postApprovalRequestToSlack } from './slack-notifier';
 import { postClarificationToJira } from './jira-notifier';
 import { registerRun, cleanupRun, isAborted } from './run-manager';
 import type { AgentOpsRun, AgentEventType, SlackTriggerMeta, JiraTriggerMeta, JiraIntegrationConfig } from './types';
@@ -29,14 +29,14 @@ function mapNodeToEventType(node: string): AgentEventType {
     switch (node) {
         case 'planner':
         case 'evaluator':
-        case 'clarify':   return 'planning';
+        case 'clarify': return 'planning';
         case 'generate':
-        case 'agent':     return 'execution';
-        case 'reflect':   return 'reflection';
-        case 'revise':    return 'revision';
-        case 'final':     return 'final';
-        case 'tools':     return 'tool_call';
-        default:          return 'execution';
+        case 'agent': return 'execution';
+        case 'reflect': return 'reflection';
+        case 'revise': return 'revision';
+        case 'final': return 'final';
+        case 'tools': return 'tool_call';
+        default: return 'execution';
     }
 }
 
@@ -197,6 +197,75 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
             return;
         }
 
+        // ── Handle approval_gate interrupt (plan requires human approval) ────────
+        if (!autoApprove && stateValues?.nextAction === 'awaiting_approval') {
+            const planSteps = (stateValues.plan as any[])?.map((s: any) => s.step) ?? [];
+            await agentOpsService.updateRunStatus(tenantId, runId, 'awaiting_approval', {
+                approvalRequest: { planSteps, approvalType: 'plan' as const },
+            });
+            await agentOpsService.recordEvent({
+                runId, eventType: 'planning', node: 'approval_gate',
+                content: `Awaiting plan approval:\n${planSteps.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')}`,
+                metadata: { planSteps },
+            });
+            try {
+                const freshRun = await agentOpsService.getRun(tenantId, runId);
+                if (freshRun?.source === 'slack') {
+                    const msgTs = await postApprovalRequestToSlack(freshRun, planSteps);
+                    if (msgTs) await agentOpsService.updateApprovalMessageTs(tenantId, runId, msgTs);
+                } else if (freshRun?.source === 'jira') {
+                    const { postApprovalRequestToJira } = await import('./jira-notifier');
+                    const { TenantConfigService } = await import('../tenant-config-service');
+                    const jiraConfig = await TenantConfigService.getConfig<JiraIntegrationConfig>('agent-ops-jira').catch(() => undefined);
+                    const jiraTrigger = freshRun.trigger as JiraTriggerMeta;
+                    if (jiraTrigger.issueKey) {
+                        await postApprovalRequestToJira(freshRun, planSteps, jiraTrigger.issueKey, undefined, jiraConfig ?? undefined);
+                    }
+                }
+            } catch (notifyErr) {
+                console.warn(`[AgentExecutor] Approval notify failed (non-fatal):`, notifyErr);
+            }
+            return;
+        }
+
+        // ── Handle mutative tool approval gate ────────────────────────────────
+        if (!autoApprove && stateValues?.nextAction === 'awaiting_tool_approval') {
+            const pendingTools: string[] = stateValues.pendingToolApprovals ?? [];
+            await agentOpsService.updateRunStatus(tenantId, runId, 'awaiting_approval', {
+                approvalRequest: {
+                    planSteps: [`Execute mutative tools: ${pendingTools.join(', ')}`],
+                    pendingTools,
+                    approvalType: 'tool_execution' as const,
+                },
+            });
+            await agentOpsService.recordEvent({
+                runId, eventType: 'execution', node: 'mutative_approval_gate',
+                content: `Awaiting approval for mutative tools: ${pendingTools.join(', ')}`,
+                metadata: { pendingTools },
+            });
+            try {
+                const freshRun = await agentOpsService.getRun(tenantId, runId);
+                if (freshRun?.source === 'slack') {
+                    const msgTs = await postApprovalRequestToSlack(
+                        freshRun,
+                        [`Execute: ${pendingTools.join(', ')}`],
+                        pendingTools,
+                    );
+                    if (msgTs) await agentOpsService.updateApprovalMessageTs(tenantId, runId, msgTs);
+                } else if (freshRun?.source === 'jira') {
+                    const { postApprovalRequestToJira } = await import('./jira-notifier');
+                    const { TenantConfigService } = await import('../tenant-config-service');
+                    const jiraConfig = await TenantConfigService.getConfig<JiraIntegrationConfig>('agent-ops-jira').catch(() => undefined);
+                    const jiraTrigger = freshRun.trigger as JiraTriggerMeta;
+                    if (jiraTrigger.issueKey) {
+                        await postApprovalRequestToJira(freshRun, [`Execute: ${pendingTools.join(', ')}`], jiraTrigger.issueKey, pendingTools, jiraConfig ?? undefined);
+                    }
+                }
+            } catch (notifyErr) {
+                console.warn(`[AgentExecutor] Tool approval notify failed (non-fatal):`, notifyErr);
+            }
+            return;
+        }
         // ── Handle tool interrupt (awaiting approval) ─────────────────────────
         if (!autoApprove && finalGraphState?.tasks?.length > 0) {
             const pendingTools = finalGraphState.tasks
@@ -218,7 +287,6 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 return;
             }
         }
-
         // ── Mark completed ────────────────────────────────────────────────────
         const durationMs = Date.now() - startTime;
         const resultSummary = finalContent || 'Agent execution completed.';
@@ -407,4 +475,175 @@ async function processLangGraphEvent(
     }
 
     return result;
+}
+
+// ─── Resume Approved Run ──────────────────────────────────────────────────────
+
+/**
+ * Resume a run that was paused at the approval_gate.
+ * Loads the LangGraph checkpoint and re-invokes from the interrupt point,
+ * injecting approvalStatus='approved' into the state so routeFromPlanner
+ * routes to 'generate' instead of 'approval_gate'.
+ */
+export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
+    const { runId, tenantId, threadId, mcpServerIds, accountId, accountName } = run as any;
+    const startTime = Date.now();
+
+    const abortController = registerRun(runId);
+    const sandboxDir = path.join(SANDBOX_BASE, runId);
+    await fs.mkdir(sandboxDir, { recursive: true });
+
+    console.log(`[AgentExecutor] ▶ Resuming approved run ${runId}`);
+
+    try {
+        await agentOpsService.updateRunStatus(tenantId, runId, 'in_progress');
+        await agentOpsService.recordEvent({
+            runId, eventType: 'planning', node: 'approval_gate',
+            content: 'Plan approved by user — resuming execution.',
+        });
+
+        // ── Reconnect MCP servers ─────────────────────────────────────────────
+        const mcpManager = getMCPManager();
+        let activeMcpServerIds: string[] = mcpServerIds || [];
+        try {
+            const { TenantConfigService } = await import('../tenant-config-service');
+            const { mergeConfigs } = await import('../agent/mcp-config');
+            const savedJson = await TenantConfigService.getConfig('mcp-servers', tenantId);
+            const allConfigs = mergeConfigs(savedJson);
+            if (activeMcpServerIds.length === 0) {
+                activeMcpServerIds = allConfigs.filter((c: any) => c.enabled).map((c: any) => c.id);
+            }
+            if (activeMcpServerIds.length > 0) {
+                await mcpManager.connectServers(activeMcpServerIds, allConfigs);
+            }
+        } catch (mcpErr) {
+            console.warn(`[AgentExecutor] MCP reconnect failed (non-fatal):`, mcpErr);
+        }
+
+        const graphConfig = {
+            model: (run as any).model || 'global.anthropic.claude-sonnet-4-6',
+            autoApprove: false, // keep approval mode — tools still need approval
+            accounts: accountId ? [{ accountId, accountName: accountName || accountId }] : [],
+            accountId,
+            accountName,
+            mcpServerIds: activeMcpServerIds,
+            tenantId,
+            userId: deriveUserId(run),
+        };
+
+        const graph = await createDynamicExecutorGraph(graphConfig);
+        const graphRunConfig = { configurable: { thread_id: threadId } };
+
+        // Inject approvalStatus='approved' so routing skips both gates on resume
+        await (graph as any).updateState(graphRunConfig, {
+            approvalStatus: 'approved',
+            pendingToolApprovals: [],
+            nextAction: 'generate',
+        });
+
+        // Resume from checkpoint — null input means "continue from where we left off"
+        const toolsUsed = new Set<string>();
+        let iterationCount = 0;
+        let finalContent = '';
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+
+        const eventStream = (graph as any).streamEvents(null, {
+            version: 'v2',
+            ...graphRunConfig,
+            signal: abortController.signal,
+        }) as AsyncIterable<any>;
+
+        for await (const event of eventStream) {
+            if (isAborted(runId)) {
+                console.log(`[AgentExecutor] 🛑 Resumed run ${runId} cancelled`);
+                break;
+            }
+            try {
+                const processed = await processLangGraphEvent(runId, event, toolsUsed);
+                if (processed) {
+                    iterationCount += processed.iterationDelta || 0;
+                    totalInputTokens += processed.inputTokens || 0;
+                    totalOutputTokens += processed.outputTokens || 0;
+                    if (processed.finalContent) finalContent = processed.finalContent;
+                }
+            } catch (eventError) {
+                console.error(`[AgentExecutor] Event recording error (non-fatal):`, eventError);
+            }
+        }
+
+        if (isAborted(runId)) {
+            await agentOpsService.updateRunStatus(tenantId, runId, 'cancelled');
+            return;
+        }
+
+        // ── Check for tool-level interrupt after resume ───────────────────────
+        let finalGraphState: any = null;
+        try {
+            finalGraphState = await (graph as any).getState(graphRunConfig);
+        } catch { /* non-fatal */ }
+
+        const stateValues = finalGraphState?.values as any;
+
+        if (finalGraphState?.tasks?.length > 0) {
+            const pendingTools = finalGraphState.tasks
+                .filter((t: any) => t.interrupts?.length > 0)
+                .map((t: any) => t.name);
+
+            if (pendingTools.length > 0) {
+                await agentOpsService.updateRunStatus(tenantId, runId, 'awaiting_input', {
+                    clarification: {
+                        question: `Approval required for tools: ${pendingTools.join(', ')}`,
+                        missingInfo: 'tool_approval',
+                    },
+                });
+                await agentOpsService.recordEvent({
+                    runId, eventType: 'final', node: 'interrupt',
+                    content: `Awaiting tool approval for: ${pendingTools.join(', ')}`,
+                    metadata: { pendingTools },
+                });
+                return;
+            }
+        }
+
+        // ── Mark completed ────────────────────────────────────────────────────
+        const durationMs = Date.now() - startTime;
+        const resultSummary = finalContent || stateValues?.messages?.slice(-1)[0]?.content || 'Agent execution completed.';
+
+        await agentOpsService.updateRunStatus(tenantId, runId, 'completed', {
+            result: { summary: typeof resultSummary === 'string' ? resultSummary : JSON.stringify(resultSummary), toolsUsed: Array.from(toolsUsed), iterations: iterationCount },
+        });
+        await AgentOpsRunModel.update(
+            { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
+            { durationMs }
+        );
+        await agentOpsService.recordEvent({
+            runId, eventType: 'final', node: '__end__',
+            content: (typeof resultSummary === 'string' ? resultSummary : JSON.stringify(resultSummary)).slice(0, 5000),
+            metadata: { durationMs, iterations: iterationCount, toolsUsed: Array.from(toolsUsed), totalInputTokens, totalOutputTokens },
+        });
+
+        console.log(`[AgentExecutor] ✅ Resumed run ${runId} completed in ${durationMs}ms`);
+
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const isAbortError = errorMsg === 'This operation was aborted'
+            || (error instanceof Error && error.name === 'AbortError')
+            || isAborted(runId);
+
+        if (isAbortError) {
+            await agentOpsService.updateRunStatus(tenantId, runId, 'cancelled');
+        } else {
+            console.error(`[AgentExecutor] ❌ Resumed run ${runId} failed:`, errorMsg);
+            await agentOpsService.updateRunStatus(tenantId, runId, 'failed', { error: errorMsg });
+            await agentOpsService.recordEvent({
+                runId, eventType: 'error', node: 'executor',
+                content: errorMsg,
+                metadata: { stack: (error instanceof Error ? error.stack : '')?.slice(0, 2000) },
+            });
+        }
+    } finally {
+        cleanupRun(runId);
+        try { await fs.rm(sandboxDir, { recursive: true, force: true }); } catch { /* non-fatal */ }
+    }
 }

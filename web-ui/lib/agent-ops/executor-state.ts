@@ -36,6 +36,8 @@ export interface ReflectionState {
     toolResults: ToolResultEntry[];
     evaluation: RequestEvaluation | null;
     clarificationQuestion: string | null;
+    approvalStatus: 'pending' | 'approved' | 'rejected' | null;
+    pendingToolApprovals: string[];  // tool names awaiting approval at mutative_approval_gate
 }
 
 export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
@@ -85,5 +87,13 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     clarificationQuestion: {
         reducer: (x: string | null, y: string | null) => y ?? x,
         default: () => null,
+    },
+    approvalStatus: {
+        reducer: (x: 'pending' | 'approved' | 'rejected' | null, y: 'pending' | 'approved' | 'rejected' | null) => y ?? x,
+        default: () => null,
+    },
+    pendingToolApprovals: {
+        reducer: (x: string[], y: string[]) => y.length > 0 ? y : x,
+        default: () => [],
     },
 };

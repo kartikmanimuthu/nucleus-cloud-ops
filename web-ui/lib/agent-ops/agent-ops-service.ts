@@ -15,6 +15,7 @@ import type {
     AgentOpsStatus,
     AgentOpsResult,
     AgentOpsClarification,
+    AgentOpsApprovalRequest,
     AgentEventType,
     TriggerSource,
     TriggerMetadata,
@@ -82,6 +83,7 @@ export async function updateRunStatus(
         result?: AgentOpsResult;
         error?: string;
         clarification?: AgentOpsClarification;
+        approvalRequest?: AgentOpsApprovalRequest;
     }
 ): Promise<void> {
     const now = new Date();
@@ -109,6 +111,9 @@ export async function updateRunStatus(
     }
     if (extra?.clarification) {
         updateData.clarification = extra.clarification;
+    }
+    if (extra?.approvalRequest) {
+        updateData.approvalRequest = extra.approvalRequest;
     }
 
     await AgentOpsRunModel.update(
@@ -338,12 +343,51 @@ export async function findAwaitingRunBySlackThread(
     ) || null;
 }
 
-// ─── Singleton export ──────────────────────────────────────────────────
+/**
+ * Update the slackMessageTs on an existing approvalRequest (after posting Block Kit message).
+ */
+export async function updateApprovalMessageTs(
+    tenantId: string,
+    runId: string,
+    slackMessageTs: string
+): Promise<void> {
+    const run = await getRun(tenantId, runId);
+    if (!run?.approvalRequest) return;
+    await AgentOpsRunModel.update(
+        { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
+        {
+            approvalRequest: { ...run.approvalRequest, slackMessageTs },
+            updatedAt: new Date().toISOString(),
+        }
+    );
+}
+
+/**
+ * Find a run with status 'awaiting_approval' by runId (cross-tenant lookup via GSI1).
+ */
+export async function findAwaitingApprovalRun(runId: string): Promise<AgentOpsRun | null> {
+    const sources: TriggerSource[] = ['slack', 'jira', 'api'];
+    for (const source of sources) {
+        const result = await AgentOpsRunModel.query('GSI1PK')
+            .eq(`SOURCE#${source}`)
+            .sort('descending')
+            .limit(100)
+            .using('GSI1')
+            .exec();
+        const runs = result.toJSON() as unknown as AgentOpsRun[];
+        const found = runs.find(r => r.runId === runId && r.status === 'awaiting_approval');
+        if (found) return found;
+    }
+    return null;
+}
+
+
 
 export const agentOpsService = {
     createRun,
     updateRunStatus,
     updateRunTrigger,
+    updateApprovalMessageTs,
     getRun,
     listRuns,
     listRunsBySource,
@@ -351,4 +395,5 @@ export const agentOpsService = {
     getRunEvents,
     findAwaitingRunByJiraIssue,
     findAwaitingRunBySlackThread,
+    findAwaitingApprovalRun,
 };
