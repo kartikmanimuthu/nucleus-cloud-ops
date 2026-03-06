@@ -1,8 +1,9 @@
 # Kiro CLI
-# .kiro
+.kiro/chats
 
 # Claude CLI
-.claude
+# .claude
+.claude/launch.json
 
 # Open Spec
 .openspec
