@@ -41,16 +41,16 @@ export function createAgentModels(modelId: string): AgentModels {
         main: new ChatBedrockConverse({
             region,
             model: modelId,
-            maxTokens: 4096,
+            maxTokens: 8192,  // Raised from 4096 — allows complete responses without truncation
             temperature: 0,
             streaming: true,
         }),
         reflector: new ChatBedrockConverse({
             region,
             model: modelId,
-            maxTokens: 1024,
+            maxTokens: 2048,  // Raised from 1024 — enough for detailed multi-point critiques
             temperature: 0,
-            streaming: false, // Reflector emits small JSON only — no streaming needed
+            streaming: false, // Reflector emits critique only — no streaming needed
         }),
     };
 }

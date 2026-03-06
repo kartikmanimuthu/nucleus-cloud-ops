@@ -13,6 +13,10 @@ import {
     getCheckpointer,
     getStore,
 } from "./agent-shared";
+
+// Maximum number of reflection cycles before accepting the answer as-is.
+// Distinct from MAX_ITERATIONS (which caps total tool-call loops).
+const MAX_REFLECT_ITERATIONS = 5;
 import {
     buildBaseIdentity,
     buildEffectiveSkillSection,
@@ -144,8 +148,18 @@ Review the full conversation history before responding:
     // REFLECTOR NODE
     // ---------------------------------------------------------------------------
     async function reflectNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        const { messages } = state;
+        const { messages, toolResults } = state;
         const lastMessage = messages[messages.length - 1];
+
+        // Build tool execution summary from the CURRENT iteration only (not stale prior iterations)
+        const currentIterationResults = toolResults?.filter(tr => tr.iterationIndex === state.iterationCount) ?? [];
+        let toolExecutionLog = '';
+        if (currentIterationResults.length > 0) {
+            const entries = currentIterationResults.map(tr =>
+                `- ${tr.toolName}: ${tr.isError ? 'ERROR' : 'OK'}\n  Output: ${tr.output}`
+            ).join('\n');
+            toolExecutionLog = `\n<TOOL_EXECUTION_LOG>\nThe following tools were executed:\n${entries}\n</TOOL_EXECUTION_LOG>\n`;
+        }
 
         // If only tool calls, skip reflection (need an answer to reflect on)
         if ((lastMessage as AIMessage).tool_calls && ((lastMessage as AIMessage).tool_calls?.length ?? 0) > 0) {
@@ -176,11 +190,14 @@ Evaluate the assistant's response on these five dimensions:
 
 5. **Specificity**: Are findings specific (resource IDs, metric values, account names) or vague and generic? Vague responses are considered incomplete.
 
+If a <TOOL_EXECUTION_LOG> section is present, it contains verified tool calls and their outputs that the assistant executed. Use this as ground truth when evaluating correctness — do not claim the assistant fabricated data if the tool log confirms the data was retrieved.
+
 If the response is correct, complete, and specific — respond with exactly: COMPLETE
 
 If there are issues — list them as concise, actionable critique points for the assistant to fix. Be specific about what is wrong and what the correct approach is. Do not generate the fixed answer yourself — only provide the critique.`);
 
-        const userMessage = messages.slice().reverse().find(m => m._getType() === 'human');
+        // Use the FIRST human message as the original query (not the latest, which may be a critique feedback message)
+        const userMessage = messages.find(m => m._getType() === 'human');
         const originalQueryRaw = userMessage ? getStringContent(userMessage.content) : "Unknown query";
         const agentResponseRaw = getStringContent(lastMessage.content);
 
@@ -201,7 +218,7 @@ If there are issues — list them as concise, actionable critique points for the
 <USER_QUERY>
 ${originalQuery}
 </USER_QUERY>
-
+${toolExecutionLog}
 <ASSISTANT_RESPONSE>
 ${agentResponse}
 </ASSISTANT_RESPONSE>
@@ -230,14 +247,17 @@ Please provide your critique.`
         console.log(`   Critique: ${truncateOutput(content, 200)}`);
 
         if (content.includes("COMPLETE")) {
-            return {
-                messages: [response],
-                isComplete: true
-            };
+            // Do NOT add the reflector's message to state — the agent's answer is already there.
+            // Adding "COMPLETE" would overwrite the last message and leak to the UI.
+            return { isComplete: true };
         }
 
+        // Provide critique as a clearly labelled system-style instruction so the agent
+        // understands it is in a revision cycle, not receiving a new user request.
         return {
-            messages: [new HumanMessage({ content: `Critique: ${content}\nPlease update your answer.` })],
+            messages: [new HumanMessage({
+                content: `[REFLECTION FEEDBACK] The following issues were identified in your last response. Please revise your answer to address each point:\n\n${content}`
+            })],
             isComplete: false
         };
     }
@@ -263,8 +283,16 @@ Please provide your critique.`
             return "tools";
         }
 
+        // Hard cap: if too many total iterations, stop regardless
         if (iterationCount >= MAX_ITERATIONS) {
             console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached. Stopping.`);
+            return END;
+        }
+
+        // Soft cap: if we've exceeded the reflection cycle limit, accept the answer as-is
+        // This prevents the reflection loop from burning tokens on diminishing returns
+        if (iterationCount >= MAX_REFLECT_ITERATIONS) {
+            console.log(`⚠️ Max reflection cycles (${MAX_REFLECT_ITERATIONS}) reached. Accepting answer.`);
             return END;
         }
 
