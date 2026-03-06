@@ -16,6 +16,7 @@ interface JiraSettingsForm {
     baseUrl: string;
     userEmail: string;
     apiToken: string;
+    botAccountId: string;
     enabled: boolean;
 }
 
@@ -35,6 +36,7 @@ export default function JiraSettingsPage() {
         baseUrl: '',
         userEmail: '',
         apiToken: '',
+        botAccountId: '',
         enabled: true,
     });
 
@@ -58,6 +60,7 @@ export default function JiraSettingsPage() {
                 enabled: data.enabled ?? true,
                 baseUrl: data.baseUrl || '',
                 userEmail: data.userEmail || '',
+                botAccountId: data.botAccountId || '',
             }));
         } catch (error) {
             console.error('[JiraSettings] Failed to fetch settings:', error);
@@ -85,6 +88,7 @@ export default function JiraSettingsPage() {
                     baseUrl: form.baseUrl || undefined,
                     userEmail: form.userEmail || undefined,
                     apiToken: form.apiToken || undefined,
+                    botAccountId: form.botAccountId || undefined,
                     enabled: form.enabled,
                 }),
             });
@@ -291,6 +295,26 @@ export default function JiraSettingsPage() {
                             Generate an Atlassian API token
                             <ExternalLink className="h-3 w-3" />
                         </a>
+                    </div>
+
+                    {/* Bot Account ID */}
+                    <div className="space-y-2">
+                        <Label htmlFor="botAccountId">
+                            Bot Account ID <span className="text-muted-foreground text-xs">(optional)</span>
+                        </Label>
+                        <Input
+                            id="botAccountId"
+                            type="text"
+                            placeholder="5b10a2844c20165700ede21g"
+                            value={form.botAccountId}
+                            onChange={e => setForm(prev => ({ ...prev, botAccountId: e.target.value }))}
+                            className="font-mono text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Jira account ID of the bot user. Used to detect <code className="bg-muted px-1 rounded">@bot</code> mentions
+                            and prevent the bot from triggering itself on its own comments.
+                            Find it at <code className="bg-muted px-1 rounded">Jira → Profile → Account ID</code>.
+                        </p>
                     </div>
 
                     {/* Enable toggle */}

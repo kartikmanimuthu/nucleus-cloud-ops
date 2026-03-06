@@ -100,6 +100,7 @@ export async function POST(req: Request) {
         source: 'slack',
         taskDescription: payload.text.trim(),
         mode: 'fast',
+        autoApprove: slackConfig?.autoApprove ?? false,
         trigger: {
             userId: payload.user_id,
             userName: payload.user_name,

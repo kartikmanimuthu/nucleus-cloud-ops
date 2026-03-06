@@ -157,6 +157,7 @@ export interface SlackIntegrationConfig {
     signingSecret: string;
     botToken?: string;
     enabled: boolean;
+    autoApprove?: boolean;  // false = HITL approval gates active (default)
 }
 
 export interface JiraIntegrationConfig {
@@ -164,7 +165,9 @@ export interface JiraIntegrationConfig {
     baseUrl?: string;
     userEmail?: string;
     apiToken?: string;
+    botAccountId?: string;  // Jira account ID of the bot user (for mention detection + loop prevention)
     enabled: boolean;
+    autoApprove?: boolean;  // false = HITL approval gates active (default)
 }
 
 // ─── Integration Settings ──────────────────────────────────────────────
@@ -173,6 +176,7 @@ export interface SlackIntegrationConfig {
     signingSecret: string;   // HMAC signing secret from Slack app settings
     botToken?: string;       // xoxb-... bearer token for proactive messages
     enabled: boolean;
+    autoApprove?: boolean;   // false = HITL approval gates active (default)
 }
 
 export interface JiraIntegrationConfig {
@@ -180,5 +184,7 @@ export interface JiraIntegrationConfig {
     baseUrl?: string;        // e.g. https://your-org.atlassian.net
     userEmail?: string;      // Atlassian account email for Basic Auth
     apiToken?: string;       // Atlassian API token
+    botAccountId?: string;   // Jira account ID of the bot user (for mention detection + loop prevention)
     enabled: boolean;
+    autoApprove?: boolean;   // false = HITL approval gates active (default)
 }

@@ -54,7 +54,7 @@ function deriveUserId(run: AgentOpsRun): string {
 
 export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
     const { runId, tenantId, taskDescription, accountId, accountName, threadId, mcpServerIds } = run as any;
-    const autoApprove = (run as any).autoApprove ?? true;
+    const autoApprove = (run as any).autoApprove ?? false;
     const startTime = Date.now();
 
     // Register AbortController for cancel support
@@ -198,7 +198,13 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
         }
 
         // ── Handle approval_gate interrupt (plan requires human approval) ────────
-        if (!autoApprove && stateValues?.nextAction === 'awaiting_approval') {
+        // interruptBefore fires BEFORE the node runs, so nextAction is never written to state.
+        // Detect via finalGraphState.next — the pending node LangGraph is interrupted at.
+        const interruptedAt = (finalGraphState?.next as string[] | undefined) ?? [];
+        const isAtApprovalGate = interruptedAt.includes('approval_gate') || stateValues?.nextAction === 'awaiting_approval';
+        const isAtMutativeGate = interruptedAt.includes('mutative_approval_gate') || stateValues?.nextAction === 'awaiting_tool_approval';
+
+        if (!autoApprove && isAtApprovalGate) {
             const planSteps = (stateValues.plan as any[])?.map((s: any) => s.step) ?? [];
             await agentOpsService.updateRunStatus(tenantId, runId, 'awaiting_approval', {
                 approvalRequest: { planSteps, approvalType: 'plan' as const },
@@ -229,7 +235,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
         }
 
         // ── Handle mutative tool approval gate ────────────────────────────────
-        if (!autoApprove && stateValues?.nextAction === 'awaiting_tool_approval') {
+        if (!autoApprove && isAtMutativeGate) {
             const pendingTools: string[] = stateValues.pendingToolApprovals ?? [];
             await agentOpsService.updateRunStatus(tenantId, runId, 'awaiting_approval', {
                 approvalRequest: {
@@ -584,6 +590,38 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
         } catch { /* non-fatal */ }
 
         const stateValues = finalGraphState?.values as any;
+        const resumeInterruptedAt = (finalGraphState?.next as string[] | undefined) ?? [];
+
+        // interruptBefore fires before the node runs — detect via finalGraphState.next
+        if (resumeInterruptedAt.includes('mutative_approval_gate') || stateValues?.nextAction === 'awaiting_tool_approval') {
+            const pendingTools: string[] = stateValues?.pendingToolApprovals ?? [];
+            const lastMsg = stateValues?.messages?.slice(-1)[0] as any;
+            const toolCallNames = (lastMsg?.tool_calls ?? []).map((tc: any) => tc.name);
+            const allPending = pendingTools.length > 0 ? pendingTools : toolCallNames;
+
+            await agentOpsService.updateRunStatus(tenantId, runId, 'awaiting_approval', {
+                approvalRequest: {
+                    planSteps: [`Execute mutative tools: ${allPending.join(', ')}`],
+                    pendingTools: allPending,
+                    approvalType: 'tool_execution' as const,
+                },
+            });
+            await agentOpsService.recordEvent({
+                runId, eventType: 'execution', node: 'mutative_approval_gate',
+                content: `Awaiting approval for mutative tools: ${allPending.join(', ')}`,
+                metadata: { pendingTools: allPending },
+            });
+            try {
+                const freshRun = await agentOpsService.getRun(tenantId, runId);
+                if (freshRun?.source === 'slack') {
+                    const msgTs = await postApprovalRequestToSlack(freshRun, [`Execute: ${allPending.join(', ')}`], allPending);
+                    if (msgTs) await agentOpsService.updateApprovalMessageTs(tenantId, runId, msgTs);
+                }
+            } catch (notifyErr) {
+                console.warn(`[AgentExecutor] Tool approval notify failed (non-fatal):`, notifyErr);
+            }
+            return;
+        }
 
         if (finalGraphState?.tasks?.length > 0) {
             const pendingTools = finalGraphState.tasks

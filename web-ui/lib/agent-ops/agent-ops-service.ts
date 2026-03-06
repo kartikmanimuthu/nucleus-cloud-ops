@@ -38,6 +38,8 @@ export async function createRun(params: {
     accountName?: string;
     selectedSkill?: string;
     mcpServerIds?: string[];
+    autoApprove?: boolean;
+    model?: string;
 }): Promise<AgentOpsRun> {
     const runId = uuidv4();
     const threadId = `agent-ops-${runId}`;
@@ -58,6 +60,8 @@ export async function createRun(params: {
         accountName: params.accountName,
         selectedSkill: params.selectedSkill,
         mcpServerIds: params.mcpServerIds,
+        autoApprove: params.autoApprove ?? false,  // default to HITL — explicit opt-in required for auto
+        model: params.model,
         threadId,
         trigger: params.trigger,
         createdAt: now,
@@ -301,6 +305,25 @@ export async function getRunEvents(runId: string): Promise<AgentOpsEvent[]> {
 // ─── Human-in-Loop Lookup Helpers ─────────────────────────────────────
 
 /**
+ * Find a run with status 'awaiting_approval' triggered by a given Jira issue key.
+ * Scans recent Jira-sourced runs (capped at 50) and filters in-memory.
+ */
+export async function findAwaitingApprovalRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null> {
+    const result = await AgentOpsRunModel.query('GSI1PK')
+        .eq('SOURCE#jira')
+        .sort('descending')
+        .limit(50)
+        .using('GSI1')
+        .exec();
+
+    const runs = result.toJSON() as unknown as AgentOpsRun[];
+    return runs.find(r =>
+        r.status === 'awaiting_approval' &&
+        (r.trigger as any)?.issueKey === issueKey
+    ) || null;
+}
+
+/**
  * Find a run with status 'awaiting_input' triggered by a given Jira issue key.
  * Scans recent Jira-sourced runs (capped at 50) and filters in-memory.
  * Since awaiting_input runs are rare, this is acceptable without a dedicated GSI.
@@ -394,6 +417,7 @@ export const agentOpsService = {
     recordEvent,
     getRunEvents,
     findAwaitingRunByJiraIssue,
+    findAwaitingApprovalRunByJiraIssue,
     findAwaitingRunBySlackThread,
     findAwaitingApprovalRun,
 };

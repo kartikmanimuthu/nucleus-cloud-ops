@@ -556,6 +556,11 @@ Be specific — include resource IDs, account names, and numeric values where av
         if (!state.evaluation) return 'generate';
         if (state.evaluation.mode === 'plan') return 'planner';
         if (state.evaluation.mode === 'end') return 'clarify';
+        // Fast mode mutative tasks still need plan-level approval gate when autoApprove=false.
+        // Without this, "start EC2" (fast mode, requiresApproval=true) skips approval_gate entirely.
+        if (!autoApprove && state.evaluation.requiresApproval && state.approvalStatus !== 'approved') {
+            return 'planner';
+        }
         return 'generate';
     }
 
@@ -642,11 +647,6 @@ Be specific — include resource IDs, account names, and numeric values where av
         })
 
         .addEdge("mutative_approval_gate", END)
-
-        .addConditionalEdges("tools", routeFromTools, {
-            generate: "generate",
-            reflect: "reflect",
-        })
 
         .addConditionalEdges("tools", routeFromTools, {
             generate: "generate",

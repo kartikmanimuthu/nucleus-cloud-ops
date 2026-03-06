@@ -9,9 +9,11 @@ import { MarkdownContent } from "@/components/ui/markdown-content"
 import {
     ArrowLeft, Clock, CheckCircle2, XCircle, Loader2,
     MessageSquare, AlertCircle, Globe, Zap, Terminal, Brain, RefreshCw,
-    Wrench, FileText, ChevronDown, ChevronUp, Cpu, StopCircle, ShieldCheck, ShieldX
+    Wrench, FileText, ChevronDown, ChevronUp, Cpu, StopCircle, ShieldCheck, ShieldX,
+    Download
 } from "lucide-react"
 import type { AgentOpsRun, AgentOpsEvent, AgentEventType } from "@/lib/agent-ops/types"
+import { exportRunToPdf } from "@/lib/agent-ops/export-pdf"
 
 const EVENT_TYPE_CONFIG: Record<AgentEventType, { label: string; icon: typeof Brain; color: string; bg: string }> = {
     planning:    { label: "Planning",    icon: Brain,        color: "text-blue-500",   bg: "border-blue-400" },
@@ -128,6 +130,19 @@ export default function RunDetailPage() {
     const [cancelling, setCancelling] = useState(false)
     const [approving, setApproving] = useState(false)
     const [rejecting, setRejecting] = useState(false)
+    const [exporting, setExporting] = useState(false)
+
+    const handleExportPdf = useCallback(async () => {
+        if (!run) return
+        setExporting(true)
+        try {
+            await exportRunToPdf(run, events)
+        } catch (err) {
+            console.error("PDF export failed:", err)
+        } finally {
+            setExporting(false)
+        }
+    }, [run, events])
 
     const handleCancel = useCallback(async () => {
         if (!run) return;
@@ -247,6 +262,20 @@ export default function RunDetailPage() {
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Refresh
                 </Button>
+                {run.status === "completed" && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleExportPdf}
+                        disabled={exporting}
+                    >
+                        {exporting
+                            ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            : <Download className="h-4 w-4 mr-2" />
+                        }
+                        {exporting ? "Exporting…" : "Export PDF"}
+                    </Button>
+                )}
                 <Badge
                     variant={
                         run.status === "completed" ? "secondary" :

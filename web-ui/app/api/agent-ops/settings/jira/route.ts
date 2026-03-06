@@ -32,6 +32,8 @@ export async function GET() {
             baseUrl: config.baseUrl || '',
             userEmail: config.userEmail || '',
             apiToken: maskSecret(config.apiToken),
+            botAccountId: config.botAccountId || '',
+            autoApprove: config.autoApprove ?? false,
         });
     } catch (error: any) {
         console.error('[API /agent-ops/settings/jira] GET error:', error);
@@ -58,7 +60,9 @@ export async function PUT(req: Request) {
             baseUrl: body.baseUrl?.trim() || undefined,
             userEmail: body.userEmail?.trim() || undefined,
             apiToken: body.apiToken?.trim() || undefined,
+            botAccountId: body.botAccountId?.trim() || undefined,
             enabled: body.enabled !== false,
+            autoApprove: body.autoApprove ?? false,
         };
 
         await TenantConfigService.saveConfig(CONFIG_KEY, config);
@@ -73,6 +77,8 @@ export async function PUT(req: Request) {
             baseUrl: config.baseUrl || '',
             userEmail: config.userEmail || '',
             apiToken: maskSecret(config.apiToken),
+            botAccountId: config.botAccountId || '',
+            autoApprove: config.autoApprove ?? false,
         });
     } catch (error: any) {
         console.error('[API /agent-ops/settings/jira] PUT error:', error);
