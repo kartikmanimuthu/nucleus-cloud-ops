@@ -300,15 +300,10 @@ def main():
     )
 
 
-    # Determine exit code based on success
+    # Exit with non-zero code if any accounts failed so ECS/monitoring can detect partial failures
     if failed_accounts > 0:
         print(f"WARNING: {failed_accounts} accounts failed to scan.")
-        # We exit with 0 even if some accounts failed, because the job ran to completion.
-        # But if user wants error on ANY failure, we could use 1.
-        # Given "exit the container on success or on error as well", exit(0) is safer for success
-        # unless it's a critical failure. However, let's stick to standard practice:
-        # Partial success is often still success for a batch job unless completely failed.
-        sys.exit(0)
+        sys.exit(1)
     else:
         sys.exit(0)
 if __name__ == '__main__':

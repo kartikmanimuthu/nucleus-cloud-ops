@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Copy, ExternalLink, Server, Database, Cloud, Tag, Clock, MapPin, Box } from "lucide-react";
 import { toast } from "sonner";
+import { getServiceName, getAwsConsoleUrl } from "@/lib/resource-types";
 
 export interface ResourceDetailProps {
     resourceId: string;
@@ -27,47 +28,6 @@ interface ResourceDetailDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
 }
-
-// Helper to get AWS Console URL for the resource
-const getAwsConsoleUrl = (resource: ResourceDetailProps): string | null => {
-    const { resourceType, region, accountId, resourceId, resourceArn } = resource;
-    const baseUrl = `https://${region}.console.aws.amazon.com`;
-
-    switch (resourceType) {
-        case "ec2_instances":
-            return `${baseUrl}/ec2/home?region=${region}#Instances:instanceId=${resourceId}`;
-        case "rds_instances":
-            return `${baseUrl}/rds/home?region=${region}#database:id=${resourceId}`;
-        case "ecs_services":
-            // Extract cluster and service from ARN
-            const ecsMatch = resourceArn.match(/cluster\/([^/]+)\/service\/([^/]+)/);
-            if (ecsMatch) {
-                return `${baseUrl}/ecs/v2/clusters/${ecsMatch[1]}/services/${ecsMatch[2]}?region=${region}`;
-            }
-            return `${baseUrl}/ecs/v2/clusters?region=${region}`;
-        case "asg_groups":
-            return `${baseUrl}/ec2autoscaling/home?region=${region}#/details/${resourceId}`;
-        case "dynamodb_tables":
-            return `${baseUrl}/dynamodb/home?region=${region}#table?name=${resourceId}`;
-        case "docdb_instances":
-            return `${baseUrl}/docdb/home?region=${region}#cluster-details/${resourceId}`;
-        default:
-            return null;
-    }
-};
-
-// Helper to get friendly service name
-const getServiceName = (resourceType: string): string => {
-    const serviceMap: Record<string, string> = {
-        ec2_instances: "EC2",
-        rds_instances: "RDS",
-        ecs_services: "ECS",
-        asg_groups: "Auto Scaling",
-        dynamodb_tables: "DynamoDB",
-        docdb_instances: "DocumentDB",
-    };
-    return serviceMap[resourceType] || resourceType.replace(/_/g, " ").toUpperCase();
-};
 
 // Helper to get resource icon
 const getResourceIcon = (type: string) => {

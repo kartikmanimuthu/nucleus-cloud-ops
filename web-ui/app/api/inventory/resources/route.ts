@@ -189,8 +189,8 @@ export async function GET(request: NextRequest) {
                     metadata = typeof resource.Metadata === 'string'
                         ? JSON.parse(resource.Metadata)
                         : resource.Metadata;
-                } catch {
-                    // Ignore parse errors
+                } catch (e) {
+                    console.error(`Failed to parse Metadata for resource ${resource.resourceId}:`, e);
                 }
             }
 

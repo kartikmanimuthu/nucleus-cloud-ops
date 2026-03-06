@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DynamoDBClient, QueryCommand, ScanCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
 
 const dynamoClient = new DynamoDBClient({
@@ -7,7 +7,6 @@ const dynamoClient = new DynamoDBClient({
 });
 
 const APP_TABLE_NAME = process.env.APP_TABLE_NAME || 'nucleus-app-app-table';
-const INVENTORY_TABLE_NAME = process.env.INVENTORY_TABLE_NAME || 'nucleus-app-inventory-table';
 
 interface SyncStatus {
     scanId: string;
@@ -114,43 +113,12 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        // Count active accounts (those that are enabled)
-        const activeAccountsCount = accounts.filter(a => a.syncEnabled).length;
-
-        // Count unique accounts that have resources in inventory table
-        // Query inventory table to get unique account count
-        let uniqueAccountsWithResources = 0;
-        try {
-            const inventoryResult = await dynamoClient.send(new QueryCommand({
-                TableName: INVENTORY_TABLE_NAME,
-                IndexName: 'GSI1',
-                KeyConditionExpression: 'gsi1pk = :pk',
-                ExpressionAttributeValues: {
-                    ':pk': { S: 'TYPE#INVENTORY' },
-                },
-                ProjectionExpression: 'accountId',
-            }));
-
-            // Count unique accountIds
-            const uniqueAccounts = new Set<string>();
-            (inventoryResult.Items || []).forEach(item => {
-                const unmarshalled = unmarshall(item);
-                if (unmarshalled.accountId) {
-                    uniqueAccounts.add(unmarshalled.accountId);
-                }
-            });
-            uniqueAccountsWithResources = uniqueAccounts.size;
-        } catch (err) {
-            console.error('Error querying inventory for unique accounts:', err);
-            // Fall back to sync metadata
-            uniqueAccountsWithResources = latestSync?.accountsSynced || 0;
-        }
-
         return NextResponse.json({
             // Latest sync summary for UI stats cards
             latestSync,
             totalResources: latestSync?.totalResources || 0,
-            accountsSynced: uniqueAccountsWithResources,
+            // Use accountsSynced from sync metadata — avoids full table scan
+            accountsSynced: latestSync?.accountsSynced || 0,
             lastSyncedAt: latestSync?.syncedAt || null,
             // Account details
             accounts,

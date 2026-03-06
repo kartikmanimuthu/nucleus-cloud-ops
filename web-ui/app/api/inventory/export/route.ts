@@ -4,6 +4,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
 import * as XLSX from 'xlsx';
+import { getServiceName } from '@/lib/resource-types';
 
 const dynamoClient = new DynamoDBClient({
     region: process.env.AWS_REGION || 'ap-south-1',
@@ -96,19 +97,6 @@ export async function POST(request: NextRequest) {
 
             const result = await dynamoClient.send(new QueryCommand(queryInput));
 
-            // Helper to get service name
-            const getServiceName = (type: string): string => {
-                const serviceMap: Record<string, string> = {
-                    ec2_instances: "EC2",
-                    rds_instances: "RDS",
-                    ecs_services: "ECS",
-                    asg_groups: "Auto Scaling",
-                    dynamodb_tables: "DynamoDB",
-                    docdb_instances: "DocumentDB",
-                };
-                return serviceMap[type] || type.replace(/_/g, " ").toUpperCase();
-            };
-
             for (const item of result.Items || []) {
                 const resource = unmarshall(item);
                 resources.push({
@@ -126,7 +114,9 @@ export async function POST(request: NextRequest) {
             }
 
             lastEvaluatedKey = result.LastEvaluatedKey;
-        } while (lastEvaluatedKey && resources.length < 10000); // Limit to 10k rows
+        } while (lastEvaluatedKey && resources.length < 10000); // Cap at 10k rows
+
+        const capped = !!lastEvaluatedKey && resources.length >= 10000;
 
         if (resources.length === 0) {
             return NextResponse.json(
@@ -145,7 +135,8 @@ export async function POST(request: NextRequest) {
 
         // Upload to S3
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const fileName = `exports/inventory-${timestamp}.${format}`;
+        const uuid = crypto.randomUUID();
+        const fileName = `exports/inventory-${timestamp}-${uuid}.${format}`;
 
         await s3Client.send(new PutObjectCommand({
             Bucket: INVENTORY_BUCKET,
@@ -172,6 +163,7 @@ export async function POST(request: NextRequest) {
             resourceCount: resources.length,
             downloadUrl,
             expiresIn: '1 hour',
+            ...(capped && { capped: true, warning: 'Export limited to 10,000 resources. Apply filters to narrow results.' }),
         });
 
     } catch (error: any) {

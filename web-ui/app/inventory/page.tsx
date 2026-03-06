@@ -10,13 +10,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { RefreshCw, Download, Search, Filter, ChevronLeft, ChevronRight, Database, Server, Cloud, Loader2, Check, ChevronsUpDown, Tag, Box, Sparkles } from "lucide-react";
+import { RefreshCw, Download, Search, Filter, ChevronLeft, ChevronRight, Database, Server, Cloud, Loader2, Check, ChevronsUpDown, Tag, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
 import { ResourceDetailDialog, ResourceDetailProps } from "@/components/inventory/resource-detail-dialog";
 import { AskAIDialog } from "@/components/inventory/ask-ai-dialog";
 import { cn } from "@/lib/utils";
+import { RESOURCE_TYPE_OPTIONS, REGION_OPTIONS, getServiceName } from "@/lib/resource-types";
 
 interface Resource {
     resourceId: string;
@@ -56,36 +57,6 @@ interface InventoryStatus {
     accountCount: number;
 }
 
-const RESOURCE_TYPES = [
-    { value: "all", label: "All Types" },
-    { value: "ec2_instances", label: "EC2 Instances" },
-    { value: "rds_db_instances", label: "RDS Instances" },
-    { value: "docdb_db_clusters", label: "DocumentDB Clusters" },
-    { value: "autoscaling_auto_scaling_groups", label: "Auto Scaling Groups" },
-    { value: "ecs_services", label: "ECS Services" },
-    { value: "ec2_addresses", label: "Elastic IPs" },
-    { value: "ec2_nat_gateways", label: "NAT Gateways" },
-    { value: "ec2_security_groups", label: "Security Groups" },
-    { value: "ec2_subnets", label: "Subnets" },
-    { value: "ec2_network_interfaces", label: "Elastic Network Interfaces" },
-    { value: "lambda_functions", label: "Lambda Functions" },
-    { value: "dynamodb_tables", label: "DynamoDB Tables" },
-    { value: "acm_certificates", label: "ACM Certificates" },
-    { value: "apigateway_rest_apis", label: "API Gateway" },
-    { value: "kms_keys", label: "KMS Keys" },
-];
-
-const REGIONS = [
-    { value: "all", label: "All Regions" },
-    { value: "us-east-1", label: "US East (N. Virginia)" },
-    { value: "us-west-2", label: "US West (Oregon)" },
-    { value: "eu-west-1", label: "Europe (Ireland)" },
-    { value: "ap-south-1", label: "Asia Pacific (Mumbai)" },
-    { value: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
-];
-
-
-
 const PAGE_SIZES = [10, 20, 50, 100, 200, 500];
 
 export default function InventoryPage() {
@@ -117,28 +88,6 @@ export default function InventoryPage() {
     const [cursor, setCursor] = useState<string | undefined>();
     const [hasMore, setHasMore] = useState(false);
     const [pageSize, setPageSize] = useState(50);
-
-    // Helper: Get service name from resource type
-    const getServiceName = (resourceType: string): string => {
-        const serviceMap: Record<string, string> = {
-            ec2_instances: "EC2",
-            rds_db_instances: "RDS",
-            ecs_services: "ECS",
-            ec2_addresses: "EC2",
-            ec2_nat_gateways: "EC2",
-            ec2_security_groups: "EC2",
-            ec2_subnets: "EC2",
-            ec2_network_interfaces: "EC2",
-            lambda_functions: "Lambda",
-            autoscaling_auto_scaling_groups: "Auto Scaling",
-            dynamodb_tables: "DynamoDB",
-            docdb_db_clusters: "DocumentDB",
-            acm_certificates: "ACM",
-            apigateway_rest_apis: "APIGateway",
-            kms_keys: "KMS",
-        };
-        return serviceMap[resourceType] || resourceType.replace(/_/g, " ").toUpperCase();
-    };
 
     const fetchResources = useCallback(async (newCursor?: string) => {
         setLoading(true);
@@ -222,7 +171,11 @@ export default function InventoryPage() {
 
             if (response.ok && data.downloadUrl) {
                 window.open(data.downloadUrl, "_blank");
-                toast.success(`Exported ${data.resourceCount} resources`);
+                if (data.capped) {
+                    toast.warning(`Exported ${data.resourceCount} resources (capped). ${data.warning}`);
+                } else {
+                    toast.success(`Exported ${data.resourceCount} resources`);
+                }
             } else {
                 toast.error(data.error || "Failed to export");
             }
@@ -240,6 +193,7 @@ export default function InventoryPage() {
 
     useEffect(() => {
         const timer = setTimeout(() => {
+            setCursor(undefined);
             fetchResources();
         }, 300);
         return () => clearTimeout(timer);
@@ -387,7 +341,7 @@ export default function InventoryPage() {
                                     <SelectValue placeholder="Resource Type" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {RESOURCE_TYPES.map(type => (
+                                    {RESOURCE_TYPE_OPTIONS.map(type => (
                                         <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
                                     ))}
                                 </SelectContent>
@@ -397,7 +351,7 @@ export default function InventoryPage() {
                                     <SelectValue placeholder="Region" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {REGIONS.map(r => (
+                                    {REGION_OPTIONS.map(r => (
                                         <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                                     ))}
                                 </SelectContent>
@@ -466,6 +420,23 @@ export default function InventoryPage() {
                                     </Command>
                                 </PopoverContent>
                             </Popover>
+
+                            {/* Clear All Filters */}
+                            {(searchTerm || resourceType !== "all" || region !== "all" || accountId !== "all") && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                        setSearchTerm("");
+                                        setResourceType("all");
+                                        setRegion("all");
+                                        setAccountId("all");
+                                    }}
+                                >
+                                    <X className="h-4 w-4 mr-1" />
+                                    Clear Filters
+                                </Button>
+                            )}
                         </div>
                     </CardContent>
                 </Card>
@@ -602,7 +573,7 @@ export default function InventoryPage() {
                                             variant="outline"
                                             size="sm"
                                             disabled={!cursor}
-                                            onClick={() => fetchResources()}
+                                            onClick={() => { setCursor(undefined); fetchResources(); }}
                                         >
                                             <ChevronLeft className="h-4 w-4" />
                                             First
