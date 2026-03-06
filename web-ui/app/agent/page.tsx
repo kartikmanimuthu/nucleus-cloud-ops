@@ -49,7 +49,7 @@ export default function AgentPage() {
   }, [activeTabId]);
 
   /** Called from ThreadSidebar inside a ChatInterface's history popover */
-  const handleThreadSelect = useCallback((threadId: string) => {
+  const handleThreadSelect = useCallback((threadId: string, ownerUserId?: string) => {
     setTabs((prev) => {
       // Already open? Just switch to it
       const existing = prev.find((t) => t.threadId === threadId);
@@ -61,14 +61,14 @@ export default function AgentPage() {
       if (prev.length >= MAX_TABS) {
         const updated = prev.map((t) =>
           t.threadId === activeTabId
-            ? { ...makeTab(threadId), title: 'Loading...' }
+            ? { ...makeTab(threadId), title: 'Loading...', ownerUserId }
             : t,
         );
         setActiveTabId(threadId);
         return updated;
       }
       // Open in a new tab
-      const tab: ChatTab = { ...makeTab(threadId), title: 'Loading...' };
+      const tab: ChatTab = { ...makeTab(threadId), title: 'Loading...', ownerUserId };
       setActiveTabId(threadId);
       return [...prev, tab];
     });
@@ -118,6 +118,7 @@ export default function AgentPage() {
           >
             <ChatInterface
               threadId={tab.threadId}
+              ownerUserId={tab.ownerUserId}
               onStatusChange={(s) => handleStatusChange(tab.threadId, s)}
               onTitleChange={(title) => handleTitleChange(tab.threadId, title)}
             />

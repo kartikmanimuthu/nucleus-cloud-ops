@@ -181,8 +181,19 @@ If the response is correct, complete, and specific — respond with exactly: COM
 If there are issues — list them as concise, actionable critique points for the assistant to fix. Be specific about what is wrong and what the correct approach is. Do not generate the fixed answer yourself — only provide the critique.`);
 
         const userMessage = messages.slice().reverse().find(m => m._getType() === 'human');
-        const originalQuery = userMessage ? getStringContent(userMessage.content) : "Unknown query";
-        const agentResponse = getStringContent(lastMessage.content);
+        const originalQueryRaw = userMessage ? getStringContent(userMessage.content) : "Unknown query";
+        const agentResponseRaw = getStringContent(lastMessage.content);
+
+        // Cap inputs to keep the reflector prompt well within the 200k token limit.
+        // ~4 chars ≈ 1 token; 40k chars ≈ 10k tokens leaves ample headroom.
+        const MAX_QUERY_CHARS = 10_000;
+        const MAX_RESPONSE_CHARS = 40_000;
+        const originalQuery = originalQueryRaw.length > MAX_QUERY_CHARS
+            ? originalQueryRaw.slice(0, MAX_QUERY_CHARS) + '\n… [truncated for reflection]'
+            : originalQueryRaw;
+        const agentResponse = agentResponseRaw.length > MAX_RESPONSE_CHARS
+            ? agentResponseRaw.slice(0, MAX_RESPONSE_CHARS) + '\n… [truncated for reflection]'
+            : agentResponseRaw;
 
         const critiqueInput = new HumanMessage({
             content: `Here is the interaction to review:
@@ -198,7 +209,15 @@ ${agentResponse}
 Please provide your critique.`
         });
 
-        const response = await reflectorModel.invoke([reflectorPrompt, critiqueInput]);
+        let response: Awaited<ReturnType<typeof reflectorModel.invoke>>;
+        try {
+            response = await reflectorModel.invoke([reflectorPrompt, critiqueInput]);
+        } catch (err: any) {
+            // If the model still rejects the prompt (e.g. token limit), skip reflection
+            // and treat the response as complete rather than crashing the whole request.
+            console.warn(`⚠️ [FAST REFLECTOR] Skipping reflection due to model error: ${err?.message ?? err}`);
+            return { isComplete: true };
+        }
         const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
 
         if (!content) {

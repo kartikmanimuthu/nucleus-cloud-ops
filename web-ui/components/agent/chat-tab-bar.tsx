@@ -14,6 +14,7 @@ export interface ChatTab {
   threadId: string;
   title: string;
   status: "idle" | "streaming" | "error";
+  ownerUserId?: string;
 }
 
 interface ChatTabBarProps {
@@ -22,7 +23,7 @@ interface ChatTabBarProps {
   onTabSelect: (threadId: string) => void;
   onTabClose: (threadId: string) => void;
   onNewChat: () => void;
-  onThreadSelect: (threadId: string) => void;
+  onThreadSelect: (threadId: string, ownerUserId?: string) => void;
   maxTabs?: number;
 }
 

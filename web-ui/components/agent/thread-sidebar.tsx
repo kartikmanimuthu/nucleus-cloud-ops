@@ -4,13 +4,12 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { 
-  MessageSquare, 
-  Trash2, 
-  Plus, 
+import {
+  Trash2,
+  Plus,
   Search,
   MoreVertical,
-  Sidebar
+  Loader2,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { formatDistanceToNow } from 'date-fns';
@@ -26,13 +25,14 @@ interface Thread {
     title: string;
     createdAt: number;
     updatedAt: number;
+    ownerUserId?: string;
 }
 
 interface ThreadSidebarProps {
     className?: string;
     currentThreadId: string;
     openTabIds?: string[];
-    onThreadSelect: (threadId: string) => void;
+    onThreadSelect: (threadId: string, ownerUserId?: string) => void;
     onNewChat: () => void;
 }
 
@@ -46,6 +46,14 @@ export function ThreadSidebar({
     const [threads, setThreads] = useState<Thread[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [isLoading, setIsLoading] = useState(true);
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+    useEffect(() => {
+        fetch('/api/auth/session')
+            .then(r => r.json())
+            .then(data => { if (data?.user?.id || data?.user?.email) setCurrentUserId(data.user.id ?? data.user.email); })
+            .catch(() => {});
+    }, []);
 
     const fetchThreads = async () => {
         try {
@@ -114,10 +122,18 @@ export function ThreadSidebar({
             {/* List */}
             <ScrollArea className="flex-1">
                 <div className="p-2 space-y-1">
-                    {filteredThreads.map(thread => (
+                    {isLoading && (
+                        <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span className="text-xs">Loading conversations...</span>
+                        </div>
+                    )}
+                    {!isLoading && filteredThreads.map(thread => {
+                        const isOtherUser = thread.ownerUserId && currentUserId && thread.ownerUserId !== currentUserId;
+                        return (
                         <div
                             key={thread.id}
-                            onClick={() => onThreadSelect(thread.id)}
+                            onClick={() => onThreadSelect(thread.id, thread.ownerUserId)}
                             className={cn(
                                 "group flex flex-col gap-1 p-3 rounded-lg text-sm transition-colors cursor-pointer hover:bg-accent/50 relative",
                                 currentThreadId === thread.id ? "bg-accent shadow-sm" : "transparent"
@@ -132,7 +148,7 @@ export function ThreadSidebar({
                                         Open
                                     </span>
                                 )}
-                                
+
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                                         <Button variant="ghost" size="icon" className="h-6 w-6 -mt-1 -mr-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -140,7 +156,7 @@ export function ThreadSidebar({
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
-                                        <DropdownMenuItem 
+                                        <DropdownMenuItem
                                             className="text-destructive focus:text-destructive"
                                             onClick={(e) => handleDeleteThread(e as any, thread.id)}
                                         >
@@ -150,15 +166,23 @@ export function ThreadSidebar({
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>
-                            
+
                             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                                <span>{formatDistanceToNow(thread.updatedAt, { addSuffix: true })}</span>
-                                <span className="font-mono text-xs opacity-50">#{thread.id.slice(-4)}</span>
+                                <span>{thread.updatedAt ? formatDistanceToNow(thread.updatedAt, { addSuffix: true }) : '—'}</span>
+                                <div className="flex items-center gap-1.5">
+                                    {isOtherUser && (
+                                        <span className="font-mono opacity-50 truncate max-w-[60px]" title={thread.ownerUserId}>
+                                            {thread.ownerUserId!.slice(-6)}
+                                        </span>
+                                    )}
+                                    <span className="font-mono opacity-50">#{thread.id.slice(-4)}</span>
+                                </div>
                             </div>
                         </div>
-                    ))}
-                    
-                    {filteredThreads.length === 0 && !isLoading && (
+                        );
+                    })}
+
+                    {!isLoading && filteredThreads.length === 0 && (
                         <div className="text-center py-8 text-xs text-muted-foreground">
                             No threads found.
                         </div>

@@ -96,10 +96,14 @@ export async function GET(
 
         // DynamoDB chat history first
         if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
-            let userId: string;
-            try { userId = await getSessionUserId(); } catch {
+            let sessionUserId: string;
+            try { sessionUserId = await getSessionUserId(); } catch {
                 return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
             }
+            // Allow reading another user's thread by passing ownerUserId as a query param
+            const url = new URL(_req.url);
+            const ownerUserId = url.searchParams.get('ownerUserId');
+            const userId = ownerUserId ?? sessionUserId;
             try {
                 const chatHistory = await getChatHistory();
                 const msgs = await chatHistory.getMessages(userId, threadId);

@@ -230,6 +230,7 @@ const phaseConfig: Record<
 
 interface ChatInterfaceProps {
   threadId: string;
+  ownerUserId?: string;
   onStatusChange?: (status: "idle" | "streaming" | "error") => void;
   onTitleChange?: (title: string) => void;
 }
@@ -439,6 +440,7 @@ function AgentExecutionTimer({ isLoading }: { isLoading: boolean }) {
 
 export function ChatInterface({
   threadId: initialThreadId,
+  ownerUserId,
   onStatusChange,
   onTitleChange,
 }: ChatInterfaceProps) {
@@ -673,7 +675,10 @@ export function ChatInterface({
       setIsLoadingHistory(true);
 
       try {
-        const res = await fetch(`/api/threads/${threadId}/history`);
+        const historyUrl = ownerUserId
+          ? `/api/threads/${threadId}/history?ownerUserId=${encodeURIComponent(ownerUserId)}`
+          : `/api/threads/${threadId}/history`;
+        const res = await fetch(historyUrl);
         if (res.ok) {
           const data = await res.json();
           if (data.messages && data.messages.length > 0) {
