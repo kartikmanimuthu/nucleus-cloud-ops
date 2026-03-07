@@ -1,39 +1,25 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { RefreshCw, Download, Search, Filter, ChevronLeft, ChevronRight, Database, Server, Cloud, Loader2, Check, ChevronsUpDown, Tag, Sparkles, X } from "lucide-react";
+import { RefreshCw, Download, Search, Filter, ChevronLeft, ChevronRight, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
 import { ResourceDetailDialog, ResourceDetailProps } from "@/components/inventory/resource-detail-dialog";
 import { AskAIDialog } from "@/components/inventory/ask-ai-dialog";
+import { ResourceGrid } from "@/components/inventory/resource-grid";
 import { cn } from "@/lib/utils";
-import { RESOURCE_TYPE_OPTIONS, REGION_OPTIONS, getServiceName } from "@/lib/resource-types";
-
-interface Resource {
-    resourceId: string;
-    resourceArn: string;
-    resourceType: string;
-    name: string;
-    region: string;
-    state: string;
-    accountId: string;
-    lastDiscoveredAt: string;
-    tags: Record<string, string>;
-    metadata?: Record<string, any>;
-}
+import { RESOURCE_TYPE_OPTIONS, REGION_OPTIONS } from "@/lib/resource-types";
+import { getColumnsForType } from "@/lib/inventory/column-registry";
+import type { Resource } from "@/lib/inventory/types";
 
 interface SyncStatus {
-    // Legacy per-account status
     accountId: string;
     accountName: string;
     lastSyncedAt?: string;
@@ -42,7 +28,6 @@ interface SyncStatus {
 }
 
 interface InventoryStatus {
-    // New sync status from SYNC#INVENTORY
     totalResources: number;
     accountsSynced: number;
     lastSyncedAt: string | null;
@@ -81,13 +66,18 @@ export default function InventoryPage() {
     const [searchTerm, setSearchTerm] = useState("");
     const [resourceType, setResourceType] = useState("all");
     const [region, setRegion] = useState("all");
-
     const [accountId, setAccountId] = useState("all");
 
     // Pagination
     const [cursor, setCursor] = useState<string | undefined>();
     const [hasMore, setHasMore] = useState(false);
     const [pageSize, setPageSize] = useState(50);
+
+    // Dynamic columns — recomputed whenever the resourceType filter changes
+    const columns = useMemo(
+        () => getColumnsForType(resourceType === "all" ? "_default" : resourceType),
+        [resourceType]
+    );
 
     const fetchResources = useCallback(async (newCursor?: string) => {
         setLoading(true);
@@ -96,7 +86,6 @@ export default function InventoryPage() {
             params.set("limit", pageSize.toString());
             if (resourceType !== "all") params.set("resourceType", resourceType);
             if (region !== "all") params.set("region", region);
-
             if (accountId !== "all") params.set("accountId", accountId);
             if (searchTerm) params.set("search", searchTerm);
             if (newCursor) params.set("cursor", newCursor);
@@ -111,7 +100,7 @@ export default function InventoryPage() {
             } else {
                 toast.error(data.error || "Failed to fetch resources");
             }
-        } catch (error) {
+        } catch {
             toast.error("Failed to fetch resources");
         } finally {
             setLoading(false);
@@ -142,13 +131,13 @@ export default function InventoryPage() {
 
             if (response.ok) {
                 toast.success("Execution started in the background. It may take a few minutes to complete.", {
-                    description: `Scan ID: ${data.scanId?.substring(0, 8) || 'N/A'}`,
+                    description: `Scan ID: ${data.scanId?.substring(0, 8) || "N/A"}`,
                     duration: 5000,
                 });
             } else {
                 toast.error(data.error || "Failed to trigger sync");
             }
-        } catch (error) {
+        } catch {
             toast.error("Failed to trigger sync");
         } finally {
             setSyncing(false);
@@ -179,7 +168,7 @@ export default function InventoryPage() {
             } else {
                 toast.error(data.error || "Failed to export");
             }
-        } catch (error) {
+        } catch {
             toast.error("Failed to export resources");
         } finally {
             setExporting(false);
@@ -199,11 +188,10 @@ export default function InventoryPage() {
         return () => clearTimeout(timer);
     }, [searchTerm, resourceType, region, accountId, fetchResources]);
 
-    // Fetch accounts for filter dropdown
     useEffect(() => {
         const fetchAccounts = async () => {
             try {
-                const result = await ClientAccountService.getAccounts({ statusFilter: 'active', connectionFilter: 'connected', limit: 1000 });
+                const result = await ClientAccountService.getAccounts({ statusFilter: "active", connectionFilter: "connected", limit: 1000 });
                 setAccounts(result.accounts);
             } catch (error) {
                 console.error("Failed to fetch accounts:", error);
@@ -212,7 +200,6 @@ export default function InventoryPage() {
         fetchAccounts();
     }, []);
 
-    // Handle row click to open resource detail
     const handleRowClick = (resource: Resource) => {
         setSelectedResource({
             resourceId: resource.resourceId,
@@ -224,20 +211,11 @@ export default function InventoryPage() {
             accountId: resource.accountId,
             lastDiscoveredAt: resource.lastDiscoveredAt,
             tags: resource.tags,
-            metadata: resource.metadata,
+            metadata: resource.metadata as Record<string, unknown>,
         });
         setDialogOpen(true);
     };
 
-    const getResourceIcon = (type: string) => {
-        if (type.includes("ec2") || type.includes("instance")) return <Server className="h-4 w-4" />;
-        if (type.includes("rds") || type.includes("dynamo") || type.includes("docdb")) return <Database className="h-4 w-4" />;
-        return <Cloud className="h-4 w-4" />;
-    };
-
-
-
-    // Use centralized sync status from new API structure
     const totalResources = inventoryStatus?.totalResources || 0;
     const accountsSynced = inventoryStatus?.accountsSynced || 0;
     const lastSyncedAt = inventoryStatus?.lastSyncedAt;
@@ -298,14 +276,10 @@ export default function InventoryPage() {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {lastSyncedAt
-                                    ? new Date(lastSyncedAt).toLocaleDateString()
-                                    : "Never"}
+                                {lastSyncedAt ? new Date(lastSyncedAt).toLocaleDateString() : "Never"}
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                {lastSyncedAt
-                                    ? new Date(lastSyncedAt).toLocaleTimeString()
-                                    : "Click Sync Now"}
+                                {lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString() : "Click Sync Now"}
                             </p>
                         </CardContent>
                     </Card>
@@ -341,7 +315,7 @@ export default function InventoryPage() {
                                     <SelectValue placeholder="Resource Type" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {RESOURCE_TYPE_OPTIONS.map(type => (
+                                    {RESOURCE_TYPE_OPTIONS.map((type) => (
                                         <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
                                     ))}
                                 </SelectContent>
@@ -351,12 +325,11 @@ export default function InventoryPage() {
                                     <SelectValue placeholder="Region" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {REGION_OPTIONS.map(r => (
+                                    {REGION_OPTIONS.map((r) => (
                                         <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
-
 
                             {/* Account Filter with Search */}
                             <Popover open={openAccountCombobox} onOpenChange={setOpenAccountCombobox}>
@@ -389,12 +362,7 @@ export default function InventoryPage() {
                                                         setOpenAccountCombobox(false);
                                                     }}
                                                 >
-                                                    <Check
-                                                        className={cn(
-                                                            "mr-2 h-4 w-4",
-                                                            accountId === "all" ? "opacity-100" : "opacity-0"
-                                                        )}
-                                                    />
+                                                    <Check className={cn("mr-2 h-4 w-4", accountId === "all" ? "opacity-100" : "opacity-0")} />
                                                     All Accounts
                                                 </CommandItem>
                                                 {accounts.map((account) => (
@@ -406,12 +374,7 @@ export default function InventoryPage() {
                                                             setOpenAccountCombobox(false);
                                                         }}
                                                     >
-                                                        <Check
-                                                            className={cn(
-                                                                "mr-2 h-4 w-4",
-                                                                account.accountId === accountId ? "opacity-100" : "opacity-0"
-                                                            )}
-                                                        />
+                                                        <Check className={cn("mr-2 h-4 w-4", account.accountId === accountId ? "opacity-100" : "opacity-0")} />
                                                         {account.name} ({account.accountId})
                                                     </CommandItem>
                                                 ))}
@@ -441,12 +404,14 @@ export default function InventoryPage() {
                     </CardContent>
                 </Card>
 
-                {/* Resources Table */}
+                {/* Resources Grid */}
                 <Card>
                     <CardHeader>
                         <CardTitle>Discovered Resources</CardTitle>
                         <CardDescription>
-                            {loading ? "Loading..." : `Showing ${resources.length} resources`}
+                            {loading
+                                ? "Loading..."
+                                : `Showing ${resources.length} resources${resourceType !== "all" ? ` · ${resourceType}` : ""}`}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -466,87 +431,11 @@ export default function InventoryPage() {
                             </div>
                         ) : (
                             <>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Name</TableHead>
-                                            <TableHead>Service</TableHead>
-                                            <TableHead>Type</TableHead>
-                                            <TableHead>Region</TableHead>
-                                            <TableHead>Account</TableHead>
-
-                                            <TableHead>Tags</TableHead>
-                                            <TableHead>Last Discovered</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {resources.map((resource) => (
-                                            <TableRow
-                                                key={resource.resourceArn || resource.resourceId}
-                                                className="cursor-pointer hover:bg-muted/50"
-                                                onClick={() => handleRowClick(resource)}
-                                            >
-                                                <TableCell>
-                                                    <div className="flex items-center gap-2">
-                                                        {getResourceIcon(resource.resourceType)}
-                                                        <div>
-                                                            <div className="font-medium">{resource.name}</div>
-                                                            <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                                                {resource.resourceId}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline" className="bg-primary/10">
-                                                        {getServiceName(resource.resourceType)}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant="secondary">{resource.resourceType}</Badge>
-                                                </TableCell>
-                                                <TableCell>{resource.region}</TableCell>
-                                                <TableCell className="font-mono text-sm">{resource.accountId}</TableCell>
-
-                                                <TableCell>
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <div className="flex items-center gap-1">
-                                                                    <Tag className="h-3 w-3 text-muted-foreground" />
-                                                                    <span className="text-sm text-muted-foreground">
-                                                                        {Object.keys(resource.tags || {}).length}
-                                                                    </span>
-                                                                </div>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>
-                                                                {Object.keys(resource.tags || {}).length === 0 ? (
-                                                                    <p>No tags</p>
-                                                                ) : (
-                                                                    <div className="max-w-xs space-y-1">
-                                                                        {Object.entries(resource.tags || {}).slice(0, 5).map(([k, v]) => (
-                                                                            <div key={k} className="text-xs">
-                                                                                <span className="font-medium">{k}:</span> {v}
-                                                                            </div>
-                                                                        ))}
-                                                                        {Object.keys(resource.tags || {}).length > 5 && (
-                                                                            <p className="text-xs text-muted-foreground">+{Object.keys(resource.tags || {}).length - 5} more</p>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                </TableCell>
-                                                <TableCell className="text-muted-foreground">
-                                                    {resource.lastDiscoveredAt
-                                                        ? new Date(resource.lastDiscoveredAt).toLocaleDateString()
-                                                        : "-"}
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                                <ResourceGrid
+                                    columns={columns}
+                                    data={resources}
+                                    onRowClick={handleRowClick}
+                                />
 
                                 {/* Pagination */}
                                 <div className="flex items-center justify-between mt-4">
@@ -561,7 +450,7 @@ export default function InventoryPage() {
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {PAGE_SIZES.map(size => (
+                                                    {PAGE_SIZES.map((size) => (
                                                         <SelectItem key={size} value={size.toString()}>{size}</SelectItem>
                                                     ))}
                                                 </SelectContent>
