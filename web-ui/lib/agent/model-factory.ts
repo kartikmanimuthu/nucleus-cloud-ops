@@ -19,7 +19,7 @@ import {
     writeFileToS3Tool,
     getFileFromS3Tool,
 } from "./tools";
-import { getActiveMCPTools } from "./agent-shared";
+import { getActiveMCPTools, type AccountContext } from "./agent-shared";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { saveMemory, searchMemory } from "./persistence";
@@ -67,6 +67,8 @@ export interface AssembleToolsOptions {
     mcpServerIds?: string[];
     /** Tenant ID for MCP config resolution. */
     tenantId?: string;
+    /** AWS accounts for injecting STS credentials into credential-sensitive MCP servers. */
+    accounts?: AccountContext[];
 }
 
 /**
@@ -114,7 +116,7 @@ export function createMemoryTools(userId: string) {
  * Logs MCP tool count when any are loaded.
  */
 export async function assembleTools(options: AssembleToolsOptions = {}) {
-    const { includeS3Tools = false, includeMemoryTools = false, userId, mcpServerIds, tenantId } = options;
+    const { includeS3Tools = false, includeMemoryTools = false, userId, mcpServerIds, tenantId, accounts } = options;
 
     const memoryTools = (includeMemoryTools && userId) ? createMemoryTools(userId) : [];
 
@@ -132,7 +134,7 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
         ...memoryTools,
     ];
 
-    const mcpTools = await getActiveMCPTools(mcpServerIds, tenantId);
+    const mcpTools = await getActiveMCPTools(mcpServerIds, tenantId, accounts);
     if (mcpTools.length > 0) {
         console.log(`[ModelFactory] Loaded ${mcpTools.length} MCP tools from servers: ${mcpServerIds?.join(', ')}`);
     }

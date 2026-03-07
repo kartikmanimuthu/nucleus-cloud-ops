@@ -405,7 +405,7 @@ export { createMCPTools, getMCPToolsDescription } from './mcp-tools';
  * Resolves server configs from DynamoDB (user customizations) falling back to defaults.
  * If no server IDs are provided, returns an empty array (backward compatible).
  */
-export async function getActiveMCPTools(serverIds?: string[], tenantId?: string) {
+export async function getActiveMCPTools(serverIds?: string[], tenantId?: string, accounts?: AccountContext[]) {
     if (!serverIds || serverIds.length === 0) {
         return [];
     }
@@ -427,11 +427,57 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string)
         allConfigs = DEFAULT_MCP_SERVERS;
     }
 
-    // Connect requested servers (idempotent — skips already-connected)
-    await manager.connectServers(serverIds, allConfigs);
+    const requestedConfigs = allConfigs.filter(c => serverIds.includes(c.id));
+    const credentialServerConfigs = requestedConfigs.filter(c => c.requiresAwsCredentials);
+    const regularServerIds = requestedConfigs.filter(c => !c.requiresAwsCredentials).map(c => c.id);
 
-    // Convert MCP tools to LangChain format
-    return createTools(manager, serverIds);
+    const effectiveAccounts = accounts && accounts.length > 0 ? accounts : [];
+
+    console.log(`[getActiveMCPTools] accounts=${effectiveAccounts.map(a => a.accountId).join(',') || '(none)'} | Resolved ${requestedConfigs.length} server configs`);
+    console.log(`[getActiveMCPTools] Credential servers (${credentialServerConfigs.length}): ${credentialServerConfigs.map(c => c.id).join(', ') || 'none'}`);
+    console.log(`[getActiveMCPTools] Regular servers (${regularServerIds.length}): ${regularServerIds.join(', ') || 'none'}`);
+
+    // Connect regular servers (idempotent — skips already-connected)
+    if (regularServerIds.length > 0) {
+        await manager.connectServers(regularServerIds, allConfigs);
+    }
+
+    // Connect credential-sensitive servers for ALL selected accounts
+    const scopedInstanceIds: string[] = [];
+    if (credentialServerConfigs.length > 0 && effectiveAccounts.length > 0) {
+        const { getAccountFromDynamoDB, assumeRoleForAccount } = await import('./aws-credentials-tool');
+
+        for (const accountCtx of effectiveAccounts) {
+            try {
+                const account = await getAccountFromDynamoDB(accountCtx.accountId);
+                if (!account || !account.roleArn) {
+                    console.warn(`[getActiveMCPTools] Account ${accountCtx.accountId} not found or missing roleArn — skipping`);
+                    continue;
+                }
+                const region = account.regions?.[0] || process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
+                const { credentials } = await assumeRoleForAccount(account.roleArn, account.externalId);
+                const awsCredentials = {
+                    accessKeyId: credentials.AccessKeyId!,
+                    secretAccessKey: credentials.SecretAccessKey!,
+                    sessionToken: credentials.SessionToken!,
+                    region,
+                };
+                for (const config of credentialServerConfigs) {
+                    try {
+                        const scopedId = await manager.connectServerWithAwsCredentials(config, accountCtx.accountId, awsCredentials);
+                        scopedInstanceIds.push(scopedId);
+                    } catch (err: any) {
+                        console.error(`[getActiveMCPTools] Failed to connect "${config.id}" for account ${accountCtx.accountId}:`, err.message);
+                    }
+                }
+            } catch (err: any) {
+                console.error(`[getActiveMCPTools] Failed to obtain credentials for account ${accountCtx.accountId}:`, err.message);
+            }
+        }
+    }
+
+    const allInstanceIds = [...regularServerIds, ...scopedInstanceIds];
+    return createTools(manager, allInstanceIds);
 }
 
 // --- State Definition ---

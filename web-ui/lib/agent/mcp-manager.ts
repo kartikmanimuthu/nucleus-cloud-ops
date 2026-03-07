@@ -292,6 +292,65 @@ export class MCPServerManager {
     }
 
     /**
+     * Connect to an MCP server with AWS credentials injected as environment variables.
+     * Uses an account-scoped instance key (`${serverId}::${accountId}`) so each account
+     * gets its own subprocess with its own credentials.
+     *
+     * Returns the scoped instance ID that can be used to retrieve tools.
+     */
+    async connectServerWithAwsCredentials(
+        config: MCPServerConfig,
+        accountId: string,
+        credentials: { accessKeyId: string; secretAccessKey: string; sessionToken: string; region: string }
+    ): Promise<string> {
+        const scopedId = `${config.id}::${accountId}`;
+
+        if (this.clients.has(scopedId)) {
+            console.log(`[MCPManager] Account-scoped server "${config.name}" for account ${accountId} already connected`);
+            return scopedId;
+        }
+
+        // Write STS credentials to a named profile in ~/.aws/credentials so Python's boto3
+        // uses the correct account credentials regardless of what AWS_PROFILE the parent
+        // process has set (e.g. an SSO profile like STX-CLOUD-PLATFORM-ADMIN).
+        // Setting AWS_PROFILE in the subprocess env overrides the parent's profile.
+        // This is the same mechanism used by get_aws_credentials for CLI commands.
+        const { createSessionProfile } = await import('./session-manager');
+        const sessionProfile = await createSessionProfile(accountId, credentials);
+        console.log(`[MCPManager] Created session profile "${sessionProfile.profileName}" for account-scoped MCP server`);
+
+        // Build subprocess env: merge parent env, then override with server-specific vars,
+        // then force AWS_PROFILE to our named profile (overriding any SSO profile).
+        const scopedConfig: MCPServerConfig = {
+            ...config,
+            id: scopedId,
+            env: {
+                ...(config.env || {}),
+                // Point boto3 at the named profile written to ~/.aws/credentials above.
+                // This overrides AWS_PROFILE=<sso-profile> from the parent process.
+                AWS_PROFILE: sessionProfile.profileName,
+                AWS_DEFAULT_PROFILE: sessionProfile.profileName,
+                AWS_DEFAULT_REGION: credentials.region,
+            },
+        };
+
+        console.log(`[MCPManager] Connecting account-scoped server "${config.name}" for account ${accountId} (id: ${scopedId}) using profile ${sessionProfile.profileName}`);
+        await this._doConnect(scopedConfig);
+        return scopedId;
+    }
+
+    /**
+     * Disconnect all account-scoped instances of a server (all accounts).
+     * Useful for credential rotation or cleanup.
+     */
+    async disconnectAccountScopedServers(baseServerId: string): Promise<void> {
+        const prefix = `${baseServerId}::`;
+        const scopedIds = Array.from(this.clients.keys()).filter(id => id.startsWith(prefix));
+        console.log(`[MCPManager] Disconnecting ${scopedIds.length} account-scoped instances of "${baseServerId}"`);
+        await Promise.allSettled(scopedIds.map(id => this.disconnectServer(id)));
+    }
+
+    /**
      * Connect to multiple MCP servers by their IDs.
      * If allConfigs is provided (from DynamoDB), uses those; otherwise falls back to DEFAULT_MCP_SERVERS.
      */

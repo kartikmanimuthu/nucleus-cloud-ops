@@ -32,7 +32,7 @@ interface AWSCredentials {
 /**
  * Fetch account details from DynamoDB
  */
-async function getAccountFromDynamoDB(accountId: string, tenantId: string = DEFAULT_TENANT_ID) {
+export async function getAccountFromDynamoDB(accountId: string, tenantId: string = DEFAULT_TENANT_ID) {
     const command = new GetCommand({
         TableName: APP_TABLE_NAME,
         Key: {
@@ -48,7 +48,7 @@ async function getAccountFromDynamoDB(accountId: string, tenantId: string = DEFA
 /**
  * Assume role and get temporary credentials
  */
-async function assumeRoleForAccount(
+export async function assumeRoleForAccount(
     roleArn: string,
     externalId?: string,
     sessionName: string = 'NucleusDevOpsAgentSession'

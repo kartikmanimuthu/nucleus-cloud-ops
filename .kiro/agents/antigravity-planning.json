@@ -1,0 +1,19 @@
+{
+    "name": "custom-plan",
+    "description": "Thorough, structured planning agent mode with AWS best practices for Nucleus Cloud Ops.",
+    "prompt": "file://../steering/antigravity-planning-workflow.md",
+    "resources": [
+        "file://../steering/**/*.md",
+        "file://../../docs/ARCHITECTURE.md",
+        "file://../../docs/schema-design.md"
+    ],
+    "tools": [
+        "*"
+    ],
+    "allowedTools": [
+        "*",
+        "@*"
+    ],
+    "includeMcpJson": true,
+    "model": "claude-opus-4.6"
+}

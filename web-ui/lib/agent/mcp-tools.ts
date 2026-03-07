@@ -133,8 +133,18 @@ export function createMCPTools(
     console.log(`[MCPTools] Converting ${mcpTools.length} MCP tools to LangChain format`);
 
     const langchainTools = mcpTools.map(mcpTool => {
-        // Namespace the tool name to avoid collisions with custom tools
-        const namespacedName = `mcp_${mcpTool.mcpServerId}_${mcpTool.name}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+        // For account-scoped servers (serverId contains ::accountId), include last 4 digits
+        // of the account ID in the tool name so the LLM can target specific accounts.
+        // Bedrock enforces a 64-char tool name limit — truncate if needed.
+        let namespacedName: string;
+        if (mcpTool.mcpServerId.includes('::')) {
+            const [baseServerId, accountId] = mcpTool.mcpServerId.split('::');
+            const accountSuffix = accountId.slice(-4);
+            const raw = `mcp_${baseServerId}_${accountSuffix}_${mcpTool.name}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+            namespacedName = raw.slice(0, 64);
+        } else {
+            namespacedName = `mcp_${mcpTool.mcpServerId}_${mcpTool.name}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+        }
 
         // Convert MCP input schema to Zod
         let zodSchema: z.ZodObject<any>;
@@ -145,8 +155,11 @@ export function createMCPTools(
             zodSchema = z.object({}).passthrough();
         }
 
-        // Prefix description with server name for clarity in the LLM prompt
-        const description = `[MCP: ${mcpTool.mcpServerName}] ${mcpTool.description || mcpTool.name}`;
+        // Prefix description with server name + account context for clarity in the LLM prompt
+        const accountId = mcpTool.mcpServerId.includes('::') ? mcpTool.mcpServerId.split('::')[1] : undefined;
+        const description = accountId
+            ? `[MCP: ${mcpTool.mcpServerName} | Account: ${accountId}] ${mcpTool.description || mcpTool.name}`
+            : `[MCP: ${mcpTool.mcpServerName}] ${mcpTool.description || mcpTool.name}`;
 
         return tool(
             async (input: any) => {

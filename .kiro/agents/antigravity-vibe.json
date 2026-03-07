@@ -1,0 +1,19 @@
+{
+    "name": "custom-vibe",
+    "description": "Fast, flow-oriented agent mode with minimal ceremony and AWS best practices.",
+    "prompt": "file://../steering/antigravity-vibe-workflow.md",
+    "resources": [
+        "file://../steering/**/*.md",
+        "file://../../docs/ARCHITECTURE.md",
+        "file://../../docs/schema-design.md"
+    ],
+    "tools": [
+        "*"
+    ],
+    "allowedTools": [
+        "*",
+        "@*"
+    ],
+    "includeMcpJson": true,
+    "model": "claude-sonnet-4.6"
+}

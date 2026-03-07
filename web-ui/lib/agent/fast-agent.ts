@@ -58,7 +58,7 @@ export async function createFastGraph(config: GraphConfig) {
     const { main: model, reflector: reflectorModel } = createAgentModels(modelId);
 
     // --- Tool Assembly (fast-agent does not use S3 tools) ---
-    const tools = await assembleTools({ includeS3Tools: false, includeMemoryTools: !!store, userId: config.userId, mcpServerIds, tenantId });
+    const tools = await assembleTools({ includeS3Tools: false, includeMemoryTools: !!store, userId: config.userId, mcpServerIds, tenantId, accounts });
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
 

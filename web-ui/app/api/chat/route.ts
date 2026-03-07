@@ -355,9 +355,9 @@ function getPhaseFromNode(node: string): AgentPhase {
         case 'final':
             return 'final';
         case 'agent':
-            return 'execution';
+            return 'execution';   // Fast Agent: render with execution phase header like planning agent
         case 'call_model':
-            return 'execution';   // Deep Agent main model node
+            return 'text';        // Deep Agent main model node: same rationale
         case 'tools':
             return 'execution';   // Deep Agent tool execution
         default:

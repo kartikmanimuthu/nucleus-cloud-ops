@@ -24,6 +24,8 @@ export interface MCPServerConfig {
     env?: Record<string, string>;
     enabled: boolean;
     description: string;
+    /** When true, AWS credentials for the selected account are injected as env vars before spawning. */
+    requiresAwsCredentials?: boolean;
 }
 
 /**
@@ -35,6 +37,8 @@ export interface MCPServerJsonEntry {
     args: string[];
     env?: Record<string, string>;
     disabled?: boolean;
+    /** When true, AWS credentials for the selected account are injected as env vars before spawning. */
+    requiresAwsCredentials?: boolean;
 }
 
 export interface MCPConfigJson {
@@ -74,6 +78,10 @@ export const MCP_CONFIG_JSON_SCHEMA = {
                         type: 'boolean',
                         description: 'Set to true to disable this server (default: false)',
                     },
+                    requiresAwsCredentials: {
+                        type: 'boolean',
+                        description: 'When true, AWS credentials for the selected account are injected as env vars (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION)',
+                    },
                 },
                 additionalProperties: false,
             },
@@ -85,25 +93,153 @@ export const MCP_CONFIG_JSON_SCHEMA = {
 /**
  * Default MCP server configurations.
  * All servers start disabled (opt-in) to maintain backward compatibility.
+ *
+ * Servers are grouped into two categories:
+ *   - Knowledge / Tools (no AWS credentials required): documentation, diagrams, IaC helpers
+ *   - AWS Service Access (requiresAwsCredentials: true): any server that calls AWS APIs
+ *     against the user-selected account. STS credentials are automatically injected via a
+ *     named profile when these servers are spawned.
  */
 export const DEFAULT_MCP_SERVERS: MCPServerConfig[] = [
+
+    // ─── Knowledge & Tools (no AWS credentials required) ─────────────────────
+
     {
         id: 'aws-documentation',
-        name: 'AWS Documentation & Tools',
+        name: 'AWS Documentation',
         command: 'uvx',
         args: ['awslabs.aws-documentation-mcp-server@latest'],
-        env: {},
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
         enabled: false,
-        description: 'Search and access AWS documentation, best practices, and service guides via MCP',
+        description: 'Search and read AWS documentation pages, best practices, and service guides',
+    },
+    {
+        id: 'aws-knowledge',
+        name: 'AWS Knowledge',
+        command: 'uvx',
+        args: ['awslabs.aws-knowledge-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Access curated AWS knowledge, architectural patterns, and Well-Architected guidance',
     },
     {
         id: 'aws-cdk',
-        name: 'AWS CDK MCP',
+        name: 'AWS CDK',
         command: 'uvx',
         args: ['awslabs.cdk-mcp-server@latest'],
-        env: {},
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
         enabled: false,
-        description: 'AWS CDK infrastructure-as-code assistance and guidance via MCP',
+        description: 'AWS CDK infrastructure-as-code assistance: constructs, patterns, CDK Nag rules',
+    },
+    {
+        id: 'terraform',
+        name: 'Terraform (AWS)',
+        command: 'uvx',
+        args: ['awslabs.terraform-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Terraform module guidance, AWS provider patterns, and IaC best practices',
+    },
+    {
+        id: 'aws-diagram',
+        name: 'AWS Architecture Diagrams',
+        command: 'uvx',
+        args: ['awslabs.aws-diagram-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Generate AWS architecture diagrams from natural language descriptions',
+    },
+    {
+        id: 'aws-pricing',
+        name: 'AWS Pricing',
+        command: 'uvx',
+        args: ['awslabs.aws-pricing-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Query AWS public pricing data for any service, region, and instance type',
+    },
+
+    // ─── AWS Service Access (STS credentials injected per selected account) ──
+
+    {
+        id: 'aws-cost-explorer',
+        name: 'AWS Cost Explorer',
+        command: 'uvx',
+        args: ['awslabs.cost-explorer-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Query Cost Explorer: usage, forecasts, comparisons, and cost drivers by account',
+        requiresAwsCredentials: true,
+    },
+    {
+        id: 'aws-billing',
+        name: 'AWS Billing & Cost Management',
+        command: 'uvx',
+        args: ['awslabs.billing-cost-management-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Access AWS billing statements, invoices, credits, and cost allocation tags',
+        requiresAwsCredentials: true,
+    },
+    {
+        id: 'aws-cloudwatch',
+        name: 'AWS CloudWatch',
+        command: 'uvx',
+        args: ['awslabs.cloudwatch-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Query CloudWatch metrics, logs insights, alarms, and anomaly detection',
+        requiresAwsCredentials: true,
+    },
+    {
+        id: 'aws-ecs',
+        name: 'AWS ECS',
+        command: 'uvx',
+        args: ['awslabs.ecs-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Manage ECS clusters, services, tasks, and container deployments',
+        requiresAwsCredentials: true,
+    },
+    {
+        id: 'aws-dynamodb',
+        name: 'AWS DynamoDB',
+        command: 'uvx',
+        args: ['awslabs.dynamodb-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Query and manage DynamoDB tables: scans, queries, schema analysis, and capacity',
+        requiresAwsCredentials: true,
+    },
+    {
+        id: 'aws-cloudformation',
+        name: 'AWS CloudFormation',
+        command: 'uvx',
+        args: ['awslabs.cfn-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Manage CloudFormation stacks: deploy, update, describe, and detect drift',
+        requiresAwsCredentials: true,
+    },
+    {
+        id: 'aws-eks',
+        name: 'AWS EKS',
+        command: 'uvx',
+        args: ['awslabs.eks-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Manage EKS clusters, node groups, and Kubernetes workloads',
+        requiresAwsCredentials: true,
+    },
+    {
+        id: 'aws-lambda',
+        name: 'AWS Lambda',
+        command: 'uvx',
+        args: ['awslabs.lambda-tool-mcp-server@latest'],
+        env: { FASTMCP_LOG_LEVEL: 'ERROR' },
+        enabled: false,
+        description: 'Invoke Lambda functions and retrieve logs and execution results',
+        requiresAwsCredentials: true,
     },
 ];
 
@@ -138,6 +274,7 @@ export function jsonToServerConfigs(json: MCPConfigJson): MCPServerConfig[] {
             env: entry.env || {},
             enabled: entry.disabled !== true,
             description: defaultServer?.description || `MCP server: ${id}`,
+            requiresAwsCredentials: entry.requiresAwsCredentials ?? defaultServer?.requiresAwsCredentials ?? false,
         };
     });
 }
@@ -172,6 +309,7 @@ export function mergeConfigs(
             env: entry.env || {},
             enabled: entry.disabled !== true,
             description: defaultServer?.description || `MCP server: ${id}`,
+            requiresAwsCredentials: entry.requiresAwsCredentials ?? defaultServer?.requiresAwsCredentials ?? false,
         };
     }
 

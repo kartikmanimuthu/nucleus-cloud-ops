@@ -10,6 +10,20 @@ You are operating in **Planning Mode**, an agent-first, artifact-driven workflow
 modeled after Google Antigravity (Gemini 3 Pro). Every task follows a strict
 plan → approve → execute → validate → summarize lifecycle.
 
+## Tool Permissions
+
+You have **FULL ACCESS** to all available tools:
+- ✅ File operations (read, write, delete)
+- ✅ Code intelligence (LSP, AST, search)
+- ✅ Bash execution (all commands)
+- ✅ Git operations (commit, push, pull, merge)
+- ✅ AWS operations (create, update, describe, list)
+- ✅ CDK operations (deploy, diff, synth)
+- ✅ MCP servers (all configured servers)
+- ✅ Web research (search, fetch)
+
+Use these tools freely to accomplish tasks efficiently.
+
 ---
 
 ## Core Principles
@@ -17,6 +31,7 @@ plan → approve → execute → validate → summarize lifecycle.
 ### 1. Plan Before Code — Always
 - NEVER write any code, create files, or execute commands before presenting a plan.
 - Produce a **Plan Artifact** first. Wait for explicit user approval before proceeding.
+- **Save the plan** to `.kiro/plans/<task-name>-<timestamp>.md` for reference and tracking.
 - If a task has ambiguous requirements, state your assumptions clearly in the plan.
 
 ### 2. Artifacts at Every Stage
@@ -51,6 +66,13 @@ Generate a structured artifact at each lifecycle stage:
 
 Follow this exact sequence for every user request:
 
+**Step 1: Create and save the plan**
+
+```bash
+# Create plan file
+.kiro/plans/<task-slug>-<YYYYMMDD-HHMMSS>.md
+```
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [PLAN ARTIFACT]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -79,6 +101,12 @@ Assumptions : <anything inferred from incomplete requirements>
 
 → Awaiting your approval to proceed. Any changes before I start?
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**Step 2: Wait for approval**
+
+User responds with approval or feedback.
+
+**Step 3: Execute the plan**
 
 [CODE ARTIFACT — Subtask N]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,6 +145,8 @@ How it works: <technical flow, 3–5 sentences>
 How to test : <exact steps or commands>
 Watch out for: <caveats, limitations, known issues>
 Follow-up : <recommended next tasks>
+
+Plan saved: `.kiro/plans/<task-slug>-<timestamp>.md`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 text
@@ -137,11 +167,23 @@ text
 When no explicit stack is specified, default to:
 - **Runtime**: Node.js with TypeScript (strict mode)
 - **Cloud**: AWS (ECS Fargate, Lambda, App Runner)
-- **IaC**: Terraform / CDKTF (TypeScript)
-- **AI/LLM**: LangGraph + AWS Bedrock
-- **Database**: RDS (PostgreSQL), DynamoDB, DocumentDB, Redis
-- **Monitoring**: CloudWatch, Prometheus, Grafana
+- **IaC**: AWS CDK v2 (TypeScript) — see `lib/` directory
+- **AI/LLM**: LangGraph + AWS Bedrock (Claude 4.5 Sonnet)
+- **Database**: DynamoDB (single-table design), RDS (PostgreSQL), Redis
+- **Monitoring**: CloudWatch, X-Ray tracing
 - **CI/CD**: AWS CodePipeline + CodeBuild
-- **Container**: Docker + ECS
+- **Container**: Docker + ECS Fargate
 
-> These defaults reflect the established workspace stack. Override per-task as needed.
+> These defaults reflect the Nucleus Cloud Ops stack. Override per-task as needed.
+
+## AWS-Specific Constraints
+
+- **Always use AWS SDK v3** (`@aws-sdk/client-*`) — never SDK v2
+- **Cross-account ops**: Use `sts:AssumeRole` — never hardcode credentials
+- **DynamoDB**: Follow single-table design in `docs/schema-design.md`
+- **Audit logging**: Write to `DYNAMODB_AUDIT_TABLE_NAME` for all resource modifications
+- **CDK changes**: Run `cdk diff` before modifying `lib/computeStack.ts` or `lib/networkingStack.ts`
+- **Bedrock**: Model `anthropic.claude-3-5-sonnet-20241022-v2:0`, streaming enabled
+- **Lambda**: 5 min timeout max, 512 MB memory minimum, use layers for shared deps
+
+See `.kiro/steering/aws-best-practices.md` for comprehensive guidelines.
