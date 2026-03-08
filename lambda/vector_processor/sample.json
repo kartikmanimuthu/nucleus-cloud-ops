@@ -1,0 +1,36 @@
+[
+  {
+    "resourceId": "i-0123456789abcdef0",
+    "resourceArn": "arn:aws:ec2:ap-south-1:970547372609:instance/i-0123456789abcdef0",
+    "resourceType": "EC2Instance",
+    "name": "test-instance-01",
+    "region": "ap-south-1",
+    "accountId": "970547372609",
+    "state": "running",
+    "service": "EC2",
+    "lastDiscoveredAt": "2026-03-08T12:37:09Z",
+    "tags": {
+      "Environment": "test",
+      "Owner": "platform-team"
+    },
+    "instanceType": "t3.medium",
+    "launchTime": "2026-03-01T10:00:00Z"
+  },
+  {
+    "resourceId": "sg-0987654321fedcba0",
+    "resourceArn": "arn:aws:ec2:ap-south-1:970547372609:security-group/sg-0987654321fedcba0",
+    "resourceType": "SecurityGroup",
+    "name": "test-sg-01",
+    "region": "ap-south-1",
+    "accountId": "970547372609",
+    "state": "active",
+    "service": "EC2",
+    "lastDiscoveredAt": "2026-03-08T12:37:09Z",
+    "tags": {
+      "Environment": "test"
+    },
+    "vpcId": "vpc-12345678",
+    "ingressRules": 2,
+    "egressRules": 1
+  }
+]

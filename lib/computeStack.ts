@@ -20,6 +20,9 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as s3_notifications from "aws-cdk-lib/aws-s3-notifications";
+import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as lambda_event_sources from "aws-cdk-lib/aws-lambda-event-sources";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import { Construct } from "constructs";
 import { TableBucket, Namespace, Table, OpenTableFormat } from '@aws-cdk/aws-s3tables-alpha';
 import { RemovalPolicy } from "aws-cdk-lib";
@@ -362,6 +365,51 @@ export class ComputeStack extends cdk.Stack {
         inventoryBucket.grantReadWrite(discoveryTaskRole);
 
         // Vector Processor Lambda
+        // ============================================================================
+        // SQS QUEUE — Buffers S3 normalized/ events before vector processing
+        // Provides retry/DLQ handling that direct S3→Lambda doesn't have
+        // ============================================================================
+
+        const vectorProcessingDLQ = new sqs.Queue(this, `${appName}-VectorProcessingDLQ`, {
+            queueName: `${appName}-vector-processing-dlq`,
+            retentionPeriod: cdk.Duration.days(14),
+        });
+
+        const vectorProcessingQueue = new sqs.Queue(this, `${appName}-VectorProcessingQueue`, {
+            queueName: `${appName}-vector-processing-queue`,
+            // Must be >= Lambda timeout (15 min)
+            visibilityTimeout: cdk.Duration.seconds(900),
+            receiveMessageWaitTime: cdk.Duration.seconds(20),
+            deadLetterQueue: {
+                queue: vectorProcessingDLQ,
+                maxReceiveCount: 3,
+            },
+        });
+
+        // Allow the inventory bucket to send messages to the queue
+        vectorProcessingQueue.addToResourcePolicy(
+            new iam.PolicyStatement({
+                effect: iam.Effect.ALLOW,
+                principals: [new iam.ServicePrincipal("s3.amazonaws.com")],
+                actions: ["sqs:SendMessage"],
+                resources: [vectorProcessingQueue.queueArn],
+                conditions: {
+                    ArnLike: { "aws:SourceArn": inventoryBucket.bucketArn },
+                },
+            })
+        );
+
+        // CloudWatch alarm — alert when messages land in DLQ
+        new cloudwatch.Alarm(this, `${appName}-VectorDLQAlarm`, {
+            alarmName: `${appName}-vector-dlq-depth`,
+            alarmDescription: "Vector processor DLQ has messages — check Lambda errors",
+            metric: vectorProcessingDLQ.metricApproximateNumberOfMessagesVisible(),
+            threshold: 1,
+            evaluationPeriods: 1,
+            comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        });
+
         // Vector Processor Lambda (TypeScript)
         const vectorProcessor = new lambda_nodejs.NodejsFunction(
             this,
@@ -374,52 +422,54 @@ export class ComputeStack extends cdk.Stack {
                 handler: "handler",
                 bundling: {
                     minify: true,
+                    // Keep AWS SDK v3 core clients as external (available in Lambda runtime)
+                    // Bundle @aws-sdk/client-s3vectors since it may not be in the runtime
                     externalModules: [
                         '@aws-sdk/client-s3',
-                        '@aws-sdk/client-bedrock-runtime'
-                    ], // Bundle client-s3vectors and cheerio
+                        '@aws-sdk/client-bedrock-runtime',
+                    ],
                 },
                 timeout: cdk.Duration.minutes(15),
                 memorySize: 1024,
+                // Limit concurrency to avoid Bedrock throttling during large scans
+                reservedConcurrentExecutions: 10,
                 environment: {
                     INVENTORY_BUCKET_NAME: inventoryBucket.bucketName,
-                    VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName, // Use Name as we have Index now? Or ARN?
-                    // In index.ts, we use PutVectorsCommand. 
-                    // s3vectors (preview) usually takes Name + IndexName.
-                    // The Fix in Python used ARN. 
-                    // Let's pass ARN to be safe, as it's the unique identifier.
-                    // But wait, the Index construct takes Name. 
-                    // Let's pass BOTH and let the Lambda decide or use ARN.
-                    // Actually, the previous fix confirmed ARN was needed for the *Bucket* resource to be found.
-                    // But PutVectors might expect the Name if the client handles resolution.
-                    // I will pass ARN as VECTOR_BUCKET_NAME to be consistent with the fix.
+                    VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName,
                     VECTOR_BUCKET_ARN: vectorBucket.vectorBucketArn,
-                    // Also pass Name just in case
-                    VECTOR_BUCKET_NAME_SIMPLE: vectorBucket.vectorBucketName,
                     VECTOR_INDEX_NAME: vectorIndex.indexName,
                     BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
                 },
             },
         );
 
-        // Grant S3 permissions
-        inventoryBucket.grantReadWrite(vectorProcessor);
-        // vectorBucket is a custom resource, so we might need to manually grant if the L2 construct doesn't expose standard grant methods
-        // The cdk-s3-vectors construct does not appear to expose a standard IBucket interface directly for the vector bucket
-        // It exposes vectorBucketArn. Let's use addToRolePolicy for safety.
+        // Trigger Lambda from SQS (batch=1 since each file may have hundreds of resources)
+        vectorProcessor.addEventSource(
+            new lambda_event_sources.SqsEventSource(vectorProcessingQueue, {
+                batchSize: 1,
+                maxConcurrency: 5,
+            })
+        );
+
+        // Grant S3 read permissions on inventory bucket
+        inventoryBucket.grantRead(vectorProcessor);
+
+        // Grant S3 Vectors permissions (custom construct, no standard grant method)
         vectorProcessor.addToRolePolicy(new iam.PolicyStatement({
             actions: [
-                "s3:PutObject", "s3:GetObject", "s3:ListBucket",
-                "s3vectors:PutVectors", "s3vectors:CreateVectorIndex" // Ensure permission
+                "s3vectors:PutVectors",
+                "s3vectors:QueryVectors",
+                "s3vectors:CreateVectorIndex",
+                "s3vectors:GetIndex",
             ],
             resources: [
                 vectorBucket.vectorBucketArn,
                 `${vectorBucket.vectorBucketArn}/*`,
-                vectorIndex.indexArn // Grant permission on the index
-            ]
+                vectorIndex.indexArn,
+            ],
         }));
 
-        // Grant Bedrock permissions
+        // Grant Bedrock embedding permissions
         vectorProcessor.addToRolePolicy(
             new iam.PolicyStatement({
                 actions: ["bedrock:InvokeModel"],
@@ -427,11 +477,11 @@ export class ComputeStack extends cdk.Stack {
             }),
         );
 
-        // Add S3 Event Notification
+        // S3 event notification → SQS (triggers on normalized/ prefix written by discovery)
         inventoryBucket.addEventNotification(
             s3.EventType.OBJECT_CREATED,
-            new s3_notifications.LambdaDestination(vectorProcessor),
-            { prefix: "merged/" },
+            new s3_notifications.SqsDestination(vectorProcessingQueue),
+            { prefix: "normalized/" },
         );
 
         // S3 Tables permissions (for managed Iceberg tables)
@@ -543,7 +593,7 @@ export class ComputeStack extends cdk.Stack {
             entry: path.join(__dirname, '../lambda/scheduler/src/index.ts'),
             handler: 'handler',
             bundling: {
-                externalModules: ['@aws-sdk/*'],
+                externalModules: ['@aws-sdk/*', 'dayjs'],
                 minify: true,
                 sourceMap: false,
             },
@@ -858,6 +908,8 @@ export class ComputeStack extends cdk.Stack {
                 VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName,
                 VECTOR_INDEX_NAME: vectorIndex.indexName,
                 BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+                // Ask AI generation model (configurable; defaults to Claude 3.5 Haiku)
+                ASK_AI_GENERATION_MODEL: process.env.ASK_AI_GENERATION_MODEL || "global.anthropic.claude-sonnet-4-6",
 
                 // Remaining Cognito & App Config
                 NEXT_PUBLIC_COGNITO_DOMAIN: `${webUiStackName}-auth-${this.account}.auth.${this.region}.amazoncognito.com`,

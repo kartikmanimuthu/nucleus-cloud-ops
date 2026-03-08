@@ -555,11 +555,62 @@ def process_and_store_resources(
     
     print(f"  Stored {total_written} resources to DynamoDB")
 
+    # Write normalized resources to S3 for vector processing pipeline
+    # normalized/{date}/{account_id}.json triggers the vector processor Lambda via SQS
+    if bucket_name and s3_client:
+        _store_normalized_for_vectors(s3_client, bucket_name, account_id, resources, now)
+
     # S3 Tables write (Iceberg) — non-fatal
     if s3_table_bucket_arn:
         save_to_s3_tables(resources, s3_table_bucket_arn, s3_table_namespace, aws_region)
 
     return total_written
+
+
+def _store_normalized_for_vectors(
+    s3_client,
+    bucket_name: str,
+    account_id: str,
+    resources: List[Dict[str, Any]],
+    now: datetime
+) -> None:
+    """
+    Write normalized resources to S3 under the normalized/ prefix.
+    This file triggers the vector processor Lambda (via SQS) to generate embeddings.
+    Excludes rawData to keep the file compact.
+    """
+    date_folder = now.strftime('%Y%m%dT%H%M%S')
+    s3_key = f"normalized/{date_folder}/{account_id}.json"
+
+    # Serialize without rawData to keep the file small
+    normalized = []
+    for r in resources:
+        item = {
+            'resourceId': r.get('resourceId', ''),
+            'resourceArn': r.get('resourceArn', ''),
+            'resourceType': r.get('resourceType', ''),
+            'name': r.get('name', ''),
+            'region': r.get('region', ''),
+            'state': r.get('state', ''),
+            'accountId': account_id,
+            'service': r.get('service', ''),
+            'tags': r.get('tags', {}),
+            'metadata': _extract_metadata(r, r.get('resourceType', '')),
+            'lastDiscoveredAt': now.isoformat(),
+            'discoveryStatus': 'active',
+        }
+        normalized.append(item)
+
+    try:
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=s3_key,
+            Body=json.dumps(normalized, cls=DateTimeEncoder),
+            ContentType='application/json'
+        )
+        print(f"  Stored {len(normalized)} normalized resources to s3://{bucket_name}/{s3_key}")
+    except Exception as e:
+        print(f"  WARNING: Failed to write normalized file to S3: {e}")
 
 
 def save_sync_status(

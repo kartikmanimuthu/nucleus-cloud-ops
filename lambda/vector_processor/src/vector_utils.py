@@ -1,13 +1,15 @@
 import json
 import boto3
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 class VectorGenerator:
-    def __init__(self, region_name: str = None):
+    def __init__(self, region_name: str = None, session: Optional[boto3.Session] = None):
         self.region = region_name or os.environ.get('AWS_REGION', 'ap-south-1')
-        self.bedrock = boto3.client('bedrock-runtime', region_name=self.region)
-        self.model_id = "amazon.titan-embed-text-v1"
+        self.session = session or boto3.Session()
+        self.bedrock = self.session.client('bedrock-runtime', region_name=self.region)
+        # Titan Embed Text v2 — 1024 dimensions, matches CDK vector index config
+        self.model_id = os.environ.get("BEDROCK_MODEL_ID", "amazon.titan-embed-text-v2:0")
 
     def generate_embedding(self, text: str) -> List[float]:
         try:

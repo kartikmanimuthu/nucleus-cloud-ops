@@ -491,10 +491,15 @@ export default function InventoryPage() {
                 onOpenChange={setDialogOpen}
             />
 
-            {/* Ask AI Dialog */}
+            {/* Ask AI Dialog — passes active grid filters for contextual responses */}
             <AskAIDialog
                 open={askAIOpen}
                 onOpenChange={setAskAIOpen}
+                filters={{
+                    accountId: accountId !== "all" ? accountId : undefined,
+                    region: region !== "all" ? region : undefined,
+                    resourceType: resourceType !== "all" ? resourceType : undefined,
+                }}
             />
         </>
     );
