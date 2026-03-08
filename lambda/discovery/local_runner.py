@@ -51,6 +51,8 @@ def main():
     parser.add_argument('--app-table', type=str, default=os.environ.get('APP_TABLE_NAME'), help='App Table Name (for fetching accounts and saving sync status)')
     parser.add_argument('--inventory-table', type=str, default=os.environ.get('INVENTORY_TABLE_NAME'), help='Inventory Table Name (for persistence)')
     parser.add_argument('--bucket', type=str, default=os.environ.get('INVENTORY_BUCKET'), help='Inventory S3 Bucket (for persistence)')
+    parser.add_argument('--s3-table-bucket-arn', type=str, default=os.environ.get('S3_TABLE_BUCKET_ARN'), help='S3 Tables bucket ARN for Iceberg writes (optional)')
+    parser.add_argument('--s3-table-namespace', type=str, default=os.environ.get('S3_TABLE_NAMESPACE', 'nucleus'), help='S3 Tables namespace (default: nucleus)')
     
     # Override Arguments
     parser.add_argument('--regions', nargs='+', help='Override regions to scan')
@@ -184,7 +186,10 @@ def main():
             
             if args.inventory_table and dynamodb:
                 count = process_and_store_resources(
-                    dynamodb, s3, args.inventory_table, args.bucket, target_acc_id, resources, raw_results
+                    dynamodb, s3, args.inventory_table, args.bucket, target_acc_id, resources, raw_results,
+                    s3_table_bucket_arn=args.s3_table_bucket_arn,
+                    s3_table_namespace=args.s3_table_namespace,
+                    aws_region=boto3.session.Session().region_name or 'us-east-1',
                 )
                 print(f"  Persisted {count} items to DynamoDB")
                 

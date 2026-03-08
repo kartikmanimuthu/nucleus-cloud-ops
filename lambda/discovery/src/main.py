@@ -123,6 +123,11 @@ def main():
         scan_id = f"SCAN#{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     correlation_id = os.environ.get('CORRELATION_ID')
     
+    # S3 Tables (Iceberg) settings
+    s3_table_bucket_arn = os.environ.get('S3_TABLE_BUCKET_ARN')
+    s3_table_namespace = os.environ.get('S3_TABLE_NAMESPACE', 'nucleus')
+    aws_region = os.environ.get('AWS_REGION', 'us-east-1')
+
     # Concurrency settings
     concurrent_regions = int(os.environ.get('CONCURRENT_REGIONS', '5'))
     concurrent_services = int(os.environ.get('CONCURRENT_SERVICES', '10'))
@@ -214,7 +219,10 @@ def main():
                 account_id=account_id,
                 resources=resources,
                 raw_results=raw_results,
-                scan_id=scan_id
+                scan_id=scan_id,
+                s3_table_bucket_arn=s3_table_bucket_arn,
+                s3_table_namespace=s3_table_namespace,
+                aws_region=aws_region,
             )
             
             # Mark missing resources

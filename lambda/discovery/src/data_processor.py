@@ -295,6 +295,92 @@ def store_merged_to_s3(
     return s3_keys
 
 
+def save_to_s3_tables(
+    resources: List[Dict[str, Any]],
+    s3_table_bucket_arn: str,
+    s3_table_namespace: str = 'default',
+    aws_region: str = 'us-east-1'
+) -> int:
+    """
+    Write resources to AWS S3 Tables (Apache Iceberg) via the PyIceberg REST catalog.
+
+    Returns number of records written, or 0 on failure/skip.
+    """
+    if not s3_table_bucket_arn or not resources:
+        print("  Skipping S3 Tables write: no bucket ARN or no resources")
+        return 0
+
+    try:
+        import pandas as pd
+        import pyarrow as pa
+        from pyiceberg.catalog import load_catalog
+
+        print(f"  Writing {len(resources)} resources to S3 Tables ({s3_table_bucket_arn})...")
+
+        catalog = load_catalog(
+            "s3tables",
+            **{
+                "type": "rest",
+                "uri": f"https://s3tables.{aws_region}.amazonaws.com/iceberg",
+                "rest.sigv4-enabled": "true",
+                "rest.signing-name": "s3tables",
+                "rest.signing-region": aws_region,
+                "rest.resource-arn": s3_table_bucket_arn,
+                "warehouse": s3_table_bucket_arn,
+            }
+        )
+
+        table_name = f"{s3_table_namespace}.resources"
+        now_utc = datetime.now(timezone.utc)
+        now_naive = now_utc.replace(tzinfo=None)  # Iceberg table uses TimestampType (no tz)
+        rows = []
+        for res in resources:
+            rows.append({
+                'resourceId': str(res.get('resourceId', '')),
+                'resourceType': str(res.get('resourceType', '')),
+                'name': str(res.get('name', '')),
+                'arn': str(res.get('resourceArn', res.get('arn', ''))),
+                'region': str(res.get('region', '')),
+                'accountId': str(res.get('accountId', '')),
+                'state': str(res.get('state', '')),
+                'tags': json.dumps(res.get('tags', {})),
+                'lastSeenAt': now_naive,
+                'discoveryStatus': 'active',
+            })
+
+        # Match the Iceberg table schema: required fields must be non-nullable
+        iceberg_schema = pa.schema([
+            pa.field('resourceId',      pa.string(),                nullable=False),
+            pa.field('resourceType',    pa.string(),                nullable=False),
+            pa.field('name',            pa.string(),                nullable=True),
+            pa.field('arn',             pa.string(),                nullable=False),
+            pa.field('region',          pa.string(),                nullable=False),
+            pa.field('accountId',       pa.string(),                nullable=False),
+            pa.field('state',           pa.string(),                nullable=True),
+            pa.field('tags',            pa.string(),                nullable=True),
+            pa.field('lastSeenAt',      pa.timestamp('us'), nullable=False),
+            pa.field('discoveryStatus', pa.string(),                nullable=True),
+        ])
+        arrow_table = pa.Table.from_pandas(pd.DataFrame(rows), schema=iceberg_schema, safe=False)
+
+        try:
+            table = catalog.load_table(table_name)
+            table.append(arrow_table)
+            print(f"  Appended {len(rows)} rows to S3 Table {table_name}")
+        except Exception as e:
+            print(f"  ERROR: S3 Table {table_name} not found or write failed: {e}")
+            return 0
+
+        return len(rows)
+
+    except ImportError:
+        print("  Skipping S3 Tables write: pyiceberg/pandas/pyarrow not installed")
+        return 0
+    except Exception as e:
+        print(f"  ERROR writing to S3 Tables: {e}")
+        return 0
+
+
 def process_and_store_resources(
     dynamodb_client,
     s3_client,
@@ -304,11 +390,14 @@ def process_and_store_resources(
     resources: List[Dict[str, Any]],
     raw_results: Dict[str, Dict[str, Any]] = None,
     tenant_id: str = 'default',
-    scan_id: str = None
+    scan_id: str = None,
+    s3_table_bucket_arn: str = None,
+    s3_table_namespace: str = 'default',
+    aws_region: str = 'us-east-1'
 ) -> int:
     """
-    Process resources and store in DynamoDB and S3.
-    
+    Process resources and store in DynamoDB, S3, and optionally S3 Tables (Iceberg).
+
     Args:
         dynamodb_client: Boto3 DynamoDB client
         s3_client: Boto3 S3 client
@@ -317,7 +406,10 @@ def process_and_store_resources(
         account_id: AWS account ID
         resources: List of discovered resources (normalized)
         raw_results: Optional raw results dict for S3 storage
-        
+        s3_table_bucket_arn: Optional ARN of S3 Tables bucket for Iceberg writes
+        s3_table_namespace: S3 Tables namespace (default: 'default')
+        aws_region: AWS region for S3 Tables endpoint
+
     Returns:
         Number of resources processed
     """
@@ -462,7 +554,11 @@ def process_and_store_resources(
             print(f"  ERROR writing batch to DynamoDB: {e}")
     
     print(f"  Stored {total_written} resources to DynamoDB")
-    
+
+    # S3 Tables write (Iceberg) — non-fatal
+    if s3_table_bucket_arn:
+        save_to_s3_tables(resources, s3_table_bucket_arn, s3_table_namespace, aws_region)
+
     return total_written
 
 
