@@ -949,7 +949,7 @@ export class ComputeStack extends cdk.Stack {
             actions: [
                 "s3vectors:QueryVectors",
                 "s3vectors:PutVectors",
-                "s3vectors:GetVector",
+                "s3vectors:GetVectors",
                 "s3vectors:ListVectorIndices"
             ],
             resources: [
