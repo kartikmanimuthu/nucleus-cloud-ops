@@ -166,8 +166,8 @@ export class CdkStack extends cdk.Stack {
     const lambdaFunction = new lambda.Function(this, 'Lambda', {
       functionName: `${stackName}-function`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'dist/index.handler',
-      code: lambda.Code.fromAsset('lambda/scheduler'),
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/scheduler/dist'),
       environment: {
         APP_TABLE_NAME: appTable.tableName,
         AUDIT_TABLE_NAME: auditTable.tableName,

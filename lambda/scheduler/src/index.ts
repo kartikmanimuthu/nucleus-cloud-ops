@@ -53,3 +53,4 @@ export const handler: Handler<SchedulerEvent, SchedulerResult> = async (event) =
 };
 
 export default handler;
+
