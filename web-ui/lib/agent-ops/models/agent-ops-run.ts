@@ -84,7 +84,7 @@ const AgentOpsRunSchema = new dynamoose.Schema(
         },
         source: {
             type: String,
-            enum: ['slack', 'jira', 'api'],
+            enum: ['slack', 'jira', 'api', 'scheduled'],
             required: true,
         },
         status: {
@@ -142,6 +142,10 @@ const AgentOpsRunSchema = new dynamoose.Schema(
                 apiKeyId: String,
                 callbackUrl: String,
                 clientId: String,
+                // Scheduled fields
+                taskId: String,
+                taskName: String,
+                scheduledAt: String,
             },
         },
         clarification: {

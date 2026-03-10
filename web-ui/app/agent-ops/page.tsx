@@ -33,6 +33,7 @@ import {
   Hash,
   StopCircle,
   ShieldCheck,
+  CalendarClock,
 } from "lucide-react";
 import type {
   AgentOpsRun,
@@ -45,6 +46,7 @@ const SOURCE_ICONS: Record<TriggerSource, typeof Zap> = {
   slack: MessageSquare,
   jira: AlertCircle,
   api: Globe,
+  scheduled: CalendarClock,
 };
 
 const STATUS_CONFIG: Record<
@@ -147,7 +149,7 @@ export default function AgentOpsPage() {
             Agent Ops
           </h1>
           <p className="text-muted-foreground mt-1">
-            Background agent executions triggered by Slack, Jira, or API
+            Background agent executions triggered by Slack, Jira, API, or schedule
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -161,6 +163,14 @@ export default function AgentOpsPage() {
               className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
             />
             Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push("/agent-ops/scheduled-tasks")}
+          >
+            <CalendarClock className="h-4 w-4 mr-2" />
+            Scheduled Tasks
           </Button>
           <Button
             variant="outline"
@@ -235,6 +245,7 @@ export default function AgentOpsPage() {
             <SelectItem value="slack">Slack</SelectItem>
             <SelectItem value="jira">Jira</SelectItem>
             <SelectItem value="api">API</SelectItem>
+            <SelectItem value="scheduled">Scheduled</SelectItem>
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>

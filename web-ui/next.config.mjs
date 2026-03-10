@@ -6,6 +6,9 @@ const nextConfig = {
   },
   compress: false, // Let Lambda Web Adapter handle compression
   poweredByHeader: false,
+  experimental: {
+    instrumentationHook: true,
+  },
   typescript: {
     // !! WARN !!
     // Dangerously allow production builds to successfully complete even if

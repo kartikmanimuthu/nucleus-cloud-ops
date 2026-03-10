@@ -6,7 +6,7 @@
 
 // ─── Enumerations ──────────────────────────────────────────────────────
 
-export type TriggerSource = 'slack' | 'jira' | 'api';
+export type TriggerSource = 'slack' | 'jira' | 'api' | 'scheduled';
 
 export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
 
@@ -48,7 +48,13 @@ export interface ApiTriggerMeta {
     clientId?: string;
 }
 
-export type TriggerMetadata = SlackTriggerMeta | JiraTriggerMeta | ApiTriggerMeta;
+export interface ScheduledTriggerMeta {
+    taskId: string;
+    taskName: string;
+    scheduledAt: string;    // ISO timestamp of the scheduled fire time
+}
+
+export type TriggerMetadata = SlackTriggerMeta | JiraTriggerMeta | ApiTriggerMeta | ScheduledTriggerMeta;
 
 // ─── Agent Ops Run ─────────────────────────────────────────────────────
 
@@ -116,6 +122,48 @@ export interface AgentOpsEvent {
     metadata?: Record<string, unknown>;
     createdAt: string;
     ttl: number;
+}
+
+// ─── Scheduled Task ────────────────────────────────────────────────────
+
+export type ScheduledTaskStatus = 'active' | 'paused' | 'deleted';
+
+export interface ScheduledTaskNotification {
+    type: 'none' | 'slack' | 'jira';
+    channelId?: string;
+    channelName?: string;
+    projectKey?: string;
+    issueKey?: string;
+}
+
+export interface ScheduledTask {
+    PK: string;             // TENANT#<tenantId>
+    SK: string;             // SCHED#<taskId>
+    GSI1PK: string;         // TYPE#SCHEDULED_TASK
+    GSI1SK: string;         // <tenantId>#<taskId>
+    taskId: string;
+    tenantId: string;
+    name: string;
+    description: string;
+    cronExpression: string;
+    timezone: string;
+    taskStatus: ScheduledTaskStatus;
+    mode: AgentMode;
+    autoApprove: boolean;
+    model?: string;
+    accountId?: string;
+    accountName?: string;
+    mcpServerIds?: string[];
+    notification: ScheduledTaskNotification;
+    lastRunId?: string;
+    lastRunAt?: string;
+    lastRunStatus?: AgentOpsStatus;
+    nextRunAt?: string;
+    runCount: number;
+    createdAt: string;
+    updatedAt: string;
+    createdBy: string;
+    ttl?: number;
 }
 
 // ─── API Request / Response ────────────────────────────────────────────

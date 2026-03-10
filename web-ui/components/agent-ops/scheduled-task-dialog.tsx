@@ -1,0 +1,238 @@
+"use client"
+
+import { useState } from "react"
+import { CalendarClock, Loader2, Info } from "lucide-react"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { CronPicker } from "./cron-picker"
+import type { ScheduledTask } from "@/lib/agent-ops/types"
+
+interface ScheduledTaskDialogProps {
+    tenantId?: string
+    task?: ScheduledTask         // if provided → edit mode
+    onSaved?: (task: ScheduledTask) => void
+    trigger?: React.ReactNode
+}
+
+const DEFAULT_FORM = {
+    name: "",
+    description: "",
+    cronExpression: "0 9 * * *",
+    timezone: "UTC",
+    mode: "plan" as const,
+    autoApprove: false,
+    notificationType: "none" as "none" | "slack" | "jira",
+    channelId: "",
+    channelName: "",
+    issueKey: "",
+}
+
+export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigger }: ScheduledTaskDialogProps) {
+    const [open, setOpen] = useState(false)
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const [form, setForm] = useState(() => task ? {
+        name: task.name,
+        description: task.description,
+        cronExpression: task.cronExpression,
+        timezone: task.timezone,
+        mode: task.mode,
+        autoApprove: task.autoApprove,
+        notificationType: task.notification.type,
+        channelId: task.notification.channelId || "",
+        channelName: task.notification.channelName || "",
+        issueKey: task.notification.issueKey || "",
+    } : DEFAULT_FORM)
+
+    const set = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))
+
+    const handleSave = async () => {
+        if (!form.name.trim() || !form.description.trim()) {
+            setError("Name and description are required")
+            return
+        }
+        setError(null)
+        setLoading(true)
+        try {
+            const body = {
+                tenantId,
+                name: form.name.trim(),
+                description: form.description.trim(),
+                cronExpression: form.cronExpression,
+                timezone: form.timezone,
+                mode: form.mode,
+                autoApprove: form.autoApprove,
+                notification: {
+                    type: form.notificationType,
+                    ...(form.notificationType === "slack" && { channelId: form.channelId, channelName: form.channelName }),
+                    ...(form.notificationType === "jira" && { issueKey: form.issueKey }),
+                },
+            }
+
+            const url = task
+                ? `/api/agent-ops/scheduled-tasks/${task.taskId}`
+                : `/api/agent-ops/scheduled-tasks`
+            const method = task ? "PATCH" : "POST"
+
+            const res = await fetch(url, {
+                method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            })
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error || "Failed to save")
+
+            setOpen(false)
+            onSaved?.(data.task)
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "An error occurred")
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                {trigger ?? (
+                    <Button className="gap-2">
+                        <CalendarClock className="h-4 w-4" />
+                        New Scheduled Task
+                    </Button>
+                )}
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle>{task ? "Edit Scheduled Task" : "New Scheduled Task"}</DialogTitle>
+                    <DialogDescription>
+                        Configure a recurring agent task with a cron schedule.
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4 py-2">
+                    <div className="space-y-1.5">
+                        <Label>Task Name</Label>
+                        <Input
+                            placeholder="e.g. Daily Cost Anomaly Review"
+                            value={form.name}
+                            onChange={e => set("name", e.target.value)}
+                        />
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <Label>Objective</Label>
+                        <Textarea
+                            placeholder="What should the agent do on each run?"
+                            className="min-h-[80px]"
+                            value={form.description}
+                            onChange={e => set("description", e.target.value)}
+                        />
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <Label>Schedule</Label>
+                        <CronPicker
+                            value={form.cronExpression}
+                            timezone={form.timezone}
+                            onValueChange={v => set("cronExpression", v)}
+                            onTimezoneChange={v => set("timezone", v)}
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                            <Label>Mode</Label>
+                            <Select value={form.mode} onValueChange={v => set("mode", v)}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="plan">Plan (with approval)</SelectItem>
+                                    <SelectItem value="fast">Fast (direct execution)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label>Notification</Label>
+                            <Select value={form.notificationType} onValueChange={v => set("notificationType", v)}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">None (web UI only)</SelectItem>
+                                    <SelectItem value="slack">Slack channel</SelectItem>
+                                    <SelectItem value="jira">Jira issue comment</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
+                    {form.notificationType === "slack" && (
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <Label className="text-xs">Channel ID</Label>
+                                <Input placeholder="C0123456789" value={form.channelId} onChange={e => set("channelId", e.target.value)} />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-xs">Channel Name (optional)</Label>
+                                <Input placeholder="#cost-alerts" value={form.channelName} onChange={e => set("channelName", e.target.value)} />
+                            </div>
+                        </div>
+                    )}
+
+                    {form.notificationType === "jira" && (
+                        <div className="space-y-1.5">
+                            <Label className="text-xs">Jira Issue Key</Label>
+                            <Input placeholder="PROJ-123" value={form.issueKey} onChange={e => set("issueKey", e.target.value)} />
+                        </div>
+                    )}
+
+                    <div className="flex items-center justify-between rounded-lg border p-3">
+                        <div>
+                            <p className="text-sm font-medium">Auto-approve</p>
+                            <p className="text-xs text-muted-foreground">Skip human-in-the-loop approval gates</p>
+                        </div>
+                        <Switch
+                            checked={form.autoApprove}
+                            onCheckedChange={v => set("autoApprove", v)}
+                        />
+                    </div>
+
+                    {error && (
+                        <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-950/30 rounded flex items-start gap-2 border border-red-200 dark:border-red-900">
+                            <Info className="h-4 w-4 shrink-0 mt-0.5" />
+                            {error}
+                        </div>
+                    )}
+                </div>
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>Cancel</Button>
+                    <Button onClick={handleSave} disabled={loading}>
+                        {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                        {task ? "Save Changes" : "Create Task"}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
