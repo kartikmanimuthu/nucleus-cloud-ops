@@ -48,6 +48,7 @@ export function defineAbilitiesFor(
         can('manage', 'Resource');
         can('manage', 'User');
         can('manage', 'Agent');
+        can('manage', 'KnowledgeBase');
         can(['create', 'read', 'update'], 'Role');
         can('read', ['AuditLog', 'Billing']);
         can('export', 'AuditLog');
@@ -63,6 +64,8 @@ export function defineAbilitiesFor(
         can('execute', 'Schedule'); // Can execute schedules
         can('read', 'Resource');
         can('read', 'AuditLog');
+        can('read', 'KnowledgeBase');
+        can('create', 'KnowledgeBase');
         cannot('read', 'User'); // Explicitly forbid User access
         cannot('validate', 'Account');
         cannot('use', 'Agent');
@@ -70,7 +73,7 @@ export function defineAbilitiesFor(
 
     // Tenant Viewer - Read-only access (no execution, no validation)
     if (roles.includes('TenantViewer') || roles.includes('TenantViewers')) {
-        can('read', ['Account', 'Schedule', 'Resource', 'AuditLog']);
+        can('read', ['Account', 'Schedule', 'Resource', 'AuditLog', 'KnowledgeBase']);
         cannot('execute', 'Schedule'); // Explicitly forbid execution
         cannot('validate', 'Account');
         cannot('use', 'Agent');

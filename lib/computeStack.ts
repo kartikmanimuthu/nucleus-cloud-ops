@@ -302,6 +302,15 @@ export class ComputeStack extends cdk.Stack {
             distanceMetric: 'cosine',
         });
 
+        // Knowledge Base vector index (separate from inventory text-embeddings)
+        const kbVectorIndex = new Index(this, `${appName}-KBVectorIndex`, {
+            vectorBucketName: vectorBucket.vectorBucketName,
+            indexName: 'knowledge-base-embeddings',
+            dataType: 'float32',
+            dimension: 1024,
+            distanceMetric: 'cosine',
+        });
+
         // ============================================================================
         // AUTO-DISCOVERY INFRASTRUCTURE
         // ============================================================================
@@ -908,6 +917,10 @@ export class ComputeStack extends cdk.Stack {
                 VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName,
                 VECTOR_INDEX_NAME: vectorIndex.indexName,
                 BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+
+                // Knowledge Base Vector Config
+                KB_VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName,
+                KB_VECTOR_INDEX_NAME: kbVectorIndex.indexName,
                 // Ask AI generation model (configurable; defaults to Claude 3.5 Haiku)
                 ASK_AI_GENERATION_MODEL: process.env.ASK_AI_GENERATION_MODEL || "global.anthropic.claude-sonnet-4-6",
 
@@ -949,13 +962,15 @@ export class ComputeStack extends cdk.Stack {
             actions: [
                 "s3vectors:QueryVectors",
                 "s3vectors:PutVectors",
+                "s3vectors:DeleteVectors",
                 "s3vectors:GetVectors",
                 "s3vectors:ListVectorIndices"
             ],
             resources: [
                 vectorBucket.vectorBucketArn,
                 `${vectorBucket.vectorBucketArn}/*`,
-                vectorIndex.indexArn
+                vectorIndex.indexArn,
+                kbVectorIndex.indexArn,
             ]
         }));
 

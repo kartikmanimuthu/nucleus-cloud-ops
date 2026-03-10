@@ -94,6 +94,7 @@
     "next-auth": "^4.24.11",
     "next-themes": "latest",
     "npm": "^11.4.2",
+    "pdf-parse": "^2.4.5",
     "postcss": "^8",
     "react": "^19",
     "react-day-picker": "latest",
@@ -115,6 +116,7 @@
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "19.2.14",
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",

@@ -33,6 +33,7 @@ import {
   Database,
   Zap,
   Cable,
+  BookOpen,
 } from "lucide-react"
 
 const navigation = [
@@ -44,6 +45,7 @@ const navigation = [
   { name: "Channels", href: "/channels", icon: Cable },
   { name: "Cost Scheduler", href: "/schedules", icon: Calendar },
   { name: "Inventory Discovery", href: "/inventory", icon: Database },
+  { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen },
   { name: "Audit Logs", href: "/audit", icon: Activity },
   { name: "Users", href: "/admin/users", icon: Users },
   { name: "Settings", href: "/settings", icon: Settings },

@@ -11,6 +11,7 @@ export type Subjects =
     | 'AuditLog'        // Audit logs
     | 'Billing'         // Billing & subscription
     | 'Agent'           // AI agent access
+    | 'KnowledgeBase'   // Knowledge base management
     | 'all';            // Wildcard for all resources
 
 // Define your actions
