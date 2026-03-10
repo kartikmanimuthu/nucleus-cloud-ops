@@ -32,6 +32,7 @@ import {
   Users,
   Database,
   Zap,
+  Cable,
 } from "lucide-react"
 
 const navigation = [
@@ -40,6 +41,7 @@ const navigation = [
   { name: "AI Ops", href: "/agent", icon: Bot },
   { name: "Deep Agent", href: "/deep-agent", icon: Brain },
   { name: "Agent Ops", href: "/agent-ops", icon: Zap },
+  { name: "Channels", href: "/channels", icon: Cable },
   { name: "Cost Scheduler", href: "/schedules", icon: Calendar },
   { name: "Inventory Discovery", href: "/inventory", icon: Database },
   { name: "Audit Logs", href: "/audit", icon: Activity },
