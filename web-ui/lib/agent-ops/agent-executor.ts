@@ -47,6 +47,7 @@ function deriveUserId(run: AgentOpsRun): string {
     if (run.source === 'slack' && trigger?.userId) return `slack-${trigger.userId}`;
     if (run.source === 'jira' && trigger?.reporter) return `jira-${trigger.reporter}`;
     if (run.source === 'api' && trigger?.clientId) return `api-${trigger.clientId}`;
+    if (run.source === 'scheduled' && trigger?.taskId) return `scheduled-${trigger.taskId}`;
     return `tenant-${run.tenantId}`;
 }
 
