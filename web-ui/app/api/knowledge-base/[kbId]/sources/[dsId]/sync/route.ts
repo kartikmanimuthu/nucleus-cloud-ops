@@ -21,6 +21,32 @@ const AWS_REGION = process.env.AWS_REGION || 'ap-south-1';
 const MAX_FILES_PER_SYNC = 50;
 
 // ---------------------------------------------------------------------------
+// SSRF protection
+// ---------------------------------------------------------------------------
+
+const BLOCKED_PATTERNS = [
+  /^https?:\/\/localhost/i,
+  /^https?:\/\/127\./,
+  /^https?:\/\/10\./,
+  /^https?:\/\/172\.(1[6-9]|2\d|3[01])\./,
+  /^https?:\/\/192\.168\./,
+  /^https?:\/\/169\.254\./,
+  /^https?:\/\/\[::1\]/,
+  /^https?:\/\/\[fd/i,
+];
+
+function validateExternalUrl(url: string): void {
+  if (!url.startsWith('https://') && !url.startsWith('http://')) {
+    throw new Error(`Invalid URL scheme: ${url}`);
+  }
+  for (const pattern of BLOCKED_PATTERNS) {
+    if (pattern.test(url)) {
+      throw new Error(`URL points to a private/internal network address: ${url}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // MIME type helpers
 // ---------------------------------------------------------------------------
 
@@ -145,6 +171,7 @@ async function syncConfluence(
   dsId: string,
 ): Promise<{ vectorKeys: string[]; count: number }> {
   const baseUrl = config.baseUrl.replace(/\/$/, '');
+  validateExternalUrl(baseUrl);
   const allVectorKeys: string[] = [];
 
   let pages: Array<{ id: string; title: string; body: string }> = [];
@@ -224,6 +251,7 @@ async function syncBitbucket(
   dsId: string,
 ): Promise<{ vectorKeys: string[]; count: number }> {
   const apiBase = (config.baseUrl || 'https://api.bitbucket.org').replace(/\/$/, '');
+  validateExternalUrl(apiBase);
   const authHeader =
     'Basic ' + Buffer.from(`:${config.appPassword}`).toString('base64');
 
@@ -325,6 +353,8 @@ export async function POST(
   try {
     // Delete old vectors
     await deleteVectors(ds.vectorKeys);
+    await KnowledgeBaseService.updateDataSource(kbId, dsId, { vectorCount: 0, vectorKeys: [] });
+    await KnowledgeBaseService.updateVectorCount(kbId, -oldVectorCount, DEFAULT_TENANT_ID);
 
     let result: { vectorKeys: string[]; count: number };
 
@@ -353,10 +383,10 @@ export async function POST(
       lastSyncAt: new Date().toISOString(),
     });
 
-    // Update KB vector count (delta = new - old)
+    // Update KB vector count (old count was already decremented above; add only the new count)
     await KnowledgeBaseService.updateVectorCount(
       kbId,
-      result.count - oldVectorCount,
+      result.count,
       DEFAULT_TENANT_ID,
     );
 

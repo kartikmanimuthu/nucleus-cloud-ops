@@ -65,7 +65,7 @@ export async function POST(
       config: input.config,
     });
 
-    return NextResponse.json({ dataSource }, { status: 201 });
+    return NextResponse.json({ dataSource: sanitizeDataSource(dataSource) }, { status: 201 });
   } catch (error) {
     console.error('[KB Sources API] Error creating data source:', error);
     return NextResponse.json(

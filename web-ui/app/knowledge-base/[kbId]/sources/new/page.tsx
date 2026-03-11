@@ -651,7 +651,13 @@ export default function AddDataSourcePage() {
             <CardTitle className="text-base">Step 1 — Select Source Type</CardTitle>
           </CardHeader>
           <CardContent>
-            <KBSourceTypeSelector selected={selectedType} onSelect={setSelectedType} />
+            <KBSourceTypeSelector
+              selected={selectedType}
+              onSelect={(type) => {
+                setSelectedType(type);
+                setSyncPhase('idle');
+              }}
+            />
           </CardContent>
         </Card>
 
