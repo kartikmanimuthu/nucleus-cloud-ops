@@ -56,7 +56,7 @@ export function KBChat({ initialKbId }: KBChatProps) {
 
   // KB selector
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [selectedKbId, setSelectedKbId] = useState<string>(initialKbId || "");
+  const [selectedKbId, setSelectedKbId] = useState<string>(initialKbId || "__all__");
 
   // Fetch knowledge base list
   useEffect(() => {
@@ -107,7 +107,7 @@ export function KBChat({ initialKbId }: KBChatProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: trimmed,
-          knowledgeBaseId: selectedKbId || undefined,
+          knowledgeBaseId: selectedKbId === '__all__' ? undefined : selectedKbId,
           messages: conversationHistory,
         }),
       });
@@ -182,7 +182,7 @@ export function KBChat({ initialKbId }: KBChatProps) {
             <SelectValue placeholder="All Knowledge Bases" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Knowledge Bases</SelectItem>
+            <SelectItem value="__all__">All Knowledge Bases</SelectItem>
             {knowledgeBases.map((kb) => (
               <SelectItem key={kb.id} value={kb.id}>
                 {kb.name}

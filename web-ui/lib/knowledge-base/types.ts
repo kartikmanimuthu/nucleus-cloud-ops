@@ -71,6 +71,13 @@ export interface ConfluenceConfig {
   pageIds?: string[];
   mcpServerId: string;
   baseUrl: string;
+  /**
+   * Atlassian API token for authentication.
+   * Leave empty for public Confluence spaces only.
+   */
+  apiToken?: string;
+  /** Email address associated with the API token (required when apiToken is set). */
+  email?: string;
 }
 
 export interface BitbucketConfig {
@@ -78,6 +85,12 @@ export interface BitbucketConfig {
   repoSlug: string;
   branch: string;
   paths?: string[];
+  /**
+   * SENSITIVE — Bitbucket app password (or equivalent credential).
+   * Callers MUST mask this field before returning it in API responses.
+   * For production deployments, store the secret in AWS Secrets Manager
+   * and save only the secret ARN here instead of the plaintext value.
+   */
   appPassword: string;
   baseUrl?: string;
 }
@@ -108,6 +121,9 @@ export interface CreateDataSourceInput {
 // ---------------------------------------------------------------------------
 
 export interface KBChunk {
+  /** Raw content hash (SHA-256 of un-prefixed text) used for deduplication. */
+  contentHash: string;
+  /** Prefixed text sent to the embedding model. */
   text: string;
   index: number;
   total: number;
@@ -118,8 +134,10 @@ export interface VectorMetadata {
   dataSourceId: string;
   sourceType: string;
   documentName: string;
-  chunkIndex: number;
-  totalChunks: number;
+  /** Stored as string — S3 Vectors metadata values must be strings. */
+  chunkIndex: string;
+  /** Stored as string — S3 Vectors metadata values must be strings. */
+  totalChunks: string;
   contentHash: string;
   text_content: string;
   s3Key?: string;

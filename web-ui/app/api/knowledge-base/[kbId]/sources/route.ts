@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
+import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
 import type { CreateDataSourceInput, DataSource } from '@/lib/knowledge-base/types';
 
 function sanitizeDataSource(ds: DataSource): DataSource {
@@ -64,6 +65,8 @@ export async function POST(
       sourceType: input.sourceType,
       config: input.config,
     });
+
+    await KnowledgeBaseService.updateDataSourceCount(kbId, 1, DEFAULT_TENANT_ID);
 
     return NextResponse.json({ dataSource: sanitizeDataSource(dataSource) }, { status: 201 });
   } catch (error) {

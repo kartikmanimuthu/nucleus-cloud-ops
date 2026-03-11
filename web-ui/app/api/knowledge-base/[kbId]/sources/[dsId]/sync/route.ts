@@ -174,6 +174,12 @@ async function syncConfluence(
   validateExternalUrl(baseUrl);
   const allVectorKeys: string[] = [];
 
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (config.email && config.apiToken) {
+    const creds = Buffer.from(`${config.email}:${config.apiToken}`).toString('base64');
+    headers['Authorization'] = `Basic ${creds}`;
+  }
+
   let pages: Array<{ id: string; title: string; body: string }> = [];
 
   if (config.pageIds && config.pageIds.length > 0) {
@@ -181,7 +187,7 @@ async function syncConfluence(
     for (const pageId of config.pageIds.slice(0, MAX_FILES_PER_SYNC)) {
       try {
         const url = `${baseUrl}/wiki/rest/api/content/${pageId}?expand=body.view.value`;
-        const resp = await fetch(url, { headers: { Accept: 'application/json' } });
+        const resp = await fetch(url, { headers });
         if (!resp.ok) {
           console.error(`[KB Sync Confluence] Failed to fetch page ${pageId}: ${resp.status}`);
           continue;
@@ -200,7 +206,7 @@ async function syncConfluence(
     // Fetch by space key
     try {
       const url = `${baseUrl}/wiki/rest/api/content?spaceKey=${encodeURIComponent(config.spaceKey)}&expand=body.view.value&limit=25`;
-      const resp = await fetch(url, { headers: { Accept: 'application/json' } });
+      const resp = await fetch(url, { headers });
       if (resp.ok) {
         const data = await resp.json();
         const results: Array<{ id: string; title: string; body?: { view?: { value?: string } } }> =

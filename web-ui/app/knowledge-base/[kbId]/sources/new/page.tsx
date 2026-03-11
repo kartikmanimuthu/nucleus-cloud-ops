@@ -340,6 +340,8 @@ function ConfluenceForm({
   const [spaceKey, setSpaceKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [pageIds, setPageIds] = useState('');
+  const [confluenceEmail, setConfluenceEmail] = useState('');
+  const [confluenceApiToken, setConfluenceApiToken] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -363,6 +365,8 @@ function ConfluenceForm({
             pageIds: pageIds.trim()
               ? pageIds.split(',').map((p) => p.trim()).filter(Boolean)
               : undefined,
+            email: confluenceEmail.trim() || undefined,
+            apiToken: confluenceApiToken.trim() || undefined,
           },
         }),
       });
@@ -426,6 +430,25 @@ function ConfluenceForm({
           required
           disabled={isBusy}
         />
+      </FieldRow>
+      <FieldRow label="Atlassian Email">
+        <Input
+          type="email"
+          value={confluenceEmail}
+          onChange={(e) => setConfluenceEmail(e.target.value)}
+          placeholder="you@company.com"
+          disabled={isBusy}
+        />
+      </FieldRow>
+      <FieldRow label="API Token">
+        <Input
+          type="password"
+          value={confluenceApiToken}
+          onChange={(e) => setConfluenceApiToken(e.target.value)}
+          placeholder="Your Atlassian API token"
+          disabled={isBusy}
+        />
+        <p className="text-xs text-muted-foreground">Required for private Confluence spaces</p>
       </FieldRow>
       <FieldRow label="Page IDs">
         <Input
