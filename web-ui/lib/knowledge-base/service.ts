@@ -157,6 +157,16 @@ export class KnowledgeBaseService {
   }
 
   // ---- Delete KB ---------------------------------------------------------
+  /**
+   * Delete a Knowledge Base record from DynamoDB.
+   *
+   * WARNING — cascade responsibility lies with the caller.
+   * Before calling this method you MUST:
+   *   1. `listDataSources(kbId)` to get all data sources.
+   *   2. For each data source: call `deleteVectors(ds.vectorKeys)` (embedder)
+   *      then `deleteDataSource(kbId, ds.id)`.
+   * Skipping these steps will orphan DataSource records and S3 Vector entries.
+   */
   static async deleteKnowledgeBase(
     kbId: string,
     tenantId: string = DEFAULT_TENANT_ID,
@@ -173,6 +183,33 @@ export class KnowledgeBaseService {
     } catch (error: any) {
       console.error('[KBService] Error deleting knowledge base:', error);
       throw new Error(`Failed to delete knowledge base: ${error.message}`);
+    }
+  }
+
+  // ---- Increment / decrement data source count ---------------------------
+  static async updateDataSourceCount(
+    kbId: string,
+    delta: number,
+    tenantId: string = DEFAULT_TENANT_ID,
+  ): Promise<void> {
+    try {
+      await getDynamoDBDocumentClient().send(
+        new UpdateCommand({
+          TableName: APP_TABLE_NAME,
+          Key: { pk: tenantPK(tenantId), sk: kbSK(kbId) },
+          UpdateExpression:
+            'SET dataSourceCount = if_not_exists(dataSourceCount, :zero) + :delta, #updatedAt = :now',
+          ExpressionAttributeNames: { '#updatedAt': 'updatedAt' },
+          ExpressionAttributeValues: {
+            ':delta': delta,
+            ':zero': 0,
+            ':now': new Date().toISOString(),
+          },
+        }),
+      );
+    } catch (error: any) {
+      console.error('[KBService] Error updating data source count:', error);
+      throw new Error(`Failed to update data source count: ${error.message}`);
     }
   }
 
