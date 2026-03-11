@@ -4,6 +4,17 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { deleteVectors } from '@/lib/knowledge-base/embedder';
 import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import type { DataSource } from '@/lib/knowledge-base/types';
+
+function sanitizeDataSource(ds: DataSource): DataSource {
+  if (ds.sourceType === 'bitbucket') {
+    return {
+      ...ds,
+      config: { ...(ds.config as Record<string, unknown>), appPassword: '***' },
+    };
+  }
+  return ds;
+}
 
 // GET /api/knowledge-base/[kbId]
 export async function GET(
@@ -26,7 +37,7 @@ export async function GET(
       return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ knowledgeBase, dataSources });
+    return NextResponse.json({ knowledgeBase, dataSources: dataSources.map(sanitizeDataSource) });
   } catch (error) {
     console.error('[KB API] Error getting knowledge base:', error);
     return NextResponse.json(
@@ -50,6 +61,11 @@ export async function PUT(
     const { kbId } = await params;
     const body = await request.json();
     const { name, description } = body as { name?: string; description?: string };
+
+    const existing = await KnowledgeBaseService.getKnowledgeBase(kbId, DEFAULT_TENANT_ID);
+    if (!existing) {
+      return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
+    }
 
     await KnowledgeBaseService.updateKnowledgeBase(kbId, { name, description }, DEFAULT_TENANT_ID);
 

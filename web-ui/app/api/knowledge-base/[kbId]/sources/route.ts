@@ -2,7 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
-import type { CreateDataSourceInput } from '@/lib/knowledge-base/types';
+import type { CreateDataSourceInput, DataSource } from '@/lib/knowledge-base/types';
+
+function sanitizeDataSource(ds: DataSource): DataSource {
+  if (ds.sourceType === 'bitbucket') {
+    return {
+      ...ds,
+      config: { ...(ds.config as Record<string, unknown>), appPassword: '***' },
+    };
+  }
+  return ds;
+}
 
 // GET /api/knowledge-base/[kbId]/sources
 export async function GET(
@@ -17,7 +27,7 @@ export async function GET(
   try {
     const { kbId } = await params;
     const dataSources = await KnowledgeBaseService.listDataSources(kbId);
-    return NextResponse.json({ dataSources });
+    return NextResponse.json({ dataSources: dataSources.map(sanitizeDataSource) });
   } catch (error) {
     console.error('[KB Sources API] Error listing data sources:', error);
     return NextResponse.json(

@@ -111,7 +111,7 @@ export async function POST(
     // Update KB counters
     await Promise.all([
       KnowledgeBaseService.updateDataSourceCount(kbId, 1, DEFAULT_TENANT_ID),
-      KnowledgeBaseService.updateVectorCount(kbId, chunks.length, DEFAULT_TENANT_ID),
+      KnowledgeBaseService.updateVectorCount(kbId, vectorKeys.length, DEFAULT_TENANT_ID),
     ]);
 
     // Return updated data source
