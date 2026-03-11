@@ -153,7 +153,7 @@ ${contextString}`;
     });
 
     // 10. Build sources for X-AI-Sources header
-    const sources: KBSource[] = filtered.slice(0, 5).map((v) => {
+    const sources: KBSource[] = filtered.map((v) => {
       const meta = (v.metadata || {}) as Record<string, string>;
       return {
         documentName: meta.documentName || 'Unknown',
