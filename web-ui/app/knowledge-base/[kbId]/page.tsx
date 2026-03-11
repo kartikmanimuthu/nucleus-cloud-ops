@@ -11,6 +11,7 @@ import {
   GitBranch,
   Globe,
   Loader2,
+  MessageSquare,
   Plus,
   Trash2,
   Upload,
@@ -278,16 +279,27 @@ export default function KnowledgeBaseDetailPage() {
           </Badge>
         </div>
 
-        {/* Stats bar */}
-        <div className="flex items-center gap-6 text-sm text-muted-foreground">
-          <span>
-            <span className="font-semibold text-foreground">{kb.vectorCount.toLocaleString()}</span>{' '}
-            vectors
-          </span>
-          <span>
-            <span className="font-semibold text-foreground">{kb.dataSourceCount}</span>{' '}
-            data source{kb.dataSourceCount !== 1 ? 's' : ''}
-          </span>
+        {/* Stats bar and Ask Knowledge Base button */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-6 text-sm text-muted-foreground">
+            <span>
+              <span className="font-semibold text-foreground">{kb.vectorCount.toLocaleString()}</span>{' '}
+              vectors
+            </span>
+            <span>
+              <span className="font-semibold text-foreground">{kb.dataSourceCount}</span>{' '}
+              data source{kb.dataSourceCount !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <Button
+            variant="default"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push(`/knowledge-base/ask?kb=${kbId}`)}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Ask Knowledge Base
+          </Button>
         </div>
 
         {/* File upload dropzone */}
