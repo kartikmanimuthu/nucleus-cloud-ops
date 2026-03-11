@@ -6,6 +6,8 @@ import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { streamText } from 'ai';
 import { getEmbedding } from '@/lib/knowledge-base/embedder';
+import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
+import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
 
 // ============================================================================
 // AWS Clients
@@ -78,6 +80,14 @@ export async function POST(req: NextRequest) {
 
     if (!query || !query.trim()) {
       return NextResponse.json({ error: 'query is required' }, { status: 400 });
+    }
+
+    // Validate knowledgeBaseId ownership if provided
+    if (knowledgeBaseId) {
+      const kb = await KnowledgeBaseService.getKnowledgeBase(knowledgeBaseId, DEFAULT_TENANT_ID);
+      if (!kb) {
+        return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
+      }
     }
 
     if (!KB_VECTOR_BUCKET_NAME) {

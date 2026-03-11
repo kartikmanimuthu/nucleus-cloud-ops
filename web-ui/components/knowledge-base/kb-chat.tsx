@@ -135,16 +135,23 @@ export function KBChat({ initialKbId }: KBChatProps) {
       setIsLoading(false);
       setIsStreaming(true);
 
-      const reader = response.body!.getReader();
+      if (!response.body) {
+        throw new Error("Response body is not readable");
+      }
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let content = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        content += decoder.decode(value, { stream: true });
-        setMessages((prev) =>
-          prev.map((m) => (m.id === msgId ? { ...m, content } : m)),
-        );
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          content += decoder.decode(value, { stream: true });
+          setMessages((prev) =>
+            prev.map((m) => (m.id === msgId ? { ...m, content } : m)),
+          );
+        }
+      } finally {
+        reader.releaseLock();
       }
 
       setIsStreaming(false);
