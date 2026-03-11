@@ -51,9 +51,9 @@ export class KnowledgeBaseService {
 
       const response = await getDynamoDBDocumentClient().send(command);
       return (response.Items || []).map((item) => itemToKB(item, tenantId));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error listing knowledge bases:', error);
-      throw new Error(`Failed to list knowledge bases: ${error.message}`);
+      throw new Error(`Failed to list knowledge bases: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -71,9 +71,9 @@ export class KnowledgeBaseService {
       const response = await getDynamoDBDocumentClient().send(command);
       if (!response.Item) return null;
       return itemToKB(response.Item, tenantId);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error getting knowledge base:', error);
-      throw new Error(`Failed to get knowledge base: ${error.message}`);
+      throw new Error(`Failed to get knowledge base: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -111,9 +111,9 @@ export class KnowledgeBaseService {
 
       console.log(`[KBService] Created knowledge base "${data.name}" (${id})`);
       return itemToKB(item, tenantId);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error creating knowledge base:', error);
-      throw new Error(`Failed to create knowledge base: ${error.message}`);
+      throw new Error(`Failed to create knowledge base: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -126,7 +126,7 @@ export class KnowledgeBaseService {
     try {
       const expressionParts: string[] = ['#updatedAt = :updatedAt'];
       const names: Record<string, string> = { '#updatedAt': 'updatedAt' };
-      const values: Record<string, any> = { ':updatedAt': new Date().toISOString() };
+      const values: Record<string, unknown> = { ':updatedAt': new Date().toISOString() };
 
       if (data.name !== undefined) {
         expressionParts.push('#name = :name');
@@ -150,9 +150,9 @@ export class KnowledgeBaseService {
       );
 
       console.log(`[KBService] Updated knowledge base ${kbId}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error updating knowledge base:', error);
-      throw new Error(`Failed to update knowledge base: ${error.message}`);
+      throw new Error(`Failed to update knowledge base: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -180,9 +180,9 @@ export class KnowledgeBaseService {
       );
 
       console.log(`[KBService] Deleted knowledge base ${kbId}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error deleting knowledge base:', error);
-      throw new Error(`Failed to delete knowledge base: ${error.message}`);
+      throw new Error(`Failed to delete knowledge base: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -207,9 +207,9 @@ export class KnowledgeBaseService {
           },
         }),
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error updating data source count:', error);
-      throw new Error(`Failed to update data source count: ${error.message}`);
+      throw new Error(`Failed to update data source count: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -234,9 +234,9 @@ export class KnowledgeBaseService {
           },
         }),
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error updating vector count:', error);
-      throw new Error(`Failed to update vector count: ${error.message}`);
+      throw new Error(`Failed to update vector count: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -258,9 +258,9 @@ export class KnowledgeBaseService {
 
       const response = await getDynamoDBDocumentClient().send(command);
       return (response.Items || []).map((item) => itemToDS(item));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error listing data sources:', error);
-      throw new Error(`Failed to list data sources: ${error.message}`);
+      throw new Error(`Failed to list data sources: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -278,9 +278,9 @@ export class KnowledgeBaseService {
       const response = await getDynamoDBDocumentClient().send(command);
       if (!response.Item) return null;
       return itemToDS(response.Item);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error getting data source:', error);
-      throw new Error(`Failed to get data source: ${error.message}`);
+      throw new Error(`Failed to get data source: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -319,9 +319,9 @@ export class KnowledgeBaseService {
       // We don't know the tenantId here — the caller should handle that
       console.log(`[KBService] Created data source "${data.name}" (${id}) for KB ${kbId}`);
       return itemToDS(item);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error creating data source:', error);
-      throw new Error(`Failed to create data source: ${error.message}`);
+      throw new Error(`Failed to create data source: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -334,7 +334,7 @@ export class KnowledgeBaseService {
     try {
       const expressionParts: string[] = ['#updatedAt = :updatedAt'];
       const names: Record<string, string> = { '#updatedAt': 'updatedAt' };
-      const values: Record<string, any> = { ':updatedAt': new Date().toISOString() };
+      const values: Record<string, unknown> = { ':updatedAt': new Date().toISOString() };
 
       const allowedFields = [
         'name',
@@ -367,9 +367,9 @@ export class KnowledgeBaseService {
       );
 
       console.log(`[KBService] Updated data source ${dsId}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error updating data source:', error);
-      throw new Error(`Failed to update data source: ${error.message}`);
+      throw new Error(`Failed to update data source: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -387,9 +387,9 @@ export class KnowledgeBaseService {
       );
 
       console.log(`[KBService] Deleted data source ${dsId}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[KBService] Error deleting data source:', error);
-      throw new Error(`Failed to delete data source: ${error.message}`);
+      throw new Error(`Failed to delete data source: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
@@ -398,7 +398,7 @@ export class KnowledgeBaseService {
 // DynamoDB item → typed object mappers
 // ---------------------------------------------------------------------------
 
-function itemToKB(item: Record<string, any>, tenantId: string): KnowledgeBase {
+function itemToKB(item: Record<string, unknown>, tenantId: string): KnowledgeBase {
   return {
     id: item.id,
     tenantId: item.tenantId || tenantId,
@@ -413,7 +413,7 @@ function itemToKB(item: Record<string, any>, tenantId: string): KnowledgeBase {
   };
 }
 
-function itemToDS(item: Record<string, any>): DataSource {
+function itemToDS(item: Record<string, unknown>): DataSource {
   return {
     id: item.id,
     knowledgeBaseId: item.knowledgeBaseId,

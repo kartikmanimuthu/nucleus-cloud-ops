@@ -72,6 +72,9 @@ function getS3VectorsClient(): S3VectorsClient {
 /**
  * Split `text` into chunks of ~CHUNK_SIZE characters with CHUNK_OVERLAP overlap.
  * Each chunk is prefixed with "Document: {documentName} | Chunk {i}/{n}\n\n".
+ *
+ * `contentHash` is computed on the raw (un-prefixed) chunk so that the same
+ * content always produces the same hash regardless of document name or position.
  */
 export function chunkText(text: string, documentName: string): KBChunk[] {
   const rawChunks = recursiveSplit(text, CHUNK_SIZE, SEPARATORS);
@@ -88,8 +91,11 @@ export function chunkText(text: string, documentName: string): KBChunk[] {
   }
 
   const total = overlapped.length;
-  return overlapped.map((chunk, idx) => ({
-    text: `Document: ${documentName} | Chunk ${idx + 1}/${total}\n\n${chunk}`,
+  return overlapped.map((rawChunk, idx) => ({
+    // Hash is computed on raw content BEFORE the prefix — ensures dedup is
+    // stable across renames and re-uploads with different chunk counts.
+    contentHash: computeContentHash(rawChunk),
+    text: `Document: ${documentName} | Chunk ${idx + 1}/${total}\n\n${rawChunk}`,
     index: idx,
     total,
   }));
@@ -208,7 +214,9 @@ export async function embedAndStoreChunks(params: {
 
   // 2. Build vector records
   const vectors = chunks.map((chunk, idx) => {
-    const contentHash = computeContentHash(chunk.text);
+    // Use the pre-computed hash from chunkText() — it was computed on raw text
+    // (before the document-name prefix) so it is stable across renames/re-uploads.
+    const contentHash = chunk.contentHash;
     const key = `kb_${knowledgeBaseId}_${dataSourceId}_${chunk.index}_${contentHash}`;
 
     const metadata: Record<string, string> = {
@@ -239,6 +247,7 @@ export async function embedAndStoreChunks(params: {
       new PutVectorsCommand({
         vectorBucketName: KB_VECTOR_BUCKET_NAME,
         indexName: KB_VECTOR_INDEX_NAME,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         vectors: batch as any,
       }),
     );
