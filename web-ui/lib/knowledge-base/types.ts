@@ -82,16 +82,20 @@ export interface ConfluenceConfig {
 
 export interface BitbucketConfig {
   workspace: string;
-  repoSlug: string;
-  branch: string;
+  /** Optional — if omitted, all repos in the workspace are scraped. */
+  project?: string;
+  /** Optional — if omitted, all repos in the workspace/project are scraped. */
+  repoSlug?: string;
+  /** Optional — defaults to main → master → repo default branch. */
+  branch?: string;
   paths?: string[];
   /**
-   * SENSITIVE — Bitbucket app password (or equivalent credential).
+   * SENSITIVE — Atlassian API token.
    * Callers MUST mask this field before returning it in API responses.
-   * For production deployments, store the secret in AWS Secrets Manager
-   * and save only the secret ARN here instead of the plaintext value.
    */
-  appPassword: string;
+  apiToken: string;
+  /** Atlassian account email associated with the API token. */
+  email: string;
   baseUrl?: string;
 }
 

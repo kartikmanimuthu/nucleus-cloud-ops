@@ -1,0 +1,28 @@
+{
+  "name": "kb-sync-processor",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "AWS_SDK_LOAD_CONFIG=1  tsx src/local-runner.ts",
+    "dev:file-upload": "AWS_SDK_LOAD_CONFIG=1  tsx src/local-runner.ts --type=file-upload",
+    "dev:s3-sync": "AWS_SDK_LOAD_CONFIG=1  tsx src/local-runner.ts --type=s3-sync",
+    "dev:confluence": "AWS_SDK_LOAD_CONFIG=1  tsx src/local-runner.ts --type=confluence-sync",
+    "dev:bitbucket": "AWS_SDK_LOAD_CONFIG=1  tsx src/local-runner.ts --type=bitbucket-sync",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.0.0",
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/client-s3vectors": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.0",
+    "@types/node": "^20.0.0",
+    "@types/pdf-parse": "^1.1.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.0.0"
+  }
+}

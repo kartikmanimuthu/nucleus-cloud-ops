@@ -12,9 +12,9 @@ function KnowledgeBaseAskContent() {
   const kbIdFromParams = searchParams.get('kb') ?? undefined;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-screen overflow-hidden">
       {/* Page header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b shrink-0">
+      <div className="flex items-center gap-3 px-6 py-4 border-b shrink-0 bg-background">
         <Button variant="ghost" size="sm" asChild className="h-8 w-8 p-0">
           <Link href="/knowledge-base" aria-label="Back to Knowledge Bases">
             <ArrowLeft className="h-4 w-4" />
@@ -24,8 +24,10 @@ function KnowledgeBaseAskContent() {
         <h1 className="text-lg font-semibold">Knowledge Base Chat</h1>
       </div>
 
-      {/* Chat */}
-      <KBChat initialKbId={kbIdFromParams} />
+      {/* Chat — fills remaining height */}
+      <div className="flex-1 min-h-0">
+        <KBChat initialKbId={kbIdFromParams} />
+      </div>
     </div>
   );
 }

@@ -65,7 +65,6 @@ function FileUploadForm({ kbId }: { kbId: string }) {
       try {
         const formData = new FormData();
         formData.append('file', file);
-        setPhase('embedding');
         const res = await fetch(`/api/knowledge-base/${kbId}/upload`, {
           method: 'POST',
           body: formData,
@@ -75,8 +74,8 @@ function FileUploadForm({ kbId }: { kbId: string }) {
           throw new Error(data.error ?? 'Upload failed');
         }
         setPhase('done');
-        toast.success(`"${file.name}" uploaded and embedded successfully`);
-        setTimeout(() => router.push(`/knowledge-base/${kbId}`), 1200);
+        toast.success(`"${file.name}" queued for processing`);
+        router.push(`/knowledge-base/${kbId}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Upload failed';
         setErrorMsg(msg);
@@ -87,7 +86,7 @@ function FileUploadForm({ kbId }: { kbId: string }) {
     [kbId, phase, router],
   );
 
-  const isUploading = phase === 'uploading' || phase === 'embedding';
+  const isUploading = phase === 'uploading';
 
   const zoneLabel = () => {
     switch (phase) {
@@ -242,20 +241,12 @@ function S3BucketForm({
 
       const { dataSource } = await createRes.json();
 
-      setPhase('syncing');
-      const syncRes = await fetch(
-        `/api/knowledge-base/${kbId}/sources/${dataSource.id}/sync`,
-        { method: 'POST' },
-      );
-
-      if (!syncRes.ok) {
-        const data = await syncRes.json();
-        throw new Error(data.error ?? 'Sync failed');
-      }
+      // Enqueue sync — returns 202 immediately
+      await fetch(`/api/knowledge-base/${kbId}/sources/${dataSource.id}/sync`, { method: 'POST' });
 
       setPhase('done');
-      toast.success(`"${name}" added and synced successfully`);
-      setTimeout(() => router.push(`/knowledge-base/${kbId}`), 1200);
+      toast.success(`"${name}" added — syncing in background`);
+      router.push(`/knowledge-base/${kbId}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Operation failed';
       setErrorMsg(msg);
@@ -378,20 +369,12 @@ function ConfluenceForm({
 
       const { dataSource } = await createRes.json();
 
-      setPhase('syncing');
-      const syncRes = await fetch(
-        `/api/knowledge-base/${kbId}/sources/${dataSource.id}/sync`,
-        { method: 'POST' },
-      );
-
-      if (!syncRes.ok) {
-        const data = await syncRes.json();
-        throw new Error(data.error ?? 'Sync failed');
-      }
+      // Enqueue sync — returns 202 immediately
+      await fetch(`/api/knowledge-base/${kbId}/sources/${dataSource.id}/sync`, { method: 'POST' });
 
       setPhase('done');
-      toast.success(`"${name}" added and synced successfully`);
-      setTimeout(() => router.push(`/knowledge-base/${kbId}`), 1200);
+      toast.success(`"${name}" added — syncing in background`);
+      router.push(`/knowledge-base/${kbId}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Operation failed';
       setErrorMsg(msg);
@@ -491,16 +474,17 @@ function BitbucketForm({
   const router = useRouter();
   const [name, setName] = useState('');
   const [workspace, setWorkspace] = useState('');
+  const [project, setProject] = useState('');
   const [repoSlug, setRepoSlug] = useState('');
-  const [branch, setBranch] = useState('main');
-  const [bbBaseUrl, setBbBaseUrl] = useState('');
-  const [appPassword, setAppPassword] = useState('');
+  const [branch, setBranch] = useState('');
+  const [email, setEmail] = useState('');
+  const [apiToken, setApiToken] = useState('');
   const [paths, setPaths] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !workspace.trim() || !repoSlug.trim() || !branch.trim() || !appPassword.trim()) return;
+    if (!name.trim() || !workspace.trim() || !email.trim() || !apiToken.trim()) return;
 
     setPhase('creating');
     setErrorMsg(null);
@@ -514,10 +498,11 @@ function BitbucketForm({
           sourceType: 'bitbucket',
           config: {
             workspace: workspace.trim(),
-            repoSlug: repoSlug.trim(),
-            branch: branch.trim(),
-            appPassword: appPassword.trim(),
-            baseUrl: bbBaseUrl.trim() || undefined,
+            project: project.trim() || undefined,
+            repoSlug: repoSlug.trim() || undefined,
+            branch: branch.trim() || undefined,
+            email: email.trim(),
+            apiToken: apiToken.trim(),
             paths: paths.trim()
               ? paths.split(',').map((p) => p.trim()).filter(Boolean)
               : undefined,
@@ -530,22 +515,12 @@ function BitbucketForm({
         throw new Error(data.error ?? 'Failed to create data source');
       }
 
-      const { dataSource } = await createRes.json();
-
-      setPhase('syncing');
-      const syncRes = await fetch(
-        `/api/knowledge-base/${kbId}/sources/${dataSource.id}/sync`,
-        { method: 'POST' },
-      );
-
-      if (!syncRes.ok) {
-        const data = await syncRes.json();
-        throw new Error(data.error ?? 'Sync failed');
-      }
+      const { dataSource: bbDs } = await createRes.json();
+      await fetch(`/api/knowledge-base/${kbId}/sources/${bbDs.id}/sync`, { method: 'POST' });
 
       setPhase('done');
-      toast.success(`"${name}" added and synced successfully`);
-      setTimeout(() => router.push(`/knowledge-base/${kbId}`), 1200);
+      toast.success(`"${name}" added — syncing in background`);
+      router.push(`/knowledge-base/${kbId}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Operation failed';
       setErrorMsg(msg);
@@ -555,75 +530,44 @@ function BitbucketForm({
   };
 
   const isBusy = phase === 'creating' || phase === 'syncing';
-  const isValid =
-    name.trim() && workspace.trim() && repoSlug.trim() && branch.trim() && appPassword.trim();
+  const isValid = name.trim() && workspace.trim() && email.trim() && apiToken.trim();
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 mt-4">
       <FieldRow label="Name" required>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="My Repo Docs"
-          required
-          disabled={isBusy}
-        />
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Repo Docs" required disabled={isBusy} />
       </FieldRow>
       <FieldRow label="Workspace" required>
-        <Input
-          value={workspace}
-          onChange={(e) => setWorkspace(e.target.value)}
-          placeholder="my-workspace"
-          required
-          disabled={isBusy}
-        />
+        <Input value={workspace} onChange={(e) => setWorkspace(e.target.value)} placeholder="my-workspace" required disabled={isBusy} />
+        <p className="text-xs text-muted-foreground">All repos in the workspace will be scraped unless project or repo is specified.</p>
       </FieldRow>
-      <FieldRow label="Repository Slug" required>
-        <Input
-          value={repoSlug}
-          onChange={(e) => setRepoSlug(e.target.value)}
-          placeholder="my-repo"
-          required
-          disabled={isBusy}
-        />
+      <FieldRow label="Project Key">
+        <Input value={project} onChange={(e) => setProject(e.target.value)} placeholder="MYPROJECT" disabled={isBusy} />
+        <p className="text-xs text-muted-foreground">Optional — scrape only repos under this project.</p>
       </FieldRow>
-      <FieldRow label="Branch" required>
-        <Input
-          value={branch}
-          onChange={(e) => setBranch(e.target.value)}
-          placeholder="main"
-          required
-          disabled={isBusy}
-        />
+      <FieldRow label="Repository Slug">
+        <Input value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder="my-repo" disabled={isBusy} />
+        <p className="text-xs text-muted-foreground">Optional — scrape only this specific repo.</p>
       </FieldRow>
-      <FieldRow label="App Password" required>
-        <Input
-          type="password"
-          value={appPassword}
-          onChange={(e) => setAppPassword(e.target.value)}
-          placeholder="••••••••"
-          required
-          disabled={isBusy}
-        />
+      <FieldRow label="Branch">
+        <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Defaults to main or master" disabled={isBusy} />
       </FieldRow>
-      <FieldRow label="Base URL">
-        <Input
-          value={bbBaseUrl}
-          onChange={(e) => setBbBaseUrl(e.target.value)}
-          placeholder="https://api.bitbucket.org"
-          disabled={isBusy}
-        />
+      <FieldRow label="Atlassian Email" required>
+        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required disabled={isBusy} />
+      </FieldRow>
+      <FieldRow label="API Token" required>
+        <Input type="password" value={apiToken} onChange={(e) => setApiToken(e.target.value)} placeholder="Your Atlassian API token" required disabled={isBusy} />
+        <p className="text-xs text-muted-foreground">
+          Generate at{' '}
+          <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer" className="underline">
+            id.atlassian.com
+          </a>
+          . App passwords are no longer supported.
+        </p>
       </FieldRow>
       <FieldRow label="File Paths">
-        <Input
-          value={paths}
-          onChange={(e) => setPaths(e.target.value)}
-          placeholder="docs/,src/README.md"
-          disabled={isBusy}
-        />
-        <p className="text-xs text-muted-foreground">
-          Comma-separated paths. Leave blank to sync all supported files.
-        </p>
+        <Input value={paths} onChange={(e) => setPaths(e.target.value)} placeholder="docs/,src/README.md" disabled={isBusy} />
+        <p className="text-xs text-muted-foreground">Comma-separated paths. Leave blank to sync all supported files.</p>
       </FieldRow>
 
       {errorMsg && <p className="text-sm text-destructive">{errorMsg}</p>}

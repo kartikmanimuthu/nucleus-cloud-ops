@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BookOpen, Loader2, Plus, Database } from 'lucide-react';
+import { BookOpen, Loader2, Plus, Database, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -26,6 +30,8 @@ export default function KnowledgeBasePage() {
   const [creating, setCreating] = useState(false);
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<KnowledgeBase | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchKBs = async () => {
     try {
@@ -82,6 +88,22 @@ export default function KnowledgeBasePage() {
     setFormName('');
     setFormDescription('');
     setDialogOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/knowledge-base/${deleteTarget.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Delete failed');
+      toast.success(`"${deleteTarget.name}" deleted`);
+      setDeleteTarget(null);
+      await fetchKBs();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -147,14 +169,25 @@ export default function KnowledgeBasePage() {
                   <p className="text-xs text-muted-foreground">
                     {kb.vectorCount.toLocaleString()} vectors &middot; {kb.dataSourceCount} source{kb.dataSourceCount !== 1 ? 's' : ''}
                   </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => router.push(`/knowledge-base/${kb.id}`)}
-                  >
-                    Open
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => router.push(`/knowledge-base/${kb.id}`)}
+                    >
+                      Open
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(kb); }}
+                      title="Delete knowledge base"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -201,6 +234,25 @@ export default function KnowledgeBasePage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Delete KB confirm */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete knowledge base?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &ldquo;{deleteTarget?.name}&rdquo; and all its data sources and vectors. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={handleDelete} disabled={deleting}>
+              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

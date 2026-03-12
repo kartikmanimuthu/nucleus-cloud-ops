@@ -10,7 +10,7 @@ function sanitizeDataSource(ds: DataSource): DataSource {
   if (ds.sourceType === 'bitbucket') {
     return {
       ...ds,
-      config: { ...(ds.config as Record<string, unknown>), appPassword: '***' },
+      config: { ...(ds.config as Record<string, unknown>), apiToken: '***' },
     };
   }
   return ds;

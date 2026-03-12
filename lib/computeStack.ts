@@ -312,6 +312,79 @@ export class ComputeStack extends cdk.Stack {
         });
 
         // ============================================================================
+        // KNOWLEDGE BASE BACKGROUND SYNC INFRASTRUCTURE
+        // ============================================================================
+
+        // S3 staging bucket — temporary storage for uploaded files before Lambda processes them
+        const kbStagingBucket = new s3.Bucket(this, `${appName}-KBStagingBucket`, {
+            bucketName: `${appName}-kb-staging-${this.account}-${this.region}`,
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            autoDeleteObjects: true,
+            lifecycleRules: [{ expiration: cdk.Duration.days(1) }], // Auto-cleanup after 24h
+        });
+
+        // SQS DLQ for failed KB sync jobs
+        const kbSyncDLQ = new sqs.Queue(this, `${appName}-KBSyncDLQ`, {
+            queueName: `${appName}-kb-sync-dlq`,
+            retentionPeriod: cdk.Duration.days(14),
+        });
+
+        // SQS queue for KB sync jobs
+        const kbSyncQueue = new sqs.Queue(this, `${appName}-KBSyncQueue`, {
+            queueName: `${appName}-kb-sync-queue`,
+            visibilityTimeout: cdk.Duration.seconds(900), // Must be >= Lambda timeout
+            receiveMessageWaitTime: cdk.Duration.seconds(20),
+            deadLetterQueue: { queue: kbSyncDLQ, maxReceiveCount: 3 },
+        });
+
+        // KB Sync Processor Lambda
+        const kbSyncProcessor = new lambda_nodejs.NodejsFunction(this, `${appName}-KBSyncProcessor`, {
+            functionName: `${stackName}-kb-sync-processor`,
+            runtime: lambda.Runtime.NODEJS_20_X,
+            architecture: lambda.Architecture.ARM_64,
+            entry: path.join(__dirname, '../lambda/kb_sync_processor/src/index.ts'),
+            handler: 'handler',
+            // Use the Lambda's own package-lock.json so npm ci can install pdf-parse + s3vectors
+            depsLockFilePath: path.join(__dirname, '../lambda/kb_sync_processor/package-lock.json'),
+            bundling: {
+                minify: true,
+                externalModules: [
+                    '@aws-sdk/client-s3',
+                    '@aws-sdk/client-bedrock-runtime',
+                    '@aws-sdk/client-dynamodb',
+                    '@aws-sdk/lib-dynamodb',
+                ],
+                nodeModules: ['pdf-parse', '@aws-sdk/client-s3vectors'],
+            },
+            timeout: cdk.Duration.minutes(15),
+            memorySize: 1024,
+            environment: {
+                APP_TABLE_NAME: appTable.tableName,
+                KB_VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName,
+                KB_VECTOR_INDEX_NAME: kbVectorIndex.indexName,
+                KB_STAGING_BUCKET_NAME: kbStagingBucket.bucketName,
+                BEDROCK_MODEL_ID: 'amazon.titan-embed-text-v2:0',
+            },
+        });
+
+        kbSyncProcessor.addEventSource(new lambda_event_sources.SqsEventSource(kbSyncQueue, { batchSize: 1 }));
+        kbStagingBucket.grantReadWrite(kbSyncProcessor);
+        appTable.grantReadWriteData(kbSyncProcessor);
+        kbSyncProcessor.addToRolePolicy(new iam.PolicyStatement({
+            actions: ['s3vectors:PutVectors', 's3vectors:DeleteVectors', 's3vectors:QueryVectors'],
+            resources: [vectorBucket.vectorBucketArn, `${vectorBucket.vectorBucketArn}/*`, kbVectorIndex.indexArn],
+        }));
+        kbSyncProcessor.addToRolePolicy(new iam.PolicyStatement({
+            actions: ['bedrock:InvokeModel'],
+            resources: ['*'],
+        }));
+        // Allow Lambda to read from arbitrary S3 buckets (for s3-sync data source type)
+        kbSyncProcessor.addToRolePolicy(new iam.PolicyStatement({
+            actions: ['s3:GetObject', 's3:ListBucket'],
+            resources: ['*'],
+        }));
+
+        // ============================================================================
         // AUTO-DISCOVERY INFRASTRUCTURE
         // ============================================================================
 
@@ -921,6 +994,8 @@ export class ComputeStack extends cdk.Stack {
                 // Knowledge Base Vector Config
                 KB_VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName,
                 KB_VECTOR_INDEX_NAME: kbVectorIndex.indexName,
+                KB_SYNC_QUEUE_URL: kbSyncQueue.queueUrl,
+                KB_STAGING_BUCKET_NAME: kbStagingBucket.bucketName,
                 // Ask AI generation model (configurable; defaults to Claude 3.5 Haiku)
                 ASK_AI_GENERATION_MODEL: process.env.ASK_AI_GENERATION_MODEL || "global.anthropic.claude-sonnet-4-6",
 
@@ -973,6 +1048,10 @@ export class ComputeStack extends cdk.Stack {
                 kbVectorIndex.indexArn,
             ]
         }));
+
+        // Grant ECS task role permission to enqueue KB sync jobs and stage files
+        kbSyncQueue.grantSendMessages(ecsTaskRole);
+        kbStagingBucket.grantReadWrite(ecsTaskRole);
 
         // Application Load Balancer
         const alb = new elbv2.ApplicationLoadBalancer(this, `${appName}-WebUIAlb`, {
