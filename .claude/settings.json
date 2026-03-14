@@ -1,18 +1,92 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git status)",
+      "Bash(git status*)",
       "Bash(git diff*)",
       "Bash(git log*)",
       "Bash(git branch*)",
       "Bash(git stash*)",
+      "Bash(git checkout*)",
+      "Bash(git show*)",
+      "Bash(git rev-parse*)",
       "Bash(npm run lint*)",
       "Bash(npm run test*)",
       "Bash(npm run build*)",
-      "Bash(npm run dev*)",
       "Bash(npm install*)",
       "Bash(npx cdk diff*)",
-      "Bash(npx cdk ls*)"
+      "Bash(npx cdk ls*)",
+      "Bash(npx cdk synth*)",
+      "Bash(npx tsc --noEmit*)",
+      "Bash(npx playwright test*)",
+      "Bash(npx playwright show-report*)",
+      "Bash(npx playwright codegen*)",
+      "Bash(aws sts get-caller-identity*)",
+      "Bash(cd web-ui && npm run lint*)",
+      "Bash(cd web-ui && npm run test*)",
+      "Bash(cd web-ui && npm run build*)",
+      "Bash(cd web-ui && npm install*)",
+      "Bash(ls *)",
+      "Bash(wc *)",
+      "Bash(python3 --version*)",
+      "Bash(node --version*)",
+      "Read",
+      "Write",
+      "Edit",
+      "WebSearch",
+      "WebFetch(domain:*.langchain.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:langfuse.com)",
+      "WebFetch(domain:docs.aws.amazon.com)",
+      "WebFetch(domain:*.radix-ui.com)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(npx cdk deploy*)",
+      "Bash(npx cdk destroy*)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import sys,json,os; d=json.load(sys.stdin); fp=d.get('tool_input',{}).get('file_path',''); n=os.path.basename(fp); (print('BLOCKED: Do not edit .env files directly. Use .env.local.example as the template.') or sys.exit(1)) if n.startswith('.env') and not n.endswith('.example') else None\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import sys,json,os; d=json.load(sys.stdin); fp=d.get('tool_input',{}).get('file_path',''); n=os.path.basename(fp); (print('BLOCKED: Do not edit lock files directly. Run npm install instead.') or sys.exit(1)) if n in ['package-lock.json','yarn.lock'] else None\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import sys,json,os; d=json.load(sys.stdin); fp=d.get('tool_input',{}).get('file_path',''); n=os.path.basename(fp); print('WARNING: Editing critical CDK infrastructure stack. Run npx cdk diff after changes to verify impact.') if n in ['computeStack.ts','networkingStack.ts'] else None\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import sys,json,os,subprocess; d=json.load(sys.stdin); fp=d.get('tool_input',{}).get('file_path',''); wui=os.path.join(os.getcwd(),'web-ui'); rel=os.path.relpath(fp,wui); subprocess.run(['npx','next','lint','--file',rel,'--quiet'],cwd=wui) if fp.endswith(('.ts','.tsx')) and fp.startswith(wui) else None; sys.exit(0)\""
+          }
+        ]
+      }
     ]
   }
 }
