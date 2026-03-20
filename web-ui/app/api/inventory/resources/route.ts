@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DynamoDBClient, QueryCommand, QueryCommandInput } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, QueryCommand, QueryCommandInput, BatchGetItemCommand } from '@aws-sdk/client-dynamodb';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
 
 const dynamoClient = new DynamoDBClient({
@@ -7,6 +7,7 @@ const dynamoClient = new DynamoDBClient({
 });
 
 const INVENTORY_TABLE_NAME = process.env.INVENTORY_TABLE_NAME || 'nucleus-app-inventory-table';
+const APP_TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || 'nucleus-app-app-table';
 
 export interface InventoryResource {
     pk: string;
@@ -23,12 +24,13 @@ export interface InventoryResource {
     discoveryScanId?: string;
     tenantId?: string;
     tags?: Record<string, string>;
-    Metadata?: Record<string, any>;
-    RawMetadata?: Record<string, any>;
+    Metadata?: Record<string, unknown>;
+    RawMetadata?: Record<string, unknown>;
 }
 
 export interface ListResourcesParams {
     accountId?: string;
+    accountIds?: string[];
     resourceType?: string;
     region?: string;
     state?: string;
@@ -54,6 +56,7 @@ export async function GET(request: NextRequest) {
 
         const params: ListResourcesParams = {
             accountId: searchParams.get('accountId') || undefined,
+            accountIds: searchParams.get('accountIds')?.split(',').filter(Boolean) || undefined,
             resourceType: searchParams.get('resourceType') || undefined,
             region: searchParams.get('region') || undefined,
             state: searchParams.get('state') || undefined,
@@ -62,10 +65,16 @@ export async function GET(request: NextRequest) {
             lastEvaluatedKey: searchParams.get('cursor') || undefined,
         };
 
+        // Normalize: if accountIds has exactly one entry, treat as accountId for index optimization
+        if (params.accountIds?.length === 1) {
+            params.accountId = params.accountIds[0];
+            params.accountIds = undefined;
+        }
+
         let queryInput: QueryCommandInput;
-        let filterExpression: string[] = [];
-        let expressionAttributeValues: Record<string, any> = {};
-        let expressionAttributeNames: Record<string, string> = {};
+        const filterExpression: string[] = [];
+        const expressionAttributeValues: Record<string, unknown> = {};
+        const expressionAttributeNames: Record<string, string> = {};
 
         // Default tenant ID (multi-tenant ready)
         const tenantId = 'default';
@@ -88,6 +97,11 @@ export async function GET(request: NextRequest) {
             if (params.accountId) {
                 queryInput.KeyConditionExpression += ' AND begins_with(gsi3sk, :accountPrefix)';
                 queryInput.ExpressionAttributeValues![':accountPrefix'] = { S: params.accountId };
+            } else if (params.accountIds?.length) {
+                // Multi-account: use OR filter expression
+                const orClauses = params.accountIds.map((_, i) => `accountId = :aid${i}`);
+                filterExpression.push(`(${orClauses.join(' OR ')})`);
+                params.accountIds.forEach((id, i) => { expressionAttributeValues[`:aid${i}`] = { S: id }; });
             }
 
             // Add region as filter expression if provided
@@ -112,6 +126,10 @@ export async function GET(request: NextRequest) {
             if (params.accountId) {
                 filterExpression.push('accountId = :accountId');
                 expressionAttributeValues[':accountId'] = { S: params.accountId };
+            } else if (params.accountIds?.length) {
+                const orClauses = params.accountIds.map((_, i) => `accountId = :aid${i}`);
+                filterExpression.push(`(${orClauses.join(' OR ')})`);
+                params.accountIds.forEach((id, i) => { expressionAttributeValues[`:aid${i}`] = { S: id }; });
             }
         } else if (params.accountId) {
             // Query by account (Main Table): TENANT#{tenantId}#ACCOUNT#{accountId}
@@ -135,6 +153,12 @@ export async function GET(request: NextRequest) {
                 },
                 Limit: params.limit,
             };
+            // Multi-account filter on the all-resources path
+            if (params.accountIds?.length) {
+                const orClauses = params.accountIds.map((_, i) => `accountId = :aid${i}`);
+                filterExpression.push(`(${orClauses.join(' OR ')})`);
+                params.accountIds.forEach((id, i) => { expressionAttributeValues[`:aid${i}`] = { S: id }; });
+            }
         }
 
         // Add filter for state if provided
@@ -209,6 +233,52 @@ export async function GET(request: NextRequest) {
             };
         });
 
+        // Collect distinct account IDs from results
+        const accountIds = [...new Set(resources.map(r => r.accountId).filter(Boolean))];
+
+        // Batch fetch account names from app table
+        const accountNameMap: Record<string, string> = {};
+        if (accountIds.length > 0) {
+            try {
+                const tenantId = process.env.DEFAULT_TENANT_ID || 'org-default';
+                const keys = accountIds.map(id => ({
+                    pk: { S: `TENANT#${tenantId}` },
+                    sk: { S: `ACCOUNT#${id}` },
+                }));
+                // DynamoDB BatchGetItem max 100 keys
+                for (let i = 0; i < keys.length; i += 100) {
+                    const batch = keys.slice(i, i + 100);
+                    const batchResult = await dynamoClient.send(new BatchGetItemCommand({
+                        RequestItems: {
+                            [APP_TABLE_NAME]: {
+                                Keys: batch,
+                                ProjectionExpression: 'pk, sk, accountId, accountName',
+                            },
+                        },
+                    }));
+                    const items = batchResult.Responses?.[APP_TABLE_NAME] || [];
+                    for (const item of items) {
+                        const unmarshalledItem = unmarshall(item);
+                        // accountId is a top-level field; sk = ACCOUNT#<accountId>
+                        const accountId = (unmarshalledItem.accountId as string)
+                            || (unmarshalledItem.sk as string)?.split('#')[1];
+                        if (accountId && unmarshalledItem.accountName) {
+                            accountNameMap[accountId] = unmarshalledItem.accountName as string;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Account name lookup is non-critical — log and continue
+                console.warn('Could not fetch account names:', e);
+            }
+        }
+
+        // Attach account names to resources
+        const resourcesWithAccountNames = resources.map(r => ({
+            ...r,
+            accountName: accountNameMap[r.accountId],
+        }));
+
         // Build pagination cursor
         let nextCursor: string | undefined;
         if (result.LastEvaluatedKey) {
@@ -216,16 +286,17 @@ export async function GET(request: NextRequest) {
         }
 
         return NextResponse.json({
-            resources,
-            count: resources.length,
+            resources: resourcesWithAccountNames,
+            count: resourcesWithAccountNames.length,
             nextCursor,
             hasMore: !!result.LastEvaluatedKey,
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching inventory resources:', error);
+        const message = error instanceof Error ? error.message : 'Failed to fetch resources';
         return NextResponse.json(
-            { error: error.message || 'Failed to fetch resources' },
+            { error: message },
             { status: 500 }
         );
     }

@@ -55,6 +55,11 @@
     "result_key": "clusterArns"
   },
   {
+    "service": "ecs",
+    "function": "list_services",
+    "result_key": "serviceArns"
+  },
+  {
     "service": "autoscaling",
     "function": "describe_auto_scaling_groups",
     "result_key": "AutoScalingGroups"
@@ -120,6 +125,11 @@
     "result_key": "CertificateSummaryList"
   },
   {
+    "service": "ecr",
+    "function": "describe_repositories",
+    "result_key": "repositories"
+  },
+  {
     "service": "apigateway",
     "function": "get_rest_apis",
     "result_key": "items"
@@ -148,5 +158,45 @@
     "service": "docdb",
     "function": "describe_db_clusters",
     "result_key": "DBClusters"
+  },
+  {
+    "service": "eks",
+    "function": "list_clusters",
+    "result_key": "clusters"
+  },
+  {
+    "service": "cloudwatch",
+    "function": "describe_alarms",
+    "result_key": "MetricAlarms"
+  },
+  {
+    "service": "events",
+    "function": "list_rules",
+    "result_key": "Rules"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_transit_gateways",
+    "result_key": "TransitGateways"
+  },
+  {
+    "service": "backup",
+    "function": "list_backup_plans",
+    "result_key": "BackupPlansList"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_transit_gateway_attachments",
+    "result_key": "TransitGatewayAttachments"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_vpc_peering_connections",
+    "result_key": "VpcPeeringConnections"
+  },
+  {
+    "service": "wafv2",
+    "function": "list_web_acls",
+    "result_key": "WebACLs"
   }
 ]

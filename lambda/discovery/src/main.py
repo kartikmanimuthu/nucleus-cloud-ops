@@ -15,8 +15,6 @@ try:
     from src.inventory_runner import run_inventory_scan
     from src.data_processor import (
         process_and_store_resources,
-        mark_missing_resources,
-        get_discovered_arns,
         store_merged_to_s3,
         save_sync_status
     )
@@ -26,8 +24,6 @@ except ImportError:
     from inventory_runner import run_inventory_scan
     from data_processor import (
         process_and_store_resources,
-        mark_missing_resources,
-        get_discovered_arns,
         store_merged_to_s3,
         save_sync_status
     )
@@ -176,6 +172,22 @@ def main():
     successful_accounts = 0
     failed_accounts = 0
     
+    # Audit log — vector embedding started for all accounts
+    if audit_table_name:
+        create_audit_log(
+            dynamodb_client=dynamodb,
+            table_name=audit_table_name,
+            event_type='inventory.vector_embedding.started',
+            action='vector_embedding_started',
+            status='success',
+            resource=f"Scan {scan_id}" if scan_id else "Manual Discovery Scan",
+            details=f"Started vector embedding for {len(accounts)} accounts.",
+            severity='info',
+            metadata={'totalAccounts': len(accounts)},
+            scan_id=scan_id,
+            correlation_id=correlation_id
+        )
+
     for account in accounts:
         account_id = account.get('accountId')
         account_name = account.get('accountName', account_id)
@@ -217,6 +229,7 @@ def main():
                 table_name=inventory_table_name,
                 bucket_name=inventory_bucket,
                 account_id=account_id,
+                account_name=account_name,
                 resources=resources,
                 raw_results=raw_results,
                 scan_id=scan_id,
@@ -224,10 +237,6 @@ def main():
                 s3_table_namespace=s3_table_namespace,
                 aws_region=aws_region,
             )
-            
-            # Mark missing resources
-            discovered_arns = get_discovered_arns(resources, account_id)
-            mark_missing_resources(dynamodb, inventory_table_name, account_id, discovered_arns)
             
             # Calculate duration
             end_time = datetime.now(timezone.utc)
@@ -272,7 +281,29 @@ def main():
         print("Creating merged output...")
         timestamp = datetime.now(timezone.utc).isoformat()
         store_merged_to_s3(s3, inventory_bucket, all_accounts_data, timestamp)
-    
+
+    # Audit log — vector embedding completed for all accounts
+    _status = 'success' if failed_accounts == 0 else ('warning' if successful_accounts > 0 else 'error')
+    if audit_table_name:
+        create_audit_log(
+            dynamodb_client=dynamodb,
+            table_name=audit_table_name,
+            event_type='inventory.vector_embedding.completed',
+            action='vector_embedding_completed',
+            status=_status,
+            resource=f"Scan {scan_id}" if scan_id else "Manual Discovery Scan",
+            details=f"Completed vector embedding for {len(accounts)} accounts. Total resources: {total_resources}.",
+            severity='info',
+            metadata={
+                'totalAccounts': len(accounts),
+                'successfulAccounts': successful_accounts,
+                'failedAccounts': failed_accounts,
+                'totalResources': total_resources,
+            },
+            scan_id=scan_id,
+            correlation_id=correlation_id
+        )
+
     print("\n" + "=" * 60)
     print("AWS Auto-Discovery Task Complete")
     print("=" * 60)

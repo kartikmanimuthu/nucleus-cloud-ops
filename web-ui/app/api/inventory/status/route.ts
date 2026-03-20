@@ -7,6 +7,49 @@ const dynamoClient = new DynamoDBClient({
 });
 
 const APP_TABLE_NAME = process.env.APP_TABLE_NAME || 'nucleus-app-app-table';
+const INVENTORY_TABLE_NAME = process.env.INVENTORY_TABLE_NAME || 'nucleus-app-inventory-table';
+
+/**
+ * Single paginated pass over GSI1 to derive all three live stats:
+ * - totalResources  : actual item count in inventory table
+ * - accountsSynced  : number of distinct accountIds present
+ * - lastDiscoveredAt: most recent lastDiscoveredAt timestamp
+ */
+async function getLiveStats(): Promise<{
+    totalResources: number;
+    accountsSynced: number;
+    lastDiscoveredAt: string | null;
+}> {
+    let totalResources = 0;
+    const accountIds = new Set<string>();
+    let lastDiscoveredAt: string | null = null;
+    let lastKey: Record<string, unknown> | undefined;
+
+    do {
+        const result = await dynamoClient.send(new QueryCommand({
+            TableName: INVENTORY_TABLE_NAME,
+            IndexName: 'GSI1',
+            KeyConditionExpression: 'gsi1pk = :pk',
+            ExpressionAttributeValues: { ':pk': { S: 'TYPE#INVENTORY' } },
+            ProjectionExpression: 'accountId, lastDiscoveredAt',
+            ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+
+        totalResources += result.Count ?? 0;
+
+        for (const item of result.Items ?? []) {
+            const r = unmarshall(item);
+            if (r.accountId) accountIds.add(r.accountId);
+            if (r.lastDiscoveredAt && (!lastDiscoveredAt || r.lastDiscoveredAt > lastDiscoveredAt)) {
+                lastDiscoveredAt = r.lastDiscoveredAt;
+            }
+        }
+
+        lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return { totalResources, accountsSynced: accountIds.size, lastDiscoveredAt };
+}
 
 interface SyncStatus {
     scanId: string;
@@ -79,8 +122,8 @@ export async function GET(request: NextRequest) {
             if (result.Items && result.Items.length > 0) {
                 const item = unmarshall(result.Items[0]);
                 accounts.push({
-                    accountId: item.account_id || accountId,
-                    accountName: item.account_name || accountId,
+                    accountId: item.accountId || accountId,
+                    accountName: item.accountName || accountId,
                     lastSyncedAt: item.lastSyncedAt,
                     lastSyncStatus: item.lastSyncStatus || 'never',
                     lastSyncResourceCount: item.lastSyncResourceCount,
@@ -102,8 +145,8 @@ export async function GET(request: NextRequest) {
             accounts = (result.Items || []).map(item => {
                 const acc = unmarshall(item);
                 return {
-                    accountId: acc.account_id,
-                    accountName: acc.account_name || acc.account_id,
+                    accountId: acc.accountId,
+                    accountName: acc.accountName || acc.accountId,
                     lastSyncedAt: acc.lastSyncedAt,
                     lastSyncStatus: acc.lastSyncStatus || 'never',
                     lastSyncResourceCount: acc.lastSyncResourceCount,
@@ -113,22 +156,23 @@ export async function GET(request: NextRequest) {
             });
         }
 
+        const { totalResources, accountsSynced, lastDiscoveredAt } = await getLiveStats();
+
         return NextResponse.json({
-            // Latest sync summary for UI stats cards
             latestSync,
-            totalResources: latestSync?.totalResources || 0,
-            // Use accountsSynced from sync metadata — avoids full table scan
-            accountsSynced: latestSync?.accountsSynced || 0,
-            lastSyncedAt: latestSync?.syncedAt || null,
-            // Account details
+            totalResources,
+            accountsSynced,
+            // Prefer explicit sync timestamp; fall back to most recent item discovery time
+            lastSyncedAt: latestSync?.syncedAt || lastDiscoveredAt || null,
             accounts,
             accountCount: accounts.length,
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Error fetching sync status:', error);
+        const message = error instanceof Error ? error.message : 'Failed to fetch sync status';
         return NextResponse.json(
-            { error: error.message || 'Failed to fetch sync status' },
+            { error: message },
             { status: 500 }
         );
     }

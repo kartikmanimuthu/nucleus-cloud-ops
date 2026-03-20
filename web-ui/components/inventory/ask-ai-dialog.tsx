@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Bot, Send, Sparkles, User, RefreshCw, Trash2 } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useEffect, useRef, useState, useId } from "react";
 import { AskAISources, AISource } from "./ask-ai-sources";
 
@@ -226,7 +227,7 @@ export function AskAIDialog({ open, onOpenChange, filters }: AskAIDialogProps) {
                                         </div>
                                         <div className="flex-1 min-w-0 space-y-2">
                                             <div className="prose prose-sm dark:prose-invert max-w-none break-words">
-                                                <ReactMarkdown>
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                                     {message.content as string}
                                                 </ReactMarkdown>
                                             </div>

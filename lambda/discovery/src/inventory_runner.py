@@ -161,16 +161,18 @@ def get_service_data(
     
     try:
         # Check for custom handlers first
-        if service_name == 'ecs' and function_name == 'list_clusters':
-            return _scan_ecs_deep(session, region_name)
+        if service_name == 'ec2' and function_name == 'describe_instances':
+            return _scan_ec2_instances_deep(session, region_name)
+        elif service_name == 'ecs' and function_name == 'list_clusters':
+            return _scan_ecs_clusters_deep(session, region_name)
+        elif service_name == 'ecs' and function_name == 'list_services':
+            return _scan_ecs_services_deep(session, region_name)
         elif service_name == 'lambda' and function_name == 'list_functions':
             return _scan_lambda_deep(session, region_name)
         elif service_name == 's3' and function_name == 'list_buckets':
             return _scan_s3_deep(session, region_name)
         elif service_name == 'dynamodb' and function_name == 'list_tables':
             return _scan_dynamodb_deep(session, region_name)
-        elif service_name == 'rds' and function_name == 'describe_db_instances':
-            return _scan_rds_deep(session, region_name)
         elif service_name == 'rds' and function_name == 'describe_db_instances':
             return _scan_rds_deep(session, region_name)
         elif service_name == 'elbv2' and function_name == 'describe_load_balancers':
@@ -181,7 +183,15 @@ def get_service_data(
             return _scan_apigateway_deep(session, region_name)
         elif service_name == 'kms' and function_name == 'list_keys':
             return _scan_kms_deep(session, region_name)
-            
+        elif service_name == 'ecr' and function_name == 'describe_repositories':
+            return _scan_ecr_deep(session, region_name)
+        elif service_name == 'cloudfront' and function_name == 'list_distributions':
+            return _scan_cloudfront_deep(session, region_name)
+        elif service_name == 'eks' and function_name == 'list_clusters':
+            return _scan_eks_deep(session, region_name)
+        elif service_name == 'wafv2' and function_name == 'list_web_acls':
+            return _scan_wafv2_deep(session, region_name)
+
         client = session.client(service_name, region_name=region_name)
         
         if not hasattr(client, function_name):
@@ -375,7 +385,14 @@ def run_inventory_scan(
     # If no regions, get all available regions
     if not regions:
         regions = _get_default_regions(session)
-    
+
+    # Ensure us-east-1 is included for global services (CloudFront)
+    GLOBAL_SERVICES = {'cloudfront'}
+    has_global_service = any(s.get('service') in GLOBAL_SERVICES for s in services)
+    if has_global_service and 'us-east-1' not in regions:
+        regions = list(regions) + ['us-east-1']
+        logger.info("Added us-east-1 for global service scanning (CloudFront)")
+
     logger.info(f"Scanning {len(regions)} regions with {len(services)} services")
     
     # Scan all regions in parallel
@@ -428,6 +445,82 @@ def run_inventory_scan(
         'regions_scanned': len(regions),
         'services_scanned': len(services),
         'elapsed_seconds': elapsed_time
+    }
+
+
+def _scan_ecs_clusters_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for ECS Clusters: list then describe each cluster for full metadata.
+    """
+    ecs = session.client('ecs', region_name=region_name)
+    all_clusters = []
+    try:
+        cluster_arns = []
+        paginator = ecs.get_paginator('list_clusters')
+        for page in paginator.paginate():
+            cluster_arns.extend(page.get('clusterArns', []))
+
+        # describe_clusters accepts up to 100 ARNs per call
+        for i in range(0, len(cluster_arns), 100):
+            batch = cluster_arns[i:i+100]
+            if not batch:
+                continue
+            try:
+                resp = ecs.describe_clusters(clusters=batch, include=['TAGS', 'SETTINGS', 'STATISTICS'])
+                all_clusters.extend(resp.get('clusters', []))
+            except Exception as e:
+                logger.error(f"Error describing ECS clusters: {e}")
+
+    except Exception as e:
+        logger.error(f"Error in deep ECS cluster scan ({region_name}): {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'ecs',
+        'function': 'describe_clusters',
+        'result': all_clusters,
+    }
+
+
+def _scan_ecs_services_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for ECS Services: list all services across clusters then describe them.
+    """
+    ecs = session.client('ecs', region_name=region_name)
+    all_services = []
+    try:
+        cluster_arns = []
+        paginator = ecs.get_paginator('list_clusters')
+        for page in paginator.paginate():
+            cluster_arns.extend(page.get('clusterArns', []))
+
+        for cluster_arn in cluster_arns:
+            service_arns = []
+            list_svc_paginator = ecs.get_paginator('list_services')
+            for svc_page in list_svc_paginator.paginate(cluster=cluster_arn):
+                service_arns.extend(svc_page.get('serviceArns', []))
+
+            for i in range(0, len(service_arns), 10):
+                batch = service_arns[i:i+10]
+                if not batch:
+                    continue
+                try:
+                    resp = ecs.describe_services(cluster=cluster_arn, services=batch, include=['TAGS'])
+                    for svc in resp.get('services', []):
+                        all_services.append(svc)
+                except Exception as e:
+                    logger.error(f"Error describing ECS services in {cluster_arn}: {e}")
+
+    except Exception as e:
+        logger.error(f"Error in deep ECS services scan ({region_name}): {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'ecs',
+        'function': 'describe_services',
+        'result': all_services,
     }
 
 
@@ -730,6 +823,9 @@ def _scan_acm_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
                     if arn:
                         tags_resp = acm.list_tags_for_certificate(CertificateArn=arn)
                         cert['Tags'] = tags_resp.get('Tags', [])
+                        # Inject CertificateId (UUID at end of ARN) so AWS Console URLs work:
+                        # arn:aws:acm:region:account:certificate/uuid -> uuid
+                        cert['CertificateId'] = arn.split('/')[-1]
                 except Exception as e:
                     logger.warning(f"Error getting tags for ACM cert {cert.get('CertificateArn')}: {e}")
                 all_certs.append(cert)
@@ -831,6 +927,161 @@ def _get_default_regions(session: boto3.Session) -> List[str]:
         return ['us-east-1', 'us-west-2', 'eu-west-1', 'ap-south-1']
 
 
+def _scan_ec2_instances_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for EC2 Instances: flatten Reservations -> Instances and enrich with tags.
+    describe_instances returns Reservations[]{Instances[]{InstanceId, ...}} — the outer
+    Reservation wrapper must be unwrapped to get individual instance objects.
+    """
+    ec2 = session.client('ec2', region_name=region_name)
+    all_instances = []
+
+    try:
+        paginator = ec2.get_paginator('describe_instances')
+        for page in paginator.paginate():
+            for reservation in page.get('Reservations', []):
+                for instance in reservation.get('Instances', []):
+                    all_instances.append(instance)
+    except Exception as e:
+        logger.error(f"Error in deep EC2 instances scan ({region_name}): {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'ec2',
+        'function': 'describe_instances',
+        'result': all_instances,
+    }
+
+
+def _scan_ecr_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for ECR: Repositories -> Tags
+    """
+    ecr = session.client('ecr', region_name=region_name)
+    all_repos = []
+
+    try:
+        paginator = ecr.get_paginator('describe_repositories')
+        for page in paginator.paginate():
+            for repo in page.get('repositories', []):
+                try:
+                    arn = repo.get('repositoryArn')
+                    if arn:
+                        tags_resp = ecr.list_tags_for_resource(resourceArn=arn)
+                        repo['Tags'] = tags_resp.get('tags', [])
+                        # Convert list-of-dicts [{Key, Value}] if returned as such
+                        if isinstance(repo['Tags'], list) and repo['Tags'] and isinstance(repo['Tags'][0], dict) and 'Key' not in repo['Tags'][0]:
+                            # ECR returns [{Key: k, Value: v}] already — keep as-is
+                            pass
+                except Exception as e:
+                    logger.warning(f"Error getting tags for ECR repo {repo.get('repositoryName')}: {e}")
+                all_repos.append(repo)
+    except Exception as e:
+        logger.error(f"Error in deep ECR scan ({region_name}): {e}")
+        return None
+
+    return {
+        'region': region_name,
+        'service': 'ecr',
+        'function': 'describe_repositories',
+        'result': all_repos,
+    }
+
+
+def _scan_cloudfront_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for CloudFront: properly extract DistributionList.Items[].
+    list_distributions returns DistributionList as a dict, not a list.
+    """
+    cf = session.client('cloudfront', region_name='us-east-1')  # CloudFront is global
+    # Only scan once (avoid duplicating across regions — use us-east-1 as canonical)
+    if region_name != 'us-east-1':
+        return {
+            'region': region_name,
+            'service': 'cloudfront',
+            'function': 'list_distributions',
+            'result': [],
+        }
+    all_dists = []
+    try:
+        paginator = cf.get_paginator('list_distributions')
+        for page in paginator.paginate():
+            dist_list = page.get('DistributionList', {})
+            items = dist_list.get('Items', []) if isinstance(dist_list, dict) else []
+            all_dists.extend(items)
+    except Exception as e:
+        logger.error(f"Error in deep CloudFront scan: {e}")
+        return None
+    return {
+        'region': 'us-east-1',
+        'service': 'cloudfront',
+        'function': 'list_distributions',
+        'result': all_dists,
+    }
+
+
+def _scan_eks_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for EKS: list clusters then describe each for full details.
+    """
+    eks = session.client('eks', region_name=region_name)
+    all_clusters = []
+    try:
+        paginator = eks.get_paginator('list_clusters')
+        cluster_names = []
+        for page in paginator.paginate():
+            cluster_names.extend(page.get('clusters', []))
+        for name in cluster_names:
+            try:
+                resp = eks.describe_cluster(name=name)
+                cluster = resp.get('cluster', {})
+                all_clusters.append(cluster)
+            except Exception as e:
+                logger.warning(f"Error describing EKS cluster {name}: {e}")
+    except Exception as e:
+        logger.error(f"Error in deep EKS scan ({region_name}): {e}")
+        return None
+    return {
+        'region': region_name,
+        'service': 'eks',
+        'function': 'list_clusters',
+        'result': all_clusters,
+    }
+
+
+def _scan_wafv2_deep(session: boto3.Session, region_name: str) -> Dict[str, Any]:
+    """
+    Deep scan for WAFv2: list_web_acls requires a Scope parameter.
+    Scans both REGIONAL and CLOUDFRONT (global) scopes.
+    CLOUDFRONT scope is only available in us-east-1.
+    """
+    waf = session.client('wafv2', region_name=region_name)
+    all_acls = []
+    scopes = ['REGIONAL']
+    if region_name == 'us-east-1':
+        scopes.append('CLOUDFRONT')
+    try:
+        for scope in scopes:
+            try:
+                paginator = waf.get_paginator('list_web_acls')
+                for page in paginator.paginate(Scope=scope):
+                    for acl in page.get('WebACLs', []):
+                        acl['_scope'] = scope
+                        all_acls.append(acl)
+            except Exception as e:
+                logger.warning(f"Error listing WAFv2 WebACLs scope={scope} region={region_name}: {e}")
+    except Exception as e:
+        logger.error(f"Error in deep WAFv2 scan ({region_name}): {e}")
+        return None
+    return {
+        'region': region_name,
+        'service': 'wafv2',
+        'function': 'list_web_acls',
+        'result': all_acls,
+    }
+
+
 def normalize_resources(
     raw_data: Any,
     service: str,
@@ -900,10 +1151,22 @@ def extract_resource_identifiers(resource: Dict, service: str) -> Dict[str, Any]
     # ID extraction based on common patterns
     id_keys = [
         'InstanceId', 'DBInstanceIdentifier', 'DBClusterIdentifier', 'ClusterIdentifier',
-        'FunctionName', 'BucketName', 'VolumeId', 'VpcId', 'SubnetId', 'GroupId',
+        'FunctionName', 'BucketName', 'Name',  # Name covers S3 buckets (list_buckets returns Name not BucketName)
+        'VolumeId', 'NetworkInterfaceId', 'VpcId', 'SubnetId', 'GroupId',
         'KeyId', 'AutoScalingGroupName', 'LoadBalancerArn', 'TopicArn', 'QueueUrl',
         'FileSystemId', 'NatGatewayId', 'DistributionId', 'TableName', 'StreamName',
-        'CacheClusterId', 'ReplicationGroupId', 'ClusterArn', 'ServiceArn', 'TaskArn'
+        'CacheClusterId', 'ReplicationGroupId', 'ClusterArn', 'ServiceArn', 'TaskArn',
+        'TransitGatewayId', 'TransitGatewayAttachmentId', 'VpcPeeringConnectionId',  # Networking
+        'clusterArn', 'serviceArn',  # ECS camelCase (describe_clusters / describe_services)
+        'clusterName', 'serviceName',  # ECS camelCase name fields
+        'repositoryName',  # ECR
+        'CertificateId',   # ACM — UUID extracted from ARN (injected by _scan_acm_deep)
+        'CertificateArn',  # ACM fallback — use ARN if CertificateId not present
+        'RoleName', 'RoleId',      # IAM roles
+        'UserName', 'UserId',      # IAM users
+        'id',                       # API Gateway (lowercase id)
+        'name',                     # CodePipeline, other services with lowercase name
+        'Id',                       # CloudFront distributions (list_distributions returns Id)
     ]
     
     for id_key in id_keys:
@@ -913,8 +1176,13 @@ def extract_resource_identifiers(resource: Dict, service: str) -> Dict[str, Any]
     
     # ARN extraction
     arn_keys = ['Arn', 'ARN', 'FunctionArn', 'DBInstanceArn', 'DBClusterArn',
-                'LoadBalancerArn', 'TopicArn', 'QueueArn', 'FileSystemArn', 
-                'KeyArn', 'ClusterArn', 'ServiceArn', 'TaskArn', 'TableArn']
+                'LoadBalancerArn', 'TopicArn', 'QueueArn', 'FileSystemArn',
+                'KeyArn', 'ClusterArn', 'ServiceArn', 'TaskArn', 'TableArn',
+                'TransitGatewayArn',  # Transit Gateway
+                'clusterArn', 'serviceArn',  # ECS camelCase
+                'CertificateArn',  # ACM
+                'repositoryArn',   # ECR
+                ]
     
     for arn_key in arn_keys:
         if arn_key in resource:
@@ -924,7 +1192,12 @@ def extract_resource_identifiers(resource: Dict, service: str) -> Dict[str, Any]
     # Name extraction
     name_keys = ['Name', 'DBInstanceIdentifier', 'DBClusterIdentifier', 'FunctionName',
                  'BucketName', 'AutoScalingGroupName', 'LoadBalancerName', 'FileSystemId',
-                 'TableName', 'TopicName', 'QueueName']
+                 'TableName', 'TopicName', 'QueueName',
+                 'clusterName', 'serviceName',  # ECS camelCase
+                 'repositoryName',  # ECR
+                 'DomainName',      # ACM + CloudFront
+                 'CertificateId',   # ACM fallback
+                 ]
     
     for name_key in name_keys:
         if name_key in resource:

@@ -9,6 +9,7 @@ export const RESOURCE_TYPE_LABELS: Record<string, string> = {
     rds_db_instances: "RDS Instances",
     docdb_db_clusters: "DocumentDB Clusters",
     autoscaling_auto_scaling_groups: "Auto Scaling Groups",
+    ecs_clusters: "ECS Clusters",
     ecs_services: "ECS Services",
     ec2_addresses: "Elastic IPs",
     ec2_nat_gateways: "NAT Gateways",
@@ -25,12 +26,45 @@ export const RESOURCE_TYPE_LABELS: Record<string, string> = {
     sns_topics: "SNS Topics",
     sqs_queues: "SQS Queues",
     ecr_repositories: "ECR Repositories",
+    // EBS
+    ec2_volumes: "EBS Volumes",
+    // Load Balancers
+    elbv2_load_balancers: "Load Balancers",
+    // Caching & Messaging
+    elasticache_cache_clusters: "ElastiCache Clusters",
+    // Storage
+    efs_file_systems: "EFS File Systems",
+    // Database
+    rds_db_clusters: "RDS Clusters",
+    // Security & Config
+    secretsmanager_secrets: "Secrets Manager",
+    // DevOps
+    codepipeline_pipelines: "CodePipeline Pipelines",
+    ssm_parameters: "SSM Parameters",
+    // CDN
+    cloudfront_distributions: "CloudFront Distributions",
+    // IAM
+    iam_roles: "IAM Roles",
+    iam_users: "IAM Users",
+    // Container
+    eks_clusters: "EKS Clusters",
+    // Observability
+    cloudwatch_metric_alarms: "CloudWatch Alarms",
+    events_rules: "EventBridge Rules",
+    // Networking Advanced
+    ec2_transit_gateways: "Transit Gateways",
+    ec2_transit_gateway_attachments: "Transit Gateway Attachments",
+    ec2_vpc_peering_connections: "VPC Peering Connections",
+    // Security
+    wafv2_web_acls: "WAF Web ACLs",
+    backup_backup_plans: "Backup Plans",
 };
 
 export const SERVICE_NAME_MAP: Record<string, string> = {
     ec2_instances: "EC2",
     rds_db_instances: "RDS",
     rds_instances: "RDS",
+    ecs_clusters: "ECS",
     ecs_services: "ECS",
     ec2_addresses: "EC2",
     ec2_nat_gateways: "EC2",
@@ -51,6 +85,25 @@ export const SERVICE_NAME_MAP: Record<string, string> = {
     sns_topics: "SNS",
     sqs_queues: "SQS",
     ecr_repositories: "ECR",
+    ec2_volumes: "EC2",
+    elbv2_load_balancers: "ELB",
+    elasticache_cache_clusters: "ElastiCache",
+    efs_file_systems: "EFS",
+    rds_db_clusters: "RDS",
+    secretsmanager_secrets: "Secrets Manager",
+    codepipeline_pipelines: "CodePipeline",
+    ssm_parameters: "SSM",
+    cloudfront_distributions: "CloudFront",
+    iam_roles: "IAM",
+    iam_users: "IAM",
+    eks_clusters: "EKS",
+    cloudwatch_metric_alarms: "CloudWatch",
+    events_rules: "EventBridge",
+    ec2_transit_gateways: "EC2",
+    ec2_transit_gateway_attachments: "EC2",
+    ec2_vpc_peering_connections: "EC2",
+    wafv2_web_acls: "WAF",
+    backup_backup_plans: "Backup",
 };
 
 export function getServiceName(resourceType: string): string {
@@ -94,6 +147,8 @@ export function getAwsConsoleUrl(resource: {
         case "rds_db_instances":
         case "rds_instances":
             return `${base}/rds/home?region=${region}#database:id=${resourceId}`;
+        case "ecs_clusters":
+            return `${base}/ecs/v2/clusters/${resourceId}?region=${region}`;
         case "ecs_services": {
             const m = resourceArn.match(/cluster\/([^/]+)\/service\/([^/]+)/);
             return m
@@ -130,6 +185,48 @@ export function getAwsConsoleUrl(resource: {
             return `${base}/kms/home?region=${region}#/kms/keys/${resourceId}`;
         case "acm_certificates":
             return `${base}/acm/home?region=${region}#/certificates/${resourceId}`;
+        case "ec2_volumes":
+            return `${base}/ec2/home?region=${region}#Volumes:volumeId=${resourceId}`;
+        case "ec2_network_interfaces":
+            return `${base}/ec2/home?region=${region}#NetworkInterfaces:networkInterfaceId=${resourceId}`;
+        case "ec2_nat_gateways":
+            return `${base}/vpc/home?region=${region}#NatGateways:natGatewayId=${resourceId}`;
+        case "ec2_transit_gateways":
+            return `${base}/vpc/home?region=${region}#TransitGateways:transitGatewayId=${resourceId}`;
+        case "ec2_transit_gateway_attachments":
+            return `${base}/vpc/home?region=${region}#TransitGatewayAttachments:transitGatewayAttachmentId=${resourceId}`;
+        case "ec2_vpc_peering_connections":
+            return `${base}/vpc/home?region=${region}#PeeringConnections:vpcPeeringConnectionId=${resourceId}`;
+        case "wafv2_web_acls":
+            return `${base}/wafv2/homev2/home?region=${region}#/webacls`;
+        case "elbv2_load_balancers":
+            return `${base}/ec2/home?region=${region}#LoadBalancers:search=${resourceId}`;
+        case "elasticache_cache_clusters":
+            return `${base}/elasticache/home?region=${region}#/redis/${resourceId}`;
+        case "efs_file_systems":
+            return `${base}/efs/home?region=${region}#/file-systems/${resourceId}`;
+        case "rds_db_clusters":
+            return `${base}/rds/home?region=${region}#database:id=${resourceId}`;
+        case "secretsmanager_secrets":
+            return `${base}/secretsmanager/home?region=${region}#/secret?name=${encodeURIComponent(resourceId)}`;
+        case "codepipeline_pipelines":
+            return `${base}/codesuite/codepipeline/home?region=${region}#/view/${resourceId}`;
+        case "ssm_parameters":
+            return `${base}/systems-manager/parameters${resourceId}?region=${region}&tab=Table`;
+        case "cloudfront_distributions":
+            return `https://us-east-1.console.aws.amazon.com/cloudfront/v4/home#/distributions/${resourceId}`;
+        case "iam_roles":
+            return `https://us-east-1.console.aws.amazon.com/iam/home#/roles/${resourceId}`;
+        case "iam_users":
+            return `https://us-east-1.console.aws.amazon.com/iam/home#/users/${resourceId}`;
+        case "eks_clusters":
+            return `${base}/eks/home?region=${region}#/clusters/${resourceId}`;
+        case "cloudwatch_metric_alarms":
+            return `${base}/cloudwatch/home?region=${region}#alarmsV2:alarm/${encodeURIComponent(resourceId)}`;
+        case "events_rules":
+            return `${base}/events/home?region=${region}#/rules/${resourceId}`;
+        case "backup_backup_plans":
+            return `${base}/backup/home?region=${region}#/backupplans/${resourceId}`;
         default:
             return null;
     }

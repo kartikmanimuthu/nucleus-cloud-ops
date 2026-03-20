@@ -77,7 +77,9 @@ export const generateOnboardingTemplate = (hubAccountId: string, externalId: str
                                             "kms:Decrypt",
                                             "kms:DescribeKey",
                                             "kms:GenerateDataKeyWithoutPlainText",
-                                            "kms:ReEncrypt"
+                                            "kms:ReEncrypt",
+                                            "kms:ListKeys",
+                                            "kms:ListResourceTags"
                                         ],
                                         Resource: "*"
                                     }
@@ -231,6 +233,8 @@ Resources:
                   - kms:DescribeKey
                   - kms:GenerateDataKeyWithoutPlainText
                   - kms:ReEncrypt
+                  - kms:ListKeys
+                  - kms:ListResourceTags
                 Resource: '*'
         # SSM Session Manager & Run Command — allows AI agent to
         # log into EC2 instances for live troubleshooting without SSH/bastion

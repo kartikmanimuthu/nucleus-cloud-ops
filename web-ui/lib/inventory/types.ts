@@ -10,6 +10,7 @@ export interface Resource {
     region: string;
     state: string;
     accountId: string;
+    accountName?: string;
     lastDiscoveredAt: string;
     tags: Record<string, string>;
     metadata?: Record<string, unknown>;

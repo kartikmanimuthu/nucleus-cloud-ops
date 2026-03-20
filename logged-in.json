@@ -1,0 +1,108 @@
+{
+  "cookies": [
+    {
+      "name": "next-auth.csrf-token",
+      "value": "f21bad0dc996ee071cf129c8d5c6adfaab63eb7e8b0d9234a45ea2342d2d4737%7C24ebcf96fd3a76aed09fda9324ff60cc716047796dfe464c9d8bd2531476cc47",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "next-auth.callback-url",
+      "value": "http%3A%2F%2Flocalhost%3A3000%2F",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "csrf-state",
+      "value": "\"\"",
+      "domain": "nucleus-app-web-ui-auth-970547372609.auth.ap-south-1.amazoncognito.com",
+      "path": "/",
+      "expires": 1773836591.575688,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "csrf-state-legacy",
+      "value": "\"\"",
+      "domain": "nucleus-app-web-ui-auth-970547372609.auth.ap-south-1.amazoncognito.com",
+      "path": "/",
+      "expires": 1773836591.575965,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "cognito-fl",
+      "value": "\"W10=\"",
+      "domain": "nucleus-app-web-ui-auth-970547372609.auth.ap-south-1.amazoncognito.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "XSRF-TOKEN",
+      "value": "345e1694-11e6-4548-893e-821602a8668d",
+      "domain": "nucleus-app-web-ui-auth-970547372609.auth.ap-south-1.amazoncognito.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "cognito",
+      "value": "\"H4sIAAAAAAAAAAHtABL/1QgU7KUTXtMcoG2q+b4gT0Lk4LVnOnfmCmKePnCfjHmbWRnmkpP7tdUi/C21QidKyCMWbl+7BETXYFIBiQx+W3Z20WlDcPzZprDJLdMGpBZ6IKqjL0zm/OpQKHtfgZZTkOFhxfl8JQRy+T1OOIE01H7vr/iElSrlGM7C4t84nYwybBVw/eiXnjFlE/sXFpaQ9l5X568H5409Ngj/weAXq5uOZKxLDbmejqSqZBq0bW19cGEJg1f2M9/fSQ30SXk7Ki2ywU9wWxYkj7U6jsaA72bB4UXKzvtj8nqdaCKtool7OdHwajEQqZldSAPwbspcA+0AAAA=.H4sIAAAAAAAAAONeEq3n49J+L9Lxyudc08n9WSq/D71vMtltX3lgS/O1ElEAn1fpYCAAAAA=.3\"",
+      "domain": ".nucleus-app-web-ui-auth-970547372609.auth.ap-south-1.amazoncognito.com",
+      "path": "/",
+      "expires": 1773839916.919294,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "next-auth.session-token",
+      "value": "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..iZfK4tccErx7aBbm.T7c9EKLovNDKGmK_6pwc4_QvNjvCIpIpKz_Dmylv4PzDxDZE7Qj1dUi0OMtCS5qkMh_Ds_29-tzELhbE7hRP4i2NORFX9l2JezQ0H_b9vV67NudhrnnLJ8geROrfkhyVOBC9Pa6CuEph4vwYDxDEr0XdD06ON9gP_XzM2-CSS7p1eP9feTcrjKEo40F8Lr-5_UgNPaeTyvClU16OsyX0B1-d5XQohP70X-4IrFQQSfAkLw76oh4.8lYQOQsCLLnj0C8T6dxtzw",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1776428324.751664,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:3000",
+      "localStorage": [
+        {
+          "name": "nextauth.message",
+          "value": "{\"event\":\"session\",\"data\":{\"trigger\":\"getSession\"},\"timestamp\":1773836324}"
+        }
+      ]
+    },
+    {
+      "origin": "https://nucleus-app-web-ui-auth-970547372609.auth.ap-south-1.amazoncognito.com",
+      "localStorage": [
+        {
+          "name": "amznfbgid",
+          "value": "X06-8320677-4825132:1773836293"
+        },
+        {
+          "name": "Amazon.AWS.Cognito.ContextData.LS_UBID",
+          "value": "m5mzd5gwwjoxpe9lpat7:1773836301824"
+        }
+      ]
+    }
+  ]
+}

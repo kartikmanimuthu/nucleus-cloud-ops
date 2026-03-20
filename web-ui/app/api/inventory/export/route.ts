@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DynamoDBClient, QueryCommand, QueryCommandInput } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, QueryCommand, QueryCommandInput, BatchGetItemCommand } from '@aws-sdk/client-dynamodb';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
 import * as XLSX from 'xlsx';
-import { getServiceName } from '@/lib/resource-types';
+import { getExportColumnsForType, resolveExportValue } from '@/lib/inventory/export-column-map';
 
 const dynamoClient = new DynamoDBClient({
     region: process.env.AWS_REGION || 'ap-south-1',
@@ -15,10 +15,12 @@ const s3Client = new S3Client({
 });
 
 const INVENTORY_TABLE_NAME = process.env.INVENTORY_TABLE_NAME || 'nucleus-app-inventory-table';
+const APP_TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || 'nucleus-app-app-table';
 const INVENTORY_BUCKET = process.env.INVENTORY_BUCKET_NAME || '';
 
 interface ExportParams {
     accountId?: string;
+    accountIds?: string[];
     resourceType?: string;
     region?: string;
     format?: 'xlsx' | 'csv';
@@ -31,7 +33,11 @@ interface ExportParams {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json().catch(() => ({})) as ExportParams;
-        const { accountId, resourceType, region, format = 'xlsx' } = body;
+        const { accountId: singleAccountId, accountIds, resourceType, region, format = 'xlsx' } = body;
+
+        // Normalize: single accountId or first of accountIds
+        const accountId = singleAccountId || (accountIds?.length === 1 ? accountIds[0] : undefined);
+        const multiAccountIds = !accountId && accountIds && accountIds.length > 1 ? accountIds : undefined;
 
         if (!INVENTORY_BUCKET) {
             return NextResponse.json(
@@ -86,9 +92,19 @@ export async function POST(request: NextRequest) {
             queryInput.ExpressionAttributeNames = { '#region': 'region' };
         }
 
-        // Fetch all matching resources (with pagination)
-        const resources: any[] = [];
-        let lastEvaluatedKey: Record<string, any> | undefined;
+        // Add multi-account filter if provided
+        if (multiAccountIds?.length) {
+            const orClauses = multiAccountIds.map((_, i) => `accountId = :aid${i}`);
+            queryInput.FilterExpression = `${queryInput.FilterExpression} AND (${orClauses.join(' OR ')})`;
+            multiAccountIds.forEach((id, i) => { queryInput.ExpressionAttributeValues![`:aid${i}`] = { S: id }; });
+        }
+
+        // Determine columns based on the resource type filter
+        const exportColumns = getExportColumnsForType(resourceType ?? '_default');
+
+        // Fetch all matching resources (with pagination) — collect raw objects first
+        const rawResources: Record<string, unknown>[] = [];
+        let lastEvaluatedKey: Record<string, unknown> | undefined;
 
         do {
             if (lastEvaluatedKey) {
@@ -98,32 +114,70 @@ export async function POST(request: NextRequest) {
             const result = await dynamoClient.send(new QueryCommand(queryInput));
 
             for (const item of result.Items || []) {
-                const resource = unmarshall(item);
-                resources.push({
-                    'Resource ID': resource.resourceId,
-                    'Name': resource.name,
-                    'Service': getServiceName(resource.resourceType),
-                    'Type': resource.resourceType,
-                    'Region': resource.region,
-                    'Account ID': resource.accountId,
-                    'State': resource.state,
-                    'ARN': resource.resourceArn,
-                    'Last Discovered': resource.lastDiscoveredAt,
-                    'Tags': resource.tags ? JSON.stringify(resource.tags) : '',
-                });
+                const resource = unmarshall(item) as Record<string, unknown>;
+                // Metadata is stored as a JSON string in DynamoDB — parse it so dot-path resolution works
+                if (typeof resource.Metadata === 'string') {
+                    try { resource.metadata = JSON.parse(resource.Metadata); } catch { resource.metadata = {}; }
+                } else if (resource.Metadata && typeof resource.Metadata === 'object') {
+                    resource.metadata = resource.Metadata;
+                }
+                rawResources.push(resource);
             }
 
             lastEvaluatedKey = result.LastEvaluatedKey;
-        } while (lastEvaluatedKey && resources.length < 10000); // Cap at 10k rows
+        } while (lastEvaluatedKey && rawResources.length < 10000); // Cap at 10k rows
 
-        const capped = !!lastEvaluatedKey && resources.length >= 10000;
+        const capped = !!lastEvaluatedKey && rawResources.length >= 10000;
 
-        if (resources.length === 0) {
+        if (rawResources.length === 0) {
             return NextResponse.json(
                 { error: 'No resources found matching the criteria' },
                 { status: 404 }
             );
         }
+
+        // Batch-fetch account names from the app table
+        const accountNameMap: Record<string, string> = {};
+        const distinctAccountIds = [...new Set(rawResources.map(r => r.accountId as string).filter(Boolean))];
+        if (distinctAccountIds.length > 0) {
+            try {
+                const appTenantId = process.env.DEFAULT_TENANT_ID || 'org-default';
+                const keys = distinctAccountIds.map(id => ({
+                    pk: { S: `TENANT#${appTenantId}` },
+                    sk: { S: `ACCOUNT#${id}` },
+                }));
+                for (let i = 0; i < keys.length; i += 100) {
+                    const batch = keys.slice(i, i + 100);
+                    const batchResult = await dynamoClient.send(new BatchGetItemCommand({
+                        RequestItems: {
+                            [APP_TABLE_NAME]: {
+                                Keys: batch,
+                                ProjectionExpression: 'pk, sk, accountId, accountName',
+                            },
+                        },
+                    }));
+                    for (const item of batchResult.Responses?.[APP_TABLE_NAME] || []) {
+                        const row = unmarshall(item);
+                        const id = (row.accountId as string) || (row.sk as string)?.split('#')[1];
+                        if (id && row.accountName) accountNameMap[id] = row.accountName as string;
+                    }
+                }
+            } catch (e) {
+                console.warn('Could not fetch account names for export:', e);
+            }
+        }
+
+        // Inject accountName into each resource and build export rows
+        const resources: Record<string, string>[] = rawResources.map(resource => {
+            if (accountNameMap[resource.accountId as string]) {
+                resource.accountName = accountNameMap[resource.accountId as string];
+            }
+            const row: Record<string, string> = {};
+            for (const col of exportColumns) {
+                row[col.label] = resolveExportValue(resource, col.accessor);
+            }
+            return row;
+        });
 
         // Create Excel workbook
         const workbook = XLSX.utils.book_new();
@@ -166,10 +220,11 @@ export async function POST(request: NextRequest) {
             ...(capped && { capped: true, warning: 'Export limited to 10,000 resources. Apply filters to narrow results.' }),
         });
 
-    } catch (error: any) {
+    } catch (error) {
         console.error('Error exporting resources:', error);
+        const message = error instanceof Error ? error.message : 'Failed to export resources';
         return NextResponse.json(
-            { error: error.message || 'Failed to export resources' },
+            { error: message },
             { status: 500 }
         );
     }

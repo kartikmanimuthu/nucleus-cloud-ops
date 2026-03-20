@@ -8,6 +8,7 @@ export interface InventoryResource {
     region: string;
     state?: string;
     accountId: string;
+    accountName?: string;
     service?: string;
     tags?: Record<string, string>;
     metadata?: Record<string, unknown>;
@@ -31,7 +32,7 @@ export function createResourceText(resource: InventoryResource): string {
 
     // Location
     parts.push(`Region: ${resource.region || "Unknown"}`);
-    parts.push(`Account: ${resource.accountId || "Unknown"}`);
+    parts.push(`Account: ${resource.accountName ? `${resource.accountName} (${resource.accountId})` : resource.accountId || "Unknown"}`);
 
     // State
     if (resource.state && resource.state !== "unknown") {
@@ -51,6 +52,13 @@ export function createResourceText(resource: InventoryResource): string {
             .map(([k, v]) => `${k}=${v}`)
             .join(", ");
         parts.push(`Tags: ${tagList}`);
+    }
+
+    // VPC-specific: surface CIDR block prominently for semantic search
+    if (resource.resourceType === "ec2_vpcs" && resource.metadata) {
+        const cidr = resource.metadata.cidrBlock;
+        if (cidr) parts.push(`CIDR: ${cidr}`);
+        if (resource.metadata.isDefault) parts.push(`Default VPC: true`);
     }
 
     // Metadata (flattened simple scalar fields)

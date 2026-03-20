@@ -509,6 +509,8 @@ export class ComputeStack extends cdk.Stack {
                     externalModules: [
                         '@aws-sdk/client-s3',
                         '@aws-sdk/client-bedrock-runtime',
+                        '@aws-sdk/client-dynamodb',
+                        '@aws-sdk/lib-dynamodb',
                     ],
                 },
                 timeout: cdk.Duration.minutes(15),
@@ -521,6 +523,8 @@ export class ComputeStack extends cdk.Stack {
                     VECTOR_BUCKET_ARN: vectorBucket.vectorBucketArn,
                     VECTOR_INDEX_NAME: vectorIndex.indexName,
                     BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+                    APP_TABLE_NAME: appTableName,
+                    AUDIT_TABLE_NAME: auditTableName,
                 },
             },
         );
@@ -536,10 +540,17 @@ export class ComputeStack extends cdk.Stack {
         // Grant S3 read permissions on inventory bucket
         inventoryBucket.grantRead(vectorProcessor);
 
+        // Grant DynamoDB read/write for tracking vector keys per account (stale cleanup)
+        appTable.grantReadWriteData(vectorProcessor);
+
+        // Grant DynamoDB write for audit logging
+        auditTable.grantWriteData(vectorProcessor);
+
         // Grant S3 Vectors permissions (custom construct, no standard grant method)
         vectorProcessor.addToRolePolicy(new iam.PolicyStatement({
             actions: [
                 "s3vectors:PutVectors",
+                "s3vectors:DeleteVectors",
                 "s3vectors:QueryVectors",
                 "s3vectors:CreateVectorIndex",
                 "s3vectors:GetIndex",
@@ -675,7 +686,7 @@ export class ComputeStack extends cdk.Stack {
             entry: path.join(__dirname, '../lambda/scheduler/src/index.ts'),
             handler: 'handler',
             bundling: {
-                externalModules: ['@aws-sdk/*', 'dayjs'],
+                externalModules: ['@aws-sdk/*'],
                 minify: true,
                 sourceMap: false,
             },
@@ -985,6 +996,10 @@ export class ComputeStack extends cdk.Stack {
                 NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
                 COGNITO_CLIENT_SECRET: this.userPoolClient.userPoolClientSecret?.unsafeUnwrap() || '',
                 COGNITO_DOMAIN: `${webUiStackName}-auth-${this.account}.auth.${this.region}.amazoncognito.com`,
+
+                // Inventory Discovery Config
+                INVENTORY_BUCKET_NAME: inventoryBucket.bucketName,
+                INVENTORY_TABLE_NAME: inventoryTable.tableName,
 
                 // Vector Search Config
                 VECTOR_BUCKET_NAME: vectorBucket.vectorBucketName,
@@ -1358,8 +1373,8 @@ export class ComputeStack extends cdk.Stack {
             description: 'S3 Bucket for Agent Temporary Storage',
         });
 
-        // Grant web UI access to inventory bucket (for export downloads)
-        inventoryBucket.grantRead(ecsTaskRole);
+        // Grant web UI access to inventory bucket (read for queries, write for export uploads)
+        inventoryBucket.grantReadWrite(ecsTaskRole);
 
         // Discovery infrastructure outputs
         new cdk.CfnOutput(this, 'InventoryTableName', {

@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Copy, ExternalLink, Server, Database, Cloud, Tag, Clock, MapPin, Box } from "lucide-react";
 import { toast } from "sonner";
 import { getServiceName, getAwsConsoleUrl } from "@/lib/resource-types";
+import { getColumnsForType } from "@/lib/inventory/column-registry";
 
 export interface ResourceDetailProps {
     resourceId: string;
@@ -20,7 +21,8 @@ export interface ResourceDetailProps {
     accountId: string;
     lastDiscoveredAt: string;
     tags: Record<string, string>;
-    metadata?: Record<string, any>;
+    accountName?: string;
+    metadata?: Record<string, unknown>;
 }
 
 interface ResourceDetailDialogProps {
@@ -54,6 +56,14 @@ const getStateBadge = (state: string) => {
     );
 };
 
+function formatMetaValue(value: unknown): string {
+    if (value === null || value === undefined) return '—';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (Array.isArray(value)) return value.join(', ') || '—';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+}
+
 export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceDetailDialogProps) {
     if (!resource) return null;
 
@@ -68,6 +78,13 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
     const metadata = resource.metadata || {};
     const hasMetadata = Object.keys(metadata).length > 0;
 
+    const COMMON_COL_IDS = new Set(['name', 'state', 'region', 'accountId', 'tags', 'lastDiscoveredAt', 'service', 'resourceType']);
+
+    const metadataColumns = resource ? getColumnsForType(resource.resourceType)
+        .filter(col => col.id && !COMMON_COL_IDS.has(col.id) && metadata && col.id in metadata)
+        .map(col => ({ key: col.id as string, label: (col.meta as { label: string })?.label ?? col.id as string }))
+      : [];
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -78,9 +95,11 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                         </div>
                         <div className="flex-1 min-w-0">
                             <DialogTitle className="text-lg truncate">{resource.name}</DialogTitle>
-                            <DialogDescription className="flex items-center gap-2 mt-1">
-                                <Badge variant="secondary">{serviceName}</Badge>
-                                {getStateBadge(resource.state)}
+                            <DialogDescription asChild>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <Badge variant="secondary">{serviceName}</Badge>
+                                    {getStateBadge(resource.state)}
+                                </div>
                             </DialogDescription>
                         </div>
                         {awsConsoleUrl && (
@@ -119,7 +138,10 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                                     </div>
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-xs font-medium text-muted-foreground">Account ID</label>
+                                    <label className="text-xs font-medium text-muted-foreground">Account</label>
+                                    {resource.accountName && (
+                                        <div className="text-sm font-medium">{resource.accountName}</div>
+                                    )}
                                     <div className="flex items-center gap-2">
                                         <code className="text-sm bg-muted px-2 py-1 rounded truncate flex-1">
                                             {resource.accountId}
@@ -173,6 +195,32 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Resource-type-specific metadata fields */}
+                            {metadataColumns.length > 0 && (
+                                <>
+                                    <Separator />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {metadataColumns.map(({ key, label }) => {
+                                            const value = metadata[key];
+                                            const formatted = formatMetaValue(value);
+                                            const isBool = typeof value === 'boolean';
+                                            return (
+                                                <div key={key} className="space-y-1">
+                                                    <div className="text-xs font-medium text-muted-foreground">{label}</div>
+                                                    {isBool ? (
+                                                        <Badge variant="outline" className={value ? "bg-green-500/10 text-green-500 border-green-500/20" : "bg-red-500/10 text-red-500 border-red-500/20"}>
+                                                            {formatted}
+                                                        </Badge>
+                                                    ) : (
+                                                        <div className="text-sm">{formatted}</div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </>
+                            )}
                         </TabsContent>
 
                         <TabsContent value="tags" className="mt-0">

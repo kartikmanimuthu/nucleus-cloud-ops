@@ -119,7 +119,259 @@ def _extract_metadata(resource: Dict[str, Any], resource_type: str) -> Dict[str,
         metadata.update({
             'creationDate': str(raw_data.get('CreationDate')) if raw_data.get('CreationDate') else None,
         })
-    
+
+    # ACM Certificate specific metadata
+    elif resource_type == 'acm_certificates':
+        metadata.update({
+            'domainName': raw_data.get('DomainName'),
+            'status': raw_data.get('Status'),
+            'type': raw_data.get('Type'),
+            'issuer': raw_data.get('Issuer'),
+            'notBefore': str(raw_data.get('NotBefore')) if raw_data.get('NotBefore') else None,
+            'notAfter': str(raw_data.get('NotAfter')) if raw_data.get('NotAfter') else None,
+            'keyAlgorithm': raw_data.get('KeyAlgorithm'),
+            'renewalEligibility': raw_data.get('RenewalEligibility'),
+        })
+
+    # ECR Repository specific metadata
+    elif resource_type == 'ecr_repositories':
+        metadata.update({
+            'repositoryUri': raw_data.get('repositoryUri'),
+            'imageTagMutability': raw_data.get('imageTagMutability'),
+            'imageScanningConfiguration': raw_data.get('imageScanningConfiguration', {}).get('scanOnPush') if isinstance(raw_data.get('imageScanningConfiguration'), dict) else None,
+            'encryptionType': raw_data.get('encryptionConfiguration', {}).get('encryptionType') if isinstance(raw_data.get('encryptionConfiguration'), dict) else None,
+        })
+
+    # VPC specific metadata
+    elif resource_type == 'ec2_vpcs':
+        metadata.update({
+            'cidrBlock': raw_data.get('CidrBlock'),
+            'isDefault': raw_data.get('IsDefault'),
+            'state': raw_data.get('State'),
+            'dhcpOptionsId': raw_data.get('DhcpOptionsId'),
+            'instanceTenancy': raw_data.get('InstanceTenancy'),
+        })
+
+    # Subnet specific metadata
+    elif resource_type == 'ec2_subnets':
+        metadata.update({
+            'cidrBlock': raw_data.get('CidrBlock'),
+            'availabilityZone': raw_data.get('AvailabilityZone'),
+            'availableIpAddressCount': raw_data.get('AvailableIpAddressCount'),
+            'mapPublicIpOnLaunch': raw_data.get('MapPublicIpOnLaunch'),
+            'vpcId': raw_data.get('VpcId'),
+        })
+
+    # Security Group specific metadata
+    elif resource_type == 'ec2_security_groups':
+        inbound = raw_data.get('IpPermissions', [])
+        outbound = raw_data.get('IpPermissionsEgress', [])
+        metadata.update({
+            'description': raw_data.get('Description'),
+            'vpcId': raw_data.get('VpcId'),
+            'inboundRulesCount': len(inbound) if isinstance(inbound, list) else 0,
+            'outboundRulesCount': len(outbound) if isinstance(outbound, list) else 0,
+        })
+
+    # Network Interface specific metadata
+    elif resource_type == 'ec2_network_interfaces':
+        attachment = raw_data.get('Attachment', {})
+        association = raw_data.get('Association', {})
+        metadata.update({
+            'privateIpAddress': raw_data.get('PrivateIpAddress'),
+            'publicIp': association.get('PublicIp') if isinstance(association, dict) else None,
+            'macAddress': raw_data.get('MacAddress'),
+            'vpcId': raw_data.get('VpcId'),
+            'subnetId': raw_data.get('SubnetId'),
+            'attachedTo': attachment.get('InstanceId') if isinstance(attachment, dict) else None,
+            'description': raw_data.get('Description'),
+            'interfaceType': raw_data.get('InterfaceType'),
+        })
+
+    # NAT Gateway specific metadata
+    elif resource_type == 'ec2_nat_gateways':
+        addresses = raw_data.get('NatGatewayAddresses', [])
+        public_ip = None
+        private_ip = None
+        if isinstance(addresses, list) and addresses:
+            public_ip = addresses[0].get('PublicIp')
+            private_ip = addresses[0].get('PrivateIp')
+        metadata.update({
+            'publicIp': public_ip,
+            'privateIp': private_ip,
+            'vpcId': raw_data.get('VpcId'),
+            'subnetId': raw_data.get('SubnetId'),
+        })
+
+    # Load Balancer specific metadata
+    elif resource_type == 'elbv2_load_balancers':
+        state = raw_data.get('State', {})
+        metadata.update({
+            'dnsName': raw_data.get('DNSName'),
+            'type': raw_data.get('Type'),
+            'scheme': raw_data.get('Scheme'),
+            'vpcId': raw_data.get('VpcId'),
+            'ipAddressType': raw_data.get('IpAddressType'),
+            'stateCode': state.get('Code') if isinstance(state, dict) else None,
+        })
+
+    # ElastiCache Cluster specific metadata
+    elif resource_type == 'elasticache_cache_clusters':
+        endpoint = raw_data.get('ConfigurationEndpoint') or raw_data.get('RedisConfiguration', {})
+        metadata.update({
+            'engine': raw_data.get('Engine'),
+            'engineVersion': raw_data.get('EngineVersion'),
+            'cacheNodeType': raw_data.get('CacheNodeType'),
+            'numCacheNodes': raw_data.get('NumCacheNodes'),
+            'preferredAz': raw_data.get('PreferredAvailabilityZone'),
+            'clusterStatus': raw_data.get('CacheClusterStatus'),
+        })
+
+    # KMS Key specific metadata
+    elif resource_type == 'kms_keys':
+        key_meta = raw_data.get('KeyMetadata', raw_data)
+        metadata.update({
+            'enabled': key_meta.get('Enabled'),
+            'keyState': key_meta.get('KeyState'),
+            'keyManager': key_meta.get('KeyManager'),
+            'keySpec': key_meta.get('KeySpec'),
+            'keyUsage': key_meta.get('KeyUsage'),
+            'description': key_meta.get('Description'),
+            'origin': key_meta.get('Origin'),
+        })
+
+    # SNS Topic specific metadata
+    elif resource_type == 'sns_topics':
+        metadata.update({
+            'topicArn': raw_data.get('TopicArn'),
+        })
+
+    # SQS Queue specific metadata
+    elif resource_type == 'sqs_queues':
+        # list_queues returns URL strings; rawData may be the URL string
+        queue_url = raw_data.get('raw_value') or raw_data.get('QueueUrl', '')
+        metadata.update({
+            'queueUrl': queue_url,
+        })
+
+    # EFS File System specific metadata
+    elif resource_type == 'efs_file_systems':
+        size = raw_data.get('SizeInBytes', {})
+        metadata.update({
+            'lifecycleState': raw_data.get('LifeCycleState'),
+            'performanceMode': raw_data.get('PerformanceMode'),
+            'throughputMode': raw_data.get('ThroughputMode'),
+            'encrypted': raw_data.get('Encrypted'),
+            'sizeInBytes': size.get('Value') if isinstance(size, dict) else None,
+            'mountTargets': raw_data.get('NumberOfMountTargets'),
+        })
+
+    # RDS DB Cluster specific metadata
+    elif resource_type == 'rds_db_clusters':
+        metadata.update({
+            'engine': raw_data.get('Engine'),
+            'engineVersion': raw_data.get('EngineVersion'),
+            'status': raw_data.get('Status'),
+            'multiAZ': raw_data.get('MultiAZ'),
+            'databaseName': raw_data.get('DatabaseName'),
+            'endpoint': raw_data.get('Endpoint'),
+            'readerEndpoint': raw_data.get('ReaderEndpoint'),
+        })
+
+    # CloudFront Distribution specific metadata
+    elif resource_type == 'cloudfront_distributions':
+        metadata.update({
+            'domainName': raw_data.get('DomainName'),
+            'status': raw_data.get('Status'),
+            'enabled': raw_data.get('Enabled'),
+            'priceClass': raw_data.get('PriceClass'),
+            'comment': raw_data.get('Comment'),
+            'aliases': ', '.join(raw_data.get('Aliases', {}).get('Items', []) if isinstance(raw_data.get('Aliases'), dict) else []),
+        })
+
+    # API Gateway REST API specific metadata
+    elif resource_type == 'apigateway_rest_apis':
+        endpoint_config = raw_data.get('endpointConfiguration', {})
+        endpoint_types = endpoint_config.get('types', []) if isinstance(endpoint_config, dict) else []
+        metadata.update({
+            'description': raw_data.get('description'),
+            'endpointType': ', '.join(endpoint_types),
+            'version': raw_data.get('version'),
+        })
+
+    # SSM Parameter specific metadata
+    elif resource_type == 'ssm_parameters':
+        metadata.update({
+            'type': raw_data.get('Type'),
+            'tier': raw_data.get('Tier'),
+            'dataType': raw_data.get('DataType'),
+            'version': raw_data.get('Version'),
+            'lastModifiedDate': str(raw_data.get('LastModifiedDate')) if raw_data.get('LastModifiedDate') else None,
+        })
+
+    # Secrets Manager specific metadata
+    elif resource_type == 'secretsmanager_secrets':
+        metadata.update({
+            'description': raw_data.get('Description'),
+            'rotationEnabled': raw_data.get('RotationEnabled'),
+            'lastChangedDate': str(raw_data.get('LastChangedDate')) if raw_data.get('LastChangedDate') else None,
+            'lastAccessedDate': str(raw_data.get('LastAccessedDate')) if raw_data.get('LastAccessedDate') else None,
+        })
+
+    # IAM Role specific metadata
+    elif resource_type == 'iam_roles':
+        metadata.update({
+            'path': raw_data.get('Path'),
+            'createDate': str(raw_data.get('CreateDate')) if raw_data.get('CreateDate') else None,
+            'description': raw_data.get('Description'),
+            'maxSessionDuration': raw_data.get('MaxSessionDuration'),
+        })
+
+    # IAM User specific metadata
+    elif resource_type == 'iam_users':
+        metadata.update({
+            'path': raw_data.get('Path'),
+            'createDate': str(raw_data.get('CreateDate')) if raw_data.get('CreateDate') else None,
+            'passwordLastUsed': str(raw_data.get('PasswordLastUsed')) if raw_data.get('PasswordLastUsed') else None,
+        })
+
+    # CodePipeline specific metadata
+    elif resource_type == 'codepipeline_pipelines':
+        metadata.update({
+            'version': raw_data.get('version'),
+            'created': str(raw_data.get('created')) if raw_data.get('created') else None,
+            'updated': str(raw_data.get('updated')) if raw_data.get('updated') else None,
+        })
+
+    # EKS Cluster specific metadata
+    elif resource_type == 'eks_clusters':
+        metadata.update({
+            'version': raw_data.get('version'),
+            'endpoint': raw_data.get('endpoint'),
+            'platformVersion': raw_data.get('platformVersion'),
+            'kubernetesNetworkConfig': raw_data.get('kubernetesNetworkConfig', {}).get('serviceIpv4Cidr') if isinstance(raw_data.get('kubernetesNetworkConfig'), dict) else None,
+        })
+
+    # CloudWatch Alarm specific metadata
+    elif resource_type == 'cloudwatch_metric_alarms':
+        metadata.update({
+            'metricName': raw_data.get('MetricName'),
+            'namespace': raw_data.get('Namespace'),
+            'comparisonOperator': raw_data.get('ComparisonOperator'),
+            'threshold': raw_data.get('Threshold'),
+            'evaluationPeriods': raw_data.get('EvaluationPeriods'),
+            'actionsEnabled': raw_data.get('ActionsEnabled'),
+        })
+
+    # EventBridge Rule specific metadata
+    elif resource_type == 'events_rules':
+        metadata.update({
+            'scheduleExpression': raw_data.get('ScheduleExpression'),
+            'eventBusName': raw_data.get('EventBusName'),
+            'description': raw_data.get('Description'),
+            'state': raw_data.get('State'),
+        })
+
     # EBS Volume specific metadata
     elif resource_type == 'ec2_volumes':
         metadata.update({
@@ -140,13 +392,92 @@ def _extract_metadata(resource: Dict[str, Any], resource_type: str) -> Dict[str,
             'availabilityZones': raw_data.get('AvailabilityZones'),
         })
     
-    # ECS Cluster/Services
+    # EC2 Elastic IP Addresses
+    elif resource_type == 'ec2_addresses':
+        metadata.update({
+            'publicIp': raw_data.get('PublicIp'),
+            'allocationId': raw_data.get('AllocationId'),
+            'associatedInstanceId': raw_data.get('InstanceId'),
+            'associationId': raw_data.get('AssociationId'),
+            'networkInterfaceId': raw_data.get('NetworkInterfaceId'),
+            'privateIpAddress': raw_data.get('PrivateIpAddress'),
+            'domain': raw_data.get('Domain'),
+        })
+
+    # ECS Services (from describe_services)
+    elif resource_type == 'ecs_services':
+        metadata.update({
+            'clusterArn': raw_data.get('ClusterArn') or raw_data.get('clusterArn'),
+            'status': raw_data.get('status') or raw_data.get('Status'),
+            'desiredCount': raw_data.get('desiredCount'),
+            'runningCount': raw_data.get('runningCount'),
+            'pendingCount': raw_data.get('pendingCount'),
+            'launchType': raw_data.get('launchType'),
+            'taskDefinition': raw_data.get('taskDefinition', '').split('/')[-1] if raw_data.get('taskDefinition') else None,
+        })
+
+    # ECS Clusters (from describe_clusters)
+    elif resource_type == 'ecs_clusters':
+        metadata.update({
+            'status': raw_data.get('status'),
+            'registeredContainerInstances': raw_data.get('registeredContainerInstancesCount'),
+            'runningTasksCount': raw_data.get('runningTasksCount'),
+            'pendingTasksCount': raw_data.get('pendingTasksCount'),
+            'activeServicesCount': raw_data.get('activeServicesCount'),
+            'capacityProviders': ', '.join(raw_data.get('capacityProviders', [])) or None,
+        })
+
+    # ECS catch-all (legacy)
     elif 'ecs' in resource_type:
         metadata.update({
-            'clusterArn': raw_data.get('ClusterArn'),
-            'status': raw_data.get('Status'),
-            'runningTasksCount': raw_data.get('RunningTasksCount'),
-            'pendingTasksCount': raw_data.get('PendingTasksCount'),
+            'clusterArn': raw_data.get('ClusterArn') or raw_data.get('clusterArn'),
+            'status': raw_data.get('Status') or raw_data.get('status'),
+        })
+
+    # Transit Gateway specific metadata
+    elif resource_type == 'ec2_transit_gateways':
+        metadata.update({
+            'state': raw_data.get('State'),
+            'ownerId': raw_data.get('OwnerId'),
+            'description': raw_data.get('Description'),
+            'amazonSideAsn': raw_data.get('Options', {}).get('AmazonSideAsn') if isinstance(raw_data.get('Options'), dict) else None,
+            'defaultRouteTableAssociation': raw_data.get('Options', {}).get('DefaultRouteTableAssociation') if isinstance(raw_data.get('Options'), dict) else None,
+            'vpnEcmpSupport': raw_data.get('Options', {}).get('VpnEcmpSupport') if isinstance(raw_data.get('Options'), dict) else None,
+        })
+
+    # Transit Gateway Attachment specific metadata
+    elif resource_type == 'ec2_transit_gateway_attachments':
+        metadata.update({
+            'state': raw_data.get('State'),
+            'resourceType': raw_data.get('ResourceType'),
+            'resourceId': raw_data.get('ResourceId'),
+            'resourceOwnerId': raw_data.get('ResourceOwnerId'),
+            'transitGatewayId': raw_data.get('TransitGatewayId'),
+            'transitGatewayOwnerId': raw_data.get('TransitGatewayOwnerId'),
+        })
+
+    # VPC Peering Connection specific metadata
+    elif resource_type == 'ec2_vpc_peering_connections':
+        requester = raw_data.get('RequesterVpcInfo', {})
+        accepter = raw_data.get('AccepterVpcInfo', {})
+        status = raw_data.get('Status', {})
+        metadata.update({
+            'status': status.get('Code') if isinstance(status, dict) else None,
+            'requesterVpcId': requester.get('VpcId') if isinstance(requester, dict) else None,
+            'requesterCidr': requester.get('CidrBlock') if isinstance(requester, dict) else None,
+            'requesterOwnerId': requester.get('OwnerId') if isinstance(requester, dict) else None,
+            'accepterVpcId': accepter.get('VpcId') if isinstance(accepter, dict) else None,
+            'accepterCidr': accepter.get('CidrBlock') if isinstance(accepter, dict) else None,
+            'accepterOwnerId': accepter.get('OwnerId') if isinstance(accepter, dict) else None,
+        })
+
+    # WAFv2 Web ACLs
+    elif resource_type == 'wafv2_web_acls':
+        metadata.update({
+            'description': raw_data.get('Description'),
+            'scope': raw_data.get('_scope'),
+            'managedByFirewallManager': raw_data.get('ManagedByFirewallManager'),
+            'labelNamespace': raw_data.get('LabelNamespace'),
         })
     
     # Remove None values
@@ -381,13 +712,67 @@ def save_to_s3_tables(
         return 0
 
 
+def _truncate_account_inventory(
+    dynamodb_client,
+    table_name: str,
+    account_id: str,
+    tenant_id: str = 'default'
+) -> int:
+    """
+    Delete all existing inventory records for an account before writing fresh data.
+    Queries by pk (TENANT#{tenant_id}#ACCOUNT#{account_id}) and batch-deletes all INVENTORY# items.
+
+    Returns:
+        Number of items deleted
+    """
+    pk = f'TENANT#{tenant_id}#ACCOUNT#{account_id}'
+    paginator = dynamodb_client.get_paginator('query')
+    deleted = 0
+
+    for page in paginator.paginate(
+        TableName=table_name,
+        KeyConditionExpression='pk = :pk AND begins_with(sk, :sk_prefix)',
+        ExpressionAttributeValues={
+            ':pk': {'S': pk},
+            ':sk_prefix': {'S': 'INVENTORY#'},
+        },
+        ProjectionExpression='pk, sk',
+    ):
+        items = page.get('Items', [])
+        if not items:
+            continue
+
+        # Batch delete in groups of 25
+        for i in range(0, len(items), 25):
+            batch = [
+                {'DeleteRequest': {'Key': {'pk': item['pk'], 'sk': item['sk']}}}
+                for item in items[i:i + 25]
+            ]
+            try:
+                response = dynamodb_client.batch_write_item(RequestItems={table_name: batch})
+                unprocessed = response.get('UnprocessedItems', {})
+                retry_count = 0
+                while unprocessed and retry_count < 5:
+                    time.sleep(2 ** retry_count)
+                    response = dynamodb_client.batch_write_item(RequestItems=unprocessed)
+                    unprocessed = response.get('UnprocessedItems', {})
+                    retry_count += 1
+                deleted += len(batch) - len(unprocessed.get(table_name, []))
+            except Exception as e:
+                print(f"  ERROR deleting batch during truncate for {account_id}: {e}")
+
+    print(f"  Truncated {deleted} existing inventory records for account {account_id}")
+    return deleted
+
+
 def process_and_store_resources(
     dynamodb_client,
     s3_client,
     table_name: str,
     bucket_name: str,
     account_id: str,
-    resources: List[Dict[str, Any]],
+    account_name: str = '',
+    resources: List[Dict[str, Any]] = None,
     raw_results: Dict[str, Dict[str, Any]] = None,
     tenant_id: str = 'default',
     scan_id: str = None,
@@ -444,6 +829,9 @@ def process_and_store_resources(
         )
         print(f"  Stored raw data to s3://{bucket_name}/{s3_key}")
     
+    # Truncate existing inventory records for this account before writing fresh data
+    _truncate_account_inventory(dynamodb_client, table_name, account_id, tenant_id)
+
     # Prepare DynamoDB items
     items_to_write = []
     
@@ -558,7 +946,7 @@ def process_and_store_resources(
     # Write normalized resources to S3 for vector processing pipeline
     # normalized/{date}/{account_id}.json triggers the vector processor Lambda via SQS
     if bucket_name and s3_client:
-        _store_normalized_for_vectors(s3_client, bucket_name, account_id, resources, now)
+        _store_normalized_for_vectors(s3_client, bucket_name, account_id, account_name, resources, now)
 
     # S3 Tables write (Iceberg) — non-fatal
     if s3_table_bucket_arn:
@@ -571,8 +959,9 @@ def _store_normalized_for_vectors(
     s3_client,
     bucket_name: str,
     account_id: str,
-    resources: List[Dict[str, Any]],
-    now: datetime
+    account_name: str = '',
+    resources: List[Dict[str, Any]] = None,
+    now: datetime = None
 ) -> None:
     """
     Write normalized resources to S3 under the normalized/ prefix.
@@ -593,6 +982,7 @@ def _store_normalized_for_vectors(
             'region': r.get('region', ''),
             'state': r.get('state', ''),
             'accountId': account_id,
+            'accountName': account_name,
             'service': r.get('service', ''),
             'tags': r.get('tags', {}),
             'metadata': _extract_metadata(r, r.get('resourceType', '')),

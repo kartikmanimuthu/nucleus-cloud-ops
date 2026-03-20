@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { RefreshCw, Download, Search, Filter, ChevronLeft, ChevronRight, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X } from "lucide-react";
+import { RefreshCw, Download, Search, Filter, ChevronLeft, ChevronRight, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
@@ -54,6 +53,9 @@ export default function InventoryPage() {
     // Accounts for filter
     const [accounts, setAccounts] = useState<UIAccount[]>([]);
     const [openAccountCombobox, setOpenAccountCombobox] = useState(false);
+    const [accountSearch, setAccountSearch] = useState("");
+    const [openResourceTypeCombobox, setOpenResourceTypeCombobox] = useState(false);
+    const [resourceTypeSearch, setResourceTypeSearch] = useState("");
 
     // Resource detail dialog
     const [selectedResource, setSelectedResource] = useState<ResourceDetailProps | null>(null);
@@ -62,22 +64,59 @@ export default function InventoryPage() {
     // Ask AI Dialog
     const [askAIOpen, setAskAIOpen] = useState(false);
 
-    // Filters
+    // Applied filters (what the API actually uses)
     const [searchTerm, setSearchTerm] = useState("");
     const [resourceType, setResourceType] = useState("all");
     const [region, setRegion] = useState("all");
-    const [accountId, setAccountId] = useState("all");
+    const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+
+    // Draft filters (what the user is editing before clicking Apply)
+    const [draftSearch, setDraftSearch] = useState("");
+    const [draftResourceType, setDraftResourceType] = useState("all");
+    const [draftRegion, setDraftRegion] = useState("all");
+    const [draftAccounts, setDraftAccounts] = useState<string[]>([]);
 
     // Pagination
     const [cursor, setCursor] = useState<string | undefined>();
     const [hasMore, setHasMore] = useState(false);
     const [pageSize, setPageSize] = useState(50);
+    const [isFirstPage, setIsFirstPage] = useState(true);
+
+    const hasPendingChanges =
+        draftSearch !== searchTerm ||
+        draftResourceType !== resourceType ||
+        draftRegion !== region ||
+        JSON.stringify(draftAccounts) !== JSON.stringify(selectedAccounts);
+
+    const handleApplyFilters = () => {
+        setSearchTerm(draftSearch);
+        setResourceType(draftResourceType);
+        setRegion(draftRegion);
+        setSelectedAccounts(draftAccounts);
+        setCursor(undefined);
+    };
+
+    const handleClearFilters = () => {
+        setDraftSearch("");
+        setDraftResourceType("all");
+        setDraftRegion("all");
+        setDraftAccounts([]);
+        setSearchTerm("");
+        setResourceType("all");
+        setRegion("all");
+        setSelectedAccounts([]);
+        setCursor(undefined);
+    };
 
     // Dynamic columns — recomputed whenever the resourceType filter changes
     const columns = useMemo(
         () => getColumnsForType(resourceType === "all" ? "_default" : resourceType),
         [resourceType]
     );
+
+    // Keep a ref to fetchResources so the debounce effect can always call the latest version
+    // without listing fetchResources as a dependency (which would cause it to fire on page size changes too)
+    const fetchResourcesRef = useRef<(newCursor?: string) => Promise<void>>(async () => {});
 
     const fetchResources = useCallback(async (newCursor?: string) => {
         setLoading(true);
@@ -86,7 +125,7 @@ export default function InventoryPage() {
             params.set("limit", pageSize.toString());
             if (resourceType !== "all") params.set("resourceType", resourceType);
             if (region !== "all") params.set("region", region);
-            if (accountId !== "all") params.set("accountId", accountId);
+            if (selectedAccounts.length > 0) params.set("accountIds", selectedAccounts.join(","));
             if (searchTerm) params.set("search", searchTerm);
             if (newCursor) params.set("cursor", newCursor);
 
@@ -97,6 +136,7 @@ export default function InventoryPage() {
                 setResources(data.resources || []);
                 setHasMore(data.hasMore || false);
                 setCursor(data.nextCursor);
+                setIsFirstPage(!newCursor);
             } else {
                 toast.error(data.error || "Failed to fetch resources");
             }
@@ -105,7 +145,12 @@ export default function InventoryPage() {
         } finally {
             setLoading(false);
         }
-    }, [resourceType, region, accountId, searchTerm, pageSize]);
+    }, [resourceType, region, selectedAccounts, searchTerm, pageSize]);
+
+    // Keep ref in sync so the debounce effect always calls the latest version
+    useEffect(() => {
+        fetchResourcesRef.current = fetchResources;
+    }, [fetchResources]);
 
     const fetchSyncStatus = async () => {
         try {
@@ -134,6 +179,7 @@ export default function InventoryPage() {
                     description: `Scan ID: ${data.scanId?.substring(0, 8) || "N/A"}`,
                     duration: 5000,
                 });
+                fetchSyncStatus();
             } else {
                 toast.error(data.error || "Failed to trigger sync");
             }
@@ -147,9 +193,11 @@ export default function InventoryPage() {
     const handleExport = async () => {
         setExporting(true);
         try {
-            const body: Record<string, string> = {};
+            const body: Record<string, string | string[]> = {};
             if (resourceType !== "all") body.resourceType = resourceType;
             if (region !== "all") body.region = region;
+            if (selectedAccounts.length === 1) body.accountId = selectedAccounts[0];
+            else if (selectedAccounts.length > 1) body.accountIds = selectedAccounts;
 
             const response = await fetch("/api/inventory/export", {
                 method: "POST",
@@ -159,7 +207,7 @@ export default function InventoryPage() {
             const data = await response.json();
 
             if (response.ok && data.downloadUrl) {
-                window.open(data.downloadUrl, "_blank");
+                window.location.href = data.downloadUrl;
                 if (data.capped) {
                     toast.warning(`Exported ${data.resourceCount} resources (capped). ${data.warning}`);
                 } else {
@@ -178,15 +226,15 @@ export default function InventoryPage() {
     useEffect(() => {
         fetchResources();
         fetchSyncStatus();
-    }, [fetchResources]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
+    // Re-fetch when applied filters change (triggered by Apply button)
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setCursor(undefined);
-            fetchResources();
-        }, 300);
-        return () => clearTimeout(timer);
-    }, [searchTerm, resourceType, region, accountId, fetchResources]);
+        setCursor(undefined);
+        fetchResourcesRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchTerm, resourceType, region, selectedAccounts]);
 
     useEffect(() => {
         const fetchAccounts = async () => {
@@ -209,6 +257,7 @@ export default function InventoryPage() {
             region: resource.region,
             state: resource.state,
             accountId: resource.accountId,
+            accountName: resource.accountName,
             lastDiscoveredAt: resource.lastDiscoveredAt,
             tags: resource.tags,
             metadata: resource.metadata as Record<string, unknown>,
@@ -232,6 +281,10 @@ export default function InventoryPage() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
+                        <Button variant="outline" onClick={() => { fetchResourcesRef.current(); fetchSyncStatus(); }} disabled={loading}>
+                            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                            Refresh
+                        </Button>
                         <Button variant="secondary" onClick={() => setAskAIOpen(true)}>
                             <Sparkles className="h-4 w-4 mr-2 text-indigo-500" />
                             Ask AI
@@ -298,29 +351,75 @@ export default function InventoryPage() {
                 {/* Filters */}
                 <Card>
                     <CardContent className="pt-6">
-                        <div className="flex flex-wrap gap-4">
+                        <div className="flex flex-wrap gap-4 items-center">
                             <div className="flex-1 min-w-[200px]">
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                     <Input
                                         placeholder="Search by name or ID..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        value={draftSearch}
+                                        onChange={(e) => setDraftSearch(e.target.value)}
+                                        onKeyDown={(e) => e.key === "Enter" && handleApplyFilters()}
                                         className="pl-9"
                                     />
                                 </div>
                             </div>
-                            <Select value={resourceType} onValueChange={setResourceType}>
-                                <SelectTrigger className="w-[180px]">
-                                    <SelectValue placeholder="Resource Type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {RESOURCE_TYPE_OPTIONS.map((type) => (
-                                        <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <Select value={region} onValueChange={setRegion}>
+                            {/* Resource Type Filter — single-select with search */}
+                            <Popover open={openResourceTypeCombobox} onOpenChange={setOpenResourceTypeCombobox}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={openResourceTypeCombobox}
+                                        className={cn(
+                                            "w-[200px] justify-between",
+                                            draftResourceType === "all" && "text-muted-foreground"
+                                        )}
+                                    >
+                                        <span className="truncate">
+                                            {draftResourceType === "all"
+                                                ? "All Types"
+                                                : (RESOURCE_TYPE_OPTIONS.find(o => o.value === draftResourceType)?.label ?? draftResourceType)}
+                                        </span>
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[280px] p-0" align="start">
+                                    <div className="flex items-center border-b px-3">
+                                        <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                                        <input
+                                            className="flex h-10 w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                            placeholder="Search types..."
+                                            value={resourceTypeSearch}
+                                            onChange={e => setResourceTypeSearch(e.target.value)}
+                                        />
+                                        {resourceTypeSearch && (
+                                            <button onClick={() => setResourceTypeSearch("")} className="text-muted-foreground hover:text-foreground">
+                                                <X className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="max-h-[280px] overflow-y-auto p-1">
+                                        {RESOURCE_TYPE_OPTIONS.filter(opt =>
+                                            !resourceTypeSearch || opt.label.toLowerCase().includes(resourceTypeSearch.toLowerCase())
+                                        ).map(opt => (
+                                            <button
+                                                key={opt.value}
+                                                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                                                onClick={() => {
+                                                    setDraftResourceType(opt.value);
+                                                    setOpenResourceTypeCombobox(false);
+                                                    setResourceTypeSearch("");
+                                                }}
+                                            >
+                                                <Check className={cn("h-4 w-4 shrink-0", draftResourceType === opt.value ? "opacity-100" : "opacity-0")} />
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </PopoverContent>
+                            </Popover>
+                            <Select value={draftRegion} onValueChange={setDraftRegion}>
                                 <SelectTrigger className="w-[180px]">
                                     <SelectValue placeholder="Region" />
                                 </SelectTrigger>
@@ -331,7 +430,7 @@ export default function InventoryPage() {
                                 </SelectContent>
                             </Select>
 
-                            {/* Account Filter with Search */}
+                            {/* Account Filter — multi-select with search + Select All */}
                             <Popover open={openAccountCombobox} onOpenChange={setOpenAccountCombobox}>
                                 <PopoverTrigger asChild>
                                     <Button
@@ -340,64 +439,128 @@ export default function InventoryPage() {
                                         aria-expanded={openAccountCombobox}
                                         className={cn(
                                             "w-[220px] justify-between",
-                                            accountId === "all" && "text-muted-foreground"
+                                            draftAccounts.length === 0 && "text-muted-foreground"
                                         )}
                                     >
-                                        {accountId === "all"
-                                            ? "All Accounts"
-                                            : accounts.find((a) => a.accountId === accountId)?.name || accountId}
+                                        <span className="truncate">
+                                            {draftAccounts.length === 0
+                                                ? "All Accounts"
+                                                : draftAccounts.length === 1
+                                                    ? (accounts.find(a => a.accountId === draftAccounts[0])?.name || draftAccounts[0])
+                                                    : `${draftAccounts.length} accounts`}
+                                        </span>
                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-[300px] p-0">
-                                    <Command>
-                                        <CommandInput placeholder="Search account..." />
-                                        <CommandList>
-                                            <CommandEmpty>No account found.</CommandEmpty>
-                                            <CommandGroup>
-                                                <CommandItem
-                                                    value="all"
-                                                    onSelect={() => {
-                                                        setAccountId("all");
-                                                        setOpenAccountCombobox(false);
+                                <PopoverContent className="w-[320px] p-0" align="start">
+                                    <div className="flex items-center border-b px-3">
+                                        <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                                        <input
+                                            className="flex h-10 w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+                                            placeholder="Search accounts..."
+                                            value={accountSearch}
+                                            onChange={e => setAccountSearch(e.target.value)}
+                                        />
+                                        {accountSearch && (
+                                            <button onClick={() => setAccountSearch("")} className="text-muted-foreground hover:text-foreground">
+                                                <X className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="max-h-[280px] overflow-y-auto p-1">
+                                        {/* Select All — operates on filtered list */}
+                                        {(() => {
+                                            const filtered = accounts.filter(a =>
+                                                !accountSearch ||
+                                                a.name.toLowerCase().includes(accountSearch.toLowerCase()) ||
+                                                a.accountId.includes(accountSearch)
+                                            );
+                                            const filteredIds = filtered.map(a => a.accountId);
+                                            const allFilteredSelected = filteredIds.length > 0 && filteredIds.every(id => draftAccounts.includes(id));
+                                            const someFilteredSelected = filteredIds.some(id => draftAccounts.includes(id));
+                                            return (
+                                                <>
+                                                <button
+                                                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                                                    onClick={() => {
+                                                        if (allFilteredSelected) {
+                                                            setDraftAccounts(prev => prev.filter(id => !filteredIds.includes(id)));
+                                                        } else {
+                                                            setDraftAccounts(prev => [...new Set([...prev, ...filteredIds])]);
+                                                        }
                                                     }}
                                                 >
-                                                    <Check className={cn("mr-2 h-4 w-4", accountId === "all" ? "opacity-100" : "opacity-0")} />
-                                                    All Accounts
-                                                </CommandItem>
-                                                {accounts.map((account) => (
-                                                    <CommandItem
-                                                        value={`${account.name} ${account.accountId}`}
-                                                        key={account.accountId}
-                                                        onSelect={() => {
-                                                            setAccountId(account.accountId);
-                                                            setOpenAccountCombobox(false);
-                                                        }}
-                                                    >
-                                                        <Check className={cn("mr-2 h-4 w-4", account.accountId === accountId ? "opacity-100" : "opacity-0")} />
-                                                        {account.name} ({account.accountId})
-                                                    </CommandItem>
-                                                ))}
-                                            </CommandGroup>
-                                        </CommandList>
-                                    </Command>
+                                                    <div className={cn(
+                                                        "flex h-4 w-4 items-center justify-center rounded border",
+                                                        allFilteredSelected
+                                                            ? "bg-primary border-primary text-primary-foreground"
+                                                            : someFilteredSelected
+                                                                ? "bg-primary/30 border-primary"
+                                                                : "border-input"
+                                                    )}>
+                                                        {allFilteredSelected && <Check className="h-3 w-3" />}
+                                                        {!allFilteredSelected && someFilteredSelected && (
+                                                            <span className="h-0.5 w-2 bg-primary block" />
+                                                        )}
+                                                    </div>
+                                                    <span className="font-medium">Select All</span>
+                                                    <span className="ml-auto text-xs text-muted-foreground">{filtered.length}</span>
+                                                </button>
+                                                <div className="my-1 border-t" />
+                                                {/* Account list */}
+                                                {filtered.map(account => {
+                                                    const checked = draftAccounts.includes(account.accountId);
+                                                    return (
+                                                        <button
+                                                            key={account.accountId}
+                                                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                                                            onClick={() => {
+                                                                setDraftAccounts(prev =>
+                                                                    checked
+                                                                        ? prev.filter(id => id !== account.accountId)
+                                                                        : [...prev, account.accountId]
+                                                                );
+                                                            }}
+                                                        >
+                                                            <div className={cn(
+                                                                "flex h-4 w-4 items-center justify-center rounded border",
+                                                                checked ? "bg-primary border-primary text-primary-foreground" : "border-input"
+                                                            )}>
+                                                                {checked && <Check className="h-3 w-3" />}
+                                                            </div>
+                                                            <div className="flex flex-col items-start min-w-0">
+                                                                <span className="truncate max-w-[200px]">{account.name}</span>
+                                                                <span className="text-xs text-muted-foreground">{account.accountId}</span>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                                {filtered.length === 0 && (
+                                                    <p className="py-6 text-center text-sm text-muted-foreground">No accounts found.</p>
+                                                )}
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                    {draftAccounts.length > 0 && (
+                                        <div className="border-t p-2">
+                                            <Button variant="ghost" size="sm" className="w-full" onClick={() => setDraftAccounts([])}>
+                                                Clear selection
+                                            </Button>
+                                        </div>
+                                    )}
                                 </PopoverContent>
                             </Popover>
 
-                            {/* Clear All Filters */}
-                            {(searchTerm || resourceType !== "all" || region !== "all" || accountId !== "all") && (
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                        setSearchTerm("");
-                                        setResourceType("all");
-                                        setRegion("all");
-                                        setAccountId("all");
-                                    }}
-                                >
+                            {/* Apply + Clear */}
+                            <Button onClick={handleApplyFilters} disabled={!hasPendingChanges} size="sm">
+                                <SlidersHorizontal className="h-4 w-4 mr-1" />
+                                Apply
+                            </Button>
+                            {(searchTerm || resourceType !== "all" || region !== "all" || selectedAccounts.length > 0) && (
+                                <Button variant="ghost" size="sm" onClick={handleClearFilters}>
                                     <X className="h-4 w-4 mr-1" />
-                                    Clear Filters
+                                    Clear
                                 </Button>
                             )}
                         </div>
@@ -461,7 +624,7 @@ export default function InventoryPage() {
                                         <Button
                                             variant="outline"
                                             size="sm"
-                                            disabled={!cursor}
+                                            disabled={isFirstPage}
                                             onClick={() => { setCursor(undefined); fetchResources(); }}
                                         >
                                             <ChevronLeft className="h-4 w-4" />
@@ -496,7 +659,7 @@ export default function InventoryPage() {
                 open={askAIOpen}
                 onOpenChange={setAskAIOpen}
                 filters={{
-                    accountId: accountId !== "all" ? accountId : undefined,
+                    accountId: selectedAccounts.length === 1 ? selectedAccounts[0] : undefined,
                     region: region !== "all" ? region : undefined,
                     resourceType: resourceType !== "all" ? resourceType : undefined,
                 }}
