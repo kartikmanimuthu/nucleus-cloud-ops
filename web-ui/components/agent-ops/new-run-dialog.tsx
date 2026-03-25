@@ -51,7 +51,7 @@ export function NewRunDialog({
             if (!res.ok) throw new Error(data.error || "Failed to start run")
 
             setOpen(false)
-            router.push(`/agent-ops/${data.runId}?tenantId=${tenantId}`)
+            router.push(`/app/agent-ops/${data.runId}?tenantId=${tenantId}`)
         } catch (err) {
             setError(err instanceof Error ? err.message : "An unknown error occurred")
         } finally {

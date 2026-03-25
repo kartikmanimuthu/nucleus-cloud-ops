@@ -3,19 +3,17 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signIn, useSession } from 'next-auth/react';
-import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { Command, Loader2 } from 'lucide-react';
+import { Loader2, Zap } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
   const { data: session } = useSession();
-
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (session?.user) {
-      router.push('/');
+      router.push('/app/dashboard');
     }
   }, [session, router]);
 
@@ -23,7 +21,7 @@ export default function LoginPage() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      await signIn("cognito", { callbackUrl: "/" });
+      await signIn("cognito", { callbackUrl: "/app/dashboard" });
     } catch (error) {
       console.error('Sign in error:', error);
       setIsLoading(false);
@@ -31,63 +29,46 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="w-full lg:grid lg:min-h-screen lg:grid-cols-2">
-      {/* Left Column: Cover Image & Branding */}
-      <div className="relative hidden h-full flex-col bg-muted p-10 text-white dark:border-r lg:flex">
-        <div className="absolute inset-0 bg-zinc-900">
-             <Image
-                src="/login-bg-black.png"
-                alt="Login Background"
-                fill
-                className="object-cover opacity-80 mix-blend-overlay"
-                priority
-              />
-        </div>
-        <div className="relative z-20 flex items-center text-lg font-medium">
-          <Command className="mr-2 h-6 w-6" />
-          Nucleus Platform
-        </div>
-        <div className="relative z-20 mt-auto">
-          <blockquote className="space-y-2">
-            <p className="text-lg">
-              &ldquo;Optimize your cloud costs efficiently with our automated scheduling and management platform.&rdquo;
-            </p>
-            <footer className="text-sm">Nucleus Platform</footer>
-          </blockquote>
-        </div>
-      </div>
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <div className="bg-card border border-border rounded-xl shadow-sm p-8">
+          {/* Logo */}
+          <div className="flex items-center gap-2.5 mb-8">
+            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+              <Zap className="w-4 h-4 text-primary-foreground" />
+            </div>
+            <span className="font-bold text-lg text-foreground">Nucleus Ops</span>
+          </div>
 
-      {/* Right Column: Login Form */}
-      <div className="flex items-center justify-center py-12">
-        <div className="mx-auto grid w-[350px] gap-6">
-          <div className="grid gap-2 text-center">
-            <h1 className="text-3xl font-bold">Login</h1>
-            <p className="text-balance text-muted-foreground">
-              Sign in to your account to continue
-            </p>
+          {/* Heading */}
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-foreground">Welcome back</h1>
+            <p className="text-sm text-muted-foreground mt-1">Sign in to your account to continue</p>
           </div>
-          <div className="grid gap-4">
-            <Button onClick={handleSignIn} variant="outline" className="w-full" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in...
-                </>
-              ) : (
-                "Sign in with Cognito"
-              )}
-            </Button>
-            {/* 
-              Additional login options or form fields would go here.
-              For now, we strictly use Cognito OAuth redirect.
-            */}
-          </div>
-          <div className="mt-4 text-center text-sm">
+
+          {/* Sign in button */}
+          <Button
+            onClick={handleSignIn}
+            className="w-full"
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Signing in...
+              </>
+            ) : (
+              "Sign in with Cognito"
+            )}
+          </Button>
+
+          {/* Help */}
+          <p className="mt-6 text-center text-sm text-muted-foreground">
             Need help?{" "}
-            <a href="#" className="underline">
+            <a href="#" className="text-primary hover:underline underline-offset-4">
               Contact Support
             </a>
-          </div>
+          </p>
         </div>
       </div>
     </div>

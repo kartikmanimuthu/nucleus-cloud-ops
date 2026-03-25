@@ -224,7 +224,7 @@ export function ScheduleForm({ initialData, isEditing = false }: ScheduleFormPro
       }
 
       // Redirect to schedules list
-      router.push("/schedules");
+      router.push("/app/schedules");
     } catch (error) {
       console.error("Failed to save schedule:", error);
       // TODO: Show error toast

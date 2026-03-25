@@ -174,7 +174,7 @@ export default function SchedulesClient({
   };
 
   const handleCreateSchedule = () => {
-    router.push("/schedules/create");
+    router.push("/app/schedules/create");
   };
 
   // Calculate summary statistics from ALL schedules, not just current page

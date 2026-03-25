@@ -31,7 +31,7 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'cd web-ui && npm run dev',
+    command: 'export AWS_PROFILE=PLATFORM-ADMIN && cd web-ui && npm run dev',
     url: 'http://localhost:3000',
     reuseExistingServer: true, // reuse the already-running dev server
   },

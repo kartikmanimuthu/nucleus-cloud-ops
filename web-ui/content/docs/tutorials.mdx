@@ -1,0 +1,106 @@
+---
+title: Tutorials
+description: Step-by-step guides for common Nucleus Ops workflows.
+---
+
+## Tutorial 1: Save on Dev/Staging Environments
+
+**Goal:** Stop all non-prod EC2, RDS, and ECS resources outside business hours.
+
+![Cost Scheduler](/screenshots/schedules.png)
+
+1. Connect your non-prod AWS account (see [Getting Started](/docs/getting-started))
+2. Go to **Cost Scheduler** → **Create Schedule**
+3. Select EC2 instances, RDS clusters, and ECS services tagged for non-prod
+4. Set start: `09:00 Mon–Fri`, stop: `19:00 Mon–Fri`, timezone: your local TZ
+5. Enable the schedule
+
+**Result:** Instances run 50 hours/week instead of 168 — ~70% cost reduction. The scheduler tracks success rate and estimated savings per schedule.
+
+---
+
+## Tutorial 2: Use the AI Agent for Cost Analysis
+
+**Goal:** Identify the biggest cost-saving opportunities across all accounts.
+
+![AI Ops](/screenshots/ai-ops.png)
+
+1. Navigate to **AI Ops**
+2. Select the accounts you want to analyze using **Select Accounts**
+3. Ask: *"Review the Cost of the AWS Account for the last 3 months and share the key movers and optimization scope"*
+4. The agent will plan, execute AWS API calls, reflect on results, and return a ranked analysis
+5. Follow up: *"Create a schedule for the top 3 idle resource groups"*
+
+**Tip:** Enable **Auto-approve tools** to let the agent execute actions without confirmation prompts.
+
+---
+
+## Tutorial 3: Set Up Slack-Triggered Agent Runs
+
+**Goal:** Let your team trigger cloud operations from Slack.
+
+![Channels](/screenshots/channels.png)
+
+1. Go to **Channels** → **Slack** → **Configure**
+2. Create a Slack app, add the Bot Token and webhook URL
+3. Test the connection
+4. In Slack, use slash commands to trigger agent runs
+5. Results are posted back to your configured channel
+
+**Example Slack command:** `/nucleus is there any ec2 instance running in partner system non prod stx`
+
+---
+
+## Tutorial 4: Automate Agent Runs from Jira
+
+**Goal:** Trigger cloud operations from Jira Automation rules.
+
+1. Go to **Channels** → **Jira** → **Configure**
+2. Enter your Jira base URL and API token
+3. In Jira Automation, create a rule that calls the Nucleus Ops webhook
+4. Agent results are posted as issue comments
+
+---
+
+## Tutorial 5: Monitor Agent Execution History
+
+**Goal:** Review all past agent runs, their sources, and outcomes.
+
+![Agent Ops](/screenshots/agent-ops.png)
+
+1. Navigate to **Agent Ops**
+2. Filter by source (Slack, Jira, API) or status (Completed, Failed, In Progress)
+3. Click any run to view full execution details, tool calls, and output
+4. Use **Scheduled Tasks** to manage recurring agent tasks
+
+The Agent Ops page shows 43+ runs with duration, source, and status at a glance.
+
+---
+
+## Tutorial 6: Build a Knowledge Base from Your Docs
+
+**Goal:** Let the AI agent answer questions about your infrastructure documentation.
+
+![Knowledge Base](/screenshots/knowledge-base.png)
+
+1. Go to **Knowledge Base** → **Create Knowledge Base**
+2. Add sources: S3 bucket, Bitbucket repo, or document upload
+3. Wait for the vector processor to index your content
+4. Use **Ask** to query the knowledge base in natural language
+5. The AI Ops agent can also reference the knowledge base during runs
+
+---
+
+## Tutorial 7: Audit Who Changed What
+
+**Goal:** Track all system activities for compliance reporting.
+
+![Audit Logs](/screenshots/audit.png)
+
+1. Navigate to **Audit Logs**
+2. Filter by **User**, **Action**, **Status**, or **Severity**
+3. Use the date range picker (default: last 7 days)
+4. Switch to **Chart View** for a visual breakdown
+5. Click **Export** to download as CSV for compliance reporting
+
+The audit log captures 500+ events with full metadata including correlation IDs, execution IDs, IP addresses, and resource IDs.

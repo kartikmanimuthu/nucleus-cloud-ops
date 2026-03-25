@@ -4,17 +4,21 @@ AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops age
 
 ## Stack
 
-| Layer | Tech |
-|-------|------|
-| Frontend | Next.js 15, React 19, Tailwind CSS, Radix UI |
-| AI Agent | LangGraph, LangChain, AWS Bedrock (Claude 4.5 Sonnet), MCP |
-| Infrastructure | AWS CDK v2, ECS Fargate, CloudFront, DynamoDB |
-| Auth | NextAuth.js |
-| Testing | Vitest (web-ui), Jest (CDK) |
+| Layer          | Tech                                                       |
+| -------------- | ---------------------------------------------------------- |
+| Frontend       | Next.js 15, React 19, Tailwind CSS, Radix UI               |
+| AI Agent       | LangGraph, LangChain, AWS Bedrock (Claude 4.5 Sonnet), MCP |
+| Infrastructure | AWS CDK v2, ECS Fargate, CloudFront, DynamoDB              |
+| Auth           | NextAuth.js                                                |
+| Testing        | Vitest (web-ui), Jest (CDK)                                |
 
 ## Key Commands
 
 ```bash
+
+# Setup AWS Profile
+export AWS_PROFILE=PLATFORM-ADMIN
+
 # Local development
 cd web-ui && npm run dev        # Next.js dev server → http://localhost:3000
 
@@ -87,6 +91,7 @@ nucleus-cloud-ops/
 ## Agent Architecture
 
 The AI agent lives in `web-ui/lib/agent/`. Key patterns:
+
 - Tools are defined with `DynamicStructuredTool` from LangChain
 - Agent state uses LangGraph `Annotation` for type-safe state management
 - Cross-account AWS calls always go through `sts:AssumeRole`
@@ -108,10 +113,11 @@ Two tables in use — consult `docs/schema-design.md` before adding any entity:
 - **NucleusAuditTable**: immutable logs with TTL via `expire_at` (30-day retention)
 
 Key PK/SK patterns:
-| Entity | PK | SK |
-|--------|----|----|
-| Account | `ACCOUNT#<AccountId>` | `METADATA` |
-| Schedule | `SCHEDULE#<ScheduleId>` | `METADATA` |
+
+| Entity            | PK                        | SK                         |
+| ----------------- | ------------------------- | -------------------------- |
+| Account           | `ACCOUNT#<AccountId>`   | `METADATA`               |
+| Schedule          | `SCHEDULE#<ScheduleId>` | `METADATA`               |
 | Targeted Resource | `SCHEDULE#<ScheduleId>` | `RESOURCE#<ResourceArn>` |
 
 GSI1 patterns for list queries: `TYPE#ACCOUNT`, `TYPE#SCHEDULE`, `ACCOUNT#<AccountId>`
@@ -121,22 +127,25 @@ GSI1 patterns for list queries: `TYPE#ACCOUNT`, `TYPE#SCHEDULE`, `ACCOUNT#<Accou
 ## Agent Architecture (Detailed)
 
 Three agent types in `web-ui/lib/agent/`:
+
 - **fast-agent.ts** — Reflection loop (generator → tools → reflector → revise), MAX_REFLECT_ITERATIONS=5
 - **planning-agent.ts** — Multi-step (planner → executor → reflector → reviser), MAX_ITERATIONS=30
 - **deep-agent.ts** — Extended thinking with MongoDB persistence
 
 Key shared modules:
-| File | Purpose |
-|------|---------|
-| `agent-shared.ts` | State types (ReflectionState), message sanitization, checkpointer init |
-| `model-factory.ts` | ChatBedrockConverse init, tool assembly |
-| `tools.ts` | Tool definitions (execute_command, read_file, write_file, glob, grep, S3) |
-| `prompt-templates.ts` | Reusable prompt fragments (CORE_PRINCIPLES, buildBaseIdentity, etc.) |
-| `mcp-config.ts` | MCP server definitions and merge logic |
-| `mcp-manager.ts` | MCP server lifecycle (connect/disconnect, credential injection) |
-| `mcp-tools.ts` | LangChain tool wrappers for MCP resources |
+
+| File                    | Purpose                                                                   |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `agent-shared.ts`     | State types (ReflectionState), message sanitization, checkpointer init    |
+| `model-factory.ts`    | ChatBedrockConverse init, tool assembly                                   |
+| `tools.ts`            | Tool definitions (execute_command, read_file, write_file, glob, grep, S3) |
+| `prompt-templates.ts` | Reusable prompt fragments (CORE_PRINCIPLES, buildBaseIdentity, etc.)      |
+| `mcp-config.ts`       | MCP server definitions and merge logic                                    |
+| `mcp-manager.ts`      | MCP server lifecycle (connect/disconnect, credential injection)           |
+| `mcp-tools.ts`        | LangChain tool wrappers for MCP resources                                 |
 
 Tool definition pattern:
+
 ```typescript
 import { tool } from '@langchain/core/tools';
 export const myTool = tool(
@@ -150,6 +159,7 @@ export const myTool = tool(
 ## API Route Conventions
 
 All routes in `web-ui/app/api/` follow these patterns:
+
 - **Auth/RBAC**: `authorize()` from `@/lib/rbac/authorize` — every mutating route needs this
 - **Services**: import from `@/lib/<domain>-service.ts` (e.g., `account-service.ts`, `audit-service.ts`)
 - **AWS clients**: `getDynamoDBDocumentClient()` from `@/lib/aws-config`
@@ -166,12 +176,13 @@ All routes in `web-ui/app/api/` follow these patterns:
 ## Lambda Runtimes
 
 Four Lambda functions with different runtimes:
-| Directory | Language | Build | Tests |
-|-----------|----------|-------|-------|
-| `lambda/scheduler/` | TypeScript | esbuild | Vitest |
-| `lambda/discovery/` | Python | — | — |
-| `lambda/vector_processor/` | Python + TypeScript | — | — |
-| `lambda/kb_sync_processor/` | TypeScript | tsc | — |
+
+| Directory                     | Language            | Build   | Tests  |
+| ----------------------------- | ------------------- | ------- | ------ |
+| `lambda/scheduler/`         | TypeScript          | esbuild | Vitest |
+| `lambda/discovery/`         | Python              | —      | —     |
+| `lambda/vector_processor/`  | Python + TypeScript | —      | —     |
+| `lambda/kb_sync_processor/` | TypeScript          | tsc     | —     |
 
 ## Testing Conventions
 
@@ -190,6 +201,7 @@ Config lives at `playwright.config.ts` (root). Tests live in `tests/e2e/`. The d
 ```bash
 # Run all E2E tests (starts dev server automatically)
 npx playwright test
+
 
 # Run a specific test file
 npx playwright test tests/e2e/ask-ai.spec.ts
@@ -210,6 +222,7 @@ npx playwright codegen http://localhost:3000
 ### Using Playwright MCP for Testing
 
 The Playwright MCP server (configured in `.mcp.json`) lets Claude Code interact with the running app directly. Use it to:
+
 - Inspect live UI state before writing assertions
 - Debug failing tests by navigating to the page and taking snapshots
 - Verify selectors before committing them to test files
@@ -226,12 +239,14 @@ Workflow: start the dev server manually (`cd web-ui && npm run dev`), then use P
 ### Locator Best Practices
 
 **Prefer** (in order):
+
 1. `page.getByRole('button', { name: 'Send' })` — semantic, resilient
 2. `page.getByTestId('ask-ai-input')` — add `data-testid` to components when needed
 3. `page.getByLabel('Search')` — for form inputs
 4. `page.getByText('Ask AI about your inventory')` — for visible text
 
 **Avoid:**
+
 - CSS selectors like `.btn-primary` — break on style changes
 - XPath — brittle and unreadable
 - `:has-text()` pseudo-selectors — use `getByText()` instead
@@ -295,11 +310,13 @@ Then reference in `playwright.config.ts` via `storageState: 'tests/e2e/.auth/use
 ### What to Test E2E
 
 Write E2E tests for:
+
 - Critical user flows (login → view inventory → schedule action)
 - AI agent interactions (open chat, send message, verify response renders)
 - Cross-component workflows (filter inventory → open Ask AI → verify filter applied)
 
 Do NOT write E2E tests for:
+
 - Unit logic (use Vitest)
 - API contract validation (use integration tests)
 - Every UI state permutation (use component tests)
@@ -311,6 +328,7 @@ Do NOT write E2E tests for:
 ### Pre-Deploy Checklist
 
 Before any `cdk deploy`:
+
 1. Run `npx cdk diff --profile <profile>` — review all changes
 2. For `computeStack.ts` or `networkingStack.ts` changes — get a second review
 3. Verify `.env` has correct `AWS_ACCOUNT_ID` and `AWS_REGION`
@@ -333,28 +351,29 @@ Lambda functions are bundled inside ComputeStack/WebUIStack — no separate depl
 
 ```bash
 # Verify AWS identity first
-aws sts get-caller-identity --profile STX-CLOUD-PLATFORM-ADMIN
+aws sts get-caller-identity --profile PLATFORM-ADMIN
 
 # Diff before deploy (always)
-npx cdk diff --profile STX-CLOUD-PLATFORM-ADMIN
-npx cdk diff WebUIStack --profile STX-CLOUD-PLATFORM-ADMIN
+npx cdk diff --profile PLATFORM-ADMIN
+npx cdk diff WebUIStack --profile PLATFORM-ADMIN
 
 # Deploy single stack (most common — web UI changes)
-npx cdk deploy WebUIStack --profile STX-CLOUD-PLATFORM-ADMIN
+npx cdk deploy WebUIStack --profile PLATFORM-ADMIN
 
 # Deploy all stacks (infrastructure changes)
-npx cdk deploy --all --profile STX-CLOUD-PLATFORM-ADMIN
+npx cdk deploy --all --profile PLATFORM-ADMIN
 
 # Deploy with approval prompt disabled (CI only)
-npx cdk deploy --all --require-approval never --profile STX-CLOUD-PLATFORM-ADMIN
+npx cdk deploy --all --require-approval never --profile PLATFORM-ADMIN
 
 # Synthesize CloudFormation without deploying (validate)
-npx cdk synth --profile STX-CLOUD-PLATFORM-ADMIN
+npx cdk synth --profile PLATFORM-ADMIN
 ```
 
 ### Post-Deploy Verification
 
 After deploying:
+
 1. Check CloudFormation console — stack status should be `UPDATE_COMPLETE`
 2. For WebUIStack: verify CloudFront distribution URL returns 200
 3. For ComputeStack: check ECS service desired count matches running count
@@ -364,13 +383,14 @@ After deploying:
 ### Rollback
 
 CDK doesn't have a built-in rollback command. Options:
+
 - **CloudFormation rollback**: In AWS Console → CloudFormation → select stack → "Roll back"
 - **Code rollback**: `git revert` the change, then `cdk deploy` again
 - **Manual**: For WebUIStack, re-deploy the previous S3 asset version via CloudFront invalidation
 
 ### Environment-Specific Notes
 
-- **AWS_PROFILE**: `STX-CLOUD-PLATFORM-ADMIN` for production deployments
+- **AWS_PROFILE**: `PLATFORM-ADMIN` for production deployments
 - **CDK context**: stored in `cdk.context.json` — commit this file, it caches VPC/AZ lookups
 - **cdk.out/**: generated CloudFormation templates — do not commit, already in `.gitignore`
 - **Lambda bundling**: esbuild bundles TypeScript lambdas at synth time — requires Node 20+

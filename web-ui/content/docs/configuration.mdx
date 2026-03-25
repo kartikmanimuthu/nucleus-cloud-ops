@@ -1,0 +1,148 @@
+---
+title: Configuration
+description: Configure AWS accounts, schedules, the AI agent, and integrations.
+---
+
+## AWS Accounts
+
+### Adding an Account
+
+Go to **AWS Accounts** → **Integrate Account**.
+
+![AWS Accounts](/screenshots/accounts.png)
+
+Provide:
+- **Account ID** — 12-digit AWS account ID
+- **Role ARN** — IAM role Nucleus Ops will assume (e.g. `arn:aws:iam::123456789012:role/NucleusAccess-XXXXXXXXXX`)
+- **Region** — Primary region to scan (e.g. `ap-south-1`)
+
+### IAM Role Setup
+
+Create a role in the target account with this trust policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "AWS": "arn:aws:iam::NUCLEUS_ACCOUNT_ID:role/NucleusOpsExecutionRole"
+    },
+    "Action": "sts:AssumeRole"
+  }]
+}
+```
+
+Attach the `NucleusOpsPolicy` with permissions for EC2, RDS, ECS describe/start/stop actions.
+
+### Account Status
+
+Each account has two independent states:
+- **Account Status** — `Active` or `Inactive` (controls whether schedules run)
+- **Connection** — `Connected`, `Unknown` (IAM role reachability)
+
+Use **Validate** to test the IAM role connection. Use **Activate/Deactivate** to control scheduling.
+
+---
+
+## Cost Scheduler
+
+### Schedule Configuration
+
+![Cost Scheduler](/screenshots/schedules.png)
+
+| Field | Description |
+|-------|-------------|
+| Name | Friendly name for the schedule |
+| Account | Target AWS account |
+| Resources | EC2 instances, RDS clusters, or ECS services |
+| Start Time | Time to start resources (e.g. `09:00:00`) |
+| Stop Time | Time to stop resources (e.g. `19:00:00`) |
+| Timezone | IANA timezone (e.g. `Asia/Kolkata`) |
+| Days | Mon–Fri, weekends, or custom day selection |
+
+### Cron Expressions
+
+Nucleus Ops supports standard cron syntax:
+
+```
+# Start at 9am Mon-Fri
+0 9 * * 1-5
+
+# Stop at 7pm Mon-Fri
+0 19 * * 1-5
+```
+
+---
+
+## AI Ops Agent
+
+### Overview
+
+![AI Ops](/screenshots/ai-ops.png)
+
+The AI Ops agent uses a **Plan → Execute → Reflect → Revise** loop powered by Claude 4.6 Sonnet via AWS Bedrock.
+
+**Controls:**
+- **Model** — Claude 4.6 Sonnet (default)
+- **Mode** — Fast (ReAct) or Planning
+- **Auto-approve tools** — Execute actions without confirmation
+- **Select Accounts** — Scope the agent to specific accounts
+- **Agent Skills** — Pre-built skill prompts for common tasks
+- **Select Tools** — Enable/disable specific tools (9 built-in + MCP)
+
+### Bedrock Configuration
+
+Ensure your execution role has:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+  "Resource": "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6*"
+}
+```
+
+### MCP Servers
+
+Add custom MCP servers under **Channels** → **MCP Servers** to extend the agent's capabilities. 16 MCP servers are supported out of the box.
+
+---
+
+## Channels & Integrations
+
+![Channels](/screenshots/channels.png)
+
+### Slack Integration
+
+1. Go to **Channels** → **Slack** → **Configure**
+2. Create a Slack app and add the Bot Token
+3. Configure the webhook URL for notifications
+4. Test the connection
+
+Once configured, use Slack slash commands to trigger agent runs and receive results directly in your channels.
+
+### Jira Integration
+
+1. Go to **Channels** → **Jira** → **Configure**
+2. Enter your Jira base URL and API token
+3. Trigger agent runs from Jira Automation rules
+4. Receive results as issue comments
+
+### MCP Servers
+
+1. Go to **Channels** → **MCP Servers** → **Configure**
+2. Add server name, command, and arguments
+3. MCP tools become available in the AI Ops agent automatically
+
+---
+
+## Appearance & Settings
+
+![Settings](/screenshots/settings.png)
+
+Each user can customize:
+- **Mode** — Light, Dark, or System
+- **Color theme** — Zinc, Slate, Stone, Red, Orange, Green, Blue, Rose, Violet, Yellow
+- **Font** — Inter, Manrope, or System
+- **Border radius** — 0 to 1rem

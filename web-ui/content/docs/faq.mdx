@@ -1,0 +1,128 @@
+---
+title: FAQ
+description: Frequently asked questions about Nucleus Ops.
+---
+
+## General
+
+### What is Nucleus Ops?
+
+Nucleus Ops is an open source AWS Cloud Operations Platform for multi-account resource scheduling and AI-powered cloud operations. It's MIT licensed and free to self-host.
+
+### What AWS resources does Nucleus Ops support?
+
+EC2 instances, RDS clusters (Aurora, MySQL, PostgreSQL), ECS services, and ElastiCache. The Inventory Discovery feature auto-discovers 30+ resource types including ACM certificates, Lambda functions, S3 buckets, and more.
+
+### Does Nucleus Ops store my AWS credentials?
+
+No. Nucleus Ops uses `sts:AssumeRole` to obtain temporary credentials at runtime. No long-lived credentials are stored anywhere.
+
+### What regions are supported?
+
+All AWS commercial regions. Set the primary region per account in the account settings. Nucleus Ops scans all configured regions when discovering inventory.
+
+### Is it really free?
+
+Yes. The self-hosted version is MIT licensed with no feature restrictions. All features — AI agent, knowledge base, channels, audit logs — are included.
+
+---
+
+## Scheduling
+
+### Can I schedule resources in multiple regions?
+
+Yes. Each account can have resources across multiple regions. Nucleus Ops scans all regions when you add an account.
+
+### What happens if a schedule fails?
+
+The failure is logged in the Audit Trail with full error details and severity level. If Slack is configured, you'll receive an alert. Nucleus Ops retries once automatically.
+
+### Can I manually trigger a schedule?
+
+Yes. Go to **Cost Scheduler** → select a schedule → **Execute Now**.
+
+### How accurate is the savings estimate?
+
+The savings estimate is based on on-demand pricing for the resource type and region. Actual savings depend on your reserved instance coverage and usage patterns.
+
+---
+
+## AI Agent
+
+### What model does the AI agent use?
+
+AWS Bedrock with Claude 4.6 Sonnet (`anthropic.claude-sonnet-4-6`). Streaming is enabled for real-time responses. The model selector in the UI lets you switch models.
+
+### What is the Plan → Execute → Reflect → Revise loop?
+
+The agent first plans a set of steps, executes them using tools (AWS API calls, file reads, web search), reflects on the results, and revises its approach if needed. This loop runs up to 5 iterations (Fast mode) or 30 iterations (Planning mode).
+
+### Can the AI agent make changes to my AWS resources?
+
+Yes, with your approval. By default, the agent proposes actions and asks for confirmation. Enable **Auto-approve tools** to let it execute without prompts.
+
+### What tools does the agent have?
+
+9 built-in tools: execute AWS commands, read/write files, glob, grep, S3 operations, web search (Tavily), and more. Additional tools come from MCP servers configured in Channels.
+
+### Is conversation history saved?
+
+Yes. Conversations are stored in DynamoDB with configurable TTL (via `DYNAMODB_CHECKPOINT_TABLE`). Chat history is accessible from the history panel in the AI Ops interface.
+
+### What are Agent Skills?
+
+Pre-built prompt templates for common tasks like "Vital check of EC2 instances" or "Review AWS costs for the last 3 months". Select a skill from the dropdown to pre-fill the prompt.
+
+---
+
+## Inventory Discovery
+
+### How does inventory discovery work?
+
+An ECS-based discovery Lambda scans all connected accounts and regions, normalizes resource data, and stores it in DynamoDB. Results are also pushed to S3 for vector indexing.
+
+### How often is inventory refreshed?
+
+Click **Sync Now** in the Inventory Discovery page to trigger an immediate scan. Scheduled discovery runs automatically based on your configuration.
+
+### What is "Ask AI" in inventory?
+
+A natural language interface that queries your inventory using vector search. Ask questions like "show me all EC2 instances in ap-south-1 that are stopped" and get filtered results.
+
+---
+
+## Security
+
+### How is authentication handled?
+
+NextAuth.js with AWS Cognito. All sessions are JWT-based with configurable expiry.
+
+### Is data encrypted at rest?
+
+Yes. DynamoDB tables use AWS KMS encryption at rest. S3 buckets use server-side encryption.
+
+### Can I restrict which users can create schedules?
+
+Yes. Nucleus Ops has role-based access control (RBAC). Admins can assign `viewer`, `operator`, or `admin` roles per user under **Users**.
+
+---
+
+## Deployment
+
+### Can I self-host Nucleus Ops?
+
+Yes. Deploy with AWS CDK (ECS Fargate) or run locally with `npm run dev`. See [Installation](/docs/installation).
+
+### What does the CDK deployment cost?
+
+Roughly $30–80/month for a small deployment (ECS Fargate + DynamoDB + CloudFront). Actual costs depend on usage and the number of accounts being scanned.
+
+### What's the tech stack?
+
+| Layer | Tech |
+|-------|------|
+| Frontend | Next.js 15, React 19, Tailwind CSS, Radix UI |
+| AI Agent | LangGraph, LangChain, AWS Bedrock (Claude 4.6 Sonnet), MCP |
+| Infrastructure | AWS CDK v2, ECS Fargate, CloudFront, DynamoDB |
+| Auth | NextAuth.js + AWS Cognito |
+| Testing | Vitest (web-ui), Jest (CDK) |

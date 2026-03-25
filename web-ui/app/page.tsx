@@ -1,158 +1,371 @@
+import Link from "next/link";
+import { Cloud, Clock, Bot, BarChart3, Shield, Globe, Check, ArrowRight, Zap, Database, Cable, BookOpen, Activity, Github } from "lucide-react";
 
-import { DashboardClient, DashboardStats, RecentActivity } from "@/components/dashboard/dashboard-client";
-import { ScheduleService } from "@/lib/schedule-service";
-import { AccountService } from "@/lib/account-service";
-import { AuditService } from "@/lib/audit-service";
-import { UISchedule } from "@/lib/types";
+const features = [
+  {
+    icon: Clock,
+    title: "Cost Scheduler",
+    description: "Automatically start/stop EC2, RDS, and ECS resources on custom schedules. Save up to 70% on idle dev/staging costs with business-hours scheduling.",
+  },
+  {
+    icon: Globe,
+    title: "Multi-Account Management",
+    description: "Manage 90+ AWS accounts from a single pane of glass using secure cross-account IAM roles. Grid and table views with filtering.",
+  },
+  {
+    icon: Bot,
+    title: "AI Ops Agent",
+    description: "Natural language cloud operations powered by Claude 4.6 Sonnet via AWS Bedrock. Plan → Execute → Reflect → Revise with auto-approve mode.",
+  },
+  {
+    icon: Zap,
+    title: "Agent Ops",
+    description: "Background agent executions triggered by Slack, Jira, API, or schedule. Full run history with execution details and status tracking.",
+  },
+  {
+    icon: Database,
+    title: "Inventory Discovery",
+    description: "Auto-discover 31,000+ AWS resources across all connected accounts. Filter by type, region, account. Export and Ask AI about your inventory.",
+  },
+  {
+    icon: BookOpen,
+    title: "Knowledge Base",
+    description: "Vector-powered knowledge base with S3, Bitbucket, and document sources. Ask natural language questions against your infrastructure docs.",
+  },
+  {
+    icon: Cable,
+    title: "Channels & Integrations",
+    description: "Slack slash commands, Jira automation triggers, and 16+ MCP servers. Receive agent results directly in your existing workflows.",
+  },
+  {
+    icon: Activity,
+    title: "Audit Trail",
+    description: "Complete audit logging with 30-day retention, advanced filtering by user/action/severity, chart view, and CSV export for compliance.",
+  },
+  {
+    icon: BarChart3,
+    title: "Cost Tracking",
+    description: "Real-time savings estimation across all schedules. Dashboard shows monthly savings, active schedules, and resource counts at a glance.",
+  },
+  {
+    icon: Shield,
+    title: "RBAC & Security",
+    description: "Role-based access control with viewer, operator, and admin roles. All cross-account ops use STS AssumeRole — no stored credentials.",
+  },
+  {
+    icon: Cloud,
+    title: "Deep AI Agent",
+    description: "Extended thinking agent with MongoDB persistence for long-running, multi-step cloud operations that require deeper reasoning.",
+  },
+  {
+    icon: Globe,
+    title: "Appearance & Theming",
+    description: "Light/dark mode, 10 color themes (Zinc, Blue, Violet, Rose…), font selection, and border radius — fully customizable per user.",
+  },
+];
 
-// Server-side data fetching
-async function getDashboardData(): Promise<{
-  initialStats: DashboardStats;
-  recentActivity: RecentActivity[];
-  auditLogs: any[];
-  schedules: UISchedule[];
-  accounts: any[];
-  error?: string;
-}> {
-  try {
-    // Fetch accounts, schedules, and audit logs in parallel
-    const [accounts, schedules, auditLogs] = await Promise.all([
-      AccountService.getAccounts().catch(() => {
-        console.error("Failed to fetch accounts");
-        return { accounts: [] };
-      }),
-      ScheduleService.getSchedules().catch(() => {
-         console.error("Failed to fetch schedules");
-         return { schedules: [] };
-      }),
-      AuditService.getAuditLogs().catch(() => {
-         console.error("Failed to fetch audit logs");
-         return [];
-      }),
-    ]);
-
-    // Handle the structure returned by services (some return { accounts: [], nextToken... })
-    const accountList = Array.isArray(accounts) ? accounts : (accounts as any).accounts || [];
-    const scheduleList = Array.isArray(schedules) ? schedules : (schedules as any).schedules || [];
-    const auditLogList = Array.isArray(auditLogs) ? auditLogs : [];
-
-    // Calculate dashboard stats from real data
-    const totalAccounts = accountList.length;
-    const totalSchedules = scheduleList.length;
-    const activeSchedules = scheduleList.filter((s: UISchedule) => s.active).length;
-    
-    // Calculate total savings - check both account savings and schedule estimated savings
-    let totalSavings = accountList.reduce(
-      (sum: number, acc: any) => sum + (acc.monthlySavings || 0),
-      0
-    );
-
-    // If account savings are 0, try to sum up estimated savings from schedules
-    if (totalSavings === 0 && scheduleList.length > 0) {
-      totalSavings = scheduleList.reduce(
-        (sum: number, sch: UISchedule) => sum + (sch.estimatedSavings || 0),
-        0
-      );
-    }
-
-    const totalResources = accountList.reduce(
-      (sum: number, acc: any) => sum + (acc.resourceCount || 0),
-      0
-    );
-
-    const initialStats: DashboardStats = {
-      totalSchedules,
-      activeSchedules,
-      totalAccounts,
-      monthlySavings: totalSavings,
-      resourcesManaged: totalResources,
-      lastExecution: auditLogList.length > 0 ? auditLogList[0].timestamp : new Date().toISOString(),
-    };
-
-    // Transform audit logs to recent activity format
-    const recentActivity: RecentActivity[] = auditLogList
-      .slice(0, 5)
-      .map((log: any) => ({
-        id: log.id,
-        action: log.action,
-        schedule: log.resourceType === "schedule" ? log.resource : null,
-        account: log.accountId || log.resourceId || "Unknown",
-        timestamp: log.timestamp,
-        status: log.status,
-      }));
-
-    // Add fallback activity if no audit logs
-    if (recentActivity.length === 0) {
-      recentActivity.push({
-        id: "sys-welcome",
-        action: "Dashboard initialized",
-        schedule: null,
-        account: "system",
-        timestamp: new Date().toISOString(),
-        status: "success",
-      });
-    }
-
-    return {
-      initialStats,
-      recentActivity,
-      auditLogs: auditLogList,
-      schedules: scheduleList,
-      accounts: accountList,
-    };
-  } catch (error) {
-    console.error("Error fetching dashboard data:", error);
-
-    // Return fallback data on error
-    const fallbackStats: DashboardStats = {
-      totalSchedules: 0,
-      activeSchedules: 0,
-      totalAccounts: 0,
-      monthlySavings: 0,
-      resourcesManaged: 0,
-      lastExecution: new Date().toISOString(),
-    };
-
-    const fallbackActivity: RecentActivity[] = [
-      {
-        id: "error-1",
-        action: "Failed to load dashboard data",
-        schedule: null,
-        account: "system",
-        timestamp: new Date().toISOString(),
-        status: "error",
-      },
-    ];
-
-    return {
-      initialStats: fallbackStats,
-      recentActivity: fallbackActivity,
-      auditLogs: [],
-      error:
-        error instanceof Error
-          ? error.message
-          : "Failed to load dashboard data",
-      schedules: [],
-      accounts: [],
-    };
-  }
-}
-
-// Update Dashboard component
-export default async function Dashboard() {
-  const { initialStats, recentActivity, auditLogs, error, schedules, accounts } =
-    await getDashboardData();
-  
-  if (error) {
-    console.error("Dashboard error:", error);
-  }
-
-
+export default function MarketingPage() {
   return (
-    <DashboardClient 
-      initialStats={initialStats} 
-      recentActivity={recentActivity} 
-      error={error} 
-    />
+    <div className="min-h-screen bg-background text-foreground">
+      {/* Nav */}
+      <nav className="border-b border-border sticky top-0 bg-background/80 backdrop-blur z-50">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2 font-bold text-lg">
+            <Zap className="w-5 h-5 text-primary" />
+            Nucleus Ops
+          </div>
+          <div className="hidden md:flex items-center gap-8 text-sm text-muted-foreground">
+            <Link href="#features" className="hover:text-foreground transition-colors">Features</Link>
+            <Link href="#open-source" className="hover:text-foreground transition-colors">Open Source</Link>
+            <Link href="/docs" className="hover:text-foreground transition-colors">Docs</Link>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link
+              href="https://github.com/kartikmanimuthu/nucleus-cloud-ops"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+            >
+              <Github className="w-4 h-4" />
+              GitHub
+            </Link>
+            <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Sign in
+            </Link>
+            <Link href="/login" className="text-sm bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-lg transition-colors">
+              Get Started
+            </Link>
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero */}
+      <section className="max-w-6xl mx-auto px-6 pt-24 pb-20 text-center">
+        <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-medium px-3 py-1.5 rounded-full mb-4">
+          <Github className="w-3 h-3" />
+          Open Source · MIT License
+        </div>
+        <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-medium px-3 py-1.5 rounded-full mb-6 ml-2">
+          <Zap className="w-3 h-3" />
+          Powered by AWS Bedrock + Claude 4.6 Sonnet
+        </div>
+        <h1 className="text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-tight">
+          AWS Cloud Ops,<br />
+          <span className="text-primary">Automated & Intelligent</span>
+        </h1>
+        <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
+          Stop paying for idle cloud resources. Nucleus Ops automates EC2, RDS, and ECS scheduling across all your AWS accounts — with an AI agent that speaks your language. Free and open source.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <Link href="/login" className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-3 rounded-lg font-medium transition-colors">
+            Start for free <ArrowRight className="w-4 h-4" />
+          </Link>
+          <Link
+            href="https://github.com/kartikmanimuthu/nucleus-cloud-ops"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 border border-border hover:border-foreground/40 px-6 py-3 rounded-lg font-medium transition-colors"
+          >
+            <Github className="w-4 h-4" />
+            View on GitHub
+          </Link>
+        </div>
+
+        {/* Stats */}
+        <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-2xl mx-auto">
+          {[
+            { value: "70%", label: "avg. cost reduction" },
+            { value: "91+", label: "AWS accounts" },
+            { value: "31K+", label: "resources discovered" },
+            { value: "MIT", label: "open source license" },
+          ].map((stat) => (
+            <div key={stat.label}>
+              <div className="text-3xl font-bold text-primary">{stat.value}</div>
+              <div className="text-sm text-muted-foreground mt-1">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Demo screenshot placeholder */}
+      <section className="max-w-5xl mx-auto px-6 pb-24">
+        <div className="rounded-2xl border border-border bg-muted overflow-hidden shadow-2xl">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-card">
+            <div className="w-3 h-3 rounded-full bg-red-400" />
+            <div className="w-3 h-3 rounded-full bg-yellow-400" />
+            <div className="w-3 h-3 rounded-full bg-green-400" />
+            <span className="ml-2 text-xs text-muted-foreground">nucleus-ops.io/app/dashboard</span>
+          </div>
+          <div className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: "Total Schedules", value: "22", color: "text-primary" },
+              { label: "AWS Accounts", value: "91", color: "text-green-600" },
+              { label: "Resources Discovered", value: "31,139", color: "text-emerald-600" },
+              { label: "Agent Runs", value: "43", color: "text-purple-600" },
+            ].map((card) => (
+              <div key={card.label} className="bg-card rounded-xl p-4 border border-border">
+                <div className={`text-2xl font-bold ${card.color}`}>{card.value}</div>
+                <div className="text-xs text-muted-foreground mt-1">{card.label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="px-8 pb-8">
+            <div className="bg-card rounded-xl border border-border p-4">
+              <div className="text-xs font-medium text-muted-foreground mb-3">AI Ops Agent — Plan → Execute → Reflect → Revise</div>
+              <div className="space-y-2">
+                <div className="bg-muted rounded-lg px-3 py-2 text-sm w-fit">Review the Cost of the AWS Account for the last 3 months and share the key movers and optimization scope</div>
+                <div className="bg-primary/10 rounded-lg px-3 py-2 text-sm text-primary ml-auto w-fit max-w-sm">
+                  Analyzed <strong>91 accounts</strong> across ap-south-1. Top cost driver: EC2 instances running 24/7 in non-prod. Estimated savings: <strong>$4,200/month</strong> with business-hours scheduling.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="bg-muted py-24">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold mb-4">Everything you need to tame AWS costs</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto">
+              From automated scheduling to AI-powered insights, Nucleus Ops handles the operational overhead so your team can focus on shipping.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {features.map((f) => (
+              <div key={f.title} className="bg-card rounded-xl p-6 border border-border">
+                <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+                  <f.icon className="w-5 h-5 text-primary" />
+                </div>
+                <h3 className="font-semibold mb-2">{f.title}</h3>
+                <p className="text-sm text-muted-foreground">{f.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Open Source */}
+      <section id="open-source" className="py-24">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-medium px-3 py-1.5 rounded-full mb-4">
+              <Github className="w-3 h-3" />
+              Proudly Open Source
+            </div>
+            <h2 className="text-3xl font-bold mb-4">Free forever. No hidden costs.</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto">
+              Nucleus Ops is MIT licensed. Self-host it on your own AWS account, contribute to the codebase, or fork it for your needs.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              {
+                name: "Self-Hosted",
+                price: "$0",
+                period: "forever",
+                description: "Deploy to your own AWS account",
+                features: [
+                  "All features included",
+                  "Unlimited AWS accounts",
+                  "Unlimited schedules",
+                  "AI Ops Agent",
+                  "Slack & Jira integration",
+                  "Knowledge Base",
+                  "Full source code access",
+                  "MIT License",
+                ],
+                cta: "Deploy Now",
+                highlight: false,
+              },
+              {
+                name: "Cloud Hosted",
+                price: "Coming",
+                period: "soon",
+                description: "Managed hosting — no infra to maintain",
+                features: [
+                  "All self-hosted features",
+                  "Managed infrastructure",
+                  "Automatic updates",
+                  "99.9% uptime SLA",
+                  "Backups included",
+                  "Priority support",
+                ],
+                cta: "Join Waitlist",
+                highlight: true,
+              },
+              {
+                name: "Enterprise",
+                price: "Custom",
+                period: "contact us",
+                description: "For large-scale operations",
+                features: [
+                  "Everything in Cloud Hosted",
+                  "SSO / SAML",
+                  "Custom SLA",
+                  "Dedicated support",
+                  "On-premise deployment",
+                  "Custom integrations",
+                ],
+                cta: "Contact Us",
+                highlight: false,
+              },
+            ].map((plan) => (
+              <div
+                key={plan.name}
+                className={`rounded-2xl p-8 border ${
+                  plan.highlight
+                    ? "border-primary bg-primary text-primary-foreground shadow-xl"
+                    : "border-border bg-card"
+                }`}
+              >
+                <div className="mb-6">
+                  <div className={`text-sm font-medium mb-1 ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                    {plan.name}
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-bold">{plan.price}</span>
+                    <span className={`text-sm ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                      /{plan.period}
+                    </span>
+                  </div>
+                  <p className={`text-sm mt-2 ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                    {plan.description}
+                  </p>
+                </div>
+                <ul className="space-y-3 mb-8">
+                  {plan.features.map((feat) => (
+                    <li key={feat} className="flex items-center gap-2 text-sm">
+                      <Check className={`w-4 h-4 flex-shrink-0 ${plan.highlight ? "text-primary-foreground/70" : "text-green-500"}`} />
+                      {feat}
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href={plan.name === "Self-Hosted" ? "https://github.com/kartikmanimuthu/nucleus-cloud-ops" : "/login"}
+                  target={plan.name === "Self-Hosted" ? "_blank" : undefined}
+                  rel={plan.name === "Self-Hosted" ? "noopener noreferrer" : undefined}
+                  className={`w-full block text-center py-2.5 rounded-lg font-medium text-sm transition-colors ${
+                    plan.highlight
+                      ? "bg-background text-primary hover:bg-background/90"
+                      : "bg-primary text-primary-foreground hover:bg-primary/90"
+                  }`}
+                >
+                  {plan.cta}
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="bg-primary py-20">
+        <div className="max-w-3xl mx-auto px-6 text-center text-primary-foreground">
+          <h2 className="text-3xl font-bold mb-4">Ready to cut your AWS bill?</h2>
+          <p className="text-primary-foreground/70 mb-8">Connect your first AWS account in under 5 minutes. Free and open source.</p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/login" className="inline-flex items-center gap-2 bg-background text-primary hover:bg-background/90 px-8 py-3 rounded-lg font-medium transition-colors">
+              Get started free <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href="https://github.com/kartikmanimuthu/nucleus-cloud-ops"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 border border-primary-foreground/30 hover:border-primary-foreground/60 text-primary-foreground px-8 py-3 rounded-lg font-medium transition-colors"
+            >
+              <Github className="w-4 h-4" />
+              Star on GitHub
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-border py-10">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 font-semibold text-foreground">
+            <Zap className="w-4 h-4 text-primary" />
+            Nucleus Ops
+          </div>
+          <div className="flex gap-6">
+            <Link href="/docs" className="hover:text-foreground transition-colors">Docs</Link>
+            <Link href="/docs/getting-started" className="hover:text-foreground transition-colors">Getting Started</Link>
+            <Link
+              href="https://github.com/kartikmanimuthu/nucleus-cloud-ops"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground transition-colors flex items-center gap-1"
+            >
+              <Github className="w-3.5 h-3.5" />
+              GitHub
+            </Link>
+            <Link href="/login" className="hover:text-foreground transition-colors">Sign in</Link>
+          </div>
+          <div>© {new Date().getFullYear()} Nucleus Ops. MIT License.</div>
+        </div>
+      </footer>
+    </div>
   );
 }

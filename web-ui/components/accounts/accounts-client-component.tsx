@@ -276,7 +276,7 @@ export default function AccountsClient({
             />
             Refresh
           </Button>
-            <Button onClick={() => router.push("/accounts/create")}>
+            <Button onClick={() => router.push("/app/accounts/create")}>
               <Plus className="mr-2 h-4 w-4" />
               Integrate Account
             </Button>

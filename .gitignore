@@ -81,4 +81,17 @@ jest.config.js
 
 .venv/.env
 
+# Testing frameworks
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
+# Cypress
+cypress/videos/
+cypress/screenshots/
+cypress/downloads/
+
+# Jest
+.jest-cache

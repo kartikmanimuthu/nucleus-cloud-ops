@@ -1,0 +1,71 @@
+---
+title: Getting Started
+description: Set up Nucleus Ops and connect your first AWS account in under 5 minutes.
+---
+
+## Prerequisites
+
+- An AWS account with admin permissions
+- Node.js 22+
+- AWS CLI configured locally
+
+## Step 1: Sign In
+
+Navigate to your Nucleus Ops instance and click **Get Started** or **Sign in**. Authentication is handled via AWS Cognito.
+
+![Login](/screenshots/login.png)
+
+## Step 2: Connect an AWS Account
+
+Go to **AWS Accounts** → **Integrate Account**.
+
+![AWS Accounts](/screenshots/accounts.png)
+
+1. Enter your AWS Account ID and a friendly name
+2. Provide the IAM Role ARN — Nucleus Ops uses `sts:AssumeRole` for secure cross-account access
+3. Select the primary region (e.g. `ap-south-1`)
+4. Click **Validate** to confirm the connection, then **Activate**
+
+The accounts page shows connection status, role ARN, regions, and lets you validate or activate/deactivate accounts in grid or table view.
+
+## Step 3: Create Your First Schedule
+
+Go to **Cost Scheduler** → **Create Schedule**.
+
+![Cost Scheduler](/screenshots/schedules.png)
+
+1. Select the connected account
+2. Choose resources (EC2 instances, RDS clusters, or ECS services)
+3. Set your start/stop times and timezone (e.g. `09:00–19:00 Mon–Fri Asia/Kolkata`)
+4. Enable the schedule
+
+Your resources will now automatically start and stop on the defined schedule. The scheduler shows success rate, estimated savings, and next execution time per schedule.
+
+## Step 4: Discover Your Inventory
+
+Go to **Inventory Discovery** to see all auto-discovered resources.
+
+![Inventory Discovery](/screenshots/inventory.png)
+
+Nucleus Ops discovers 31,000+ resources across all connected accounts. Filter by type, region, or account. Use **Ask AI** to query your inventory in natural language.
+
+## Step 5: Try the AI Ops Agent
+
+Navigate to **AI Ops** and ask a question in natural language.
+
+![AI Ops](/screenshots/ai-ops.png)
+
+Example prompts:
+> "Which EC2 instances in my dev account are running outside business hours?"
+
+> "Review the Cost of the AWS Account for the last 3 months and share the key movers and optimization scope"
+
+> "Vital check of my EC2 instances"
+
+The agent uses a Plan → Execute → Reflect → Revise loop with Claude 4.6 Sonnet. Enable **Auto-approve** to let it execute actions without confirmation.
+
+## Next Steps
+
+- [Configure multiple accounts](/docs/configuration)
+- [Set up Slack notifications](/docs/configuration#slack)
+- [Explore tutorials](/docs/tutorials)

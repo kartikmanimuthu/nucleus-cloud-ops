@@ -215,7 +215,7 @@ export default function SchedulesClientAPI({
   };
 
   const handleCreateSchedule = () => {
-    router.push("/schedules/create");
+    router.push("/app/schedules/create");
   };
 
   // Handle schedule updates - this will be called by child components
