@@ -26,7 +26,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${manrope.variable} font-sans overflow-y-hidden`}>
+      <body className={`${inter.variable} ${manrope.variable} font-sans`}>
         <Providers>
           <ThemeProvider
             attribute="class"

@@ -133,7 +133,7 @@ export function SchedulesGrid({
           <Card
             key={schedule.id}
             className="relative hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => router.push(`/schedules/${encodeURIComponent(schedule.id)}`)}
+            onClick={() => router.push(`/app/schedules/${encodeURIComponent(schedule.id)}`)}
           >
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
@@ -158,7 +158,7 @@ export function SchedulesGrid({
                       className="cursor-pointer"
                       onClick={(e) => {
                         e.stopPropagation();
-                        router.push(`/schedules/${encodeURIComponent(schedule.id)}`);
+                        router.push(`/app/schedules/${encodeURIComponent(schedule.id)}`);
                       }}
                     >
                       <Eye className="mr-2 h-4 w-4" />
@@ -168,7 +168,7 @@ export function SchedulesGrid({
                       className="cursor-pointer"
                       onClick={(e) => {
                         e.stopPropagation();
-                        router.push(`/schedules/${encodeURIComponent(schedule.id)}/edit`);
+                        router.push(`/app/schedules/${encodeURIComponent(schedule.id)}/edit`);
                       }}
                     >
                       <Edit className="mr-2 h-4 w-4" />

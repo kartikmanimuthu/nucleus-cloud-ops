@@ -7,6 +7,7 @@ import path from 'path';
 
 export const STORAGE_STATE = path.resolve(__dirname, '.auth/session.json');
 
+setup.setTimeout(90000);
 setup('create authenticated session', async ({ page }) => {
     // Use next-auth/jwt encode to mint a valid session token
     // We do this via a small Node.js script piped through the shell so we
@@ -46,7 +47,7 @@ encode({
     ]);
 
     // Verify we can reach the inventory page without redirect to login
-    await page.goto('/inventory');
+    await page.goto('/app/inventory', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await expect(page).not.toHaveURL(/login/);
 
     // Save storage state for all tests

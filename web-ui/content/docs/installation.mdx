@@ -1,0 +1,65 @@
+---
+title: Installation
+description: Deploy Nucleus Ops to your AWS environment using CDK or run it locally.
+---
+
+## Option A: Run Locally
+
+```bash
+git clone https://github.com/kartikmanimuthu/nucleus-cloud-ops.git
+cd nucleus-cloud-ops
+
+npm install
+cd web-ui && npm install
+
+cp web-ui/.env.local.example web-ui/.env.local
+# Edit .env.local with your settings
+
+cd web-ui
+AWS_PROFILE=your-profile npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Option B: Deploy to AWS with CDK
+
+### Prerequisites
+
+```bash
+npm install -g aws-cdk
+```
+
+### Deploy
+
+```bash
+# Bootstrap CDK (first time only)
+npx cdk bootstrap --profile your-profile
+
+# Deploy all stacks
+npx cdk deploy --all --profile your-profile
+```
+
+This deploys:
+- **NetworkingStack** — VPC, subnets, security groups
+- **ComputeStack** — ECS Fargate, ALB, CloudFront
+- **WebUIStack** — Next.js app container
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AWS_REGION` | ✅ | AWS region (e.g. `ap-south-1`) |
+| `DYNAMODB_TABLE_NAME` | ✅ | Main DynamoDB table |
+| `DYNAMODB_AUDIT_TABLE_NAME` | ✅ | Audit log table |
+| `NEXTAUTH_SECRET` | ✅ | Random secret for NextAuth |
+| `NEXTAUTH_URL` | ✅ | Your app URL |
+| `DYNAMODB_CHECKPOINT_TABLE` | Optional | AI agent checkpoints |
+| `TAVILY_API_KEY` | Optional | Web search for AI agent |
+
+## Docker
+
+```bash
+cd web-ui
+docker build -t nucleus-ops .
+docker run -p 3000:3000 --env-file .env.local nucleus-ops
+```

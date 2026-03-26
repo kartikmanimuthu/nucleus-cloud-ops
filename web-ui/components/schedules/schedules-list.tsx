@@ -277,7 +277,7 @@ export function SchedulesList({ schedules, loading, error }: { schedules: UISche
                           <DropdownMenuItem
                             onClick={() =>
                               router.push(
-                                `/schedules/${encodeURIComponent(
+                                `/app/schedules/${encodeURIComponent(
                                   schedule.id
                                 )}`
                               )
@@ -289,7 +289,7 @@ export function SchedulesList({ schedules, loading, error }: { schedules: UISche
                           <DropdownMenuItem
                             onClick={() =>
                               router.push(
-                                `/schedules/${encodeURIComponent(
+                                `/app/schedules/${encodeURIComponent(
                                   schedule.id
                                 )}/edit`
                               )

@@ -8,6 +8,7 @@ const config = {
     "./app/**/*.{ts,tsx}",
     "./src/**/*.{ts,tsx}",
     "*.{js,ts,jsx,tsx,mdx}",
+    "./node_modules/fumadocs-ui/dist/**/*.js",
   ],
   prefix: "",
   theme: {
@@ -119,7 +120,7 @@ const config = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography"), require("fumadocs-ui/tailwind-plugin")],
 } satisfies Config
 
 export default config

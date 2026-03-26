@@ -208,7 +208,7 @@ export function AccountsGrid({
             <Card
               key={account.id}
               className="relative hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => router.push(`/accounts/${account.id}`)}
+              onClick={() => router.push(`/app/accounts/${account.id}`)}
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
@@ -243,14 +243,14 @@ export function AccountsGrid({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
-                        onClick={() => router.push(`/accounts/${account.id}`)}
+                        onClick={() => router.push(`/app/accounts/${account.id}`)}
                       >
                         <Eye className="mr-2 h-4 w-4" />
                         View Details
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() =>
-                          router.push(`/accounts/${account.id}/edit`)
+                          router.push(`/app/accounts/${account.id}/edit`)
                         }
                       >
                         <Edit className="mr-2 h-4 w-4" />

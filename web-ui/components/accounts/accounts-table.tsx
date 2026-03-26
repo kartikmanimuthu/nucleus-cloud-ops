@@ -196,7 +196,7 @@ export function AccountsTable({
                   <TableCell>
                     <div className="space-y-1">
                       <button
-                        onClick={() => router.push(`/accounts/${encodeURIComponent(account.accountId)}`)}
+                        onClick={() => router.push(`/app/accounts/${encodeURIComponent(account.accountId)}`)}
                         className="font-medium text-left hover:text-primary hover:underline transition-colors cursor-pointer"
                       >
                         {account.name || "Unnamed Account"}
@@ -306,14 +306,14 @@ export function AccountsTable({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem
-                          onClick={() => router.push(`/accounts/${account.id}`)}
+                          onClick={() => router.push(`/app/accounts/${account.id}`)}
                         >
                           <Eye className="mr-2 h-4 w-4" />
                           View Details
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() =>
-                            router.push(`/accounts/${account.id}/edit`)
+                            router.push(`/app/accounts/${account.id}/edit`)
                           }
                         >
                           <Edit className="mr-2 h-4 w-4" />

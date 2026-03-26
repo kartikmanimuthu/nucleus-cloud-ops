@@ -186,7 +186,7 @@ export function SchedulesTable({
                 <TableCell>
                   <div className="space-y-1">
                     <button
-                      onClick={() => router.push(`/schedules/${encodeURIComponent(schedule.id)}`)}
+                      onClick={() => router.push(`/app/schedules/${encodeURIComponent(schedule.id)}`)}
                       className="font-medium text-left hover:text-primary hover:underline transition-colors cursor-pointer"
                     >
                       {schedule.name}
@@ -338,7 +338,7 @@ export function SchedulesTable({
                         className="cursor-pointer"
                         onClick={() =>
                           router.push(
-                            `/schedules/${encodeURIComponent(schedule.id)}`
+                            `/app/schedules/${encodeURIComponent(schedule.id)}`
                           )
                         }
                       >
@@ -349,7 +349,7 @@ export function SchedulesTable({
                         className="cursor-pointer"
                         onClick={() =>
                           router.push(
-                            `/schedules/${encodeURIComponent(
+                            `/app/schedules/${encodeURIComponent(
                               schedule.id
                             )}/edit`
                           )

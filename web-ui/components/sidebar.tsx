@@ -33,20 +33,22 @@ import {
   Zap,
   Cable,
   BookOpen,
+  Globe,
+  FileText,
 } from "lucide-react"
 
 const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "AWS Accounts", href: "/accounts", icon: Server },
-  { name: "AI Ops", href: "/agent", icon: Bot },
-  { name: "Agent Ops", href: "/agent-ops", icon: Zap },
-  { name: "Channels", href: "/channels", icon: Cable },
-  { name: "Cost Scheduler", href: "/schedules", icon: Calendar },
-  { name: "Inventory Discovery", href: "/inventory", icon: Database },
-  { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen },
-  { name: "Audit Logs", href: "/audit", icon: Activity },
-  { name: "Users", href: "/admin/users", icon: Users },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Dashboard", href: "/app/dashboard", icon: LayoutDashboard },
+  { name: "AWS Accounts", href: "/app/accounts", icon: Server },
+  { name: "AI Ops", href: "/app/agent", icon: Bot },
+  { name: "Agent Ops", href: "/app/agent-ops", icon: Zap },
+  { name: "Channels", href: "/app/channels", icon: Cable },
+  { name: "Cost Scheduler", href: "/app/schedules", icon: Calendar },
+  { name: "Inventory Discovery", href: "/app/inventory", icon: Database },
+  { name: "Knowledge Base", href: "/app/knowledge-base", icon: BookOpen },
+  { name: "Audit Logs", href: "/app/audit", icon: Activity },
+  { name: "Users", href: "/app/admin/users", icon: Users },
+  { name: "Settings", href: "/app/settings", icon: Settings },
 ]
 
 export function Sidebar() {
@@ -101,10 +103,7 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-2">
         {navigation.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname === item.href || pathname.startsWith(`${item.href}/`)
+          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
           return (
             <Link key={item.name} href={item.href}>
               <Button
@@ -122,6 +121,22 @@ export function Sidebar() {
           )
         })}
       </nav>
+
+      {/* External Links */}
+      <div className="px-4 pb-2 space-y-1 border-t border-border pt-3">
+        <Link href="/" target="_blank" rel="noopener noreferrer">
+          <Button variant="ghost" className={cn("w-full justify-start text-muted-foreground hover:text-foreground", collapsed && "px-2")}>
+            <Globe className={cn("h-4 w-4", !collapsed && "mr-2")} />
+            {!collapsed && "Website"}
+          </Button>
+        </Link>
+        <Link href="/docs" target="_blank" rel="noopener noreferrer">
+          <Button variant="ghost" className={cn("w-full justify-start text-muted-foreground hover:text-foreground", collapsed && "px-2")}>
+            <FileText className={cn("h-4 w-4", !collapsed && "mr-2")} />
+            {!collapsed && "Docs"}
+          </Button>
+        </Link>
+      </div>
 
       {/* User Profile */}
       <div className="p-4 border-t border-border">        <DropdownMenu>
