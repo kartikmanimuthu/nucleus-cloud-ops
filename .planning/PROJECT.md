@@ -73,7 +73,7 @@ Every DynamoDB table is migrated to PostgreSQL with full test coverage (unit + E
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Drizzle ORM over Prisma | ~50KB runtime, no binary engine, esbuild compatible, SQL-first | -- Pending |
+| Prisma ORM over Drizzle | User prefers Prisma DX. Accept Lambda bundle size trade-off (~2-4MB). Use prisma generate + binary engine. | -- Pending |
 | Repository pattern with feature flags | Zero-downtime migration, instant rollback per entity | -- Pending |
 | Migrate LangGraph tables to PostgreSQL | Consolidate all persistence in one database; use @langchain/langgraph-checkpoint-postgres | -- Pending |
 | Keep discovery Lambda in Python | Avoid risky rewrite; add psycopg2 instead | -- Pending |
