@@ -1,0 +1,41 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Tenants — parent entity for all multi-tenant data
+// Mirrors the TENANT#<tenantId> PK namespace from DynamoDB
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  configs TenantConfig[]
+
+  @@map("tenants")
+}
+
+// TenantConfig — migrated from DynamoDB APP_TABLE (PK=TENANT#<id>, SK=CONFIG#<key>)
+// Each row is one config key-value pair per tenant
+model TenantConfig {
+  id         String   @id @default(cuid())
+  tenantId   String
+  configKey  String
+  data       Json
+  updatedAt  DateTime @updatedAt
+  updatedBy  String   @default("system")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, configKey])
+  @@index([tenantId])
+  @@map("tenant_configs")
+}
