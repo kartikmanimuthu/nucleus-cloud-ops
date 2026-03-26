@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 01-foundation-tenant-config 01-01-PLAN.md
-last_updated: "2026-03-26T19:23:59.372Z"
+stopped_at: Completed 01-foundation-tenant-config 01-05-PLAN.md
+last_updated: "2026-03-26T19:44:58.498Z"
 last_activity: 2026-03-26 — Roadmap created, ready to begin Phase 1 planning
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 20
 ---
 
@@ -53,6 +53,7 @@ Progress: [██░░░░░░░░] 20%
 
 *Updated after each plan completion*
 | Phase 01-foundation-tenant-config P01 | 5 | 2 tasks | 5 files |
+| Phase 01-foundation-tenant-config P05 | 525546min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,7 @@ Key decisions affecting Phase 1:
 - Repository pattern with feature flags — zero-downtime, instant rollback per entity
 - Docker Compose for local dev — cloud DB (RDS/Aurora) deferred until migration validated
 - [Phase 01-foundation-tenant-config]: Prisma 5 over Prisma 7: v7 removed datasource url from schema files (breaking change), v5 matches plan schema format
+- [Phase 01-foundation-tenant-config]: Tenant FK safety: upsert parent tenants row before tenantConfig upsert to satisfy FK constraint; tenantId used as name placeholder
 
 ### Pending Todos
 
@@ -77,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T19:23:59.369Z
-Stopped at: Completed 01-foundation-tenant-config 01-01-PLAN.md
+Last session: 2026-03-26T19:44:58.495Z
+Stopped at: Completed 01-foundation-tenant-config 01-05-PLAN.md
 Resume file: None

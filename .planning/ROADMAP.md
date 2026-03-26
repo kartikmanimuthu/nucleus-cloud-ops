@@ -36,7 +36,7 @@ Plans:
 - [ ] 01-02-PLAN.md — PostgreSQL connection singleton (pg-config.ts) + repository factory
 - [ ] 01-03-PLAN.md — ITenantConfigRepository interface + DynamoDB repo + PostgreSQL repo
 - [ ] 01-04-PLAN.md — Service wiring (tenant-config-service.ts delegation) + TDD unit tests
-- [ ] 01-05-PLAN.md — Data migration script (DynamoDB → PostgreSQL, idempotent)
+- [x] 01-05-PLAN.md — Data migration script (DynamoDB → PostgreSQL, idempotent)
 
 ### Phase 2: Accounts + RBAC
 **Goal**: Account listing, filtering, and role assignment run entirely on PostgreSQL with verified cross-tenant isolation
@@ -95,7 +95,7 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation + Tenant Config | 1/5 | In Progress|  |
+| 1. Foundation + Tenant Config | 2/5 | In Progress|  |
 | 2. Accounts + RBAC | 0/TBD | Not started | - |
 | 3. Schedules + Executions + Audit | 0/TBD | Not started | - |
 | 4. KB + Inventory + Agent Ops | 0/TBD | Not started | - |
