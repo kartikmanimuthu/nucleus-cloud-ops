@@ -7,16 +7,16 @@
 
 ### Foundation
 
-- [ ] **FOUND-01**: Docker Compose starts PostgreSQL 16 locally with health check and persistent volume
-- [ ] **FOUND-02**: Prisma ORM configured with schema file, migration directory, and TypeScript client generation
+- [x] **FOUND-01**: Docker Compose starts PostgreSQL 16 locally with health check and persistent volume
+- [x] **FOUND-02**: Prisma ORM configured with schema file, migration directory, and TypeScript client generation
 - [ ] **FOUND-03**: PostgreSQL connection singleton (pg-config.ts) with pool sizes: max 10 for ECS, max 3 for Lambda
 - [ ] **FOUND-04**: Repository factory reads `USE_PG_<ENTITY>` env vars and returns correct implementation
-- [ ] **FOUND-05**: npm scripts added: db:start, db:stop, db:generate, db:migrate, db:studio
-- [ ] **FOUND-06**: .env.local.example updated with DATABASE_URL and all USE_PG_* flags
+- [x] **FOUND-05**: npm scripts added: db:start, db:stop, db:generate, db:migrate, db:studio
+- [x] **FOUND-06**: .env.local.example updated with DATABASE_URL and all USE_PG_* flags
 
 ### Tenant Config Migration
 
-- [ ] **TCFG-01**: Prisma schema defines tenants and tenant_configs tables with correct types and constraints
+- [x] **TCFG-01**: Prisma schema defines tenants and tenant_configs tables with correct types and constraints
 - [ ] **TCFG-02**: Repository interface defined with getConfig, saveConfig, deleteConfig, listConfigs
 - [ ] **TCFG-03**: DynamoDB repository implementation extracted from existing tenant-config-service.ts
 - [ ] **TCFG-04**: PostgreSQL repository implementation using Prisma client
@@ -128,13 +128,13 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase 1 | Pending |
-| FOUND-02 | Phase 1 | Pending |
+| FOUND-01 | Phase 1 | Complete |
+| FOUND-02 | Phase 1 | Complete |
 | FOUND-03 | Phase 1 | Pending |
 | FOUND-04 | Phase 1 | Pending |
-| FOUND-05 | Phase 1 | Pending |
-| FOUND-06 | Phase 1 | Pending |
-| TCFG-01 | Phase 1 | Pending |
+| FOUND-05 | Phase 1 | Complete |
+| FOUND-06 | Phase 1 | Complete |
+| TCFG-01 | Phase 1 | Complete |
 | TCFG-02 | Phase 1 | Pending |
 | TCFG-03 | Phase 1 | Pending |
 | TCFG-04 | Phase 1 | Pending |
