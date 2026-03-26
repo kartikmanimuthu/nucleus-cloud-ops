@@ -9,7 +9,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "next lint",
-    "deploy": "npx cdk deploy WebUIStack"
+    "deploy": "npx cdk deploy WebUIStack",
+    "db:start": "docker compose up -d postgres",
+    "db:stop": "docker compose down",
+    "db:generate": "prisma generate --schema=../prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=../prisma/schema.prisma",
+    "db:studio": "prisma studio --schema=../prisma/schema.prisma",
+    "db:migrate:deploy": "prisma migrate deploy --schema=../prisma/schema.prisma"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^3.0.71",
@@ -44,6 +50,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@monaco-editor/react": "^4.7.0",
     "@next/font": "^14.2.15",
+    "@prisma/client": "^7.5.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
     "@radix-ui/react-aspect-ratio": "1.1.1",
@@ -104,6 +111,7 @@
     "pdf-parse": "^2.4.5",
     "postcss": "^8",
     "postcss-import": "^16.1.1",
+    "prisma": "^7.5.0",
     "react": "^19",
     "react-day-picker": "latest",
     "react-dom": "^19",
