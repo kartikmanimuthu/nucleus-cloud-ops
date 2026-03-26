@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-foundation-tenant-config 01-01-PLAN.md
-last_updated: "2026-03-26T19:23:59.372Z"
-last_activity: 2026-03-26 — Roadmap created, ready to begin Phase 1 planning
+stopped_at: Completed 01-foundation-tenant-config 01-02-PLAN.md
+last_updated: "2026-03-26T19:35:09.940Z"
+last_activity: 2026-03-26
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 20
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 01 (foundation-tenant-config) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 01
-Last activity: 2026-03-26 -- Phase 01 execution started
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-03-26
 
 Progress: [██░░░░░░░░] 20%
 
@@ -53,6 +53,7 @@ Progress: [██░░░░░░░░] 20%
 
 *Updated after each plan completion*
 | Phase 01-foundation-tenant-config P01 | 5 | 2 tasks | 5 files |
+| Phase 01-foundation-tenant-config P02 | 8 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,8 @@ Key decisions affecting Phase 1:
 - Repository pattern with feature flags — zero-downtime, instant rollback per entity
 - Docker Compose for local dev — cloud DB (RDS/Aurora) deferred until migration validated
 - [Phase 01-foundation-tenant-config]: Prisma 5 over Prisma 7: v7 removed datasource url from schema files (breaking change), v5 matches plan schema format
+- [Phase 01-foundation-tenant-config]: Prisma singleton uses globalThis for dev to survive Next.js hot reloads, matching aws-config.ts pattern
+- [Phase 01-foundation-tenant-config]: Dynamic require() in repository factory prevents build failure when DATABASE_URL not set in DynamoDB-only deployments
 
 ### Pending Todos
 
@@ -77,6 +80,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T19:23:59.369Z
-Stopped at: Completed 01-foundation-tenant-config 01-01-PLAN.md
+Last session: 2026-03-26T19:35:09.937Z
+Stopped at: Completed 01-foundation-tenant-config 01-02-PLAN.md
 Resume file: None

@@ -9,8 +9,8 @@
 
 - [x] **FOUND-01**: Docker Compose starts PostgreSQL 16 locally with health check and persistent volume
 - [x] **FOUND-02**: Prisma ORM configured with schema file, migration directory, and TypeScript client generation
-- [ ] **FOUND-03**: PostgreSQL connection singleton (pg-config.ts) with pool sizes: max 10 for ECS, max 3 for Lambda
-- [ ] **FOUND-04**: Repository factory reads `USE_PG_<ENTITY>` env vars and returns correct implementation
+- [x] **FOUND-03**: PostgreSQL connection singleton (pg-config.ts) with pool sizes: max 10 for ECS, max 3 for Lambda
+- [x] **FOUND-04**: Repository factory reads `USE_PG_<ENTITY>` env vars and returns correct implementation
 - [x] **FOUND-05**: npm scripts added: db:start, db:stop, db:generate, db:migrate, db:studio
 - [x] **FOUND-06**: .env.local.example updated with DATABASE_URL and all USE_PG_* flags
 
@@ -130,8 +130,8 @@
 |-------------|-------|--------|
 | FOUND-01 | Phase 1 | Complete |
 | FOUND-02 | Phase 1 | Complete |
-| FOUND-03 | Phase 1 | Pending |
-| FOUND-04 | Phase 1 | Pending |
+| FOUND-03 | Phase 1 | Complete |
+| FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Complete |
 | TCFG-01 | Phase 1 | Complete |
