@@ -17,9 +17,9 @@
 ### Tenant Config Migration
 
 - [x] **TCFG-01**: Prisma schema defines tenants and tenant_configs tables with correct types and constraints
-- [ ] **TCFG-02**: Repository interface defined with getConfig, saveConfig, deleteConfig, listConfigs
-- [ ] **TCFG-03**: DynamoDB repository implementation extracted from existing tenant-config-service.ts
-- [ ] **TCFG-04**: PostgreSQL repository implementation using Prisma client
+- [x] **TCFG-02**: Repository interface defined with getConfig, saveConfig, deleteConfig, listConfigs
+- [x] **TCFG-03**: DynamoDB repository implementation extracted from existing tenant-config-service.ts
+- [x] **TCFG-04**: PostgreSQL repository implementation using Prisma client
 - [ ] **TCFG-05**: tenant-config-service.ts delegates to repository factory (no direct DynamoDB calls)
 - [ ] **TCFG-06**: TDD unit tests pass for both DynamoDB and PostgreSQL repository implementations
 - [ ] **TCFG-07**: Data migration script seeds tenant configs from DynamoDB (AWS_PROFILE=PLATFORM-ADMIN)
@@ -135,9 +135,9 @@
 | FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Complete |
 | TCFG-01 | Phase 1 | Complete |
-| TCFG-02 | Phase 1 | Pending |
-| TCFG-03 | Phase 1 | Pending |
-| TCFG-04 | Phase 1 | Pending |
+| TCFG-02 | Phase 1 | Complete |
+| TCFG-03 | Phase 1 | Complete |
+| TCFG-04 | Phase 1 | Complete |
 | TCFG-05 | Phase 1 | Pending |
 | TCFG-06 | Phase 1 | Pending |
 | TCFG-07 | Phase 1 | Pending |

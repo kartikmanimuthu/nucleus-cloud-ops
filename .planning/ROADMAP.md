@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01-PLAN.md — Docker Compose + Prisma schema (tenants + tenant_configs) + .env.local.example
 - [x] 01-02-PLAN.md — PostgreSQL connection singleton (pg-config.ts) + repository factory
-- [ ] 01-03-PLAN.md — ITenantConfigRepository interface + DynamoDB repo + PostgreSQL repo
+- [x] 01-03-PLAN.md — ITenantConfigRepository interface + DynamoDB repo + PostgreSQL repo
 - [ ] 01-04-PLAN.md — Service wiring (tenant-config-service.ts delegation) + TDD unit tests
 - [ ] 01-05-PLAN.md — Data migration script (DynamoDB → PostgreSQL, idempotent)
 
