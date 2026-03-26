@@ -325,7 +325,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
             variant="outline"
             onClick={() =>
               router.push(
-                `/accounts/${encodeURIComponent(account.accountId)}/edit`
+                `/app/accounts/${encodeURIComponent(account.accountId)}/edit`
               )
             }
           >

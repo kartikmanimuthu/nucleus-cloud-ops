@@ -202,9 +202,11 @@ Config lives at `playwright.config.ts` (root). Tests live in `tests/e2e/`. The d
 # Run all E2E tests (starts dev server automatically)
 npx playwright test
 
-
 # Run a specific test file
-npx playwright test tests/e2e/ask-ai.spec.ts
+npx playwright test tests/e2e/accounts.spec.ts      # AWS Accounts module (60 tests)
+npx playwright test tests/e2e/navigation.spec.ts    # App navigation flows
+npx playwright test tests/e2e/marketing.spec.ts     # Marketing/landing page
+npx playwright test tests/e2e/docs.spec.ts          # Documentation pages
 
 # Run in headed mode (see the browser)
 npx playwright test --headed

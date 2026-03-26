@@ -257,11 +257,24 @@ npx cdk deploy WebUIStack --profile your-profile
 ### Testing
 
 ```bash
-# Run tests
+# Unit tests (Vitest — web-ui)
+cd web-ui && npm run test
+
+# Unit tests (Jest — CDK stacks)
 npm test
 
 # Lint
 cd web-ui && npm run lint
+
+# E2E tests (Playwright — requires dev server)
+npx playwright test                                    # Run all E2E tests
+npx playwright test tests/e2e/accounts.spec.ts         # AWS Accounts module (60 tests)
+npx playwright test tests/e2e/navigation.spec.ts       # App navigation flows
+npx playwright test tests/e2e/marketing.spec.ts        # Marketing/landing page
+npx playwright test tests/e2e/docs.spec.ts             # Documentation pages
+npx playwright test --headed                           # Run in headed mode (see the browser)
+npx playwright test --ui                               # Interactive UI mode / debugger
+npx playwright show-report                             # View last HTML report
 ```
 
 ---
