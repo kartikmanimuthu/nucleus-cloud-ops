@@ -13,15 +13,10 @@
  *   const repo = getTenantConfigRepository()
  *   await repo.getConfig('theme', 'tenant-id')
  *
- * NOTE: ITenantConfigRepository is a placeholder `any` here.
- * Plan 03 replaces this line with:
- *   import { ITenantConfigRepository } from './repositories/tenant-config/interface'
+ * Type: ITenantConfigRepository is imported from the repository interface file.
  */
 
-// Plan 03 replaces this placeholder with the real import from:
-// './repositories/tenant-config/interface'
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ITenantConfigRepository = any;
+import type { ITenantConfigRepository } from './repositories/tenant-config/interface';
 
 /**
  * Returns the active ITenantConfigRepository implementation.
