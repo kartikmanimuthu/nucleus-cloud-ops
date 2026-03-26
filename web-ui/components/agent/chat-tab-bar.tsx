@@ -142,7 +142,7 @@ export function ChatTabBar({
         variant="ghost"
         size="icon"
         className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-        onClick={() => (window.location.href = "/agent/mcp-settings")}
+        onClick={() => (window.location.href = "/app/agent/mcp-settings")}
         title="MCP Server Settings"
       >
         <Server className="w-4 h-4" />

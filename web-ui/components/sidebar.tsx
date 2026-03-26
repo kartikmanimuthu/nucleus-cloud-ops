@@ -127,7 +127,7 @@ export function Sidebar() {
         <Link href="/" target="_blank" rel="noopener noreferrer">
           <Button variant="ghost" className={cn("w-full justify-start text-muted-foreground hover:text-foreground", collapsed && "px-2")}>
             <Globe className={cn("h-4 w-4", !collapsed && "mr-2")} />
-            {!collapsed && "Marketing"}
+            {!collapsed && "Website"}
           </Button>
         </Link>
         <Link href="/docs" target="_blank" rel="noopener noreferrer">
