@@ -29,7 +29,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Running with `USE_PG_TENANT_CONFIG=true`, tenant config reads and writes go to PostgreSQL; with flag off, DynamoDB is used — no code change required to switch
   3. All existing Vitest tests pass with the PostgreSQL flag enabled
   4. The tenant config data migration script runs idempotently and produces a "Migrated X/Y records..." progress log
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Docker Compose + Prisma schema (tenants + tenant_configs) + .env.local.example
+- [ ] 01-02-PLAN.md — PostgreSQL connection singleton (pg-config.ts) + repository factory
+- [ ] 01-03-PLAN.md — ITenantConfigRepository interface + DynamoDB repo + PostgreSQL repo
+- [ ] 01-04-PLAN.md — Service wiring (tenant-config-service.ts delegation) + TDD unit tests
+- [ ] 01-05-PLAN.md — Data migration script (DynamoDB → PostgreSQL, idempotent)
 
 ### Phase 2: Accounts + RBAC
 **Goal**: Account listing, filtering, and role assignment run entirely on PostgreSQL with verified cross-tenant isolation
@@ -88,7 +95,7 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation + Tenant Config | 0/TBD | Not started | - |
+| 1. Foundation + Tenant Config | 0/5 | Not started | - |
 | 2. Accounts + RBAC | 0/TBD | Not started | - |
 | 3. Schedules + Executions + Audit | 0/TBD | Not started | - |
 | 4. KB + Inventory + Agent Ops | 0/TBD | Not started | - |
