@@ -118,3 +118,10 @@ AWS_PROFILE=PLATFORM-ADMIN \
 ---
 *Phase: 01-foundation-tenant-config*
 *Completed: 2026-03-26*
+
+## Self-Check: PASSED
+
+- FOUND: scripts/migrate-tenant-configs.ts (in database-migration worktree)
+- FOUND: 01-05-SUMMARY.md (this file)
+- FOUND: commit 3802eb1 (feat: migration script)
+- FOUND: commit e32e4d5 (docs: planning metadata)
