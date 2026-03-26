@@ -20,10 +20,10 @@
 - [x] **TCFG-02**: Repository interface defined with getConfig, saveConfig, deleteConfig, listConfigs
 - [x] **TCFG-03**: DynamoDB repository implementation extracted from existing tenant-config-service.ts
 - [x] **TCFG-04**: PostgreSQL repository implementation using Prisma client
-- [ ] **TCFG-05**: tenant-config-service.ts delegates to repository factory (no direct DynamoDB calls)
-- [ ] **TCFG-06**: TDD unit tests pass for both DynamoDB and PostgreSQL repository implementations
+- [x] **TCFG-05**: tenant-config-service.ts delegates to repository factory (no direct DynamoDB calls)
+- [x] **TCFG-06**: TDD unit tests pass for both DynamoDB and PostgreSQL repository implementations
 - [ ] **TCFG-07**: Data migration script seeds tenant configs from DynamoDB (AWS_PROFILE=PLATFORM-ADMIN)
-- [ ] **TCFG-08**: Existing Vitest tests continue passing with USE_PG_TENANT_CONFIG=true
+- [x] **TCFG-08**: Existing Vitest tests continue passing with USE_PG_TENANT_CONFIG=true
 
 ### Accounts + RBAC Migration
 
@@ -138,10 +138,10 @@
 | TCFG-02 | Phase 1 | Complete |
 | TCFG-03 | Phase 1 | Complete |
 | TCFG-04 | Phase 1 | Complete |
-| TCFG-05 | Phase 1 | Pending |
-| TCFG-06 | Phase 1 | Pending |
+| TCFG-05 | Phase 1 | Complete |
+| TCFG-06 | Phase 1 | Complete |
 | TCFG-07 | Phase 1 | Pending |
-| TCFG-08 | Phase 1 | Pending |
+| TCFG-08 | Phase 1 | Complete |
 | ACCT-01 | Phase 2 | Pending |
 | ACCT-02 | Phase 2 | Pending |
 | ACCT-03 | Phase 2 | Pending |
