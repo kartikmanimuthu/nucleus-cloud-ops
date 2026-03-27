@@ -53,7 +53,7 @@ Plans:
 - [x] 02-01-PLAN.md — Prisma Account and UserTenantRole models + migration
 - [x] 02-02-PLAN.md — Account and UserTenantRole repository implementations (TDD)
 - [ ] 02-03-PLAN.md — Account service wiring + RBAC integration
-- [ ] 02-04-PLAN.md — Account data migration script (DynamoDB → PostgreSQL)
+- [x] 02-04-PLAN.md — Account data migration script (DynamoDB → PostgreSQL)
 - [ ] 02-05-PLAN.md — Playwright E2E tests for accounts with PostgreSQL backend
 
 **UI hint**: yes
@@ -104,7 +104,7 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation + Tenant Config | 2/5 | In Progress|  |
-| 2. Accounts + RBAC | 2/5 | In Progress|  |
+| 2. Accounts + RBAC | 3/5 | In Progress|  |
 | 3. Schedules + Executions + Audit | 0/TBD | Not started | - |
 | 4. KB + Inventory + Agent Ops | 0/TBD | Not started | - |
 | 5. LangGraph + Migration Validation | 0/TBD | Not started | - |
