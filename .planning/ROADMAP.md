@@ -68,7 +68,15 @@ Plans:
   3. Dual-write mode can be enabled to write to both DynamoDB and PostgreSQL simultaneously; reads come from PostgreSQL
   4. The TTL cleanup script deletes expired audit_logs and schedule_executions and runs idempotently
   5. Audit log migration handles the full dataset in batched inserts of 500 records with progress logging
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Prisma Schedule, ScheduleExecution, TargetedResource, AuditLog models + migration
+- [ ] 03-02-PLAN.md — Schedule, ScheduleExecution, AuditLog repository implementations (interface + DynamoDB + PostgreSQL)
+- [ ] 03-03-PLAN.md — Service wiring + Lambda pg-service (max-3 pool) + dual-write + 6 Vitest test files
+- [ ] 03-04-PLAN.md — Data migration scripts (migrate-schedules, migrate-audit-logs batched 500) + cleanup-expired TTL script
+- [ ] 03-05-PLAN.md — Playwright E2E tests for schedule CRUD, execution history, audit logs + human checkpoint
+
 **UI hint**: yes
 
 ### Phase 4: KB + Inventory + Agent Ops
@@ -105,6 +113,6 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 |-------|----------------|--------|-----------|
 | 1. Foundation + Tenant Config | 2/5 | In Progress|  |
 | 2. Accounts + RBAC | 4/5 | In Progress|  |
-| 3. Schedules + Executions + Audit | 0/TBD | Not started | - |
+| 3. Schedules + Executions + Audit | 0/5 | Not started | - |
 | 4. KB + Inventory + Agent Ops | 0/TBD | Not started | - |
 | 5. LangGraph + Migration Validation | 0/TBD | Not started | - |
