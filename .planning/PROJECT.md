@@ -24,10 +24,12 @@ Every DynamoDB table is migrated to PostgreSQL with full test coverage (unit + E
 - NextAuth.js authentication
 - E2E test suite (Playwright) for accounts, navigation, marketing, docs
 
-### Active
+### Validated
 
-- [ ] Docker Compose + Drizzle ORM foundation (connection pooling, migration tooling, repository factory)
-- [ ] Tenant config migration (DynamoDB -> PostgreSQL) with repository pattern
+- [x] Docker Compose + Prisma ORM foundation (connection pooling, migration tooling, repository factory) — Validated in Phase 01: foundation-tenant-config
+- [x] Tenant config migration (DynamoDB -> PostgreSQL) with repository pattern — Validated in Phase 01: foundation-tenant-config
+
+### Active
 - [ ] Accounts + RBAC migration with server-side filtering
 - [ ] Schedules + Executions + Audit Logs migration (includes scheduler Lambda)
 - [ ] Knowledge Base + Vector Processor Lambda migration
@@ -50,7 +52,7 @@ Every DynamoDB table is migrated to PostgreSQL with full test coverage (unit + E
 
 ## Context
 
-- **Current state:** All persistent data in DynamoDB (10 tables). Services use static classes with direct DynamoDB DocumentClient calls. No ORM. Client-side filtering and pagination everywhere.
+- **Current state:** Phase 1 complete — PostgreSQL foundation established. Prisma schema, migrations, pg-config singleton, repository factory, tenant-config repository (DynamoDB + PostgreSQL implementations), unit tests, and data migration script all in place. Feature flag `USE_PG_TENANT_CONFIG` enables live cutover. Remaining 9 DynamoDB tables still pending migration.
 - **Pain points:** Complex filtering requires fetching all records and filtering in JS. No relational joins. Ad-hoc queries impossible. Pagination is cursor-based and inconsistent.
 - **Architecture:** Next.js 15 on ECS Fargate + 4 Lambda functions (scheduler TS, discovery Python, vector processor Python+TS, KB sync TS). All share DynamoDB tables.
 - **Migration approach:** Repository pattern with interface + two implementations (DynamoDB, PostgreSQL). Feature flag per entity (`USE_PG_<ENTITY>`) for instant rollback. Migrate one entity at a time.
@@ -99,4 +101,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after initialization*
+*Last updated: 2026-03-27 after Phase 01 completion — foundation + tenant-config verified 17/17*
