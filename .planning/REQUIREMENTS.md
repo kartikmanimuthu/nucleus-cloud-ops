@@ -22,7 +22,7 @@
 - [x] **TCFG-04**: PostgreSQL repository implementation using Prisma client
 - [x] **TCFG-05**: tenant-config-service.ts delegates to repository factory (no direct DynamoDB calls)
 - [x] **TCFG-06**: TDD unit tests pass for both DynamoDB and PostgreSQL repository implementations
-- [ ] **TCFG-07**: Data migration script seeds tenant configs from DynamoDB (AWS_PROFILE=PLATFORM-ADMIN)
+- [x] **TCFG-07**: Data migration script seeds tenant configs from DynamoDB (AWS_PROFILE=PLATFORM-ADMIN)
 - [x] **TCFG-08**: Existing Vitest tests continue passing with USE_PG_TENANT_CONFIG=true
 
 ### Accounts + RBAC Migration
@@ -91,12 +91,12 @@
 
 ### Data Migration Infrastructure
 
-- [ ] **MIGR-01**: Each migration script uses AWS_PROFILE=PLATFORM-ADMIN for DynamoDB access
-- [ ] **MIGR-02**: All scripts are idempotent (ON CONFLICT DO UPDATE) for safe re-runs
+- [x] **MIGR-01**: Each migration script uses AWS_PROFILE=PLATFORM-ADMIN for DynamoDB access
+- [x] **MIGR-02**: All scripts are idempotent (ON CONFLICT DO UPDATE) for safe re-runs
 - [ ] **MIGR-03**: migrate-all.ts runs scripts in dependency order (tenants → accounts → schedules → ...)
 - [ ] **MIGR-04**: verify-migration.ts compares row counts between DynamoDB and PostgreSQL per table
 - [ ] **MIGR-05**: cleanup-expired.ts handles TTL replacement for all tables with expires_at
-- [ ] **MIGR-06**: Progress logging shows "Migrated X/Y records..." during execution
+- [x] **MIGR-06**: Progress logging shows "Migrated X/Y records..." during execution
 
 ## v2 Requirements
 
@@ -140,7 +140,7 @@
 | TCFG-04 | Phase 1 | Complete |
 | TCFG-05 | Phase 1 | Complete |
 | TCFG-06 | Phase 1 | Complete |
-| TCFG-07 | Phase 1 | Pending |
+| TCFG-07 | Phase 1 | Complete |
 | TCFG-08 | Phase 1 | Complete |
 | ACCT-01 | Phase 2 | Pending |
 | ACCT-02 | Phase 2 | Pending |
@@ -191,12 +191,12 @@
 | LANG-06 | Phase 5 | Pending |
 | LANG-07 | Phase 5 | Pending |
 | LANG-08 | Phase 5 | Pending |
-| MIGR-01 | Phase 1 | Pending |
-| MIGR-02 | Phase 1 | Pending |
+| MIGR-01 | Phase 1 | Complete |
+| MIGR-02 | Phase 1 | Complete |
 | MIGR-03 | Phase 5 | Pending |
 | MIGR-04 | Phase 5 | Pending |
 | MIGR-05 | Phase 3 | Pending |
-| MIGR-06 | Phase 1 | Pending |
+| MIGR-06 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 62 total
@@ -205,4 +205,4 @@
 
 ---
 *Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 after roadmap creation — traceability confirmed 62/62*
+*Last updated: 2026-03-27 after phase 01 verification — TCFG-07, MIGR-01, MIGR-02, MIGR-06 marked complete*
