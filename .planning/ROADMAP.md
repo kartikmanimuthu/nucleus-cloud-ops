@@ -37,8 +37,8 @@ Plans:
 - [x] 01-03-PLAN.md — ITenantConfigRepository interface + DynamoDB repo + PostgreSQL repo
 - [x] 01-04-PLAN.md — Service wiring (tenant-config-service.ts delegation) + TDD unit tests
 - [x] 01-05-PLAN.md — Data migration script (DynamoDB → PostgreSQL, idempotent)
-- [ ] 01-06-PLAN.md — Gap closure: Generate prisma/migrations/ directory (requires Docker)
-- [ ] 01-07-PLAN.md — Gap closure: Fix connection_limit in .env.local.example + update REQUIREMENTS.md traceability
+- [x] 01-06-PLAN.md — Gap closure: Generate prisma/migrations/ directory (requires Docker)
+- [x] 01-07-PLAN.md — Gap closure: Fix connection_limit in .env.local.example + update REQUIREMENTS.md traceability
 
 ### Phase 2: Accounts + RBAC
 **Goal**: Account listing, filtering, and role assignment run entirely on PostgreSQL with verified cross-tenant isolation
