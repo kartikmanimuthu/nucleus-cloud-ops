@@ -82,3 +82,119 @@ model UserTenantRole {
   @@index([tenantId])
   @@map("user_tenant_roles")
 }
+
+// Schedule — migrated from DynamoDB NucleusAppTable (PK=SCHEDULE#<ScheduleId>, SK=METADATA)
+// Replaces GSI1 TYPE#SCHEDULE queries with proper indexed PostgreSQL columns
+// tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
+// status field uses CHECK constraint in migration SQL (not Prisma-native)
+model Schedule {
+  id          String   @id @default(cuid())
+  tenantId    String
+  scheduleId  String   // Application-level UUID (e.g., sched-*)
+  accountId   String
+  name        String
+  description String?
+  starttime   String   // HH:MM 24h format
+  endtime     String   // HH:MM 24h format
+  timezone    String   @default("UTC")
+  days        String[] // ["Mon","Tue",...] array
+  active      Boolean  @default(true)
+  resources   Json     @default("[]") // Array of {id,type,name?,arn?,clusterArn?}
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String   @default("system")
+  updatedBy   String   @default("system")
+
+  @@unique([tenantId, scheduleId])
+  @@index([tenantId])
+  @@index([tenantId, active])
+  @@index([tenantId, accountId])
+  @@map("schedules")
+}
+
+// ScheduleExecution — migrated from DynamoDB NucleusAppTable execution records
+// expiresAt replaces DynamoDB TTL (expire_at epoch) — cleanup-expired.ts handles purging
+// status field uses CHECK constraint in migration SQL (not Prisma-native)
+model ScheduleExecution {
+  id               String   @id @default(cuid())
+  tenantId         String
+  executionId      String   // Application-level ID (e.g., exec-*)
+  scheduleId       String
+  accountId        String
+  status           String   // pending|running|success|failed|partial
+  executionTime    DateTime
+  resourcesStarted Int      @default(0)
+  resourcesStopped Int      @default(0)
+  resourcesFailed  Int      @default(0)
+  duration         Int?     // seconds
+  errorMessage     String?
+  details          Json?    // free-form execution details
+  scheduleMetadata Json?    // grouped per-resource-type execution records
+  expiresAt        DateTime // TTL replacement — set to now + 90 days on insert
+
+  @@unique([tenantId, executionId])
+  @@index([tenantId])
+  @@index([tenantId, scheduleId])
+  @@index([tenantId, status])
+  @@index([expiresAt]) // for cleanup-expired.ts
+  @@map("schedule_executions")
+}
+
+// TargetedResource — migrated from DynamoDB NucleusAppTable (PK=SCHEDULE#<id>, SK=RESOURCE#<arn>)
+// Replaces composite key pattern with proper relational columns
+// resourceType field uses CHECK constraint in migration SQL (not Prisma-native)
+model TargetedResource {
+  id           String   @id @default(cuid())
+  tenantId     String
+  scheduleId   String
+  resourceArn  String
+  resourceType String   // ec2|ecs|rds|asg|docdb
+  resourceId   String
+  name         String?
+  clusterArn   String?  // ECS only
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, scheduleId, resourceArn])
+  @@index([tenantId, scheduleId])
+  @@map("targeted_resources")
+}
+
+// AuditLog — migrated from DynamoDB NucleusAuditTable (immutable logs with TTL)
+// expiresAt replaces DynamoDB TTL (expire_at epoch) — cleanup-expired.ts handles purging (30-day retention)
+// status and severity fields use CHECK constraints in migration SQL (not Prisma-native)
+model AuditLog {
+  id            String   @id @default(cuid())
+  tenantId      String
+  logId         String   // Application-level ID (e.g., log-*)
+  timestamp     DateTime @default(now())
+  eventType     String
+  action        String
+  user          String   @default("system")
+  userType      String   @default("system") // system|user|admin|external
+  resource      String?
+  resourceType  String?
+  resourceId    String?
+  status        String   @default("info") // success|error|warning|info
+  severity      String   @default("info") // low|medium|high|critical|info
+  details       String?
+  metadata      Json?
+  ipAddress     String?
+  userAgent     String?
+  sessionId     String?
+  correlationId String?
+  executionId   String?
+  region        String?
+  accountId     String?
+  duration      Int?
+  errorCode     String?
+  source        String   @default("system") // web-ui|lambda|system|api
+  expiresAt     DateTime // TTL replacement — set to now + 30 days (audit retention)
+
+  @@unique([tenantId, logId])
+  @@index([tenantId])
+  @@index([tenantId, eventType])
+  @@index([tenantId, user])
+  @@index([tenantId, timestamp])
+  @@index([expiresAt]) // for cleanup-expired.ts
+  @@map("audit_logs")
+}
