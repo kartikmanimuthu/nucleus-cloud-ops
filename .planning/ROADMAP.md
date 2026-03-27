@@ -75,7 +75,7 @@ Plans:
 - [x] 03-02-PLAN.md — Schedule, ScheduleExecution, AuditLog repository implementations (interface + DynamoDB + PostgreSQL)
 - [x] 03-03-PLAN.md — Service wiring + Lambda pg-service (max-3 pool) + dual-write + 6 Vitest test files
 - [x] 03-04-PLAN.md — Data migration scripts (migrate-schedules, migrate-audit-logs batched 500) + cleanup-expired TTL script
-- [ ] 03-05-PLAN.md — Playwright E2E tests for schedule CRUD, execution history, audit logs + human checkpoint
+- [x] 03-05-PLAN.md — Playwright E2E tests for schedule CRUD, execution history, audit logs + human checkpoint
 
 **UI hint**: yes
 

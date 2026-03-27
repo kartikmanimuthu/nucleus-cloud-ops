@@ -51,7 +51,7 @@
 - [x] **SCHED-09**: Data migration scripts for schedules (TYPE#SCHEDULE), executions (TYPE#EXECUTION), audit logs (TYPE#LOG)
 - [x] **SCHED-10**: Audit log migration handles large dataset with batched inserts (chunks of 500)
 - [x] **SCHED-11**: TTL cleanup script deletes expired audit_logs and schedule_executions
-- [ ] **SCHED-12**: Playwright E2E tests verify schedule CRUD, execution history, audit log viewing
+- [x] **SCHED-12**: Playwright E2E tests verify schedule CRUD, execution history, audit log viewing
 - [x] **SCHED-13**: Dual-write mode available for validation period (write to both backends, read from PG)
 
 ### Knowledge Base + Inventory + Vector Migration
@@ -163,7 +163,7 @@
 | SCHED-09 | Phase 3 | Complete |
 | SCHED-10 | Phase 3 | Complete |
 | SCHED-11 | Phase 3 | Complete |
-| SCHED-12 | Phase 3 | Pending |
+| SCHED-12 | Phase 3 | Complete |
 | SCHED-13 | Phase 3 | Complete |
 | KB-01 | Phase 4 | Pending |
 | KB-02 | Phase 4 | Pending |
