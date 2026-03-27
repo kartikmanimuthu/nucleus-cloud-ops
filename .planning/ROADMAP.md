@@ -52,7 +52,7 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md — Prisma Account and UserTenantRole models + migration
 - [x] 02-02-PLAN.md — Account and UserTenantRole repository implementations (TDD)
-- [ ] 02-03-PLAN.md — Account service wiring + RBAC integration
+- [x] 02-03-PLAN.md — Account service wiring + RBAC integration
 - [ ] 02-04-PLAN.md — Account data migration script (DynamoDB → PostgreSQL)
 - [ ] 02-05-PLAN.md — Playwright E2E tests for accounts with PostgreSQL backend
 

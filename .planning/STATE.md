@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-accounts-rbac 02-02-PLAN.md
-last_updated: "2026-03-27T10:10:26.630Z"
+stopped_at: Completed 02-accounts-rbac 02-03-PLAN.md
+last_updated: "2026-03-27T10:23:18.015Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 12
-  completed_plans: 9
+  completed_plans: 10
   percent: 20
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 02 (accounts-rbac) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-03-27
 
@@ -56,6 +56,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 01-foundation-tenant-config P05 | 525546min | 1 tasks | 1 files |
 | Phase 02-accounts-rbac P01 | 6min | 2 tasks | 4 files |
 | Phase 02-accounts-rbac P02 | 7 | 2 tasks | 6 files |
+| Phase 02-accounts-rbac P03 | 12 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Key decisions affecting Phase 1:
 - [Phase 02-accounts-rbac]: Role CHECK constraint applied via ALTER TABLE post-migration: Prisma 5 does not emit CHECK constraints natively
 - [Phase 02-accounts-rbac]: AccountDynamoRepository preserves GSI1 + client-side filter: maintains identical DynamoDB path behaviour
 - [Phase 02-accounts-rbac]: RbacDynamoRepository uses getDynamoDBDocumentClient() singleton instead of per-instance DynamoDBClient
+- [Phase 02-accounts-rbac]: account-service.ts audit logging stays in service layer — AuditService is cross-cutting observability, not a persistence concern
+- [Phase 02-accounts-rbac]: dynamic require() in factory functions defers Prisma import to runtime — prevents DATABASE_URL startup errors in DynamoDB-only deployments
 
 ### Pending Todos
 
@@ -85,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T10:10:26.627Z
-Stopped at: Completed 02-accounts-rbac 02-02-PLAN.md
+Last session: 2026-03-27T10:23:18.012Z
+Stopped at: Completed 02-accounts-rbac 02-03-PLAN.md
 Resume file: None
