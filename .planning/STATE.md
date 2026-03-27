@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-accounts-rbac 02-05-PLAN.md — all tasks done (incl. E2E tests, checkpoint approved)
-last_updated: "2026-03-27T12:27:18.889Z"
+stopped_at: Completed 03-schedules-executions-audit 03-01-PLAN.md — all tasks done
+last_updated: "2026-03-27T18:47:09.476Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 17
+  completed_plans: 13
   percent: 20
 ---
 
@@ -21,12 +21,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Every DynamoDB table migrated to PostgreSQL with full test coverage and verified data migration scripts
-**Current focus:** Phase 02 — accounts-rbac
+**Current focus:** Phase 03 — schedules-executions-audit
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (schedules-executions-audit) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
 Last activity: 2026-03-27
 
@@ -58,6 +58,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 02-accounts-rbac P02 | 7 | 2 tasks | 6 files |
 | Phase 02-accounts-rbac P04 | 4min | 2 tasks | 4 files |
 | Phase 02-accounts-rbac P05 | 8min | 1 tasks | 1 files |
+| Phase 03-schedules-executions-audit P01 | 20 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,9 @@ Key decisions affecting Phase 1:
 - [Phase 02-accounts-rbac]: migrate-rbac.ts uses ScanCommand with EntityType filter (not QueryCommand): UsersTeamsTable has no GSI — full scan is the only option
 - [Phase 02-accounts-rbac]: postgres.test.ts created from scratch (not appended): Plan 02-03 was skipped; base tests + cross-tenant isolation tests created together
 - [Phase 02-accounts-rbac]: getAccount cross-tenant test uses findFirst (matches actual postgres.ts) not findUnique with compound key as plan template showed
+- [Phase 03-schedules-executions-audit]: expiresAt DateTime used for TTL replacement: enables WHERE expiresAt < NOW() queries without epoch conversion; matches Prisma type system
+- [Phase 03-schedules-executions-audit]: resources Json on Schedule duplicates TargetedResource data: avoids join in hot scheduler Lambda read path; TargetedResource table serves UI/admin queries
+- [Phase 03-schedules-executions-audit]: Manual migrate diff workflow required: prisma migrate dev requires interactive TTY; migrate diff + file creation + migrate deploy used instead
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T10:45:00.000Z
-Stopped at: Completed 02-accounts-rbac 02-05-PLAN.md — all tasks done (incl. E2E tests, checkpoint approved)
+Last session: 2026-03-27T18:47:09.472Z
+Stopped at: Completed 03-schedules-executions-audit 03-01-PLAN.md — all tasks done
 Resume file: None

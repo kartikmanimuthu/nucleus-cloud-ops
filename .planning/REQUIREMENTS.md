@@ -40,7 +40,7 @@
 
 ### Schedules + Executions + Audit Migration
 
-- [ ] **SCHED-01**: Prisma schema defines schedules, schedule_executions, audit_logs tables with indexes
+- [x] **SCHED-01**: Prisma schema defines schedules, schedule_executions, audit_logs tables with indexes
 - [ ] **SCHED-02**: Schedule repository replaces GSI1 query + client filter with server-side WHERE/ORDER BY
 - [ ] **SCHED-03**: Execution repository handles create, update, getHistory, getRecentExecutions
 - [ ] **SCHED-04**: Audit repository handles createAuditLog (fire-and-forget) and getAuditLogs with server-side filtering
@@ -152,7 +152,7 @@
 | ACCT-08 | Phase 2 | Complete |
 | ACCT-09 | Phase 2 | Complete |
 | ACCT-10 | Phase 2 | Complete |
-| SCHED-01 | Phase 3 | Pending |
+| SCHED-01 | Phase 3 | Complete |
 | SCHED-02 | Phase 3 | Pending |
 | SCHED-03 | Phase 3 | Pending |
 | SCHED-04 | Phase 3 | Pending |
