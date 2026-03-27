@@ -44,15 +44,15 @@
 - [x] **SCHED-02**: Schedule repository replaces GSI1 query + client filter with server-side WHERE/ORDER BY
 - [x] **SCHED-03**: Execution repository handles create, update, getHistory, getRecentExecutions
 - [x] **SCHED-04**: Audit repository handles createAuditLog (fire-and-forget) and getAuditLogs with server-side filtering
-- [ ] **SCHED-05**: Scheduler Lambda has pg-service.ts alongside dynamodb-service.ts, switchable via feature flag
-- [ ] **SCHED-06**: Scheduler Lambda connection pool: max 3, idleTimeoutMillis 10000
-- [ ] **SCHED-07**: schedule-service.ts, schedule-execution-service.ts, audit-service.ts delegate to repositories
-- [ ] **SCHED-08**: TDD unit tests for schedule, execution, audit repositories (both backends)
+- [x] **SCHED-05**: Scheduler Lambda has pg-service.ts alongside dynamodb-service.ts, switchable via feature flag
+- [x] **SCHED-06**: Scheduler Lambda connection pool: max 3, idleTimeoutMillis 10000
+- [x] **SCHED-07**: schedule-service.ts, schedule-execution-service.ts, audit-service.ts delegate to repositories
+- [x] **SCHED-08**: TDD unit tests for schedule, execution, audit repositories (both backends)
 - [ ] **SCHED-09**: Data migration scripts for schedules (TYPE#SCHEDULE), executions (TYPE#EXECUTION), audit logs (TYPE#LOG)
 - [ ] **SCHED-10**: Audit log migration handles large dataset with batched inserts (chunks of 500)
 - [ ] **SCHED-11**: TTL cleanup script deletes expired audit_logs and schedule_executions
 - [ ] **SCHED-12**: Playwright E2E tests verify schedule CRUD, execution history, audit log viewing
-- [ ] **SCHED-13**: Dual-write mode available for validation period (write to both backends, read from PG)
+- [x] **SCHED-13**: Dual-write mode available for validation period (write to both backends, read from PG)
 
 ### Knowledge Base + Inventory + Vector Migration
 
@@ -156,15 +156,15 @@
 | SCHED-02 | Phase 3 | Complete |
 | SCHED-03 | Phase 3 | Complete |
 | SCHED-04 | Phase 3 | Complete |
-| SCHED-05 | Phase 3 | Pending |
-| SCHED-06 | Phase 3 | Pending |
-| SCHED-07 | Phase 3 | Pending |
-| SCHED-08 | Phase 3 | Pending |
+| SCHED-05 | Phase 3 | Complete |
+| SCHED-06 | Phase 3 | Complete |
+| SCHED-07 | Phase 3 | Complete |
+| SCHED-08 | Phase 3 | Complete |
 | SCHED-09 | Phase 3 | Pending |
 | SCHED-10 | Phase 3 | Pending |
 | SCHED-11 | Phase 3 | Pending |
 | SCHED-12 | Phase 3 | Pending |
-| SCHED-13 | Phase 3 | Pending |
+| SCHED-13 | Phase 3 | Complete |
 | KB-01 | Phase 4 | Pending |
 | KB-02 | Phase 4 | Pending |
 | KB-03 | Phase 4 | Pending |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-schedules-executions-audit 03-02-PLAN.md — all tasks done
-last_updated: "2026-03-27T18:57:33.051Z"
+stopped_at: Completed 03-schedules-executions-audit 03-03-PLAN.md — all tasks done
+last_updated: "2026-03-27T19:10:32.996Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 17
-  completed_plans: 14
+  completed_plans: 15
   percent: 20
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 03 (schedules-executions-audit) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-03-27
 
@@ -60,6 +60,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 02-accounts-rbac P05 | 8min | 1 tasks | 1 files |
 | Phase 03-schedules-executions-audit P01 | 20 | 2 tasks | 2 files |
 | Phase 03-schedules-executions-audit P02 | 6min | 1 tasks | 9 files |
+| Phase 03-schedules-executions-audit P03 | 25min | 2 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Key decisions affecting Phase 1:
 - [Phase 03-schedules-executions-audit]: ScheduleDynamoRepository preserves GSI1 TYPE#SCHEDULE in-memory filter pattern for identical DynamoDB path behaviour
 - [Phase 03-schedules-executions-audit]: AuditLogPostgresRepository adds tenantId scoping on getAuditLogs — DynamoDB path has no tenant filter; PostgreSQL enforces multi-tenant safety
 - [Phase 03-schedules-executions-audit]: AuditLogPostgresRepository.createAuditLog falls back to org-default tenantId for backward compatibility until Plan 03-03 wires tenantId through service layer
+- [Phase 03-schedules-executions-audit]: Raw pg Pool for Lambda pg-service (not Prisma) — keeps Lambda bundle under size limit
+- [Phase 03-schedules-executions-audit]: Dual-write for schedule mutations only — PostgreSQL is source of truth, DynamoDB failures are non-fatal
 
 ### Pending Todos
 
@@ -99,6 +102,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T18:57:33.039Z
-Stopped at: Completed 03-schedules-executions-audit 03-02-PLAN.md — all tasks done
+Last session: 2026-03-27T19:10:32.993Z
+Stopped at: Completed 03-schedules-executions-audit 03-03-PLAN.md — all tasks done
 Resume file: None
