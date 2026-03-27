@@ -28,13 +28,16 @@
     "puppeteer": "^24.38.0",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "typescript": "~5.6.2"
   },
   "dependencies": {
     "@aws-cdk/aws-s3tables-alpha": "^2.236.0-alpha.0",
     "@aws-sdk/client-bedrock-runtime": "^3.991.0",
+    "@aws-sdk/client-dynamodb": "^3.821.0",
     "@aws-sdk/client-s3": "^3.991.0",
     "@aws-sdk/client-s3vectors": "^3.992.0",
+    "@aws-sdk/lib-dynamodb": "^3.821.0",
     "@prisma/client": "^5.22.0",
     "aws-cdk-lib": "^2.236.0",
     "cdk-s3-vectors": "^0.3.2",
