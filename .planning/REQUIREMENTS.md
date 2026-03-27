@@ -29,8 +29,8 @@
 
 - [x] **ACCT-01**: Prisma schema defines accounts table with indexes on tenant_id and active
 - [x] **ACCT-02**: Prisma schema defines user_tenant_roles table with role CHECK constraint
-- [ ] **ACCT-03**: Account repository replaces client-side filtering with PostgreSQL WHERE/ILIKE/LIMIT/OFFSET
-- [ ] **ACCT-04**: RBAC repository handles getUserTenantRole, getUserAllRoles, assignUserRole, getTenantUsers
+- [x] **ACCT-03**: Account repository replaces client-side filtering with PostgreSQL WHERE/ILIKE/LIMIT/OFFSET
+- [x] **ACCT-04**: RBAC repository handles getUserTenantRole, getUserAllRoles, assignUserRole, getTenantUsers
 - [ ] **ACCT-05**: account-service.ts delegates to repository (scanResources/validateCredentials unchanged)
 - [ ] **ACCT-06**: role-service.ts delegates to repository
 - [ ] **ACCT-07**: TDD unit tests for account + RBAC repositories (both backends)
@@ -144,8 +144,8 @@
 | TCFG-08 | Phase 1 | Pending |
 | ACCT-01 | Phase 2 | Complete |
 | ACCT-02 | Phase 2 | Complete |
-| ACCT-03 | Phase 2 | Pending |
-| ACCT-04 | Phase 2 | Pending |
+| ACCT-03 | Phase 2 | Complete |
+| ACCT-04 | Phase 2 | Complete |
 | ACCT-05 | Phase 2 | Pending |
 | ACCT-06 | Phase 2 | Pending |
 | ACCT-07 | Phase 2 | Pending |

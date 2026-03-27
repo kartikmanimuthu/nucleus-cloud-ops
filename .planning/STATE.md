@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-accounts-rbac 02-01-PLAN.md
-last_updated: "2026-03-27T09:57:16.935Z"
-last_activity: 2026-03-27 -- Phase 02 execution started
+stopped_at: Completed 02-accounts-rbac 02-02-PLAN.md
+last_updated: "2026-03-27T10:10:26.630Z"
+last_activity: 2026-03-27
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 12
-  completed_plans: 7
+  completed_plans: 9
   percent: 20
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 02 (accounts-rbac) — EXECUTING
-Plan: 2 of 5
-Status: Executing Phase 02
-Last activity: 2026-03-27 -- Phase 02 execution started
+Plan: 3 of 5
+Status: Ready to execute
+Last activity: 2026-03-27
 
 Progress: [██░░░░░░░░] 20%
 
@@ -55,6 +55,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 01-foundation-tenant-config P01 | 5 | 2 tasks | 5 files |
 | Phase 01-foundation-tenant-config P05 | 525546min | 1 tasks | 1 files |
 | Phase 02-accounts-rbac P01 | 6min | 2 tasks | 4 files |
+| Phase 02-accounts-rbac P02 | 7 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,8 @@ Key decisions affecting Phase 1:
 - [Phase 01-foundation-tenant-config]: Tenant FK safety: upsert parent tenants row before tenantConfig upsert to satisfy FK constraint; tenantId used as name placeholder
 - [Phase 02-accounts-rbac]: No FK relations from Account/UserTenantRole to Tenant: plain tenantId string for zero-downtime migration
 - [Phase 02-accounts-rbac]: Role CHECK constraint applied via ALTER TABLE post-migration: Prisma 5 does not emit CHECK constraints natively
+- [Phase 02-accounts-rbac]: AccountDynamoRepository preserves GSI1 + client-side filter: maintains identical DynamoDB path behaviour
+- [Phase 02-accounts-rbac]: RbacDynamoRepository uses getDynamoDBDocumentClient() singleton instead of per-instance DynamoDBClient
 
 ### Pending Todos
 
@@ -82,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T09:57:16.933Z
-Stopped at: Completed 02-accounts-rbac 02-01-PLAN.md
+Last session: 2026-03-27T10:10:26.627Z
+Stopped at: Completed 02-accounts-rbac 02-02-PLAN.md
 Resume file: None
