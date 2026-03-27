@@ -29,9 +29,10 @@ Every DynamoDB table is migrated to PostgreSQL with full test coverage (unit + E
 - [x] Docker Compose + Prisma ORM foundation (connection pooling, migration tooling, repository factory) — Validated in Phase 01: foundation-tenant-config
 - [x] Tenant config migration (DynamoDB -> PostgreSQL) with repository pattern — Validated in Phase 01: foundation-tenant-config
 - [x] Accounts + RBAC migration with server-side filtering — Validated in Phase 02: accounts-rbac
+- [x] Schedules + Executions + Audit Logs migration (repository pattern, Lambda pg-service, dual-write, TTL cleanup) — Validated in Phase 03: schedules-executions-audit
 
 ### Active
-- [ ] Schedules + Executions + Audit Logs migration (includes scheduler Lambda)
+- [ ] Knowledge Base + Vector Processor Lambda migration
 - [ ] Knowledge Base + Vector Processor Lambda migration
 - [ ] Agent Ops migration (Dynamoose -> Drizzle rewrite)
 - [ ] Inventory table migration (Python discovery Lambda via psycopg2)
@@ -52,7 +53,7 @@ Every DynamoDB table is migrated to PostgreSQL with full test coverage (unit + E
 
 ## Context
 
-- **Current state:** Phase 2 complete — Accounts + RBAC migrated to PostgreSQL. `Account` and `UserTenantRole` Prisma models with migration applied. 6 repository files (interface + DynamoDB + PostgreSQL) for both entities. `account-service.ts` and `role-service.ts` fully delegate to repository layer. 43 unit tests passing. Migration scripts (`migrate-accounts.ts`, `migrate-rbac.ts`) ready. Feature flags `USE_PG_ACCOUNTS` and `USE_PG_RBAC` enable zero-downtime cutover. E2E Playwright tests and cross-tenant isolation tests verified.
+- **Current state:** Phase 3 complete — Schedules, ScheduleExecution, TargetedResource, and AuditLog migrated to PostgreSQL. 9 repository files (interface + DynamoDB + PostgreSQL) for Schedule, ScheduleExecution, and AuditLog. Services (`schedule-service.ts`, `schedule-execution-service.ts`, `audit-service.ts`) fully delegate via repository factory. Scheduler Lambda has `pg-service.ts` (max-3 pool) switchable via `USE_PG_SCHEDULES`. Dual-write mode implemented. 51 unit tests passing. Migration scripts (`migrate-schedules.ts`, `migrate-audit-logs.ts`, `cleanup-expired.ts`) ready. Feature flags `USE_PG_SCHEDULES` and `USE_PG_AUDIT_LOGS` enable zero-downtime cutover. E2E Playwright tests (`schedules-pg.spec.ts`) written.
 - **Pain points:** Complex filtering requires fetching all records and filtering in JS. No relational joins. Ad-hoc queries impossible. Pagination is cursor-based and inconsistent.
 - **Architecture:** Next.js 15 on ECS Fargate + 4 Lambda functions (scheduler TS, discovery Python, vector processor Python+TS, KB sync TS). All share DynamoDB tables.
 - **Migration approach:** Repository pattern with interface + two implementations (DynamoDB, PostgreSQL). Feature flag per entity (`USE_PG_<ENTITY>`) for instant rollback. Migrate one entity at a time.
