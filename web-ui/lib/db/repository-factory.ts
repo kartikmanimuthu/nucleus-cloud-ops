@@ -17,6 +17,8 @@
  */
 
 import type { ITenantConfigRepository } from './repositories/tenant-config/interface';
+import type { IAccountRepository } from './repositories/account/interface';
+import type { IRbacRepository } from './repositories/rbac/interface';
 
 /**
  * Returns the active ITenantConfigRepository implementation.
@@ -40,6 +42,50 @@ export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { TenantConfigDynamoRepository } = require('./repositories/tenant-config/dynamo');
     return new TenantConfigDynamoRepository();
+}
+
+/**
+ * Returns the active IAccountRepository implementation.
+ * Controlled by USE_PG_ACCOUNTS environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/account/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/account/postgres.ts
+ */
+export function getAccountRepository(): IAccountRepository {
+    const usePg = process.env.USE_PG_ACCOUNTS === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { AccountPostgresRepository } = require('./repositories/account/postgres');
+        return new AccountPostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AccountDynamoRepository } = require('./repositories/account/dynamo');
+    return new AccountDynamoRepository();
+}
+
+/**
+ * Returns the active IRbacRepository implementation.
+ * Controlled by USE_PG_RBAC environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/rbac/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/rbac/postgres.ts
+ */
+export function getRbacRepository(): IRbacRepository {
+    const usePg = process.env.USE_PG_RBAC === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { RbacPostgresRepository } = require('./repositories/rbac/postgres');
+        return new RbacPostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { RbacDynamoRepository } = require('./repositories/rbac/dynamo');
+    return new RbacDynamoRepository();
 }
 
 /**

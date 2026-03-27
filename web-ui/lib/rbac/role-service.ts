@@ -1,16 +1,17 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, QueryCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+/**
+ * RBAC Role Service
+ *
+ * Delegates all persistence to getRbacRepository() which reads USE_PG_RBAC
+ * to select the DynamoDB or PostgreSQL backend.
+ *
+ * Function signatures are identical to the original — all callers are unaffected.
+ */
 import { TenantRole, UserTenantRole } from './types';
-
-// Initialize DynamoDB client
-const ddbClient = new DynamoDBClient({ region: process.env.AWS_REGION });
-const ddb = DynamoDBDocumentClient.from(ddbClient);
-
-const TABLE_NAME = process.env.DYNAMODB_USERS_TEAMS_TABLE || 'nucleus-app-web-ui-users-teams';
+import { getRbacRepository } from '@/lib/db/repository-factory';
 
 /**
  * Get the role of a user within a specific tenant.
- * 
+ *
  * @param userId - Cognito sub (user ID)
  * @param tenantId - Tenant ID
  * @returns The user's role in the tenant, or null if not assigned
@@ -20,15 +21,7 @@ export async function getUserTenantRole(
     tenantId: string
 ): Promise<TenantRole | null> {
     try {
-        const result = await ddb.send(new GetCommand({
-            TableName: TABLE_NAME,
-            Key: {
-                PK: `USER#${userId}`,
-                SK: `TENANT#${tenantId}`,
-            },
-        }));
-
-        return (result.Item?.role as TenantRole) || null;
+        return await getRbacRepository().getUserTenantRole(userId, tenantId);
     } catch (error) {
         console.error('Error fetching user tenant role:', error);
         return null;
@@ -37,22 +30,13 @@ export async function getUserTenantRole(
 
 /**
  * Get all roles for a user across all tenants.
- * 
+ *
  * @param userId - Cognito sub (user ID)
  * @returns Array of user-tenant-role mappings
  */
 export async function getUserAllRoles(userId: string): Promise<UserTenantRole[]> {
     try {
-        const result = await ddb.send(new QueryCommand({
-            TableName: TABLE_NAME,
-            KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
-            ExpressionAttributeValues: {
-                ':pk': `USER#${userId}`,
-                ':sk': 'TENANT#',
-            },
-        }));
-
-        return (result.Items as UserTenantRole[]) || [];
+        return await getRbacRepository().getUserAllRoles(userId);
     } catch (error) {
         console.error('Error fetching user roles:', error);
         return [];
@@ -61,7 +45,7 @@ export async function getUserAllRoles(userId: string): Promise<UserTenantRole[]>
 
 /**
  * Assign a role to a user within a tenant.
- * 
+ *
  * @param userId - Cognito sub (user ID)
  * @param email - User's email
  * @param tenantId - Tenant ID
@@ -75,42 +59,18 @@ export async function assignUserRole(
     role: TenantRole,
     assignedBy: string
 ): Promise<void> {
-    await ddb.send(new PutCommand({
-        TableName: TABLE_NAME,
-        Item: {
-            PK: `USER#${userId}`,
-            SK: `TENANT#${tenantId}`,
-            EntityType: 'UserTenantRole',
-            userId,
-            email,
-            tenantId,
-            role,
-            assignedAt: new Date().toISOString(),
-            assignedBy,
-        },
-    }));
+    await getRbacRepository().assignUserRole(userId, email, tenantId, role, assignedBy);
 }
 
 /**
  * Get all users in a tenant with their roles.
- * 
+ *
  * @param tenantId - Tenant ID
  * @returns Array of user-tenant-role mappings for the tenant
  */
 export async function getTenantUsers(tenantId: string): Promise<UserTenantRole[]> {
     try {
-        const result = await ddb.send(new QueryCommand({
-            TableName: TABLE_NAME,
-            IndexName: 'EntityTypeIndex',
-            KeyConditionExpression: 'EntityType = :entityType',
-            FilterExpression: 'tenantId = :tenantId',
-            ExpressionAttributeValues: {
-                ':entityType': 'UserTenantRole',
-                ':tenantId': tenantId,
-            },
-        }));
-
-        return (result.Items as UserTenantRole[]) || [];
+        return await getRbacRepository().getTenantUsers(tenantId);
     } catch (error) {
         console.error('Error fetching tenant users:', error);
         return [];
