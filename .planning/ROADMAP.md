@@ -47,7 +47,15 @@ Plans:
   2. A user assigned a role in tenant A cannot see tenant B accounts — confirmed by cross-tenant isolation test
   3. Playwright E2E tests for account listing, filtering, and creation pass against the PostgreSQL backend
   4. Data migration script moves all accounts and RBAC records from DynamoDB; verify-migration shows matching row counts
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [x] 02-01-PLAN.md — Prisma Account and UserTenantRole models + migration
+- [ ] 02-02-PLAN.md — Account and UserTenantRole repository implementations (TDD)
+- [ ] 02-03-PLAN.md — Account service wiring + RBAC integration
+- [ ] 02-04-PLAN.md — Account data migration script (DynamoDB → PostgreSQL)
+- [ ] 02-05-PLAN.md — Playwright E2E tests for accounts with PostgreSQL backend
+
 **UI hint**: yes
 
 ### Phase 3: Schedules + Executions + Audit
