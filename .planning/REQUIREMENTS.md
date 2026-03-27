@@ -35,8 +35,8 @@
 - [ ] **ACCT-06**: role-service.ts delegates to repository
 - [ ] **ACCT-07**: TDD unit tests for account + RBAC repositories (both backends)
 - [x] **ACCT-08**: Data migration scripts for accounts (GSI1 TYPE#ACCOUNT) and RBAC (UsersTeamsTable)
-- [ ] **ACCT-09**: Playwright E2E tests verify account listing, filtering, creation after migration
-- [ ] **ACCT-10**: Cross-tenant isolation test confirms no data leakage between tenants
+- [x] **ACCT-09**: Playwright E2E tests verify account listing, filtering, creation after migration
+- [x] **ACCT-10**: Cross-tenant isolation test confirms no data leakage between tenants
 
 ### Schedules + Executions + Audit Migration
 
@@ -150,8 +150,8 @@
 | ACCT-06 | Phase 2 | Pending |
 | ACCT-07 | Phase 2 | Pending |
 | ACCT-08 | Phase 2 | Complete |
-| ACCT-09 | Phase 2 | Pending |
-| ACCT-10 | Phase 2 | Pending |
+| ACCT-09 | Phase 2 | Complete |
+| ACCT-10 | Phase 2 | Complete |
 | SCHED-01 | Phase 3 | Pending |
 | SCHED-02 | Phase 3 | Pending |
 | SCHED-03 | Phase 3 | Pending |
