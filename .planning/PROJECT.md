@@ -28,9 +28,9 @@ Every DynamoDB table is migrated to PostgreSQL with full test coverage (unit + E
 
 - [x] Docker Compose + Prisma ORM foundation (connection pooling, migration tooling, repository factory) — Validated in Phase 01: foundation-tenant-config
 - [x] Tenant config migration (DynamoDB -> PostgreSQL) with repository pattern — Validated in Phase 01: foundation-tenant-config
+- [x] Accounts + RBAC migration with server-side filtering — Validated in Phase 02: accounts-rbac
 
 ### Active
-- [ ] Accounts + RBAC migration with server-side filtering
 - [ ] Schedules + Executions + Audit Logs migration (includes scheduler Lambda)
 - [ ] Knowledge Base + Vector Processor Lambda migration
 - [ ] Agent Ops migration (Dynamoose -> Drizzle rewrite)
@@ -52,7 +52,7 @@ Every DynamoDB table is migrated to PostgreSQL with full test coverage (unit + E
 
 ## Context
 
-- **Current state:** Phase 1 complete — PostgreSQL foundation established. Prisma schema, migrations, pg-config singleton, repository factory, tenant-config repository (DynamoDB + PostgreSQL implementations), unit tests, and data migration script all in place. Feature flag `USE_PG_TENANT_CONFIG` enables live cutover. Remaining 9 DynamoDB tables still pending migration.
+- **Current state:** Phase 2 complete — Accounts + RBAC migrated to PostgreSQL. `Account` and `UserTenantRole` Prisma models with migration applied. 6 repository files (interface + DynamoDB + PostgreSQL) for both entities. `account-service.ts` and `role-service.ts` fully delegate to repository layer. 43 unit tests passing. Migration scripts (`migrate-accounts.ts`, `migrate-rbac.ts`) ready. Feature flags `USE_PG_ACCOUNTS` and `USE_PG_RBAC` enable zero-downtime cutover. E2E Playwright tests and cross-tenant isolation tests verified.
 - **Pain points:** Complex filtering requires fetching all records and filtering in JS. No relational joins. Ad-hoc queries impossible. Pagination is cursor-based and inconsistent.
 - **Architecture:** Next.js 15 on ECS Fargate + 4 Lambda functions (scheduler TS, discovery Python, vector processor Python+TS, KB sync TS). All share DynamoDB tables.
 - **Migration approach:** Repository pattern with interface + two implementations (DynamoDB, PostgreSQL). Feature flag per entity (`USE_PG_<ENTITY>`) for instant rollback. Migrate one entity at a time.
@@ -101,4 +101,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-27 after Phase 01 completion — foundation + tenant-config verified 17/17*
+*Last updated: 2026-03-27 after Phase 02 completion — accounts + RBAC migration verified 18/18*
