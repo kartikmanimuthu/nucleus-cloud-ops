@@ -41,9 +41,9 @@
 ### Schedules + Executions + Audit Migration
 
 - [x] **SCHED-01**: Prisma schema defines schedules, schedule_executions, audit_logs tables with indexes
-- [ ] **SCHED-02**: Schedule repository replaces GSI1 query + client filter with server-side WHERE/ORDER BY
-- [ ] **SCHED-03**: Execution repository handles create, update, getHistory, getRecentExecutions
-- [ ] **SCHED-04**: Audit repository handles createAuditLog (fire-and-forget) and getAuditLogs with server-side filtering
+- [x] **SCHED-02**: Schedule repository replaces GSI1 query + client filter with server-side WHERE/ORDER BY
+- [x] **SCHED-03**: Execution repository handles create, update, getHistory, getRecentExecutions
+- [x] **SCHED-04**: Audit repository handles createAuditLog (fire-and-forget) and getAuditLogs with server-side filtering
 - [ ] **SCHED-05**: Scheduler Lambda has pg-service.ts alongside dynamodb-service.ts, switchable via feature flag
 - [ ] **SCHED-06**: Scheduler Lambda connection pool: max 3, idleTimeoutMillis 10000
 - [ ] **SCHED-07**: schedule-service.ts, schedule-execution-service.ts, audit-service.ts delegate to repositories
@@ -153,9 +153,9 @@
 | ACCT-09 | Phase 2 | Complete |
 | ACCT-10 | Phase 2 | Complete |
 | SCHED-01 | Phase 3 | Complete |
-| SCHED-02 | Phase 3 | Pending |
-| SCHED-03 | Phase 3 | Pending |
-| SCHED-04 | Phase 3 | Pending |
+| SCHED-02 | Phase 3 | Complete |
+| SCHED-03 | Phase 3 | Complete |
+| SCHED-04 | Phase 3 | Complete |
 | SCHED-05 | Phase 3 | Pending |
 | SCHED-06 | Phase 3 | Pending |
 | SCHED-07 | Phase 3 | Pending |
