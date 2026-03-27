@@ -48,9 +48,9 @@
 - [ ] **SCHED-06**: Scheduler Lambda connection pool: max 3, idleTimeoutMillis 10000
 - [ ] **SCHED-07**: schedule-service.ts, schedule-execution-service.ts, audit-service.ts delegate to repositories
 - [ ] **SCHED-08**: TDD unit tests for schedule, execution, audit repositories (both backends)
-- [ ] **SCHED-09**: Data migration scripts for schedules (TYPE#SCHEDULE), executions (TYPE#EXECUTION), audit logs (TYPE#LOG)
-- [ ] **SCHED-10**: Audit log migration handles large dataset with batched inserts (chunks of 500)
-- [ ] **SCHED-11**: TTL cleanup script deletes expired audit_logs and schedule_executions
+- [x] **SCHED-09**: Data migration scripts for schedules (TYPE#SCHEDULE), executions (TYPE#EXECUTION), audit logs (TYPE#LOG)
+- [x] **SCHED-10**: Audit log migration handles large dataset with batched inserts (chunks of 500)
+- [x] **SCHED-11**: TTL cleanup script deletes expired audit_logs and schedule_executions
 - [ ] **SCHED-12**: Playwright E2E tests verify schedule CRUD, execution history, audit log viewing
 - [ ] **SCHED-13**: Dual-write mode available for validation period (write to both backends, read from PG)
 
@@ -95,7 +95,7 @@
 - [x] **MIGR-02**: All scripts are idempotent (ON CONFLICT DO UPDATE) for safe re-runs
 - [ ] **MIGR-03**: migrate-all.ts runs scripts in dependency order (tenants → accounts → schedules → ...)
 - [ ] **MIGR-04**: verify-migration.ts compares row counts between DynamoDB and PostgreSQL per table
-- [ ] **MIGR-05**: cleanup-expired.ts handles TTL replacement for all tables with expires_at
+- [x] **MIGR-05**: cleanup-expired.ts handles TTL replacement for all tables with expires_at
 - [x] **MIGR-06**: Progress logging shows "Migrated X/Y records..." during execution
 
 ## v2 Requirements
@@ -160,9 +160,9 @@
 | SCHED-06 | Phase 3 | Pending |
 | SCHED-07 | Phase 3 | Pending |
 | SCHED-08 | Phase 3 | Pending |
-| SCHED-09 | Phase 3 | Pending |
-| SCHED-10 | Phase 3 | Pending |
-| SCHED-11 | Phase 3 | Pending |
+| SCHED-09 | Phase 3 | Complete |
+| SCHED-10 | Phase 3 | Complete |
+| SCHED-11 | Phase 3 | Complete |
 | SCHED-12 | Phase 3 | Pending |
 | SCHED-13 | Phase 3 | Pending |
 | KB-01 | Phase 4 | Pending |
@@ -195,7 +195,7 @@
 | MIGR-02 | Phase 1 | Complete |
 | MIGR-03 | Phase 5 | Pending |
 | MIGR-04 | Phase 5 | Pending |
-| MIGR-05 | Phase 3 | Pending |
+| MIGR-05 | Phase 3 | Complete |
 | MIGR-06 | Phase 1 | Complete |
 
 **Coverage:**
