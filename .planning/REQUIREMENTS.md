@@ -31,10 +31,10 @@
 - [x] **ACCT-02**: Prisma schema defines user_tenant_roles table with role CHECK constraint
 - [x] **ACCT-03**: Account repository replaces client-side filtering with PostgreSQL WHERE/ILIKE/LIMIT/OFFSET
 - [x] **ACCT-04**: RBAC repository handles getUserTenantRole, getUserAllRoles, assignUserRole, getTenantUsers
-- [x] **ACCT-05**: account-service.ts delegates to repository (scanResources/validateCredentials unchanged)
-- [x] **ACCT-06**: role-service.ts delegates to repository
-- [x] **ACCT-07**: TDD unit tests for account + RBAC repositories (both backends)
-- [ ] **ACCT-08**: Data migration scripts for accounts (GSI1 TYPE#ACCOUNT) and RBAC (UsersTeamsTable)
+- [ ] **ACCT-05**: account-service.ts delegates to repository (scanResources/validateCredentials unchanged)
+- [ ] **ACCT-06**: role-service.ts delegates to repository
+- [ ] **ACCT-07**: TDD unit tests for account + RBAC repositories (both backends)
+- [x] **ACCT-08**: Data migration scripts for accounts (GSI1 TYPE#ACCOUNT) and RBAC (UsersTeamsTable)
 - [ ] **ACCT-09**: Playwright E2E tests verify account listing, filtering, creation after migration
 - [ ] **ACCT-10**: Cross-tenant isolation test confirms no data leakage between tenants
 
@@ -146,10 +146,10 @@
 | ACCT-02 | Phase 2 | Complete |
 | ACCT-03 | Phase 2 | Complete |
 | ACCT-04 | Phase 2 | Complete |
-| ACCT-05 | Phase 2 | Complete |
-| ACCT-06 | Phase 2 | Complete |
-| ACCT-07 | Phase 2 | Complete |
-| ACCT-08 | Phase 2 | Pending |
+| ACCT-05 | Phase 2 | Pending |
+| ACCT-06 | Phase 2 | Pending |
+| ACCT-07 | Phase 2 | Pending |
+| ACCT-08 | Phase 2 | Complete |
 | ACCT-09 | Phase 2 | Pending |
 | ACCT-10 | Phase 2 | Pending |
 | SCHED-01 | Phase 3 | Pending |

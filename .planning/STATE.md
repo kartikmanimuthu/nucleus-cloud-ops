@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-accounts-rbac 02-03-PLAN.md
-last_updated: "2026-03-27T10:23:18.015Z"
+stopped_at: Completed 02-accounts-rbac 02-04-PLAN.md
+last_updated: "2026-03-27T10:22:22.311Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 5
@@ -56,7 +56,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 01-foundation-tenant-config P05 | 525546min | 1 tasks | 1 files |
 | Phase 02-accounts-rbac P01 | 6min | 2 tasks | 4 files |
 | Phase 02-accounts-rbac P02 | 7 | 2 tasks | 6 files |
-| Phase 02-accounts-rbac P03 | 12 | 2 tasks | 7 files |
+| Phase 02-accounts-rbac P04 | 4min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -74,8 +74,8 @@ Key decisions affecting Phase 1:
 - [Phase 02-accounts-rbac]: Role CHECK constraint applied via ALTER TABLE post-migration: Prisma 5 does not emit CHECK constraints natively
 - [Phase 02-accounts-rbac]: AccountDynamoRepository preserves GSI1 + client-side filter: maintains identical DynamoDB path behaviour
 - [Phase 02-accounts-rbac]: RbacDynamoRepository uses getDynamoDBDocumentClient() singleton instead of per-instance DynamoDBClient
-- [Phase 02-accounts-rbac]: account-service.ts audit logging stays in service layer — AuditService is cross-cutting observability, not a persistence concern
-- [Phase 02-accounts-rbac]: dynamic require() in factory functions defers Prisma import to runtime — prevents DATABASE_URL startup errors in DynamoDB-only deployments
+- [Phase 02-accounts-rbac]: Root package.json extended with @aws-sdk/client-dynamodb and @aws-sdk/lib-dynamodb: migration scripts run from project root, these packages were only in web-ui/package.json
+- [Phase 02-accounts-rbac]: migrate-rbac.ts uses ScanCommand with EntityType filter (not QueryCommand): UsersTeamsTable has no GSI — full scan is the only option
 
 ### Pending Todos
 
@@ -88,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T10:23:18.012Z
-Stopped at: Completed 02-accounts-rbac 02-03-PLAN.md
+Last session: 2026-03-27T10:22:22.308Z
+Stopped at: Completed 02-accounts-rbac 02-04-PLAN.md
 Resume file: None
