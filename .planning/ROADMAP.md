@@ -29,16 +29,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Running with `USE_PG_TENANT_CONFIG=true`, tenant config reads and writes go to PostgreSQL; with flag off, DynamoDB is used — no code change required to switch
   3. All existing Vitest tests pass with the PostgreSQL flag enabled
   4. The tenant config data migration script runs idempotently and produces a "Migrated X/Y records..." progress log
-**Plans**: 7 plans
+**Plans**: 5 plans
 
 Plans:
 - [x] 01-01-PLAN.md — Docker Compose + Prisma schema (tenants + tenant_configs) + .env.local.example
-- [x] 01-02-PLAN.md — PostgreSQL connection singleton (pg-config.ts) + repository factory
-- [x] 01-03-PLAN.md — ITenantConfigRepository interface + DynamoDB repo + PostgreSQL repo
-- [x] 01-04-PLAN.md — Service wiring (tenant-config-service.ts delegation) + TDD unit tests
+- [ ] 01-02-PLAN.md — PostgreSQL connection singleton (pg-config.ts) + repository factory
+- [ ] 01-03-PLAN.md — ITenantConfigRepository interface + DynamoDB repo + PostgreSQL repo
+- [ ] 01-04-PLAN.md — Service wiring (tenant-config-service.ts delegation) + TDD unit tests
 - [x] 01-05-PLAN.md — Data migration script (DynamoDB → PostgreSQL, idempotent)
-- [x] 01-06-PLAN.md — Gap closure: Generate prisma/migrations/ directory (requires Docker)
-- [x] 01-07-PLAN.md — Gap closure: Fix connection_limit in .env.local.example + update REQUIREMENTS.md traceability
 
 ### Phase 2: Accounts + RBAC
 **Goal**: Account listing, filtering, and role assignment run entirely on PostgreSQL with verified cross-tenant isolation
@@ -52,11 +50,13 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Prisma schema: accounts + user_tenant_roles models + migration
-- [ ] 02-02-PLAN.md — IAccountRepository + IRbacRepository: interfaces, DynamoDB repos, PostgreSQL repos (6 files)
-- [ ] 02-03-PLAN.md — Service wiring (account-service.ts + role-service.ts delegation) + TDD unit tests (4 test files)
-- [ ] 02-04-PLAN.md — Data migration scripts: migrate-accounts.ts + migrate-rbac.ts
-- [ ] 02-05-PLAN.md — Cross-tenant isolation test + human verification checkpoint
+- [x] 02-01-PLAN.md — Prisma Account and UserTenantRole models + migration
+- [ ] 02-02-PLAN.md — Account and UserTenantRole repository implementations (TDD)
+- [ ] 02-03-PLAN.md — Account service wiring + RBAC integration
+- [ ] 02-04-PLAN.md — Account data migration script (DynamoDB → PostgreSQL)
+- [ ] 02-05-PLAN.md — Playwright E2E tests for accounts with PostgreSQL backend
+
+**UI hint**: yes
 
 ### Phase 3: Schedules + Executions + Audit
 **Goal**: The full scheduling system — web UI, scheduler Lambda, and audit logs — runs on PostgreSQL with dual-write validation capability
@@ -103,8 +103,8 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation + Tenant Config | 7/7 | Complete |  |
-| 2. Accounts + RBAC | 0/5 | Not started | - |
+| 1. Foundation + Tenant Config | 2/5 | In Progress|  |
+| 2. Accounts + RBAC | 0/TBD | Not started | - |
 | 3. Schedules + Executions + Audit | 0/TBD | Not started | - |
 | 4. KB + Inventory + Agent Ops | 0/TBD | Not started | - |
 | 5. LangGraph + Migration Validation | 0/TBD | Not started | - |

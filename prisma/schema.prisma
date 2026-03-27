@@ -39,3 +39,46 @@ model TenantConfig {
   @@index([tenantId])
   @@map("tenant_configs")
 }
+
+// Account — migrated from DynamoDB NucleusAppTable (PK=ACCOUNT#<AccountId>, SK=METADATA)
+// Replaces GSI1 TYPE#ACCOUNT queries with proper indexed PostgreSQL columns
+// tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
+model Account {
+  id               String   @id @default(cuid())
+  tenantId         String
+  accountId        String
+  name             String
+  roleArn          String
+  externalId       String?
+  regions          String[]
+  active           Boolean  @default(true)
+  description      String?
+  connectionStatus String   @default("unknown")
+  connectionError  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdBy        String   @default("system")
+  updatedBy        String   @default("system")
+
+  @@unique([tenantId, accountId])
+  @@index([tenantId])
+  @@index([tenantId, active])
+  @@map("accounts")
+}
+
+// UserTenantRole — migrated from DynamoDB UsersTeamsTable (PK=USER#<sub>, SK=TENANT#<id>)
+// role field uses a CHECK constraint in migration SQL (not Prisma-native) for value enforcement
+// tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
+model UserTenantRole {
+  id         String   @id @default(cuid())
+  userId     String
+  tenantId   String
+  email      String
+  role       String
+  assignedAt DateTime @default(now())
+  assignedBy String
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@map("user_tenant_roles")
+}

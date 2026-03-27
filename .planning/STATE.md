@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-foundation-tenant-config 01-07-PLAN.md
-last_updated: "2026-03-27T06:44:50.427Z"
-last_activity: 2026-03-27
+status: planning
+stopped_at: Completed 02-accounts-rbac 02-01-PLAN.md
+last_updated: "2026-03-27T09:57:16.935Z"
+last_activity: 2026-03-26 — Roadmap created, ready to begin Phase 1 planning
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 7
-  completed_plans: 7
+  completed_phases: 0
+  total_plans: 5
+  completed_plans: 3
   percent: 20
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Every DynamoDB table migrated to PostgreSQL with full test coverage and verified data migration scripts
-**Current focus:** Phase 01 — foundation-tenant-config
+**Current focus:** Phase 1 — Foundation + Tenant Config
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-03-27
+Phase: 1 of 5 (Foundation + Tenant Config)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-03-26 — Roadmap created, ready to begin Phase 1 planning
 
 Progress: [██░░░░░░░░] 20%
 
@@ -53,10 +53,8 @@ Progress: [██░░░░░░░░] 20%
 
 *Updated after each plan completion*
 | Phase 01-foundation-tenant-config P01 | 5 | 2 tasks | 5 files |
-| Phase 01-foundation-tenant-config P02 | 8 | 2 tasks | 2 files |
-| Phase 01-foundation-tenant-config P03 | 2 | 2 tasks | 4 files |
-| Phase 01-foundation-tenant-config P04 | 15 | 2 tasks | 3 files |
-| Phase 01-foundation-tenant-config P07 | 3 | 2 tasks | 2 files |
+| Phase 01-foundation-tenant-config P05 | 525546min | 1 tasks | 1 files |
+| Phase 02-accounts-rbac P01 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -69,11 +67,9 @@ Key decisions affecting Phase 1:
 - Repository pattern with feature flags — zero-downtime, instant rollback per entity
 - Docker Compose for local dev — cloud DB (RDS/Aurora) deferred until migration validated
 - [Phase 01-foundation-tenant-config]: Prisma 5 over Prisma 7: v7 removed datasource url from schema files (breaking change), v5 matches plan schema format
-- [Phase 01-foundation-tenant-config]: Prisma singleton uses globalThis for dev to survive Next.js hot reloads, matching aws-config.ts pattern
-- [Phase 01-foundation-tenant-config]: Dynamic require() in repository factory prevents build failure when DATABASE_URL not set in DynamoDB-only deployments
-- [Phase 01-foundation-tenant-config]: deleteConfig uses deleteMany (not delete) in Postgres repo to avoid P2025 error when record doesn't exist — matches interface no-op contract
-- [Phase 01-foundation-tenant-config]: Pre-existing test failures in agent/file-upload and agent-ops/agent-executor confirmed out-of-scope (not introduced by Plan 04 changes)
-- [Phase 01-foundation-tenant-config]: connection_limit=10 for ECS, connection_limit=3 for Lambda enforced at configuration level in DATABASE_URL
+- [Phase 01-foundation-tenant-config]: Tenant FK safety: upsert parent tenants row before tenantConfig upsert to satisfy FK constraint; tenantId used as name placeholder
+- [Phase 02-accounts-rbac]: No FK relations from Account/UserTenantRole to Tenant: plain tenantId string for zero-downtime migration
+- [Phase 02-accounts-rbac]: Role CHECK constraint applied via ALTER TABLE post-migration: Prisma 5 does not emit CHECK constraints natively
 
 ### Pending Todos
 
@@ -86,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T06:40:27.723Z
-Stopped at: Completed 01-foundation-tenant-config 01-07-PLAN.md
+Last session: 2026-03-27T09:57:16.933Z
+Stopped at: Completed 02-accounts-rbac 02-01-PLAN.md
 Resume file: None

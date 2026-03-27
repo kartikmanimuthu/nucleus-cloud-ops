@@ -9,26 +9,26 @@
 
 - [x] **FOUND-01**: Docker Compose starts PostgreSQL 16 locally with health check and persistent volume
 - [x] **FOUND-02**: Prisma ORM configured with schema file, migration directory, and TypeScript client generation
-- [x] **FOUND-03**: PostgreSQL connection singleton (pg-config.ts) with pool sizes: max 10 for ECS, max 3 for Lambda
-- [x] **FOUND-04**: Repository factory reads `USE_PG_<ENTITY>` env vars and returns correct implementation
+- [ ] **FOUND-03**: PostgreSQL connection singleton (pg-config.ts) with pool sizes: max 10 for ECS, max 3 for Lambda
+- [ ] **FOUND-04**: Repository factory reads `USE_PG_<ENTITY>` env vars and returns correct implementation
 - [x] **FOUND-05**: npm scripts added: db:start, db:stop, db:generate, db:migrate, db:studio
 - [x] **FOUND-06**: .env.local.example updated with DATABASE_URL and all USE_PG_* flags
 
 ### Tenant Config Migration
 
 - [x] **TCFG-01**: Prisma schema defines tenants and tenant_configs tables with correct types and constraints
-- [x] **TCFG-02**: Repository interface defined with getConfig, saveConfig, deleteConfig, listConfigs
-- [x] **TCFG-03**: DynamoDB repository implementation extracted from existing tenant-config-service.ts
-- [x] **TCFG-04**: PostgreSQL repository implementation using Prisma client
-- [x] **TCFG-05**: tenant-config-service.ts delegates to repository factory (no direct DynamoDB calls)
-- [x] **TCFG-06**: TDD unit tests pass for both DynamoDB and PostgreSQL repository implementations
+- [ ] **TCFG-02**: Repository interface defined with getConfig, saveConfig, deleteConfig, listConfigs
+- [ ] **TCFG-03**: DynamoDB repository implementation extracted from existing tenant-config-service.ts
+- [ ] **TCFG-04**: PostgreSQL repository implementation using Prisma client
+- [ ] **TCFG-05**: tenant-config-service.ts delegates to repository factory (no direct DynamoDB calls)
+- [ ] **TCFG-06**: TDD unit tests pass for both DynamoDB and PostgreSQL repository implementations
 - [x] **TCFG-07**: Data migration script seeds tenant configs from DynamoDB (AWS_PROFILE=PLATFORM-ADMIN)
-- [x] **TCFG-08**: Existing Vitest tests continue passing with USE_PG_TENANT_CONFIG=true
+- [ ] **TCFG-08**: Existing Vitest tests continue passing with USE_PG_TENANT_CONFIG=true
 
 ### Accounts + RBAC Migration
 
-- [ ] **ACCT-01**: Prisma schema defines accounts table with indexes on tenant_id and active
-- [ ] **ACCT-02**: Prisma schema defines user_tenant_roles table with role CHECK constraint
+- [x] **ACCT-01**: Prisma schema defines accounts table with indexes on tenant_id and active
+- [x] **ACCT-02**: Prisma schema defines user_tenant_roles table with role CHECK constraint
 - [ ] **ACCT-03**: Account repository replaces client-side filtering with PostgreSQL WHERE/ILIKE/LIMIT/OFFSET
 - [ ] **ACCT-04**: RBAC repository handles getUserTenantRole, getUserAllRoles, assignUserRole, getTenantUsers
 - [ ] **ACCT-05**: account-service.ts delegates to repository (scanResources/validateCredentials unchanged)
@@ -130,20 +130,20 @@
 |-------------|-------|--------|
 | FOUND-01 | Phase 1 | Complete |
 | FOUND-02 | Phase 1 | Complete |
-| FOUND-03 | Phase 1 | Complete |
-| FOUND-04 | Phase 1 | Complete |
+| FOUND-03 | Phase 1 | Pending |
+| FOUND-04 | Phase 1 | Pending |
 | FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Complete |
 | TCFG-01 | Phase 1 | Complete |
-| TCFG-02 | Phase 1 | Complete |
-| TCFG-03 | Phase 1 | Complete |
-| TCFG-04 | Phase 1 | Complete |
-| TCFG-05 | Phase 1 | Complete |
-| TCFG-06 | Phase 1 | Complete |
+| TCFG-02 | Phase 1 | Pending |
+| TCFG-03 | Phase 1 | Pending |
+| TCFG-04 | Phase 1 | Pending |
+| TCFG-05 | Phase 1 | Pending |
+| TCFG-06 | Phase 1 | Pending |
 | TCFG-07 | Phase 1 | Complete |
-| TCFG-08 | Phase 1 | Complete |
-| ACCT-01 | Phase 2 | Pending |
-| ACCT-02 | Phase 2 | Pending |
+| TCFG-08 | Phase 1 | Pending |
+| ACCT-01 | Phase 2 | Complete |
+| ACCT-02 | Phase 2 | Complete |
 | ACCT-03 | Phase 2 | Pending |
 | ACCT-04 | Phase 2 | Pending |
 | ACCT-05 | Phase 2 | Pending |
@@ -205,4 +205,4 @@
 
 ---
 *Requirements defined: 2026-03-26*
-*Last updated: 2026-03-27 after phase 01 verification — TCFG-07, MIGR-01, MIGR-02, MIGR-06 marked complete*
+*Last updated: 2026-03-26 after roadmap creation — traceability confirmed 62/62*
