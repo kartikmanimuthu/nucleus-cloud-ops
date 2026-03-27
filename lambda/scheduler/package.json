@@ -29,7 +29,9 @@
     "@aws-sdk/client-sts": "^3.700.0",
     "@aws-sdk/credential-provider-node": "^3.958.0",
     "@aws-sdk/lib-dynamodb": "^3.700.0",
+    "@types/pg": "^8.20.0",
     "dayjs": "^1.11.13",
+    "pg": "^8.20.0",
     "uuid": "^11.0.3"
   },
   "devDependencies": {

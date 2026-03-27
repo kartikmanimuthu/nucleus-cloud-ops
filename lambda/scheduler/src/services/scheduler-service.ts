@@ -3,13 +3,30 @@
 
 import { logger } from '../utils/logger.js';
 import {
-    fetchActiveSchedules,
+    fetchActiveSchedules as fetchActiveSchedulesDynamo,
     fetchActiveAccounts,
     fetchScheduleById,
     createAuditLog,
     createExecutionAuditLog,
     DEFAULT_TENANT_ID,
 } from './dynamodb-service.js';
+import { getSchedules as getSchedulesPg } from './pg-service.js';
+
+// USE_PG_SCHEDULES=true routes schedule reads/writes to PostgreSQL
+const USE_PG_SCHEDULES = process.env.USE_PG_SCHEDULES === 'true';
+
+/**
+ * Fetch active schedules — switches between DynamoDB and PostgreSQL via USE_PG_SCHEDULES.
+ */
+async function fetchActiveSchedules(): Promise<Awaited<ReturnType<typeof fetchActiveSchedulesDynamo>>> {
+    if (USE_PG_SCHEDULES) {
+        logger.info('[scheduler-service] Using PostgreSQL for schedule fetch (USE_PG_SCHEDULES=true)');
+        const pgSchedules = await getSchedulesPg(DEFAULT_TENANT_ID);
+        // Cast to match DynamoDB Schedule type (pg-service returns compatible shape)
+        return pgSchedules as Awaited<ReturnType<typeof fetchActiveSchedulesDynamo>>;
+    }
+    return fetchActiveSchedulesDynamo();
+}
 import {
     createExecutionRecord,
     updateExecutionRecord,
