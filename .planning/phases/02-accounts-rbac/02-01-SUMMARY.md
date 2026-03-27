@@ -131,6 +131,15 @@ None - no external service configuration required.
 - PrismaClient types available: `prisma.account`, `prisma.userTenantRole`
 - Database tables exist with all constraints and indexes
 
+## Self-Check: PASSED
+
+- FOUND: prisma/schema.prisma (Account and UserTenantRole models present)
+- FOUND: prisma/migrations/20260327095408_add_accounts_and_rbac/migration.sql (with CHECK constraint)
+- FOUND: .planning/phases/02-accounts-rbac/02-01-SUMMARY.md
+- FOUND: commit 30f58da (feat: Account and UserTenantRole Prisma models)
+- FOUND: commit f894902 (feat: generate and apply migration)
+- FOUND: commit 143cb7f (docs: planning artifacts)
+
 ---
 *Phase: 02-accounts-rbac*
 *Completed: 2026-03-27*
