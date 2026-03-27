@@ -19,6 +19,9 @@
 import type { ITenantConfigRepository } from './repositories/tenant-config/interface';
 import type { IAccountRepository } from './repositories/account/interface';
 import type { IRbacRepository } from './repositories/rbac/interface';
+import type { IScheduleRepository } from './repositories/schedule/interface';
+import type { IScheduleExecutionRepository } from './repositories/schedule-execution/interface';
+import type { IAuditLogRepository } from './repositories/audit-log/interface';
 
 /**
  * Returns the active ITenantConfigRepository implementation.
@@ -86,6 +89,72 @@ export function getRbacRepository(): IRbacRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { RbacDynamoRepository } = require('./repositories/rbac/dynamo');
     return new RbacDynamoRepository();
+}
+
+/**
+ * Returns the active IScheduleRepository implementation.
+ * Controlled by USE_PG_SCHEDULES environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/schedule/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/schedule/postgres.ts
+ */
+export function getScheduleRepository(): IScheduleRepository {
+    const usePg = process.env.USE_PG_SCHEDULES === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { SchedulePostgresRepository } = require('./repositories/schedule/postgres');
+        return new SchedulePostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ScheduleDynamoRepository } = require('./repositories/schedule/dynamo');
+    return new ScheduleDynamoRepository();
+}
+
+/**
+ * Returns the active IScheduleExecutionRepository implementation.
+ * Controlled by USE_PG_SCHEDULES environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/schedule-execution/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/schedule-execution/postgres.ts
+ */
+export function getScheduleExecutionRepository(): IScheduleExecutionRepository {
+    const usePg = process.env.USE_PG_SCHEDULES === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ScheduleExecutionPostgresRepository } = require('./repositories/schedule-execution/postgres');
+        return new ScheduleExecutionPostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ScheduleExecutionDynamoRepository } = require('./repositories/schedule-execution/dynamo');
+    return new ScheduleExecutionDynamoRepository();
+}
+
+/**
+ * Returns the active IAuditLogRepository implementation.
+ * Controlled by USE_PG_AUDIT_LOGS environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/audit-log/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/audit-log/postgres.ts
+ */
+export function getAuditLogRepository(): IAuditLogRepository {
+    const usePg = process.env.USE_PG_AUDIT_LOGS === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { AuditLogPostgresRepository } = require('./repositories/audit-log/postgres');
+        return new AuditLogPostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AuditLogDynamoRepository } = require('./repositories/audit-log/dynamo');
+    return new AuditLogDynamoRepository();
 }
 
 /**
