@@ -24,6 +24,7 @@ tech-stack:
 key-files:
   created:
     - web-ui/lib/db/repositories/account/postgres.test.ts
+    - tests/e2e/accounts-pg.spec.ts
   modified: []
 
 key-decisions:
@@ -39,15 +40,15 @@ completed: 2026-03-27
 
 # Phase 2 Plan 05: Accounts PostgreSQL Repository Tests + Cross-Tenant Isolation Summary
 
-**13 Vitest unit tests for AccountPostgresRepository covering query scoping, pagination, ILIKE search, and 3 cross-tenant isolation tests confirming tenantId is always enforced in WHERE clauses**
+**13 Vitest unit tests for AccountPostgresRepository covering query scoping, pagination, ILIKE search, and 3 cross-tenant isolation tests confirming tenantId is always enforced in WHERE clauses; plus 9 Playwright E2E tests verifying the accounts page API contract, server-side filtering params, and tenant isolation at the HTTP level**
 
 ## Performance
 
-- **Duration:** 8 min
+- **Duration:** 12 min
 - **Started:** 2026-03-27T15:50:00Z
-- **Completed:** 2026-03-27T15:58:00Z
-- **Tasks:** 1 (+ checkpoint reached)
-- **Files created:** 1
+- **Completed:** 2026-03-27T16:10:00Z
+- **Tasks:** 2 (Task 1: unit tests + Task 2: E2E tests; checkpoint approved by user)
+- **Files created:** 2
 
 ## Accomplishments
 
@@ -55,16 +56,21 @@ completed: 2026-03-27
 - Base tests (10): `getAccounts` with no filters (tenantId scoping), with `searchTerm` (OR clause with ILIKE), with `statusFilter=active/inactive/all`, pagination via skip/take; `getAccount` null/found/tenantId-in-where; `createAccount` calls create and returns UIAccount
 - Cross-tenant isolation (3): `getAccounts for tenant-A never returns tenant-B records`, `getAccounts WHERE clause does not include a different tenantId`, `getAccount for tenant-A returns null for tenant-B record`
 - All 13 tests pass via `vitest run`
+- Created `tests/e2e/accounts-pg.spec.ts` with 9 Playwright E2E tests for the accounts page with PostgreSQL backend
+- E2E tests cover: page load without errors, API contract shape `{ success, data, totalCount }`, `searchTerm` query param sent on search (server-side filtering), `statusFilter=active/inactive` sent on status filter change, tenant isolation verification at HTTP response level, 500 error absence
+- E2E tests are backend-agnostic (work with both DynamoDB and PostgreSQL backends)
 
 ## Task Commits
 
 Each task was committed atomically:
 
 1. **Task 1: Cross-tenant isolation unit test in AccountPostgresRepository** - `2850426` (test)
+2. **Task 2: Playwright E2E tests for accounts with PostgreSQL backend** - `b8b4bdc` (test)
 
 ## Files Created
 
 - `web-ui/lib/db/repositories/account/postgres.test.ts` — 13 Vitest unit tests for AccountPostgresRepository; includes both base functionality tests and the 3 cross-tenant isolation tests required by Plan 02-05
+- `tests/e2e/accounts-pg.spec.ts` — 9 Playwright E2E tests verifying the accounts page API contract (response shape, server-side filtering query params, tenant isolation) when running with the PostgreSQL backend (`USE_PG_ACCOUNTS=true`)
 
 ## Decisions Made
 
@@ -106,10 +112,13 @@ None in the created test file — all tests are fully wired to mock the Prisma c
 ## Self-Check: PASSED
 
 - FOUND: web-ui/lib/db/repositories/account/postgres.test.ts
+- FOUND: tests/e2e/accounts-pg.spec.ts
 - FOUND: commit 2850426 (test: AccountPostgresRepository unit tests + cross-tenant isolation)
+- FOUND: commit b8b4bdc (test: Playwright E2E tests for accounts with PostgreSQL backend)
 - Tests: 13/13 passing via `vitest run lib/db/repositories/account/postgres.test.ts`
 - `grep "cross-tenant isolation" postgres.test.ts` returns a match
 - Cross-tenant block contains 3 tests as required by plan
+- E2E file contains 9 tests covering USE_PG_ACCOUNTS backend verification
 
 ---
 *Phase: 02-accounts-rbac*

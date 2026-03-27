@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-accounts-rbac 02-05-PLAN.md — checkpoint reached
-last_updated: "2026-03-27T10:31:20.854Z"
+stopped_at: Completed 02-accounts-rbac 02-05-PLAN.md — all tasks done (incl. E2E tests)
+last_updated: "2026-03-27T10:45:00.000Z"
 last_activity: 2026-03-27
 progress:
   total_phases: 5
@@ -91,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T10:31:20.851Z
-Stopped at: Completed 02-accounts-rbac 02-05-PLAN.md — checkpoint reached
+Last session: 2026-03-27T10:45:00.000Z
+Stopped at: Completed 02-accounts-rbac 02-05-PLAN.md — all tasks done (incl. E2E tests, checkpoint approved)
 Resume file: None
