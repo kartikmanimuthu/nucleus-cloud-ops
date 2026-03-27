@@ -49,8 +49,14 @@ Plans:
   2. A user assigned a role in tenant A cannot see tenant B accounts — confirmed by cross-tenant isolation test
   3. Playwright E2E tests for account listing, filtering, and creation pass against the PostgreSQL backend
   4. Data migration script moves all accounts and RBAC records from DynamoDB; verify-migration shows matching row counts
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 5 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Prisma schema: accounts + user_tenant_roles models + migration
+- [ ] 02-02-PLAN.md — IAccountRepository + IRbacRepository: interfaces, DynamoDB repos, PostgreSQL repos (6 files)
+- [ ] 02-03-PLAN.md — Service wiring (account-service.ts + role-service.ts delegation) + TDD unit tests (4 test files)
+- [ ] 02-04-PLAN.md — Data migration scripts: migrate-accounts.ts + migrate-rbac.ts
+- [ ] 02-05-PLAN.md — Cross-tenant isolation test + human verification checkpoint
 
 ### Phase 3: Schedules + Executions + Audit
 **Goal**: The full scheduling system — web UI, scheduler Lambda, and audit logs — runs on PostgreSQL with dual-write validation capability
@@ -97,8 +103,8 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation + Tenant Config | 5/7 | In Progress|  |
-| 2. Accounts + RBAC | 0/TBD | Not started | - |
+| 1. Foundation + Tenant Config | 7/7 | Complete |  |
+| 2. Accounts + RBAC | 0/5 | Not started | - |
 | 3. Schedules + Executions + Audit | 0/TBD | Not started | - |
 | 4. KB + Inventory + Agent Ops | 0/TBD | Not started | - |
 | 5. LangGraph + Migration Validation | 0/TBD | Not started | - |
