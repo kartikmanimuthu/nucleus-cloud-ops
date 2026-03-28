@@ -250,6 +250,7 @@ const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isAc
   
   return (
     <div
+      data-testid={isUser ? "user-message" : "ai-message"}
       className={cn(
         "flex gap-3",
         isUser ? "justify-end" : "justify-start",
@@ -1198,7 +1199,7 @@ export function ChatInterface({
 
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" onScrollCapture={handleScroll}>
-        <div id="chat-messages-container" className="space-y-4">
+        <div id="chat-messages-container" data-testid="chat-messages-container" className="space-y-4">
           {/* Loading history indicator */}
           {isLoadingHistory && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -1739,6 +1740,7 @@ export function ChatInterface({
               onKeyDown={handleKeyDown}
               placeholder="Ask the agent to plan, execute, reflect, and revise..."
               disabled={isLoading}
+              data-testid="chat-input"
               className="min-h-[80px] max-h-[500px] w-full border-0 focus-visible:ring-0 resize-y overflow-y-auto p-3 text-sm bg-transparent"
             />
           </div>
@@ -1836,6 +1838,7 @@ export function ChatInterface({
                 onClick={isLoading ? handleStop : undefined}
                 disabled={!isLoading && !inputValue.trim()}
                 size="icon"
+                data-testid="chat-send-button"
                 className={cn(
                   "h-8 w-8 rounded-full shrink-0 transition-all",
                   isLoading
