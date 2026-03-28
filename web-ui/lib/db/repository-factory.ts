@@ -22,6 +22,8 @@ import type { IRbacRepository } from './repositories/rbac/interface';
 import type { IScheduleRepository } from './repositories/schedule/interface';
 import type { IScheduleExecutionRepository } from './repositories/schedule-execution/interface';
 import type { IAuditLogRepository } from './repositories/audit-log/interface';
+import type { IKnowledgeBaseRepository } from './repositories/knowledge-base/interface';
+import type { IDataSourceRepository } from './repositories/data-source/interface';
 import type { IInventoryRepository } from './repositories/inventory/interface';
 import type { IAgentOpsRunRepository } from './repositories/agent-ops-run/interface';
 import type { IAgentOpsEventRepository } from './repositories/agent-ops-event/interface';
