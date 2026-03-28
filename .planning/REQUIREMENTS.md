@@ -57,12 +57,12 @@
 ### Knowledge Base + Inventory + Vector Migration
 
 - [x] **KB-01**: Prisma schema defines knowledge_bases, data_sources, inventory_vector_keys tables
-- [ ] **KB-02**: Knowledge base repository handles CRUD + atomic counter updates (vector_count, data_source_count)
-- [ ] **KB-03**: kb_sync_processor Lambda uses repository for data source updates
-- [ ] **KB-04**: vector_processor Lambda uses repository for vector key storage and audit logging
+- [x] **KB-02**: Knowledge base repository handles CRUD + atomic counter updates (vector_count, data_source_count)
+- [x] **KB-03**: kb_sync_processor Lambda uses repository for data source updates
+- [x] **KB-04**: vector_processor Lambda uses repository for vector key storage and audit logging
 - [x] **KB-05**: Inventory table Prisma schema defined for discovered AWS resources
-- [ ] **KB-06**: Discovery Lambda (Python) uses psycopg2 to write to PostgreSQL inventory table
-- [ ] **KB-07**: TDD unit tests for KB, inventory, vector key repositories
+- [x] **KB-06**: Discovery Lambda (Python) uses psycopg2 to write to PostgreSQL inventory table
+- [x] **KB-07**: TDD unit tests for KB, inventory, vector key repositories
 - [ ] **KB-08**: Data migration scripts for knowledge bases, data sources, vector keys, inventory
 - [ ] **KB-09**: Playwright E2E tests verify KB management and Ask AI functionality
 
@@ -166,12 +166,12 @@
 | SCHED-12 | Phase 3 | Complete |
 | SCHED-13 | Phase 3 | Complete |
 | KB-01 | Phase 4 | Complete |
-| KB-02 | Phase 4 | Pending |
-| KB-03 | Phase 4 | Pending |
-| KB-04 | Phase 4 | Pending |
+| KB-02 | Phase 4 | Complete |
+| KB-03 | Phase 4 | Complete |
+| KB-04 | Phase 4 | Complete |
 | KB-05 | Phase 4 | Complete |
-| KB-06 | Phase 4 | Pending |
-| KB-07 | Phase 4 | Pending |
+| KB-06 | Phase 4 | Complete |
+| KB-07 | Phase 4 | Complete |
 | KB-08 | Phase 4 | Pending |
 | KB-09 | Phase 4 | Pending |
 | AOPS-01 | Phase 4 | Complete |

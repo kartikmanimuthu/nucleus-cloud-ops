@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-kb-inventory-agent-ops 04-01-PLAN.md — Phase 4 schema migration done
-last_updated: "2026-03-28T06:04:31.653Z"
+stopped_at: Completed 04-kb-inventory-agent-ops 04-03-PLAN.md — inventory repository + pg_writer done
+last_updated: "2026-03-28T06:19:49.061Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 22
-  completed_plans: 18
+  completed_plans: 20
   percent: 20
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 04 (kb-inventory-agent-ops) — EXECUTING
-Plan: 2 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-03-28
 
@@ -63,6 +63,8 @@ Progress: [██░░░░░░░░] 20%
 | Phase 03-schedules-executions-audit P04 | 2min | 2 tasks | 3 files |
 | Phase 03-schedules-executions-audit P05 | 15min | 2 tasks | 1 files |
 | Phase 04-kb-inventory-agent-ops P01 | 12min | 2 tasks | 2 files |
+| Phase 04-kb-inventory-agent-ops P03 | 9 | 2 tasks | 9 files |
+| Phase 04-kb-inventory-agent-ops P02 | 6min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -98,6 +100,11 @@ Key decisions affecting Phase 1:
 - [Phase 04-kb-inventory-agent-ops]: InventoryResource uses flat table with JSONB metadata/tags — avoids EAV complexity, enables JSONB operators for filtering
 - [Phase 04-kb-inventory-agent-ops]: AgentOpsEvent FK references composite (tenantId, runId) on AgentOpsRun — tenant-safe cascade delete without cross-tenant leakage
 - [Phase 04-kb-inventory-agent-ops]: ScheduledTaskLock has no tenantId — lock is per-task execution slot; taskId already encodes tenant scope
+- [Phase 04-kb-inventory-agent-ops]: InventoryDynamoRepository uses GSI1/GSI2/GSI3 query patterns from existing inventory table schema
+- [Phase 04-kb-inventory-agent-ops]: pg_writer.py uses camelCase column names matching Prisma schema without @map
+- [Phase 04-kb-inventory-agent-ops]: Dual-write is non-blocking: PostgreSQL failures caught and logged, DynamoDB remains primary
+- [Phase 04-kb-inventory-agent-ops]: DataSourceDynamoRepository ignores tenantId param — DynamoDB KB# PK already scopes to KB; tenantId accepted for interface compatibility
+- [Phase 04-kb-inventory-agent-ops]: USE_PG_KB flag controls both KnowledgeBase and DataSource repos — they're a unit to avoid inconsistent state
 
 ### Pending Todos
 
@@ -110,6 +117,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T06:04:31.650Z
-Stopped at: Completed 04-kb-inventory-agent-ops 04-01-PLAN.md — Phase 4 schema migration done
+Last session: 2026-03-28T06:19:49.057Z
+Stopped at: Completed 04-kb-inventory-agent-ops 04-03-PLAN.md — inventory repository + pg_writer done
 Resume file: None
