@@ -1,7 +1,7 @@
 """
 Data Processor - Stores discovered resources in DynamoDB and S3.
 
-Enhanced for dual persistence with organized S3 structure and 
+Enhanced for dual persistence with organized S3 structure and
 optimized DynamoDB schema for web UI filtering.
 """
 import json
@@ -10,6 +10,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Set
 from decimal import Decimal
+
+try:
+    from src.pg_writer import is_pg_enabled, write_resources_to_pg
+except ImportError:
+    from pg_writer import is_pg_enabled, write_resources_to_pg
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -942,6 +947,16 @@ def process_and_store_resources(
             print(f"  ERROR writing batch to DynamoDB: {e}")
     
     print(f"  Stored {total_written} resources to DynamoDB")
+
+    # Dual-write to PostgreSQL when USE_PG_INVENTORY=true
+    # Non-blocking: DynamoDB is still the primary during the dual-write period
+    if is_pg_enabled():
+        try:
+            pg_count = write_resources_to_pg(resources, tenant_id, account_id)
+            print(f"  [pg_writer] PostgreSQL dual-write: {pg_count} resources for account {account_id}")
+        except Exception as e:
+            print(f"  [pg_writer] PostgreSQL write failed (DynamoDB write succeeded): {e}")
+            # Do not raise — DynamoDB write already succeeded
 
     # Write normalized resources to S3 for vector processing pipeline
     # normalized/{date}/{account_id}.json triggers the vector processor Lambda via SQS
