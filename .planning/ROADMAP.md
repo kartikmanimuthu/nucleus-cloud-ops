@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Foundation + Tenant Config** - Docker Compose, Prisma, connection pooling, repository factory, and first migrated entity (tenant configs)
 - [ ] **Phase 2: Accounts + RBAC** - Accounts and role-based access control with server-side filtering, cross-tenant isolation
 - [ ] **Phase 3: Schedules + Executions + Audit** - Full scheduling system with scheduler Lambda, dual-write mode, TTL cleanup
-- [x] **Phase 4: KB + Inventory + Agent Ops** - Knowledge base, Python discovery Lambda (psycopg2), vector keys, and full Dynamoose rewrite for agent ops (completed 2026-03-28)
+- [ ] **Phase 4: KB + Inventory + Agent Ops** - Knowledge base, Python discovery Lambda (psycopg2), vector keys, and full Dynamoose rewrite for agent ops
 - [ ] **Phase 5: LangGraph + Migration Validation** - LangGraph checkpoint/history/memory migration, migration orchestration scripts, and final count verification
 
 ## Phase Details
@@ -89,7 +89,7 @@ Plans:
   3. Agent ops dashboard, run listing, and scheduled tasks all work via PostgreSQL — no Dynamoose calls remain in agent-ops API routes
   4. Scheduled task lock acquisition uses ON CONFLICT (not scan-and-compare), confirmed by concurrent lock attempt test
   5. All ~15 agent-ops API routes return correct responses with `USE_PG_AGENT_OPS=true`
-**Plans**: 5 plans
+**Plans**: 7 plans
 
 Plans:
 - [x] 04-01-PLAN.md — Prisma schema (KnowledgeBase, DataSource, InventoryResource, AgentOpsRun, AgentOpsEvent, ScheduledTask, ScheduledTaskLock) + migration
@@ -97,6 +97,8 @@ Plans:
 - [x] 04-03-PLAN.md — Inventory repository + Python discovery Lambda psycopg2 writer + data_processor dual-write
 - [x] 04-04-PLAN.md — Agent ops repositories (AgentOpsRun, AgentOpsEvent, ScheduledTask with ON CONFLICT lock) + data migration scripts
 - [x] 04-05-PLAN.md — Playwright E2E tests for KB management, agent ops dashboard, scheduled tasks + human checkpoint
+- [ ] 04-06-PLAN.md — Gap closure: wire agent-ops service layer + inventory API route to repository factory
+- [ ] 04-07-PLAN.md — Gap closure: InventoryVectorKey schema + vector_processor/kb_sync_processor PG wiring + migrate-inventory.ts
 
 **UI hint**: yes
 
@@ -122,5 +124,5 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 | 1. Foundation + Tenant Config | 2/5 | In Progress|  |
 | 2. Accounts + RBAC | 4/5 | In Progress|  |
 | 3. Schedules + Executions + Audit | 4/5 | In Progress|  |
-| 4. KB + Inventory + Agent Ops | 5/5 | Complete   | 2026-03-28 |
+| 4. KB + Inventory + Agent Ops | 5/7 | Gap Closure |  |
 | 5. LangGraph + Migration Validation | 0/TBD | Not started | - |
