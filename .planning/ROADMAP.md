@@ -111,7 +111,15 @@ Plans:
   2. `migrate-all.ts` runs scripts in dependency order (tenants -> accounts -> schedules -> KB -> agent ops -> LangGraph) without error
   3. `verify-migration.ts` reports matching row counts between DynamoDB and PostgreSQL for every migrated table
   4. AgentConversationsTable usage is confirmed or ruled out; if dead code, CDK definition is flagged for removal
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — pgvector Docker image + AgentMemory/ChatMessage Prisma models + checkpoint-postgres install + AgentConversationsTable CDK removal
+- [ ] 05-02-PLAN.md — persistence.ts rewrite with USE_PG_LANGGRAPH feature flag + TDD unit tests
+- [ ] 05-03-PLAN.md — migrate-all.ts orchestration + verify-migration.ts row count validator
+- [ ] 05-04-PLAN.md — Playwright E2E tests for agent chat + thread history + human checkpoint
+
+**UI hint**: yes
 
 ## Progress
 
@@ -125,4 +133,4 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 | 2. Accounts + RBAC | 4/5 | In Progress|  |
 | 3. Schedules + Executions + Audit | 4/5 | In Progress|  |
 | 4. KB + Inventory + Agent Ops | 6/7 | In Progress|  |
-| 5. LangGraph + Migration Validation | 0/TBD | Not started | - |
+| 5. LangGraph + Migration Validation | 0/4 | Not started | - |
