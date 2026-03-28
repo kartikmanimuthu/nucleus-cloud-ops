@@ -97,7 +97,7 @@ Plans:
 - [x] 04-03-PLAN.md — Inventory repository + Python discovery Lambda psycopg2 writer + data_processor dual-write
 - [x] 04-04-PLAN.md — Agent ops repositories (AgentOpsRun, AgentOpsEvent, ScheduledTask with ON CONFLICT lock) + data migration scripts
 - [x] 04-05-PLAN.md — Playwright E2E tests for KB management, agent ops dashboard, scheduled tasks + human checkpoint
-- [ ] 04-06-PLAN.md — Gap closure: wire agent-ops service layer + inventory API route to repository factory
+- [x] 04-06-PLAN.md — Gap closure: wire agent-ops service layer + inventory API route to repository factory
 - [ ] 04-07-PLAN.md — Gap closure: InventoryVectorKey schema + vector_processor/kb_sync_processor PG wiring + migrate-inventory.ts
 
 **UI hint**: yes
@@ -124,5 +124,5 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 | 1. Foundation + Tenant Config | 2/5 | In Progress|  |
 | 2. Accounts + RBAC | 4/5 | In Progress|  |
 | 3. Schedules + Executions + Audit | 4/5 | In Progress|  |
-| 4. KB + Inventory + Agent Ops | 5/7 | Gap Closure |  |
+| 4. KB + Inventory + Agent Ops | 6/7 | In Progress|  |
 | 5. LangGraph + Migration Validation | 0/TBD | Not started | - |
