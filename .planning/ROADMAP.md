@@ -89,7 +89,15 @@ Plans:
   3. Agent ops dashboard, run listing, and scheduled tasks all work via PostgreSQL — no Dynamoose calls remain in agent-ops API routes
   4. Scheduled task lock acquisition uses ON CONFLICT (not scan-and-compare), confirmed by concurrent lock attempt test
   5. All ~15 agent-ops API routes return correct responses with `USE_PG_AGENT_OPS=true`
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Prisma schema (KnowledgeBase, DataSource, InventoryResource, AgentOpsRun, AgentOpsEvent, ScheduledTask, ScheduledTaskLock) + migration
+- [ ] 04-02-PLAN.md — KB + DataSource repository implementations (interface + DynamoDB + PostgreSQL) + factory wiring + TDD tests
+- [ ] 04-03-PLAN.md — Inventory repository + Python discovery Lambda psycopg2 writer + data_processor dual-write
+- [ ] 04-04-PLAN.md — Agent ops repositories (AgentOpsRun, AgentOpsEvent, ScheduledTask with ON CONFLICT lock) + data migration scripts
+- [ ] 04-05-PLAN.md — Playwright E2E tests for KB management, agent ops dashboard, scheduled tasks + human checkpoint
+
 **UI hint**: yes
 
 ### Phase 5: LangGraph + Migration Validation
@@ -114,5 +122,5 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 | 1. Foundation + Tenant Config | 2/5 | In Progress|  |
 | 2. Accounts + RBAC | 4/5 | In Progress|  |
 | 3. Schedules + Executions + Audit | 4/5 | In Progress|  |
-| 4. KB + Inventory + Agent Ops | 0/TBD | Not started | - |
+| 4. KB + Inventory + Agent Ops | 0/5 | Not started | - |
 | 5. LangGraph + Migration Validation | 0/TBD | Not started | - |
