@@ -87,14 +87,14 @@
 - [x] **LANG-05**: Agent conversations table verified for usage; migrated if used, CDK definition dropped if dead code
 - [ ] **LANG-06**: TDD unit tests for chat history and memory store PostgreSQL implementations
 - [ ] **LANG-07**: Playwright E2E tests verify agent chat, thread history, memory recall
-- [ ] **LANG-08**: Data migration script for chat history and memory (or fresh start if ephemeral data is acceptable)
+- [x] **LANG-08**: Data migration script for chat history and memory (or fresh start if ephemeral data is acceptable)
 
 ### Data Migration Infrastructure
 
 - [x] **MIGR-01**: Each migration script uses AWS_PROFILE=PLATFORM-ADMIN for DynamoDB access
 - [x] **MIGR-02**: All scripts are idempotent (ON CONFLICT DO UPDATE) for safe re-runs
-- [ ] **MIGR-03**: migrate-all.ts runs scripts in dependency order (tenants → accounts → schedules → ...)
-- [ ] **MIGR-04**: verify-migration.ts compares row counts between DynamoDB and PostgreSQL per table
+- [x] **MIGR-03**: migrate-all.ts runs scripts in dependency order (tenants → accounts → schedules → ...)
+- [x] **MIGR-04**: verify-migration.ts compares row counts between DynamoDB and PostgreSQL per table
 - [x] **MIGR-05**: cleanup-expired.ts handles TTL replacement for all tables with expires_at
 - [x] **MIGR-06**: Progress logging shows "Migrated X/Y records..." during execution
 
@@ -190,11 +190,11 @@
 | LANG-05 | Phase 5 | Complete |
 | LANG-06 | Phase 5 | Pending |
 | LANG-07 | Phase 5 | Pending |
-| LANG-08 | Phase 5 | Pending |
+| LANG-08 | Phase 5 | Complete |
 | MIGR-01 | Phase 1 | Complete |
 | MIGR-02 | Phase 1 | Complete |
-| MIGR-03 | Phase 5 | Pending |
-| MIGR-04 | Phase 5 | Pending |
+| MIGR-03 | Phase 5 | Complete |
+| MIGR-04 | Phase 5 | Complete |
 | MIGR-05 | Phase 3 | Complete |
 | MIGR-06 | Phase 1 | Complete |
 

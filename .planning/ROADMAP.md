@@ -116,7 +116,7 @@ Plans:
 Plans:
 - [x] 05-01-PLAN.md — pgvector Docker image + AgentMemory/ChatMessage Prisma models + checkpoint-postgres install + AgentConversationsTable CDK removal
 - [ ] 05-02-PLAN.md — persistence.ts rewrite with USE_PG_LANGGRAPH feature flag + TDD unit tests
-- [ ] 05-03-PLAN.md — migrate-all.ts orchestration + verify-migration.ts row count validator
+- [x] 05-03-PLAN.md — migrate-all.ts orchestration + verify-migration.ts row count validator
 - [ ] 05-04-PLAN.md — Playwright E2E tests for agent chat + thread history + human checkpoint
 
 **UI hint**: yes
@@ -133,4 +133,4 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 | 2. Accounts + RBAC | 4/5 | In Progress|  |
 | 3. Schedules + Executions + Audit | 4/5 | In Progress|  |
 | 4. KB + Inventory + Agent Ops | 6/7 | In Progress|  |
-| 5. LangGraph + Migration Validation | 0/4 | Not started | - |
+| 5. LangGraph + Migration Validation | 2/4 | In Progress|  |
