@@ -198,3 +198,186 @@ model AuditLog {
   @@index([expiresAt]) // for cleanup-expired.ts
   @@map("audit_logs")
 }
+
+// KnowledgeBase — migrated from DynamoDB NucleusAppTable KB entities (KB-01)
+// status field uses CHECK constraint in migration SQL (not Prisma-native)
+// tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
+model KnowledgeBase {
+  id              String   @id @default(cuid())
+  tenantId        String
+  name            String
+  description     String?
+  status          String   @default("active") // active|inactive — CHECK in migration SQL
+  vectorCount     Int      @default(0)
+  dataSourceCount Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+
+  dataSources DataSource[]
+
+  @@index([tenantId])
+  @@map("knowledge_bases")
+}
+
+// DataSource — migrated from DynamoDB NucleusAppTable data source entities (KB-01)
+// sourceType and status fields use CHECK constraints in migration SQL (not Prisma-native)
+model DataSource {
+  id              String    @id @default(cuid())
+  tenantId        String
+  knowledgeBaseId String
+  name            String
+  sourceType      String    // file-upload|s3-bucket|confluence|bitbucket — CHECK in migration SQL
+  status          String    @default("pending") // pending|syncing|synced|error — CHECK in migration SQL
+  config          Json      @default("{}")
+  vectorCount     Int       @default(0)
+  vectorKeys      String[]  @default([])
+  lastSyncAt      DateTime?
+  lastSyncError   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([knowledgeBaseId])
+  @@map("data_sources")
+}
+
+// InventoryResource — migrated from DynamoDB inventory scan results (KB-05)
+// Flat table with JSONB columns for tags and metadata (D-01, D-02, D-03, D-04)
+// tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
+model InventoryResource {
+  id           String   @id @default(cuid())
+  tenantId     String
+  accountId    String
+  region       String
+  resourceType String
+  resourceId   String
+  name         String?
+  status       String?
+  tags         Json     @default("{}")
+  metadata     Json     @default("{}")
+  discoveredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, accountId, resourceType, resourceId])
+  @@index([tenantId, resourceType])
+  @@index([tenantId, accountId])
+  @@map("inventory_resources")
+}
+
+// AgentOpsRun — migrated from DynamoDB AgentOpsTable run records (AOPS-01)
+// source, status, mode fields use CHECK constraints in migration SQL (not Prisma-native)
+// expiresAt replaces DynamoDB TTL (30-day retention)
+// tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
+model AgentOpsRun {
+  id              String    @id @default(cuid())
+  tenantId        String
+  runId           String
+  source          String    // slack|jira|api|scheduled — CHECK in migration SQL
+  status          String    @default("queued") // queued|in_progress|awaiting_input|awaiting_approval|completed|failed|cancelled
+  taskDescription String
+  mode            String    @default("plan") // plan|fast
+  accountId       String?
+  accountName     String?
+  selectedSkill   String?
+  autoApprove     Boolean   @default(false)
+  model           String?
+  threadId        String
+  mcpServerIds    String[]  @default([])
+  trigger         Json      @default("{}")
+  result          Json?
+  clarification   Json?
+  approvalRequest Json?
+  error           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  completedAt     DateTime?
+  durationMs      Int?
+  expiresAt       DateTime  // TTL replacement — 30 days
+
+  events AgentOpsEvent[]
+
+  @@unique([tenantId, runId])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, source])
+  @@index([source, createdAt])
+  @@index([expiresAt])
+  @@map("agent_ops_runs")
+}
+
+// AgentOpsEvent — migrated from DynamoDB AgentOpsTable event records (AOPS-01)
+// eventType field uses CHECK constraint in migration SQL (not Prisma-native)
+// expiresAt replaces DynamoDB TTL (30-day retention)
+model AgentOpsEvent {
+  id         String   @id @default(cuid())
+  tenantId   String
+  runId      String
+  eventType  String   // planning|execution|tool_call|tool_result|reflection|revision|final|error
+  node       String
+  content    String?
+  toolName   String?
+  toolArgs   Json?
+  toolOutput String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime // TTL replacement — 30 days
+
+  run AgentOpsRun @relation(fields: [tenantId, runId], references: [tenantId, runId], onDelete: Cascade)
+
+  @@index([tenantId, runId])
+  @@index([runId, createdAt])
+  @@index([expiresAt])
+  @@map("agent_ops_events")
+}
+
+// ScheduledTask — migrated from DynamoDB AgentOpsTable scheduled task records (AOPS-01)
+// taskStatus and mode fields use CHECK constraints in migration SQL (not Prisma-native)
+// tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
+model ScheduledTask {
+  id             String    @id @default(cuid())
+  tenantId       String
+  taskId         String
+  name           String
+  description    String
+  cronExpression String
+  timezone       String
+  taskStatus     String    @default("active") // active|paused|deleted — CHECK in migration SQL
+  mode           String    @default("plan") // plan|fast
+  autoApprove    Boolean   @default(false)
+  model          String?
+  accountId      String?
+  accountName    String?
+  mcpServerIds   String[]  @default([])
+  notification   Json      @default("{}")
+  lastRunId      String?
+  lastRunAt      DateTime?
+  lastRunStatus  String?
+  nextRunAt      DateTime?
+  runCount       Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String
+
+  @@unique([tenantId, taskId])
+  @@index([tenantId])
+  @@index([tenantId, taskStatus])
+  @@map("scheduled_tasks")
+}
+
+// ScheduledTaskLock — distributed lock for scheduled task execution (AOPS-04)
+// ON CONFLICT on (taskId, scheduledAt) enables atomic lock acquisition
+// expiresAt enables automatic lock expiry cleanup (1 hour TTL)
+model ScheduledTaskLock {
+  id          String   @id @default(cuid())
+  taskId      String
+  scheduledAt String
+  acquiredAt  DateTime @default(now())
+  expiresAt   DateTime // 1 hour TTL
+
+  @@unique([taskId, scheduledAt])
+  @@index([expiresAt])
+  @@map("scheduled_task_locks")
+}
