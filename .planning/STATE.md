@@ -137,6 +137,12 @@ None yet.
 - Lambda bundle size: Prisma engine is ~2-4MB. Monitor cold start impact once Lambda phases begin (Phase 3+).
 - AgentConversationsTable: Usage unverified — must confirm dead code or live usage before Phase 5.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260328-udt | Set up local dev environment and verify PostgreSQL migration works end-to-end | 2026-03-28 | bff3e55 | [260328-udt-set-up-local-dev-environment-and-verify-](./quick/260328-udt-set-up-local-dev-environment-and-verify-/) |
+
 ## Session Continuity
 
 Last session: 2026-03-28T08:30:13.902Z
