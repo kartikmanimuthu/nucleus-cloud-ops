@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Accounts + RBAC** - Accounts and role-based access control with server-side filtering, cross-tenant isolation
 - [ ] **Phase 3: Schedules + Executions + Audit** - Full scheduling system with scheduler Lambda, dual-write mode, TTL cleanup
 - [ ] **Phase 4: KB + Inventory + Agent Ops** - Knowledge base, Python discovery Lambda (psycopg2), vector keys, and full Dynamoose rewrite for agent ops
-- [ ] **Phase 5: LangGraph + Migration Validation** - LangGraph checkpoint/history/memory migration, migration orchestration scripts, and final count verification
+- [x] **Phase 5: LangGraph + Migration Validation** - LangGraph checkpoint/history/memory migration, migration orchestration scripts, and final count verification (completed 2026-03-28)
 
 ## Phase Details
 
@@ -115,9 +115,9 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md — pgvector Docker image + AgentMemory/ChatMessage Prisma models + checkpoint-postgres install + AgentConversationsTable CDK removal
-- [ ] 05-02-PLAN.md — persistence.ts rewrite with USE_PG_LANGGRAPH feature flag + TDD unit tests
+- [x] 05-02-PLAN.md — persistence.ts rewrite with USE_PG_LANGGRAPH feature flag + TDD unit tests
 - [x] 05-03-PLAN.md — migrate-all.ts orchestration + verify-migration.ts row count validator
-- [ ] 05-04-PLAN.md — Playwright E2E tests for agent chat + thread history + human checkpoint
+- [x] 05-04-PLAN.md — Playwright E2E tests for agent chat + thread history + human checkpoint
 
 **UI hint**: yes
 
@@ -133,4 +133,4 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 | 2. Accounts + RBAC | 4/5 | In Progress|  |
 | 3. Schedules + Executions + Audit | 4/5 | In Progress|  |
 | 4. KB + Inventory + Agent Ops | 6/7 | In Progress|  |
-| 5. LangGraph + Migration Validation | 2/4 | In Progress|  |
+| 5. LangGraph + Migration Validation | 4/4 | Complete   | 2026-03-28 |

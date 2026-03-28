@@ -86,7 +86,7 @@
 - [ ] **LANG-04**: persistence.ts updated to use PostgreSQL persistence with same public API
 - [x] **LANG-05**: Agent conversations table verified for usage; migrated if used, CDK definition dropped if dead code
 - [ ] **LANG-06**: TDD unit tests for chat history and memory store PostgreSQL implementations
-- [ ] **LANG-07**: Playwright E2E tests verify agent chat, thread history, memory recall
+- [x] **LANG-07**: Playwright E2E tests verify agent chat, thread history, memory recall
 - [x] **LANG-08**: Data migration script for chat history and memory (or fresh start if ephemeral data is acceptable)
 
 ### Data Migration Infrastructure
@@ -189,7 +189,7 @@
 | LANG-04 | Phase 5 | Pending |
 | LANG-05 | Phase 5 | Complete |
 | LANG-06 | Phase 5 | Pending |
-| LANG-07 | Phase 5 | Pending |
+| LANG-07 | Phase 5 | Complete |
 | LANG-08 | Phase 5 | Complete |
 | MIGR-01 | Phase 1 | Complete |
 | MIGR-02 | Phase 1 | Complete |
