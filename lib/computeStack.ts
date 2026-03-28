@@ -70,7 +70,6 @@ export class ComputeStack extends cdk.Stack {
         const auditTableName = `${stackName}-audit-table`;
         const checkpointTableName = `${appName}-checkpoints-table`;
         const writesTableName = `${appName}-checkpoint-writes-v2-table`;
-        const agentConversationsTableName = `${appName}-agent-conversations`;
         const chatHistoryTableName = `${appName}-chat-history`;
         const memoryTableName = `${appName}-memory`;
         const agentOpsTableName = `${appName}-agent-ops`;
@@ -203,15 +202,6 @@ export class ComputeStack extends cdk.Stack {
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
-        // Agent Conversations Table (for chat/thread persistence with tenant/user scoping)
-        const agentConversationsTable = new dynamodb.Table(this, `${appName}-AgentConversationsTable`, {
-            tableName: agentConversationsTableName,
-            partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
-            sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
-            billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-            removalPolicy: cdk.RemovalPolicy.DESTROY,
-        });
-
         // Chat History Table (@farukada/aws-langgraph-dynamodb-ts DynamoDBChatMessageHistory)
         const chatHistoryTable = new dynamodb.Table(this, `${appName}-ChatHistoryTable`, {
             tableName: chatHistoryTableName,
@@ -245,14 +235,6 @@ export class ComputeStack extends cdk.Stack {
             indexName: 'GSI1',
             partitionKey: { name: 'GSI1PK', type: dynamodb.AttributeType.STRING },
             sortKey: { name: 'GSI1SK', type: dynamodb.AttributeType.STRING },
-            projectionType: dynamodb.ProjectionType.ALL,
-        });
-
-        // GSI for direct thread access by ID
-        agentConversationsTable.addGlobalSecondaryIndex({
-            indexName: 'ThreadIdIndex',
-            partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
-            sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
             projectionType: dynamodb.ProjectionType.ALL,
         });
 
@@ -857,7 +839,6 @@ export class ComputeStack extends cdk.Stack {
                 usersTeamsTable.tableArn, `${usersTeamsTable.tableArn}/index/*`,
                 checkpointTable.tableArn, `${checkpointTable.tableArn}/index/*`,
                 writesTable.tableArn, `${writesTable.tableArn}/index/*`,
-                agentConversationsTable.tableArn, `${agentConversationsTable.tableArn}/index/*`,
                 chatHistoryTable.tableArn, `${chatHistoryTable.tableArn}/index/*`,
                 memoryTable.tableArn, `${memoryTable.tableArn}/index/*`,
                 inventoryTable.tableArn, `${inventoryTable.tableArn}/index/*`,
@@ -1035,7 +1016,6 @@ export class ComputeStack extends cdk.Stack {
                 SCHEDULER_LAMBDA_ARN: lambdaFunction.functionArn,
                 EVENTBRIDGE_RULE_NAME: `${appName}-rule`,
                 AGENT_TEMP_BUCKET: agentTempBucket.bucketName,
-                DYNAMODB_AGENT_CONVERSATIONS_TABLE: agentConversationsTable.tableName,
                 AGENT_OPS_TABLE_NAME: agentOpsTable.tableName,
 
                 // Langfuse Observability (LLM tracing for the AI agent)
