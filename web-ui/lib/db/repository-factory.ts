@@ -22,6 +22,10 @@ import type { IRbacRepository } from './repositories/rbac/interface';
 import type { IScheduleRepository } from './repositories/schedule/interface';
 import type { IScheduleExecutionRepository } from './repositories/schedule-execution/interface';
 import type { IAuditLogRepository } from './repositories/audit-log/interface';
+import type { IInventoryRepository } from './repositories/inventory/interface';
+import type { IAgentOpsRunRepository } from './repositories/agent-ops-run/interface';
+import type { IAgentOpsEventRepository } from './repositories/agent-ops-event/interface';
+import type { IScheduledTaskRepository } from './repositories/scheduled-task/interface';
 
 /**
  * Returns the active ITenantConfigRepository implementation.
@@ -155,6 +159,94 @@ export function getAuditLogRepository(): IAuditLogRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { AuditLogDynamoRepository } = require('./repositories/audit-log/dynamo');
     return new AuditLogDynamoRepository();
+}
+
+/**
+ * Returns the active IInventoryRepository implementation.
+ * Controlled by USE_PG_INVENTORY environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/inventory/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/inventory/postgres.ts
+ */
+export function getInventoryRepository(): IInventoryRepository {
+    const usePg = process.env.USE_PG_INVENTORY === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { InventoryPostgresRepository } = require('./repositories/inventory/postgres');
+        return new InventoryPostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { InventoryDynamoRepository } = require('./repositories/inventory/dynamo');
+    return new InventoryDynamoRepository();
+}
+
+/**
+ * Returns the active IAgentOpsRunRepository implementation.
+ * Controlled by USE_PG_AGENT_OPS environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/agent-ops-run/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/agent-ops-run/postgres.ts
+ */
+export function getAgentOpsRunRepository(): IAgentOpsRunRepository {
+    const usePg = process.env.USE_PG_AGENT_OPS === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { AgentOpsRunPostgresRepository } = require('./repositories/agent-ops-run/postgres');
+        return new AgentOpsRunPostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AgentOpsRunDynamoRepository } = require('./repositories/agent-ops-run/dynamo');
+    return new AgentOpsRunDynamoRepository();
+}
+
+/**
+ * Returns the active IAgentOpsEventRepository implementation.
+ * Controlled by USE_PG_AGENT_OPS environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/agent-ops-event/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/agent-ops-event/postgres.ts
+ */
+export function getAgentOpsEventRepository(): IAgentOpsEventRepository {
+    const usePg = process.env.USE_PG_AGENT_OPS === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { AgentOpsEventPostgresRepository } = require('./repositories/agent-ops-event/postgres');
+        return new AgentOpsEventPostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AgentOpsEventDynamoRepository } = require('./repositories/agent-ops-event/dynamo');
+    return new AgentOpsEventDynamoRepository();
+}
+
+/**
+ * Returns the active IScheduledTaskRepository implementation.
+ * Controlled by USE_PG_AGENT_OPS environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/scheduled-task/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/scheduled-task/postgres.ts
+ */
+export function getScheduledTaskRepository(): IScheduledTaskRepository {
+    const usePg = process.env.USE_PG_AGENT_OPS === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ScheduledTaskPostgresRepository } = require('./repositories/scheduled-task/postgres');
+        return new ScheduledTaskPostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ScheduledTaskDynamoRepository } = require('./repositories/scheduled-task/dynamo');
+    return new ScheduledTaskDynamoRepository();
 }
 
 /**
