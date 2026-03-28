@@ -164,6 +164,50 @@ export function getAuditLogRepository(): IAuditLogRepository {
 }
 
 /**
+ * Returns the active IKnowledgeBaseRepository implementation.
+ * Controlled by USE_PG_KB environment variable.
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/knowledge-base/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/knowledge-base/postgres.ts
+ */
+export function getKnowledgeBaseRepository(): IKnowledgeBaseRepository {
+    const usePg = process.env.USE_PG_KB === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { KnowledgeBasePostgresRepository } = require('./repositories/knowledge-base/postgres');
+        return new KnowledgeBasePostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { KnowledgeBaseDynamoRepository } = require('./repositories/knowledge-base/dynamo');
+    return new KnowledgeBaseDynamoRepository();
+}
+
+/**
+ * Returns the active IDataSourceRepository implementation.
+ * Controlled by USE_PG_KB environment variable (same flag as KB — they're a unit).
+ *
+ * Implementation files:
+ *   - DynamoDB: web-ui/lib/db/repositories/data-source/dynamo.ts
+ *   - PostgreSQL: web-ui/lib/db/repositories/data-source/postgres.ts
+ */
+export function getDataSourceRepository(): IDataSourceRepository {
+    const usePg = process.env.USE_PG_KB === 'true';
+
+    if (usePg) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { DataSourcePostgresRepository } = require('./repositories/data-source/postgres');
+        return new DataSourcePostgresRepository();
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DataSourceDynamoRepository } = require('./repositories/data-source/dynamo');
+    return new DataSourceDynamoRepository();
+}
+
+/**
  * Returns the active IInventoryRepository implementation.
  * Controlled by USE_PG_INVENTORY environment variable.
  *
