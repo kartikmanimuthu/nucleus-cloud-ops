@@ -64,7 +64,7 @@
 - [x] **KB-06**: Discovery Lambda (Python) uses psycopg2 to write to PostgreSQL inventory table
 - [x] **KB-07**: TDD unit tests for KB, inventory, vector key repositories
 - [x] **KB-08**: Data migration scripts for knowledge bases, data sources, vector keys, inventory
-- [ ] **KB-09**: Playwright E2E tests verify KB management and Ask AI functionality
+- [x] **KB-09**: Playwright E2E tests verify KB management and Ask AI functionality
 
 ### Agent Ops Migration (Dynamoose Rewrite)
 
@@ -76,7 +76,7 @@
 - [x] **AOPS-06**: findAwaitingApprovalRun queries use PostgreSQL WHERE instead of scanning 50+ records per source
 - [x] **AOPS-07**: TDD unit tests for all agent ops repositories (both backends)
 - [x] **AOPS-08**: Data migration script for agent ops (RUN#, EVENT#, SCHED# items from AgentOpsTable)
-- [ ] **AOPS-09**: Playwright E2E tests verify agent ops dashboard, run listing, scheduled tasks
+- [x] **AOPS-09**: Playwright E2E tests verify agent ops dashboard, run listing, scheduled tasks
 
 ### LangGraph Persistence Migration
 
@@ -173,7 +173,7 @@
 | KB-06 | Phase 4 | Complete |
 | KB-07 | Phase 4 | Complete |
 | KB-08 | Phase 4 | Complete |
-| KB-09 | Phase 4 | Pending |
+| KB-09 | Phase 4 | Complete |
 | AOPS-01 | Phase 4 | Complete |
 | AOPS-02 | Phase 4 | Complete |
 | AOPS-03 | Phase 4 | Complete |
@@ -182,7 +182,7 @@
 | AOPS-06 | Phase 4 | Complete |
 | AOPS-07 | Phase 4 | Complete |
 | AOPS-08 | Phase 4 | Complete |
-| AOPS-09 | Phase 4 | Pending |
+| AOPS-09 | Phase 4 | Complete |
 | LANG-01 | Phase 5 | Pending |
 | LANG-02 | Phase 5 | Pending |
 | LANG-03 | Phase 5 | Pending |

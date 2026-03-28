@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 04-kb-inventory-agent-ops 04-04-PLAN.md — agent ops repositories + migration scripts
-last_updated: "2026-03-28T06:22:01.130Z"
+status: verifying
+stopped_at: Completed 04-kb-inventory-agent-ops 04-05-PLAN.md — KB + agent ops E2E tests
+last_updated: "2026-03-28T06:30:30.979Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 22
-  completed_plans: 21
+  completed_plans: 22
   percent: 20
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 Phase: 04 (kb-inventory-agent-ops) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-28
 
 Progress: [██░░░░░░░░] 20%
@@ -66,6 +66,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 04-kb-inventory-agent-ops P03 | 9 | 2 tasks | 9 files |
 | Phase 04-kb-inventory-agent-ops P02 | 6min | 2 tasks | 12 files |
 | Phase 04-kb-inventory-agent-ops P04 | 11min | 2 tasks | 18 files |
+| Phase 04-kb-inventory-agent-ops P05 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,7 @@ Key decisions affecting Phase 1:
 - [Phase 04-kb-inventory-agent-ops]: AgentOpsRunPostgresRepository.findAwaitingApprovalRun uses single WHERE query instead of scanning 3 sources x 100 records (AOPS-06)
 - [Phase 04-kb-inventory-agent-ops]: ScheduledTaskPostgresRepository.tryAcquireExecutionLock uses ON CONFLICT (taskId, scheduledAt) DO NOTHING for atomic lock acquisition (AOPS-04)
 - [Phase 04-kb-inventory-agent-ops]: migrate-agent-ops.ts uses full table scan — AgentOpsTable has no GSI covering all item types
+- [Phase 04-kb-inventory-agent-ops]: E2E tests check for spinner disappearance before content assertions — avoids flaky races with async data fetching
 
 ### Pending Todos
 
@@ -121,6 +123,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T06:22:01.127Z
-Stopped at: Completed 04-kb-inventory-agent-ops 04-04-PLAN.md — agent ops repositories + migration scripts
+Last session: 2026-03-28T06:30:30.975Z
+Stopped at: Completed 04-kb-inventory-agent-ops 04-05-PLAN.md — KB + agent ops E2E tests
 Resume file: None

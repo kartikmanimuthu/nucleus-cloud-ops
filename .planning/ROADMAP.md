@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Foundation + Tenant Config** - Docker Compose, Prisma, connection pooling, repository factory, and first migrated entity (tenant configs)
 - [ ] **Phase 2: Accounts + RBAC** - Accounts and role-based access control with server-side filtering, cross-tenant isolation
 - [ ] **Phase 3: Schedules + Executions + Audit** - Full scheduling system with scheduler Lambda, dual-write mode, TTL cleanup
-- [ ] **Phase 4: KB + Inventory + Agent Ops** - Knowledge base, Python discovery Lambda (psycopg2), vector keys, and full Dynamoose rewrite for agent ops
+- [x] **Phase 4: KB + Inventory + Agent Ops** - Knowledge base, Python discovery Lambda (psycopg2), vector keys, and full Dynamoose rewrite for agent ops (completed 2026-03-28)
 - [ ] **Phase 5: LangGraph + Migration Validation** - LangGraph checkpoint/history/memory migration, migration orchestration scripts, and final count verification
 
 ## Phase Details
@@ -96,7 +96,7 @@ Plans:
 - [x] 04-02-PLAN.md — KB + DataSource repository implementations (interface + DynamoDB + PostgreSQL) + factory wiring + TDD tests
 - [x] 04-03-PLAN.md — Inventory repository + Python discovery Lambda psycopg2 writer + data_processor dual-write
 - [x] 04-04-PLAN.md — Agent ops repositories (AgentOpsRun, AgentOpsEvent, ScheduledTask with ON CONFLICT lock) + data migration scripts
-- [ ] 04-05-PLAN.md — Playwright E2E tests for KB management, agent ops dashboard, scheduled tasks + human checkpoint
+- [x] 04-05-PLAN.md — Playwright E2E tests for KB management, agent ops dashboard, scheduled tasks + human checkpoint
 
 **UI hint**: yes
 
@@ -122,5 +122,5 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 | 1. Foundation + Tenant Config | 2/5 | In Progress|  |
 | 2. Accounts + RBAC | 4/5 | In Progress|  |
 | 3. Schedules + Executions + Audit | 4/5 | In Progress|  |
-| 4. KB + Inventory + Agent Ops | 3/5 | In Progress|  |
+| 4. KB + Inventory + Agent Ops | 5/5 | Complete   | 2026-03-28 |
 | 5. LangGraph + Migration Validation | 0/TBD | Not started | - |
