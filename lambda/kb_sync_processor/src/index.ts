@@ -5,6 +5,7 @@ import { S3VectorsClient, PutVectorsCommand, DeleteVectorsCommand } from '@aws-s
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { createHash } from 'crypto';
+import { PrismaClient } from '@prisma/client';
 
 // ---------------------------------------------------------------------------
 // Clients & config
@@ -21,6 +22,19 @@ const KB_VECTOR_BUCKET = process.env.KB_VECTOR_BUCKET_NAME!;
 const KB_VECTOR_INDEX = process.env.KB_VECTOR_INDEX_NAME!;
 const STAGING_BUCKET = process.env.KB_STAGING_BUCKET_NAME!;
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID || 'amazon.titan-embed-text-v2:0';
+
+// PostgreSQL dual-write flag — when true, reads/writes DS + KB vector counts from PostgreSQL
+const USE_PG_KB = process.env.USE_PG_KB === 'true';
+let _prisma: PrismaClient | null = null;
+function getPrisma(): PrismaClient {
+  if (!_prisma) {
+    _prisma = new PrismaClient({
+      datasources: { db: { url: process.env.DATABASE_URL } },
+      log: ['warn', 'error'],
+    });
+  }
+  return _prisma;
+}
 
 const EMBEDDING_CONCURRENCY = 5;
 const VECTOR_BATCH_SIZE = 20;
@@ -252,6 +266,46 @@ async function deleteOldVectors(keys: string[]) {
       keys: keys.slice(i, i + 500),
     }));
   }
+}
+
+// ---------------------------------------------------------------------------
+// PostgreSQL helpers — data source + KB vector count updates
+// ---------------------------------------------------------------------------
+
+async function getDataSourcePg(kbId: string, dsId: string) {
+  const ds = await getPrisma().dataSource.findFirst({
+    where: { id: dsId, knowledgeBaseId: kbId },
+  });
+  return ds ? {
+    vectorCount: ds.vectorCount,
+    vectorKeys: ds.vectorKeys,
+    status: ds.status,
+  } : null;
+}
+
+async function updateDSPg(kbId: string, dsId: string, updates: Record<string, unknown>) {
+  await getPrisma().dataSource.updateMany({
+    where: { id: dsId, knowledgeBaseId: kbId },
+    data: {
+      ...(updates.status !== undefined ? { status: updates.status as string } : {}),
+      ...(updates.vectorCount !== undefined ? { vectorCount: updates.vectorCount as number } : {}),
+      ...(updates.vectorKeys !== undefined ? { vectorKeys: { set: updates.vectorKeys as string[] } } : {}),
+      ...(updates.lastSyncAt !== undefined ? { lastSyncAt: updates.lastSyncAt ? new Date(updates.lastSyncAt as string) : null } : {}),
+      ...(updates.lastSyncError !== undefined ? { lastSyncError: updates.lastSyncError as string | null } : {}),
+      updatedAt: new Date(),
+    },
+  });
+}
+
+async function updateKBVectorCountPg(kbId: string, delta: number) {
+  if (delta === 0) return;
+  await getPrisma().knowledgeBase.updateMany({
+    where: { id: kbId },
+    data: {
+      vectorCount: { increment: delta },
+      updatedAt: new Date(),
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -509,8 +563,10 @@ export async function handler(event: SQSEvent): Promise<void> {
 
     console.log(`[KB Lambda] Processing ${job.type} for KB=${kbId} DS=${dsId}`);
 
-    // Get current DS to know old vector count
-    const ds = await getDataSource(kbId, dsId);
+    // Get current DS to know old vector count (PG read when USE_PG_KB=true)
+    const ds = USE_PG_KB
+      ? await getDataSourcePg(kbId, dsId)
+      : await getDataSource(kbId, dsId);
     const oldVectorCount = (ds?.vectorCount as number) || 0;
     const oldVectorKeys: string[] = job.oldVectorKeys || (ds?.vectorKeys as string[]) || [];
 
@@ -518,7 +574,8 @@ export async function handler(event: SQSEvent): Promise<void> {
       // Delete old vectors
       if (oldVectorKeys.length) {
         await deleteOldVectors(oldVectorKeys);
-        await updateKBVectorCount(kbId, -oldVectorCount);
+        if (USE_PG_KB) await updateKBVectorCountPg(kbId, -oldVectorCount);
+        await updateKBVectorCount(kbId, -oldVectorCount); // DynamoDB dual-write
       }
 
       let vectorKeys: string[];
@@ -530,22 +587,27 @@ export async function handler(event: SQSEvent): Promise<void> {
         default: throw new Error(`Unknown job type: ${(job as KBSyncJob).type}`);
       }
 
-      await updateDS(kbId, dsId, {
+      const dsUpdates = {
         status: 'synced',
         vectorCount: vectorKeys.length,
         vectorKeys,
         lastSyncAt: new Date().toISOString(),
         lastSyncError: null,
-      });
-      await updateKBVectorCount(kbId, vectorKeys.length);
+      };
+      if (USE_PG_KB) await updateDSPg(kbId, dsId, dsUpdates);
+      await updateDS(kbId, dsId, dsUpdates); // DynamoDB dual-write
+      if (USE_PG_KB) await updateKBVectorCountPg(kbId, vectorKeys.length);
+      await updateKBVectorCount(kbId, vectorKeys.length); // DynamoDB dual-write
 
       console.log(`[KB Lambda] Done ${job.type} KB=${kbId} DS=${dsId} vectors=${vectorKeys.length}`);
     } catch (err) {
       console.error(`[KB Lambda] Error ${job.type} KB=${kbId} DS=${dsId}:`, err);
-      await updateDS(kbId, dsId, {
+      const errUpdates = {
         status: 'error',
         lastSyncError: err instanceof Error ? err.message : 'Sync failed',
-      });
+      };
+      if (USE_PG_KB) { try { await updateDSPg(kbId, dsId, errUpdates); } catch (e) { console.error('[KB Lambda] PG error update failed:', e); } }
+      await updateDS(kbId, dsId, errUpdates); // DynamoDB dual-write
       throw err; // Re-throw so SQS retries / sends to DLQ
     }
   }

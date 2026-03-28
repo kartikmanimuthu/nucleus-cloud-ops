@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { SQSEvent, S3Event, Context } from "aws-lambda";
 import { Readable } from "stream";
 import { createResourceText, computeContentHash, InventoryResource } from "./resource-text";
+import { PrismaClient } from '@prisma/client';
 
 // AWS Clients
 const s3 = new S3Client({});
@@ -20,6 +21,19 @@ const VECTOR_INDEX_NAME = process.env.VECTOR_INDEX_NAME!;
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID || "amazon.titan-embed-text-v2:0";
 const APP_TABLE_NAME = process.env.APP_TABLE_NAME!;
 const AUDIT_TABLE_NAME = process.env.AUDIT_TABLE_NAME!;
+
+// PostgreSQL dual-write flag — when true, reads/writes vector keys from PostgreSQL
+const USE_PG_INVENTORY = process.env.USE_PG_INVENTORY === 'true';
+let _prisma: PrismaClient | null = null;
+function getPrisma(): PrismaClient {
+    if (!_prisma) {
+        _prisma = new PrismaClient({
+            datasources: { db: { url: process.env.DATABASE_URL } },
+            log: ['warn', 'error'],
+        });
+    }
+    return _prisma;
+}
 
 // Concurrency limits to avoid Bedrock throttling
 const EMBEDDING_CONCURRENCY = 5;
@@ -77,6 +91,31 @@ async function saveVectorKeys(accountId: string, keys: string[]): Promise<void> 
             updatedAt: new Date().toISOString(),
         },
     }));
+}
+
+// ---------------------------------------------------------------------------
+// PostgreSQL helpers — vector key tracking via inventory_vector_keys table
+// ---------------------------------------------------------------------------
+
+async function getPreviousVectorKeysPg(accountId: string): Promise<string[]> {
+    try {
+        const record = await getPrisma().inventoryVectorKey.findUnique({
+            where: { accountId },
+            select: { vectorKeys: true },
+        });
+        return record?.vectorKeys || [];
+    } catch (err) {
+        console.warn(`[VectorProcessor] PG: Could not read previous keys for ${accountId}:`, err);
+        return [];
+    }
+}
+
+async function saveVectorKeysPg(accountId: string, keys: string[]): Promise<void> {
+    await getPrisma().inventoryVectorKey.upsert({
+        where: { accountId },
+        update: { vectorKeys: keys },
+        create: { accountId, vectorKeys: keys },
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +280,10 @@ const processInventoryFile = async (srcBucket: string, srcKey: string): Promise<
 
     const newKeys = dedupedPayload.map(v => v.key);
 
-    // Fetch previous keys before writing new ones
-    const previousKeys = await getPreviousVectorKeys(accountId);
+    // Fetch previous keys before writing new ones (PG read when USE_PG_INVENTORY=true)
+    const previousKeys = USE_PG_INVENTORY
+        ? await getPreviousVectorKeysPg(accountId)
+        : await getPreviousVectorKeys(accountId);
 
     // Ingest new vectors to S3 Vectors in batches of 20
     for (let i = 0; i < dedupedPayload.length; i += VECTOR_BATCH_SIZE) {
@@ -266,7 +307,11 @@ const processInventoryFile = async (srcBucket: string, srcKey: string): Promise<
     const staleKeys = previousKeys.filter(k => !newKeySet.has(k));
     await deleteStaleVectors(staleKeys);
 
-    // Persist new keys for next sync's stale cleanup
+    // Persist new keys for next sync's stale cleanup (dual-write: PG + DynamoDB)
+    if (USE_PG_INVENTORY) {
+        await saveVectorKeysPg(accountId, newKeys);
+    }
+    // Always write to DynamoDB during dual-write period
     await saveVectorKeys(accountId, newKeys);
 
     console.log(`[VectorProcessor] Successfully ingested ${dedupedPayload.length} vectors, deleted ${staleKeys.length} stale for ${srcKey}`);

@@ -267,6 +267,17 @@ model InventoryResource {
   @@map("inventory_resources")
 }
 
+// InventoryVectorKey — tracks vector keys per account for stale cleanup (KB-01)
+// Replaces DynamoDB INVENTORY_VECTORS#<accountId> / KEYS pattern from vector_processor
+model InventoryVectorKey {
+  id         String   @id @default(cuid())
+  accountId  String   @unique
+  vectorKeys String[] @default([])
+  updatedAt  DateTime @updatedAt
+
+  @@map("inventory_vector_keys")
+}
+
 // AgentOpsRun — migrated from DynamoDB AgentOpsTable run records (AOPS-01)
 // source, status, mode fields use CHECK constraints in migration SQL (not Prisma-native)
 // expiresAt replaces DynamoDB TTL (30-day retention)
