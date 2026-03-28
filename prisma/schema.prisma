@@ -392,3 +392,43 @@ model ScheduledTaskLock {
   @@index([expiresAt])
   @@map("scheduled_task_locks")
 }
+
+// AgentMemory — long-term semantic memory for AI agents (LANG-03)
+// Uses pgvector for similarity search with Bedrock Titan v2 embeddings (1024-dim)
+// embedding column uses Unsupported() — raw SQL for vector queries (Prisma has no native pgvector support)
+// expiresAt: 90-day TTL (same cleanup pattern as other tables)
+model AgentMemory {
+  id            String                    @id @default(cuid())
+  tenantId      String
+  userId        String
+  namespace     String
+  key           String
+  value         Json
+  embedding     Unsupported("vector(1024)")?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  expiresAt     DateTime                  // 90-day TTL
+
+  @@unique([tenantId, namespace, key])
+  @@index([tenantId, userId])
+  @@index([expiresAt])
+  @@map("agent_memories")
+}
+
+// ChatMessage — chat session history for AI agent threads (LANG-02)
+// Replaces DynamoDBChatMessageHistory from @farukada/aws-langgraph-dynamodb-ts
+// expiresAt: 30-day TTL
+model ChatMessage {
+  id        String   @id @default(cuid())
+  tenantId  String
+  sessionId String
+  role      String   // human|ai|system|tool
+  content   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  expiresAt DateTime // 30-day TTL
+
+  @@index([tenantId, sessionId, createdAt])
+  @@index([expiresAt])
+  @@map("chat_messages")
+}
