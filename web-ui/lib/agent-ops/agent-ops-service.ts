@@ -1,14 +1,11 @@
 /**
  * Agent Ops Service
- * 
+ *
  * CRUD + event recording operations for agent-ops runs.
- * Uses Dynamoose ODM with single-table design.
+ * Delegates all persistence to the repository factory (USE_PG_AGENT_OPS feature flag).
  */
 
-import { v4 as uuidv4 } from 'uuid';
-import { AgentOpsRunModel } from './models/agent-ops-run';
-import { AgentOpsEventModel } from './models/agent-ops-event';
-import { TTL_30_DAYS } from './dynamoose-config';
+import { getAgentOpsRunRepository, getAgentOpsEventRepository } from '@/lib/db/repository-factory';
 import type {
     AgentOpsRun,
     AgentOpsEvent,
@@ -41,43 +38,14 @@ export async function createRun(params: {
     autoApprove?: boolean;
     model?: string;
 }): Promise<AgentOpsRun> {
-    const runId = uuidv4();
-    const threadId = `agent-ops-${runId}`;
-    const now = new Date().toISOString();
-
-    const run: AgentOpsRun = {
-        PK: `TENANT#${params.tenantId}`,
-        SK: `RUN#${runId}`,
-        GSI1PK: `SOURCE#${params.source}`,
-        GSI1SK: `${now}#${runId}`,
-        runId,
-        tenantId: params.tenantId,
-        source: params.source,
-        status: 'queued',
-        taskDescription: params.taskDescription,
-        mode: params.mode,
-        accountId: params.accountId,
-        accountName: params.accountName,
-        selectedSkill: params.selectedSkill,
-        mcpServerIds: params.mcpServerIds,
-        autoApprove: params.autoApprove ?? false,  // default to HITL — explicit opt-in required for auto
-        model: params.model,
-        threadId,
-        trigger: params.trigger,
-        createdAt: now,
-        updatedAt: now,
-        ttl: TTL_30_DAYS(),
-    };
-
-    await AgentOpsRunModel.create(run);
-    console.log(`[AgentOpsService] Created run: ${runId} (source: ${params.source})`);
+    const run = await getAgentOpsRunRepository().createRun(params);
+    console.log(`[AgentOpsService] Created run: ${run.runId} (source: ${params.source})`);
     return run;
 }
 
 /**
  * Update the status of a run.
- * On terminal states (completed/failed), sets completedAt and computes durationMs
- * from the run's createdAt timestamp.
+ * On terminal states (completed/failed), the repository sets completedAt and durationMs.
  */
 export async function updateRunStatus(
     tenantId: string,
@@ -90,40 +58,7 @@ export async function updateRunStatus(
         approvalRequest?: AgentOpsApprovalRequest;
     }
 ): Promise<void> {
-    const now = new Date();
-    const nowIso = now.toISOString();
-    const updateData: Record<string, unknown> = {
-        status,
-        updatedAt: nowIso,
-    };
-
-    if (status === 'completed' || status === 'failed') {
-        updateData.completedAt = nowIso;
-
-        // Fetch the run to compute durationMs from createdAt
-        const existing = await getRun(tenantId, runId);
-        if (existing?.createdAt) {
-            updateData.durationMs = now.getTime() - new Date(existing.createdAt).getTime();
-        }
-    }
-
-    if (extra?.result) {
-        updateData.result = extra.result;
-    }
-    if (extra?.error) {
-        updateData.error = extra.error;
-    }
-    if (extra?.clarification) {
-        updateData.clarification = extra.clarification;
-    }
-    if (extra?.approvalRequest) {
-        updateData.approvalRequest = extra.approvalRequest;
-    }
-
-    await AgentOpsRunModel.update(
-        { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
-        updateData
-    );
+    await getAgentOpsRunRepository().updateRunStatus(tenantId, runId, status, extra);
     console.log(`[AgentOpsService] Updated run ${runId} → ${status}`);
 }
 
@@ -135,11 +70,7 @@ export async function updateRunTrigger(
     runId: string,
     trigger: TriggerMetadata
 ): Promise<void> {
-    const nowIso = new Date().toISOString();
-    await AgentOpsRunModel.update(
-        { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
-        { trigger, updatedAt: nowIso }
-    );
+    await getAgentOpsRunRepository().updateRunTrigger(tenantId, runId, trigger);
     console.log(`[AgentOpsService] Updated trigger metadata for run ${runId}`);
 }
 
@@ -147,108 +78,34 @@ export async function updateRunTrigger(
  * Get a single run by ID.
  */
 export async function getRun(tenantId: string, runId: string): Promise<AgentOpsRun | null> {
-    try {
-        const run = await AgentOpsRunModel.get({
-            PK: `TENANT#${tenantId}`,
-            SK: `RUN#${runId}`,
-        });
-        return (run as unknown as AgentOpsRun) || null;
-    } catch {
-        return null;
-    }
+    return getAgentOpsRunRepository().getRun(tenantId, runId);
 }
 
 /**
- * List runs using GSI1 (time-sorted by source), with optional pagination.
- *
- * GSI1PK = SOURCE#<source>  (defaults to 'slack' when no source provided)
- * GSI1SK = <ISO-timestamp>#<runId>  — sorted descending (newest first)
+ * List runs with optional filtering and pagination.
  */
 export async function listRuns(query: RunListQuery): Promise<{
     runs: AgentOpsRun[];
     lastKey?: Record<string, unknown>;
 }> {
-    const limit = query.limit || 25;
-
-    let runs: AgentOpsRun[] = [];
-    let lastKey: Record<string, unknown> | undefined;
-
-    if (query.source) {
-        let q = AgentOpsRunModel.query('GSI1PK')
-            .eq(`SOURCE#${query.source}`)
-            .sort('descending')
-            .limit(limit)
-            .using('GSI1');
-
-        if (query.lastKey) {
-            q = q.startAt(query.lastKey);
-        }
-
-        const result = await q.exec();
-        runs = result.toJSON() as unknown as AgentOpsRun[];
-        lastKey = result.lastKey;
-    } else {
-        // Query all sources in parallel and merge
-        const sources: TriggerSource[] = ['slack', 'jira', 'api'];
-        const promises = sources.map(src =>
-            AgentOpsRunModel.query('GSI1PK')
-                .eq(`SOURCE#${src}`)
-                .sort('descending')
-                .limit(limit)
-                .using('GSI1')
-                .exec()
-        );
-
-        const results = await Promise.all(promises);
-        for (const res of results) {
-            runs.push(...(res.toJSON() as unknown as AgentOpsRun[]));
-        }
-
-        // Sort descending by createdAt
-        runs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        runs = runs.slice(0, limit);
-    }
-
-    // Filter by tenantId and optional status in-memory (GSI1 is source-partitioned)
-    if (query.tenantId && query.tenantId !== 'default' && query.tenantId !== 'all') {
-        runs = runs.filter(r => r.tenantId === query.tenantId);
-    }
-
-    if (query.status) {
-        runs = runs.filter(r => r.status === query.status);
-    }
-
-    return {
-        runs,
-        lastKey,
-    };
+    return getAgentOpsRunRepository().listRuns(query);
 }
 
 /**
- * List runs by source (using GSI1).
+ * List runs by source.
  */
 export async function listRunsBySource(
     source: TriggerSource,
     limit: number = 25
 ): Promise<AgentOpsRun[]> {
-    const result = await AgentOpsRunModel.query('GSI1PK')
-        .eq(`SOURCE#${source}`)
-        .sort('descending')
-        .limit(limit)
-        .using('GSI1')
-        .exec();
-
-    return result.toJSON() as unknown as AgentOpsRun[];
+    return getAgentOpsRunRepository().listRunsBySource(source, limit);
 }
 
 // ─── Event Operations ──────────────────────────────────────────────────
 
 /**
  * Record an execution event (planning step, tool call, reflection, etc.)
- *
- * SK format: EVENT#<ISO-timestamp>#<hrtime-nanos>
- * Using process.hrtime ensures SK uniqueness even when two events fire in the same millisecond
- * from the same run, and avoids the shared global counter bug in concurrent scenarios.
+ * Errors are swallowed — event recording must never abort a run.
  */
 export async function recordEvent(params: {
     runId: string;
@@ -260,28 +117,8 @@ export async function recordEvent(params: {
     toolOutput?: string;
     metadata?: Record<string, unknown>;
 }): Promise<void> {
-    const now = new Date().toISOString();
-    // Use high-resolution time as a nonce for uniqueness within the same millisecond
-    const [, nanos] = process.hrtime();
-    const nonce = String(nanos).padStart(9, '0');
-
-    const eventItem: AgentOpsEvent = {
-        PK: `RUN#${params.runId}`,
-        SK: `EVENT#${now}#${nonce}`,
-        runId: params.runId,
-        eventType: params.eventType,
-        node: params.node,
-        content: params.content?.slice(0, 10000),  // Cap at 10KB per event
-        toolName: params.toolName,
-        toolArgs: params.toolArgs,
-        toolOutput: params.toolOutput?.slice(0, 10000),
-        metadata: params.metadata,
-        createdAt: now,
-        ttl: TTL_30_DAYS(),
-    };
-
     try {
-        await AgentOpsEventModel.create(eventItem);
+        await getAgentOpsEventRepository().recordEvent(params);
     } catch (err) {
         // Log but don't throw — event recording failures must never abort a run
         console.error(`[AgentOpsService] Failed to record event (${params.eventType}/${params.node}):`, err);
@@ -292,78 +129,33 @@ export async function recordEvent(params: {
  * Get all events for a run (chronological order).
  */
 export async function getRunEvents(runId: string): Promise<AgentOpsEvent[]> {
-    const result = await AgentOpsEventModel.query('PK')
-        .eq(`RUN#${runId}`)
-        .where('SK')
-        .beginsWith('EVENT#')
-        .sort('ascending')
-        .exec();
-
-    return result.toJSON() as unknown as AgentOpsEvent[];
+    return getAgentOpsEventRepository().getRunEvents(runId, 'default');
 }
 
 // ─── Human-in-Loop Lookup Helpers ─────────────────────────────────────
 
 /**
  * Find a run with status 'awaiting_approval' triggered by a given Jira issue key.
- * Scans recent Jira-sourced runs (capped at 50) and filters in-memory.
  */
 export async function findAwaitingApprovalRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null> {
-    const result = await AgentOpsRunModel.query('GSI1PK')
-        .eq('SOURCE#jira')
-        .sort('descending')
-        .limit(50)
-        .using('GSI1')
-        .exec();
-
-    const runs = result.toJSON() as unknown as AgentOpsRun[];
-    return runs.find(r =>
-        r.status === 'awaiting_approval' &&
-        (r.trigger as any)?.issueKey === issueKey
-    ) || null;
+    return getAgentOpsRunRepository().findAwaitingApprovalRunByJiraIssue(issueKey);
 }
 
 /**
  * Find a run with status 'awaiting_input' triggered by a given Jira issue key.
- * Scans recent Jira-sourced runs (capped at 50) and filters in-memory.
- * Since awaiting_input runs are rare, this is acceptable without a dedicated GSI.
  */
 export async function findAwaitingRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null> {
-    const result = await AgentOpsRunModel.query('GSI1PK')
-        .eq('SOURCE#jira')
-        .sort('descending')
-        .limit(50)
-        .using('GSI1')
-        .exec();
-
-    const runs = result.toJSON() as unknown as AgentOpsRun[];
-    return runs.find(r =>
-        r.status === 'awaiting_input' &&
-        (r.trigger as any)?.issueKey === issueKey
-    ) || null;
+    return getAgentOpsRunRepository().findAwaitingRunByJiraIssue(issueKey);
 }
 
 /**
  * Find a run with status 'awaiting_input' triggered in a given Slack channel+thread.
- * Scans recent Slack-sourced runs (capped at 50) and filters in-memory.
  */
 export async function findAwaitingRunBySlackThread(
     channelId: string,
     threadTs: string
 ): Promise<AgentOpsRun | null> {
-    const result = await AgentOpsRunModel.query('GSI1PK')
-        .eq('SOURCE#slack')
-        .sort('descending')
-        .limit(50)
-        .using('GSI1')
-        .exec();
-
-    const runs = result.toJSON() as unknown as AgentOpsRun[];
-    return runs.find(r =>
-        r.status === 'awaiting_input' &&
-        (r.trigger as any)?.channelId === channelId &&
-        (r.trigger as any)?.threadTs === threadTs
-    ) || null;
+    return getAgentOpsRunRepository().findAwaitingRunBySlackThread(channelId, threadTs);
 }
 
 /**
@@ -374,36 +166,16 @@ export async function updateApprovalMessageTs(
     runId: string,
     slackMessageTs: string
 ): Promise<void> {
-    const run = await getRun(tenantId, runId);
-    if (!run?.approvalRequest) return;
-    await AgentOpsRunModel.update(
-        { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
-        {
-            approvalRequest: { ...run.approvalRequest, slackMessageTs },
-            updatedAt: new Date().toISOString(),
-        }
-    );
+    return getAgentOpsRunRepository().updateApprovalMessageTs(tenantId, runId, slackMessageTs);
 }
 
 /**
- * Find a run with status 'awaiting_approval' by runId (cross-tenant lookup via GSI1).
+ * Find a run with status 'awaiting_approval' by runId (cross-tenant lookup).
+ * PostgreSQL repo uses a single WHERE query instead of scanning 3 sources x 100 records (AOPS-06).
  */
 export async function findAwaitingApprovalRun(runId: string): Promise<AgentOpsRun | null> {
-    const sources: TriggerSource[] = ['slack', 'jira', 'api'];
-    for (const source of sources) {
-        const result = await AgentOpsRunModel.query('GSI1PK')
-            .eq(`SOURCE#${source}`)
-            .sort('descending')
-            .limit(100)
-            .using('GSI1')
-            .exec();
-        const runs = result.toJSON() as unknown as AgentOpsRun[];
-        const found = runs.find(r => r.runId === runId && r.status === 'awaiting_approval');
-        if (found) return found;
-    }
-    return null;
+    return getAgentOpsRunRepository().findAwaitingApprovalRun(runId);
 }
-
 
 
 export const agentOpsService = {
