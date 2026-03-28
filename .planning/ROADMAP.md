@@ -98,7 +98,7 @@ Plans:
 - [x] 04-04-PLAN.md — Agent ops repositories (AgentOpsRun, AgentOpsEvent, ScheduledTask with ON CONFLICT lock) + data migration scripts
 - [x] 04-05-PLAN.md — Playwright E2E tests for KB management, agent ops dashboard, scheduled tasks + human checkpoint
 - [x] 04-06-PLAN.md — Gap closure: wire agent-ops service layer + inventory API route to repository factory
-- [ ] 04-07-PLAN.md — Gap closure: InventoryVectorKey schema + vector_processor/kb_sync_processor PG wiring + migrate-inventory.ts
+- [x] 04-07-PLAN.md — Gap closure: InventoryVectorKey schema + vector_processor/kb_sync_processor PG wiring + migrate-inventory.ts
 
 **UI hint**: yes
 

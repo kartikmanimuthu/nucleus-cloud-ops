@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 04-kb-inventory-agent-ops 04-06-PLAN.md — service + route wiring gap closure
-last_updated: "2026-03-28T07:01:23.625Z"
+stopped_at: Completed 04-kb-inventory-agent-ops 04-07-PLAN.md — KB + inventory gap closure
+last_updated: "2026-03-28T07:02:38.544Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 24
-  completed_plans: 23
+  completed_plans: 24
   percent: 20
 ---
 
@@ -68,6 +68,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 04-kb-inventory-agent-ops P04 | 11min | 2 tasks | 18 files |
 | Phase 04-kb-inventory-agent-ops P05 | 8min | 2 tasks | 2 files |
 | Phase 04-kb-inventory-agent-ops P06 | 8min | 2 tasks | 3 files |
+| Phase 04-kb-inventory-agent-ops P07 | 12 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,8 @@ Key decisions affecting Phase 1:
 - [Phase 04-kb-inventory-agent-ops]: E2E tests check for spinner disappearance before content assertions — avoids flaky races with async data fetching
 - [Phase 04-kb-inventory-agent-ops]: agent-ops-service.ts getRunEvents passes tenantId='default' for backward compat — DynamoDB event PK is RUN#<runId> with no tenant scope
 - [Phase 04-kb-inventory-agent-ops]: inventory route drops account name enrichment (BatchGetItem) — no DynamoDB imports allowed; enrichment deferred to IInventoryRepository interface
+- [Phase 04-kb-inventory-agent-ops]: InventoryVectorKey has no tenantId — accountId is the natural unique key for vector key tracking
+- [Phase 04-kb-inventory-agent-ops]: Lambda PrismaClient uses lazy singleton pattern to avoid cold-start connection overhead
 
 ### Pending Todos
 
@@ -126,6 +129,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T07:01:23.622Z
-Stopped at: Completed 04-kb-inventory-agent-ops 04-06-PLAN.md — service + route wiring gap closure
+Last session: 2026-03-28T07:02:38.541Z
+Stopped at: Completed 04-kb-inventory-agent-ops 04-07-PLAN.md — KB + inventory gap closure
 Resume file: None
