@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 04-kb-inventory-agent-ops 04-07-PLAN.md — KB + inventory gap closure
-last_updated: "2026-03-28T07:02:38.544Z"
+status: executing
+stopped_at: Completed 05-langgraph-migration-validation 05-01-PLAN.md
+last_updated: "2026-03-28T08:01:21.562Z"
 last_activity: 2026-03-28
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 24
-  completed_plans: 24
+  total_plans: 28
+  completed_plans: 25
   percent: 20
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Every DynamoDB table migrated to PostgreSQL with full test coverage and verified data migration scripts
-**Current focus:** Phase 04 — kb-inventory-agent-ops
+**Current focus:** Phase 05 — langgraph-migration-validation
 
 ## Current Position
 
-Phase: 04 (kb-inventory-agent-ops) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
+Phase: 05 (langgraph-migration-validation) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
 Last activity: 2026-03-28
 
 Progress: [██░░░░░░░░] 20%
@@ -69,6 +69,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 04-kb-inventory-agent-ops P05 | 8min | 2 tasks | 2 files |
 | Phase 04-kb-inventory-agent-ops P06 | 8min | 2 tasks | 3 files |
 | Phase 04-kb-inventory-agent-ops P07 | 12 | 2 tasks | 5 files |
+| Phase 05-langgraph-migration-validation P01 | 7min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,9 @@ Key decisions affecting Phase 1:
 - [Phase 04-kb-inventory-agent-ops]: inventory route drops account name enrichment (BatchGetItem) — no DynamoDB imports allowed; enrichment deferred to IInventoryRepository interface
 - [Phase 04-kb-inventory-agent-ops]: InventoryVectorKey has no tenantId — accountId is the natural unique key for vector key tracking
 - [Phase 04-kb-inventory-agent-ops]: Lambda PrismaClient uses lazy singleton pattern to avoid cold-start connection overhead
+- [Phase 05-langgraph-migration-validation]: pgvector/pgvector:pg16 replaces postgres:16-alpine — same PG16 base, adds vector extension support
+- [Phase 05-langgraph-migration-validation]: AgentMemory uses Unsupported('vector(1024)') — Prisma 5 has no native pgvector type; raw SQL required for similarity queries
+- [Phase 05-langgraph-migration-validation]: AgentConversationsTable confirmed dead code via grep audit (zero app code refs) before CDK removal
 
 ### Pending Todos
 
@@ -129,6 +133,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T07:02:38.541Z
-Stopped at: Completed 04-kb-inventory-agent-ops 04-07-PLAN.md — KB + inventory gap closure
+Last session: 2026-03-28T08:01:21.558Z
+Stopped at: Completed 05-langgraph-migration-validation 05-01-PLAN.md
 Resume file: None

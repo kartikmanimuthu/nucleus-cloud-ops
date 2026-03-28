@@ -114,7 +114,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — pgvector Docker image + AgentMemory/ChatMessage Prisma models + checkpoint-postgres install + AgentConversationsTable CDK removal
+- [x] 05-01-PLAN.md — pgvector Docker image + AgentMemory/ChatMessage Prisma models + checkpoint-postgres install + AgentConversationsTable CDK removal
 - [ ] 05-02-PLAN.md — persistence.ts rewrite with USE_PG_LANGGRAPH feature flag + TDD unit tests
 - [ ] 05-03-PLAN.md — migrate-all.ts orchestration + verify-migration.ts row count validator
 - [ ] 05-04-PLAN.md — Playwright E2E tests for agent chat + thread history + human checkpoint

@@ -80,11 +80,11 @@
 
 ### LangGraph Persistence Migration
 
-- [ ] **LANG-01**: @langchain/langgraph-checkpoint-postgres replaces @farukada/aws-langgraph-dynamodb-ts for checkpoints and writes
+- [x] **LANG-01**: @langchain/langgraph-checkpoint-postgres replaces @farukada/aws-langgraph-dynamodb-ts for checkpoints and writes
 - [ ] **LANG-02**: PostgreSQL-backed chat message history replaces DynamoDBChatMessageHistory
-- [ ] **LANG-03**: PostgreSQL-backed memory store replaces DynamoDBStore (with Bedrock embeddings)
+- [x] **LANG-03**: PostgreSQL-backed memory store replaces DynamoDBStore (with Bedrock embeddings)
 - [ ] **LANG-04**: persistence.ts updated to use PostgreSQL persistence with same public API
-- [ ] **LANG-05**: Agent conversations table verified for usage; migrated if used, CDK definition dropped if dead code
+- [x] **LANG-05**: Agent conversations table verified for usage; migrated if used, CDK definition dropped if dead code
 - [ ] **LANG-06**: TDD unit tests for chat history and memory store PostgreSQL implementations
 - [ ] **LANG-07**: Playwright E2E tests verify agent chat, thread history, memory recall
 - [ ] **LANG-08**: Data migration script for chat history and memory (or fresh start if ephemeral data is acceptable)
@@ -183,11 +183,11 @@
 | AOPS-07 | Phase 4 | Complete |
 | AOPS-08 | Phase 4 | Complete |
 | AOPS-09 | Phase 4 | Complete |
-| LANG-01 | Phase 5 | Pending |
+| LANG-01 | Phase 5 | Complete |
 | LANG-02 | Phase 5 | Pending |
-| LANG-03 | Phase 5 | Pending |
+| LANG-03 | Phase 5 | Complete |
 | LANG-04 | Phase 5 | Pending |
-| LANG-05 | Phase 5 | Pending |
+| LANG-05 | Phase 5 | Complete |
 | LANG-06 | Phase 5 | Pending |
 | LANG-07 | Phase 5 | Pending |
 | LANG-08 | Phase 5 | Pending |
