@@ -1,11 +1,20 @@
 /**
  * persistence.ts
  *
- * Unified singleton for all LangGraph persistence:
- *   - DynamoDBSaver       → short-term memory (checkpoint state per thread)
- *   - DynamoDBStore       → long-term memory (cross-session, semantic search via Bedrock)
+ * Unified singleton for all LangGraph persistence.
+ * Supports two backends via USE_PG_LANGGRAPH feature flag:
+ *
+ * DynamoDB (default, USE_PG_LANGGRAPH !== 'true'):
+ *   - DynamoDBSaver       → checkpoint state per thread
+ *   - DynamoDBStore       → long-term semantic memory (Bedrock embeddings)
  *   - DynamoDBChatMessageHistory → chat session history
  *
+ * PostgreSQL (USE_PG_LANGGRAPH === 'true'):
+ *   - PostgresSaver       → checkpoint state per thread (@langchain/langgraph-checkpoint-postgres)
+ *   - PostgresMemoryStore → long-term semantic memory (pgvector + Bedrock embeddings)
+ *   - PostgresChatHistory → chat session history (ChatMessage Prisma model)
+ *
+ * Public API is identical for both backends — callers need zero changes.
  * Uses globalThis to survive Next.js hot reloads in dev mode.
  */
 
@@ -15,13 +24,25 @@ import {
     DynamoDBChatMessageHistory,
 } from "@farukada/aws-langgraph-dynamodb-ts";
 import { BedrockEmbeddings } from "@langchain/aws";
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { getPrismaClient } from "@/lib/db/pg-config";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+interface ChatHistoryInterface {
+    addMessages(userId: string, threadId: string, messages: Array<{ role: string; content: string }>, sessionToken?: string): Promise<void>;
+    getMessages(userId: string, threadId: string): Promise<Array<{ role: string; content: string; createdAt?: Date }>>;
+    clearMessages(userId: string, threadId: string): Promise<void>;
+}
+
+interface MemoryStoreInterface {
+    batch(ops: unknown[], config?: unknown): Promise<unknown[]>;
+}
+
 interface PersistenceInstances {
-    checkpointer: DynamoDBSaver;
-    store: DynamoDBStore;
-    chatHistory: DynamoDBChatMessageHistory;
+    checkpointer: DynamoDBSaver | PostgresSaver;
+    store: DynamoDBStore | PostgresMemoryStore;
+    chatHistory: DynamoDBChatMessageHistory | PostgresChatHistory;
 }
 
 const g = globalThis as unknown as {
@@ -29,18 +50,167 @@ const g = globalThis as unknown as {
     _persistencePromise: Promise<PersistenceInstances> | undefined;
 };
 
+// ─── PostgreSQL Chat History ──────────────────────────────────────────────────
+
+class PostgresChatHistory implements ChatHistoryInterface {
+    async addMessages(
+        userId: string,
+        threadId: string,
+        messages: Array<{ role: string; content: string }>,
+        _sessionToken?: string
+    ): Promise<void> {
+        const prisma = getPrismaClient();
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        await prisma.chatMessage.createMany({
+            data: messages.map((m) => ({
+                tenantId: userId,
+                sessionId: threadId,
+                role: m.role,
+                content: m.content,
+                expiresAt,
+            })),
+            skipDuplicates: true,
+        });
+    }
+
+    async getMessages(
+        userId: string,
+        threadId: string
+    ): Promise<Array<{ role: string; content: string; createdAt?: Date }>> {
+        const prisma = getPrismaClient();
+        const rows = await prisma.chatMessage.findMany({
+            where: { tenantId: userId, sessionId: threadId },
+            orderBy: { createdAt: "asc" },
+        });
+        return rows.map((r) => ({ role: r.role, content: r.content, createdAt: r.createdAt }));
+    }
+
+    async clearMessages(userId: string, threadId: string): Promise<void> {
+        const prisma = getPrismaClient();
+        await prisma.chatMessage.deleteMany({
+            where: { tenantId: userId, sessionId: threadId },
+        });
+    }
+}
+
+// ─── PostgreSQL Memory Store ──────────────────────────────────────────────────
+
+class PostgresMemoryStore implements MemoryStoreInterface {
+    private embeddings: BedrockEmbeddings;
+
+    constructor(embeddings: BedrockEmbeddings) {
+        this.embeddings = embeddings;
+    }
+
+    async batch(ops: unknown[], _config?: unknown): Promise<unknown[]> {
+        const prisma = getPrismaClient();
+        const results: unknown[] = [];
+
+        for (const op of ops as Array<Record<string, unknown>>) {
+            if (op.namespace && op.key && op.value !== undefined) {
+                // Put operation
+                const namespace = Array.isArray(op.namespace) ? (op.namespace as string[]).join("/") : String(op.namespace);
+                const key = String(op.key);
+                const value = op.value as Record<string, unknown>;
+                const userId = ((_config as Record<string, unknown>)?.configurable as Record<string, unknown>)?.user_id as string ?? "default";
+                const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
+
+                let embeddingVector: number[] | null = null;
+                try {
+                    const text = JSON.stringify(value);
+                    embeddingVector = await this.embeddings.embedQuery(text);
+                } catch {
+                    // embedding failure is non-fatal — store without vector
+                }
+
+                const embeddingStr = embeddingVector ? `[${embeddingVector.join(",")}]` : null;
+
+                if (embeddingStr) {
+                    await prisma.$executeRaw`
+                        INSERT INTO agent_memories ("id", "tenantId", "userId", "namespace", "key", "value", "embedding", "createdAt", "updatedAt", "expiresAt")
+                        VALUES (gen_random_uuid()::text, ${userId}, ${userId}, ${namespace}, ${key}, ${JSON.stringify(value)}::jsonb, ${embeddingStr}::vector, NOW(), NOW(), ${expiresAt})
+                        ON CONFLICT ("tenantId", "namespace", "key") DO UPDATE
+                        SET "value" = EXCLUDED."value", "embedding" = EXCLUDED."embedding", "updatedAt" = NOW(), "expiresAt" = EXCLUDED."expiresAt"
+                    `;
+                } else {
+                    await prisma.agentMemory.upsert({
+                        where: { tenantId_namespace_key: { tenantId: userId, namespace, key } },
+                        create: { tenantId: userId, userId, namespace, key, value, expiresAt },
+                        update: { value, expiresAt, updatedAt: new Date() },
+                    });
+                }
+                results.push(null);
+            } else if (op.namespacePrefix !== undefined && op.query !== undefined) {
+                // Search operation
+                const query = String(op.query);
+                const limit = Number(op.limit ?? 5);
+                const userId = ((_config as Record<string, unknown>)?.configurable as Record<string, unknown>)?.user_id as string ?? "default";
+
+                let queryEmbedding: number[] | null = null;
+                try {
+                    queryEmbedding = await this.embeddings.embedQuery(query);
+                } catch {
+                    // fallback to text search
+                }
+
+                if (queryEmbedding) {
+                    const embeddingStr = `[${queryEmbedding.join(",")}]`;
+                    const rows = await prisma.$queryRaw<Array<{ key: string; value: unknown; namespace: string }>>`
+                        SELECT "key", "value", "namespace"
+                        FROM agent_memories
+                        WHERE "tenantId" = ${userId}
+                        ORDER BY embedding <=> ${embeddingStr}::vector
+                        LIMIT ${limit}
+                    `;
+                    results.push(rows.map((r) => ({ key: r.key, value: r.value, namespace: r.namespace })));
+                } else {
+                    const rows = await prisma.agentMemory.findMany({
+                        where: { tenantId: userId },
+                        take: limit,
+                        orderBy: { createdAt: "desc" },
+                    });
+                    results.push(rows.map((r) => ({ key: r.key, value: r.value, namespace: r.namespace })));
+                }
+            } else {
+                results.push(null);
+            }
+        }
+
+        return results;
+    }
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 async function initPersistence(): Promise<PersistenceInstances> {
     const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || "us-east-1";
+    const usePg = process.env.USE_PG_LANGGRAPH === "true";
 
+    if (usePg) {
+        const databaseUrl = process.env.DATABASE_URL!;
+
+        // PostgresSaver manages its own schema — call setup() on first use
+        const checkpointer = PostgresSaver.fromConnString(databaseUrl);
+        await checkpointer.setup();
+
+        const embeddings = new BedrockEmbeddings({
+            region,
+            model: "amazon.titan-embed-text-v2:0",
+        });
+
+        const store = new PostgresMemoryStore(embeddings);
+        const chatHistory = new PostgresChatHistory();
+
+        console.log("[Persistence] Initialized PostgresSaver, PostgresMemoryStore, PostgresChatHistory");
+        return { checkpointer, store, chatHistory };
+    }
+
+    // DynamoDB backend (default)
     const checkpointsTableName = process.env.DYNAMODB_CHECKPOINT_TABLE!;
     const writesTableName = process.env.DYNAMODB_WRITES_TABLE!;
     const chatHistoryTableName = process.env.DYNAMODB_CHAT_HISTORY_TABLE!;
     const memoryTableName = process.env.DYNAMODB_MEMORY_TABLE!;
-
     const clientConfig = { region };
-
     const bucketName = process.env.CHECKPOINT_S3_BUCKET;
 
     const checkpointer = new DynamoDBSaver({
@@ -67,10 +237,7 @@ async function initPersistence(): Promise<PersistenceInstances> {
         }),
     });
 
-    // Note: ttlDays is intentionally omitted here.
-    // The library uses 'ttl' (a DynamoDB reserved keyword) directly in its SET expression
-    // without ExpressionAttributeNames escaping, which causes a ValidationException.
-    // TTL on individual message items is still set correctly via transactWrite Put operations.
+    // Note: ttlDays intentionally omitted — library uses 'ttl' reserved keyword without escaping
     const chatHistory = new DynamoDBChatMessageHistory({
         tableName: chatHistoryTableName,
         clientConfig,
@@ -89,7 +256,6 @@ async function getPersistence(): Promise<PersistenceInstances> {
                 return p;
             })
             .catch((err) => {
-                // Clear the cached rejection so the next call retries
                 g._persistencePromise = undefined;
                 console.error("[Persistence] initPersistence failed:", err);
                 throw err;
@@ -100,15 +266,15 @@ async function getPersistence(): Promise<PersistenceInstances> {
 
 // ─── Getters ──────────────────────────────────────────────────────────────────
 
-export async function getCheckpointer(): Promise<DynamoDBSaver> {
+export async function getCheckpointer(): Promise<DynamoDBSaver | PostgresSaver> {
     return (await getPersistence()).checkpointer;
 }
 
-export async function getMemoryStore(): Promise<DynamoDBStore> {
+export async function getMemoryStore(): Promise<DynamoDBStore | PostgresMemoryStore> {
     return (await getPersistence()).store;
 }
 
-export async function getChatHistory(): Promise<DynamoDBChatMessageHistory> {
+export async function getChatHistory(): Promise<DynamoDBChatMessageHistory | PostgresChatHistory> {
     return (await getPersistence()).chatHistory;
 }
 
