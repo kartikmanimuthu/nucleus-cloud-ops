@@ -63,19 +63,19 @@
 - [x] **KB-05**: Inventory table Prisma schema defined for discovered AWS resources
 - [x] **KB-06**: Discovery Lambda (Python) uses psycopg2 to write to PostgreSQL inventory table
 - [x] **KB-07**: TDD unit tests for KB, inventory, vector key repositories
-- [ ] **KB-08**: Data migration scripts for knowledge bases, data sources, vector keys, inventory
+- [x] **KB-08**: Data migration scripts for knowledge bases, data sources, vector keys, inventory
 - [ ] **KB-09**: Playwright E2E tests verify KB management and Ask AI functionality
 
 ### Agent Ops Migration (Dynamoose Rewrite)
 
 - [x] **AOPS-01**: Prisma schema defines agent_ops_runs, agent_ops_events, scheduled_tasks, scheduled_task_locks
-- [ ] **AOPS-02**: Agent ops run repository replaces all Dynamoose Model.create/get/query/update calls
-- [ ] **AOPS-03**: Agent ops event repository handles chronological event recording and retrieval
-- [ ] **AOPS-04**: Scheduled task repository handles CRUD + execution locking (ON CONFLICT for lock acquisition)
-- [ ] **AOPS-05**: All ~15 agent-ops API routes work with PostgreSQL backend
-- [ ] **AOPS-06**: findAwaitingApprovalRun queries use PostgreSQL WHERE instead of scanning 50+ records per source
-- [ ] **AOPS-07**: TDD unit tests for all agent ops repositories (both backends)
-- [ ] **AOPS-08**: Data migration script for agent ops (RUN#, EVENT#, SCHED# items from AgentOpsTable)
+- [x] **AOPS-02**: Agent ops run repository replaces all Dynamoose Model.create/get/query/update calls
+- [x] **AOPS-03**: Agent ops event repository handles chronological event recording and retrieval
+- [x] **AOPS-04**: Scheduled task repository handles CRUD + execution locking (ON CONFLICT for lock acquisition)
+- [x] **AOPS-05**: All ~15 agent-ops API routes work with PostgreSQL backend
+- [x] **AOPS-06**: findAwaitingApprovalRun queries use PostgreSQL WHERE instead of scanning 50+ records per source
+- [x] **AOPS-07**: TDD unit tests for all agent ops repositories (both backends)
+- [x] **AOPS-08**: Data migration script for agent ops (RUN#, EVENT#, SCHED# items from AgentOpsTable)
 - [ ] **AOPS-09**: Playwright E2E tests verify agent ops dashboard, run listing, scheduled tasks
 
 ### LangGraph Persistence Migration
@@ -172,16 +172,16 @@
 | KB-05 | Phase 4 | Complete |
 | KB-06 | Phase 4 | Complete |
 | KB-07 | Phase 4 | Complete |
-| KB-08 | Phase 4 | Pending |
+| KB-08 | Phase 4 | Complete |
 | KB-09 | Phase 4 | Pending |
 | AOPS-01 | Phase 4 | Complete |
-| AOPS-02 | Phase 4 | Pending |
-| AOPS-03 | Phase 4 | Pending |
-| AOPS-04 | Phase 4 | Pending |
-| AOPS-05 | Phase 4 | Pending |
-| AOPS-06 | Phase 4 | Pending |
-| AOPS-07 | Phase 4 | Pending |
-| AOPS-08 | Phase 4 | Pending |
+| AOPS-02 | Phase 4 | Complete |
+| AOPS-03 | Phase 4 | Complete |
+| AOPS-04 | Phase 4 | Complete |
+| AOPS-05 | Phase 4 | Complete |
+| AOPS-06 | Phase 4 | Complete |
+| AOPS-07 | Phase 4 | Complete |
+| AOPS-08 | Phase 4 | Complete |
 | AOPS-09 | Phase 4 | Pending |
 | LANG-01 | Phase 5 | Pending |
 | LANG-02 | Phase 5 | Pending |
