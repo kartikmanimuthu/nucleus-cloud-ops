@@ -92,7 +92,7 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Prisma schema (KnowledgeBase, DataSource, InventoryResource, AgentOpsRun, AgentOpsEvent, ScheduledTask, ScheduledTaskLock) + migration
+- [x] 04-01-PLAN.md — Prisma schema (KnowledgeBase, DataSource, InventoryResource, AgentOpsRun, AgentOpsEvent, ScheduledTask, ScheduledTaskLock) + migration
 - [ ] 04-02-PLAN.md — KB + DataSource repository implementations (interface + DynamoDB + PostgreSQL) + factory wiring + TDD tests
 - [ ] 04-03-PLAN.md — Inventory repository + Python discovery Lambda psycopg2 writer + data_processor dual-write
 - [ ] 04-04-PLAN.md — Agent ops repositories (AgentOpsRun, AgentOpsEvent, ScheduledTask with ON CONFLICT lock) + data migration scripts
@@ -122,5 +122,5 @@ Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel
 | 1. Foundation + Tenant Config | 2/5 | In Progress|  |
 | 2. Accounts + RBAC | 4/5 | In Progress|  |
 | 3. Schedules + Executions + Audit | 4/5 | In Progress|  |
-| 4. KB + Inventory + Agent Ops | 0/5 | Not started | - |
+| 4. KB + Inventory + Agent Ops | 1/5 | In Progress|  |
 | 5. LangGraph + Migration Validation | 0/TBD | Not started | - |

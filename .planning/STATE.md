@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-schedules-executions-audit 03-05-PLAN.md — all tasks done, Phase 3 complete
-last_updated: "2026-03-27T19:48:52.639Z"
-last_activity: 2026-03-27
+stopped_at: Completed 04-kb-inventory-agent-ops 04-01-PLAN.md — Phase 4 schema migration done
+last_updated: "2026-03-28T06:04:31.653Z"
+last_activity: 2026-03-28
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 22
+  completed_plans: 18
   percent: 20
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Every DynamoDB table migrated to PostgreSQL with full test coverage and verified data migration scripts
-**Current focus:** Phase 03 — schedules-executions-audit
+**Current focus:** Phase 04 — kb-inventory-agent-ops
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
+Phase: 04 (kb-inventory-agent-ops) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-03-27
+Last activity: 2026-03-28
 
 Progress: [██░░░░░░░░] 20%
 
@@ -62,6 +62,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 03-schedules-executions-audit P02 | 6min | 1 tasks | 9 files |
 | Phase 03-schedules-executions-audit P04 | 2min | 2 tasks | 3 files |
 | Phase 03-schedules-executions-audit P05 | 15min | 2 tasks | 1 files |
+| Phase 04-kb-inventory-agent-ops P01 | 12min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,9 @@ Key decisions affecting Phase 1:
 - [Phase 03-schedules-executions-audit]: cleanup-expired.ts DRY_RUN=true flag enables safe pre-flight counting before any deletes; replaces DynamoDB automatic TTL
 - [Phase 03-schedules-executions-audit]: Used /api/schedules/:id/history endpoint (not /executions) — matched actual route under [scheduleId]/history/route.ts
 - [Phase 03-schedules-executions-audit]: Audit API response uses data field (not logs) — confirmed from audit/route.ts returning { success, data: logs, nextPageToken, count }
+- [Phase 04-kb-inventory-agent-ops]: InventoryResource uses flat table with JSONB metadata/tags — avoids EAV complexity, enables JSONB operators for filtering
+- [Phase 04-kb-inventory-agent-ops]: AgentOpsEvent FK references composite (tenantId, runId) on AgentOpsRun — tenant-safe cascade delete without cross-tenant leakage
+- [Phase 04-kb-inventory-agent-ops]: ScheduledTaskLock has no tenantId — lock is per-task execution slot; taskId already encodes tenant scope
 
 ### Pending Todos
 
@@ -106,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T19:37:27.268Z
-Stopped at: Completed 03-schedules-executions-audit 03-05-PLAN.md — all tasks done, Phase 3 complete
+Last session: 2026-03-28T06:04:31.650Z
+Stopped at: Completed 04-kb-inventory-agent-ops 04-01-PLAN.md — Phase 4 schema migration done
 Resume file: None

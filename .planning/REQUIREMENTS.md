@@ -56,11 +56,11 @@
 
 ### Knowledge Base + Inventory + Vector Migration
 
-- [ ] **KB-01**: Prisma schema defines knowledge_bases, data_sources, inventory_vector_keys tables
+- [x] **KB-01**: Prisma schema defines knowledge_bases, data_sources, inventory_vector_keys tables
 - [ ] **KB-02**: Knowledge base repository handles CRUD + atomic counter updates (vector_count, data_source_count)
 - [ ] **KB-03**: kb_sync_processor Lambda uses repository for data source updates
 - [ ] **KB-04**: vector_processor Lambda uses repository for vector key storage and audit logging
-- [ ] **KB-05**: Inventory table Prisma schema defined for discovered AWS resources
+- [x] **KB-05**: Inventory table Prisma schema defined for discovered AWS resources
 - [ ] **KB-06**: Discovery Lambda (Python) uses psycopg2 to write to PostgreSQL inventory table
 - [ ] **KB-07**: TDD unit tests for KB, inventory, vector key repositories
 - [ ] **KB-08**: Data migration scripts for knowledge bases, data sources, vector keys, inventory
@@ -68,7 +68,7 @@
 
 ### Agent Ops Migration (Dynamoose Rewrite)
 
-- [ ] **AOPS-01**: Prisma schema defines agent_ops_runs, agent_ops_events, scheduled_tasks, scheduled_task_locks
+- [x] **AOPS-01**: Prisma schema defines agent_ops_runs, agent_ops_events, scheduled_tasks, scheduled_task_locks
 - [ ] **AOPS-02**: Agent ops run repository replaces all Dynamoose Model.create/get/query/update calls
 - [ ] **AOPS-03**: Agent ops event repository handles chronological event recording and retrieval
 - [ ] **AOPS-04**: Scheduled task repository handles CRUD + execution locking (ON CONFLICT for lock acquisition)
@@ -165,16 +165,16 @@
 | SCHED-11 | Phase 3 | Complete |
 | SCHED-12 | Phase 3 | Complete |
 | SCHED-13 | Phase 3 | Complete |
-| KB-01 | Phase 4 | Pending |
+| KB-01 | Phase 4 | Complete |
 | KB-02 | Phase 4 | Pending |
 | KB-03 | Phase 4 | Pending |
 | KB-04 | Phase 4 | Pending |
-| KB-05 | Phase 4 | Pending |
+| KB-05 | Phase 4 | Complete |
 | KB-06 | Phase 4 | Pending |
 | KB-07 | Phase 4 | Pending |
 | KB-08 | Phase 4 | Pending |
 | KB-09 | Phase 4 | Pending |
-| AOPS-01 | Phase 4 | Pending |
+| AOPS-01 | Phase 4 | Complete |
 | AOPS-02 | Phase 4 | Pending |
 | AOPS-03 | Phase 4 | Pending |
 | AOPS-04 | Phase 4 | Pending |
