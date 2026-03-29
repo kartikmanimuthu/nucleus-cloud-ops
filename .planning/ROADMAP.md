@@ -40,7 +40,11 @@ Plans:
   1. `pulumi up` in `infra/networking/` creates VPC, subnets, NAT gateway, IGW, and VPC Gateway Endpoints without error
   2. Stack outputs (vpcId, subnetIds) are readable via `pulumi stack output` and match the deployed resource IDs
   3. `infra/compute/` reads networking outputs via `StackReference.requireOutput()` without returning undefined — verified by a preview that references the outputs
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 07-01-PLAN.md — Add @pulumi/awsx, implement awsx.ec2.Vpc + endpoints + subnet groups, update compute to requireOutput()
+- [ ] 07-02-PLAN.md — npm install + pulumi preview verification (TypeScript compile + resource plan check)
+- [ ] 07-03-PLAN.md — pulumi up + stack output verification + human AWS console checkpoint
 
 ### Phase 8: Data Layer
 **Goal**: All stateful AWS resources (DynamoDB, S3, SQS, Cognito) are deployed via Pulumi with retention protection and correct configurations
@@ -93,7 +97,7 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 6. Scaffold | 2/2 | Complete   | 2026-03-29 |
-| 7. Networking | 0/? | Not started | - |
+| 7. Networking | 0/3 | Not started | - |
 | 8. Data Layer | 0/? | Not started | - |
 | 9. Lambda + EventBridge | 0/? | Not started | - |
 | 10. ECS + ALB + CloudFront | 0/? | Not started | - |
