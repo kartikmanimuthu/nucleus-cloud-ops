@@ -19,12 +19,13 @@ A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managi
 - Stack outputs wired to web-ui env vars (same values, different source)
 - CDK removed for migrated stacks (bin/, lib/networkingStack.ts, lib/computeStack.ts)
 
-## Current State (v2.0 — Phase 6 complete, 2026-03-29)
+## Current State (v2.0 — Phase 7 complete, 2026-03-30)
 
-- **Phase 6 complete** (Pulumi scaffold) — `infra/` directory created with two Pulumi TypeScript projects
-- **S3 backend**: `nucleus-pulumi-state` bucket + KMS alias `alias/pulumi-secrets` bootstrapped
-- **infra/networking/**: Pulumi project with placeholder VPC exports, previews clean
-- **infra/compute/**: Pulumi project with StackReference to networking, previews clean
+- **Phase 7 complete** (Networking) — `nucleus-vpc` deployed to AWS us-east-1 (`vpc-0cd6e5fd607d1a494`)
+- **VPC**: 10.0.0.0/16, 4-tier subnets (Public/Private/Database/Intra), 2 NAT gateways, S3+DynamoDB gateway endpoints
+- **infra/networking/**: Real `awsx.ec2.Vpc` implementation, all 9 stack outputs live
+- **infra/compute/**: StackReference wired with `requireOutput()` — resolves live VPC ID
+- **Phase 6 complete** (Pulumi scaffold) — `infra/` directory, S3 backend, KMS secrets provider
 - **v1.0 baseline**: 5 phases complete, 28 plans, 50+ commits
 - **Prisma schema**: 15+ models covering all migrated entities
 - **Repository layer**: Interface + DynamoDB + PostgreSQL implementations for every entity
