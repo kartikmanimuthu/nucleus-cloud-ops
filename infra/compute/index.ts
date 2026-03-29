@@ -4,8 +4,8 @@ import * as pulumi from "@pulumi/pulumi";
 // Phase 8+ will add DynamoDB, Cognito, S3, SQS, Lambda, ECS, CloudFront.
 
 // StackReference to networking project.
-// Format for S3 backend (no org prefix): "<project>/<stack>"
-const networking = new pulumi.StackReference("nucleus-networking/prod");
+// Format for S3 backend: "organization/<project>/<stack>" (literal "organization" required)
+const networking = new pulumi.StackReference("organization/nucleus-networking/prod");
 
 // Read networking outputs — these will be real VPC/subnet IDs after Phase 7.
 // Using getOutput() (not requireOutput()) during scaffold phase because
