@@ -1,0 +1,5 @@
+name: nucleus-compute
+runtime: nodejs
+description: Nucleus Cloud Ops — ECS, Lambda, DynamoDB, Cognito, CloudFront
+backend:
+  url: s3://nucleus-pulumi-state?region=us-east-1&awssdk=v2
