@@ -11,8 +11,8 @@
 ### Foundation
 
 - [x] **PULUMI-01**: Engineer can scaffold the Pulumi project in `infra/` with S3 backend, KMS secrets provider, and two Pulumi projects (`infra/networking/`, `infra/compute/`) — `pulumi preview` runs without error
-- [ ] **PULUMI-02**: Engineer can deploy NetworkingStack via Pulumi: VPC, 4-tier subnets (Public/Private/Database/Intra), NAT gateway, IGW, VPC Gateway Endpoints (S3 + DynamoDB), RDS/ElastiCache subnet groups
-- [ ] **PULUMI-03**: ComputeStack reads VPC ID and subnet IDs from NetworkingStack via `StackReference.requireOutput()` — no hardcoded IDs
+- [x] **PULUMI-02**: Engineer can deploy NetworkingStack via Pulumi: VPC, 4-tier subnets (Public/Private/Database/Intra), NAT gateway, IGW, VPC Gateway Endpoints (S3 + DynamoDB), RDS/ElastiCache subnet groups
+- [x] **PULUMI-03**: ComputeStack reads VPC ID and subnet IDs from NetworkingStack via `StackReference.requireOutput()` — no hardcoded IDs
 
 ### Data Layer
 
@@ -70,8 +70,8 @@
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
 | PULUMI-01 | Phase 6 | Complete |
-| PULUMI-02 | Phase 7 | Pending |
-| PULUMI-03 | Phase 7 | Pending |
+| PULUMI-02 | Phase 7 | Complete |
+| PULUMI-03 | Phase 7 | Complete |
 | PULUMI-04 | Phase 8 | Pending |
 | PULUMI-05 | Phase 8 | Pending |
 | PULUMI-06 | Phase 8 | Pending |

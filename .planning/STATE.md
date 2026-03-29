@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 06-scaffold/06-02-PLAN.md
-last_updated: "2026-03-29T10:32:52.315Z"
+status: executing
+stopped_at: Completed 07-networking/07-01-PLAN.md
+last_updated: "2026-03-29T16:32:33.140Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 5
+  completed_plans: 3
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack
-**Current focus:** Phase 06 — scaffold
+**Current focus:** Phase 07 — networking
 
 ## Current Position
 
-Phase: 7
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 07 (networking) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0%
@@ -54,6 +54,7 @@ Progress: [░░░░░░░░░░] 0%
 *Updated after each plan completion*
 | Phase 06-scaffold P01 | 8 | 2 tasks | 11 files |
 | Phase 06-scaffold P02 | 25 | 2 tasks | 3 files |
+| Phase 07-networking P01 | 3 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Key decisions from research (2026-03-29):
 - [Phase 06-scaffold]: infra/ subdirectory isolation: Pulumi tsconfig commonjs module prevents conflict with root CDK tsconfig
 - [Phase 06-scaffold]: KMS URI needs ?region=us-east-1 suffix — profile default region (ap-south-1) does not match bucket/key region (us-east-1)
 - [Phase 06-scaffold]: StackReference for S3 backend requires literal 'organization' prefix: organization/nucleus-networking/prod
+- [Phase 07-networking]: awsx.ec2.Vpc component used for networking (not raw aws.ec2.* primitives) — matches CDK ec2.Vpc abstraction level
+- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds filtered from vpc.subnets by Name tag — vpc.isolatedSubnetIds merges all Isolated tiers making them indistinguishable
 
 ### Pending Todos
 
@@ -94,6 +97,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-29T10:09:33.755Z
-Stopped at: Completed 06-scaffold/06-02-PLAN.md
+Last session: 2026-03-29T16:32:33.137Z
+Stopped at: Completed 07-networking/07-01-PLAN.md
 Resume file: None

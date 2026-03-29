@@ -42,7 +42,7 @@ Plans:
   3. `infra/compute/` reads networking outputs via `StackReference.requireOutput()` without returning undefined — verified by a preview that references the outputs
 **Plans**: 3 plans
 Plans:
-- [ ] 07-01-PLAN.md — Add @pulumi/awsx, implement awsx.ec2.Vpc + endpoints + subnet groups, update compute to requireOutput()
+- [x] 07-01-PLAN.md — Add @pulumi/awsx, implement awsx.ec2.Vpc + endpoints + subnet groups, update compute to requireOutput()
 - [ ] 07-02-PLAN.md — npm install + pulumi preview verification (TypeScript compile + resource plan check)
 - [ ] 07-03-PLAN.md — pulumi up + stack output verification + human AWS console checkpoint
 
