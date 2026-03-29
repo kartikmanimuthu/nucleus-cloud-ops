@@ -25,25 +25,26 @@ throughout this phase — Pulumi creates a parallel new VPC (blue/green).
 
 ## Decisions
 
+### IaC Approach — LOCKED
+
+**Decision:** Use `@pulumi/awsx` `Vpc` component for networking — NOT raw `@pulumi/aws` primitives.
+
+**Rationale:** `@pulumi/awsx` provides a high-level `Vpc` component similar to CDK's `ec2.Vpc` with `subnetConfiguration`. Much less code, handles subnets/route tables/NAT/IGW automatically. The user explicitly chose this over raw primitives.
+
+**Package to add:** `@pulumi/awsx` (latest) to `infra/networking/package.json`.
+
 ### Resource Naming Strategy — LOCKED
 
-**Decision:** Drop the `-app` suffix. Use `nucleus-*` prefix for all Pulumi networking resources.
+**Decision:** Drop the `-app` suffix. Use `nucleus-*` prefix. Component name: `nucleus-vpc`.
 
-**Rationale:** CDK names everything `nucleus-app-*` (from APP_NAME env var). Pulumi uses `nucleus-*`.
-No naming conflict during coexistence. These become the permanent names — no rename needed at cutover.
+**Rationale:** CDK names everything `nucleus-app-*`. Pulumi `awsx.ec2.Vpc` auto-generates child resource names from the component name (e.g., `nucleus-vpc-public-0`, `nucleus-vpc-private-0`). These are stable as long as the component name doesn't change. No conflict with CDK's `nucleus-app-*` names.
 
-**Naming pattern:**
-- VPC: `nucleus-vpc`
-- Subnets: `nucleus-subnet-public-{az}`, `nucleus-subnet-private-{az}`, `nucleus-subnet-database-{az}`, `nucleus-subnet-intra-{az}`
-- IGW: `nucleus-igw`
-- NAT EIPs: `nucleus-eip-nat-{az}`
-- NAT Gateways: `nucleus-nat-{az}`
-- Route tables: `nucleus-rt-public`, `nucleus-rt-private-{az}`, `nucleus-rt-database`, `nucleus-rt-intra`
-- VPC Endpoints: `nucleus-endpoint-s3`, `nucleus-endpoint-dynamodb`
+**Top-level component name:** `nucleus-vpc` (this drives all child resource names)
+
+**Explicit names still required for:**
 - RDS Subnet Group: `nucleus-db-subnet-group`
 - ElastiCache Subnet Group: `nucleus-cache-subnet-group`
-
-All names must be set as explicit `name:` properties — never rely on Pulumi auto-naming (7-char suffix causes delete+create on rename).
+- VPC Endpoints: `nucleus-endpoint-s3`, `nucleus-endpoint-dynamodb`
 
 ### NAT Gateway Count — Claude's Discretion
 
