@@ -69,25 +69,25 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| PULUMI-01 | — | Pending |
-| PULUMI-02 | — | Pending |
-| PULUMI-03 | — | Pending |
-| PULUMI-04 | — | Pending |
-| PULUMI-05 | — | Pending |
-| PULUMI-06 | — | Pending |
-| PULUMI-07 | — | Pending |
-| PULUMI-08 | — | Pending |
-| PULUMI-09 | — | Pending |
-| PULUMI-10 | — | Pending |
-| PULUMI-11 | — | Pending |
-| PULUMI-12 | — | Pending |
-| PULUMI-13 | — | Pending |
-| PULUMI-14 | — | Pending |
-| PULUMI-15 | — | Pending |
-| PULUMI-16 | — | Pending |
-| PULUMI-17 | — | Pending |
-| PULUMI-18 | — | Pending |
+| PULUMI-01 | Phase 6 | Pending |
+| PULUMI-02 | Phase 7 | Pending |
+| PULUMI-03 | Phase 7 | Pending |
+| PULUMI-04 | Phase 8 | Pending |
+| PULUMI-05 | Phase 8 | Pending |
+| PULUMI-06 | Phase 8 | Pending |
+| PULUMI-07 | Phase 8 | Pending |
+| PULUMI-08 | Phase 9 | Pending |
+| PULUMI-09 | Phase 9 | Pending |
+| PULUMI-10 | Phase 9 | Pending |
+| PULUMI-11 | Phase 9 | Pending |
+| PULUMI-12 | Phase 10 | Pending |
+| PULUMI-13 | Phase 10 | Pending |
+| PULUMI-14 | Phase 10 | Pending |
+| PULUMI-15 | Phase 10 | Pending |
+| PULUMI-16 | Phase 11 | Pending |
+| PULUMI-17 | Phase 11 | Pending |
+| PULUMI-18 | Phase 11 | Pending |
 
 ---
 
-*Last updated: 2026-03-29 — v2.0 milestone requirements defined*
+*Last updated: 2026-03-29 — v2.0 roadmap created; all 18 requirements mapped to phases 6–11*

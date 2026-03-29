@@ -1,136 +1,97 @@
-# Roadmap: DynamoDB to PostgreSQL Migration
+# Roadmap: Pulumi IaC Migration
 
 ## Overview
 
-Five phases migrate all 10 DynamoDB tables to PostgreSQL using Prisma ORM and the repository pattern. Each phase delivers a complete, runnable slice of the system — foundation first, then entities in FK-dependency order (tenants before accounts before schedules), then independent feature tables (KB, Inventory, Agent Ops), then LangGraph persistence last. Feature flags per entity enable instant rollback at any point. TDD unit tests precede each repository implementation; Playwright E2E tests follow each phase.
+Six phases migrate the core AWS infrastructure from CDK to Pulumi TypeScript. Each phase delivers a deployable, verifiable slice — toolchain first, then networking, then stateful data resources, then compute (Lambda before ECS because Lambda ARNs feed ECS env vars), then cutover and CDK removal. WebUIStack stays in CDK throughout. The blue/green approach means CDK-managed resources stay live until Pulumi stacks are smoke-tested.
 
 ## Phases
 
 **Phase Numbering:**
-- Integer phases (1, 2, 3): Planned milestone work
-- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+- Phases 1–5 belong to v1.0 (DynamoDB → PostgreSQL migration, archived in `.planning/milestones/v1.0-ROADMAP.md`)
+- v2.0 continues from Phase 6
 
-Decimal phases appear between their surrounding integers in numeric order.
-
-- [ ] **Phase 1: Foundation + Tenant Config** - Docker Compose, Prisma, connection pooling, repository factory, and first migrated entity (tenant configs)
-- [ ] **Phase 2: Accounts + RBAC** - Accounts and role-based access control with server-side filtering, cross-tenant isolation
-- [ ] **Phase 3: Schedules + Executions + Audit** - Full scheduling system with scheduler Lambda, dual-write mode, TTL cleanup
-- [ ] **Phase 4: KB + Inventory + Agent Ops** - Knowledge base, Python discovery Lambda (psycopg2), vector keys, and full Dynamoose rewrite for agent ops
-- [x] **Phase 5: LangGraph + Migration Validation** - LangGraph checkpoint/history/memory migration, migration orchestration scripts, and final count verification (completed 2026-03-28)
+- [ ] **Phase 6: Scaffold** - Pulumi toolchain installed, S3 backend configured, KMS secrets provider set up, both projects preview without error
+- [ ] **Phase 7: Networking** - VPC, 4-tier subnets, NAT gateway, VPC endpoints deployed via Pulumi with stable stack outputs
+- [ ] **Phase 8: Data Layer** - All DynamoDB tables, S3 buckets, SQS queues, and Cognito resources deployed with retention protection
+- [ ] **Phase 9: Lambda + EventBridge** - Scheduler, VectorProcessor, KBSyncProcessor Lambdas and Discovery ECS task deployed with correct triggers
+- [ ] **Phase 10: ECS + ALB + CloudFront** - Web UI running on ECS Fargate behind ALB and CloudFront with all env vars wired from stack outputs
+- [ ] **Phase 11: Cutover + CDK Removal** - Stack outputs wired to web-ui env, CDK NetworkingStack + ComputeStack destroyed and source deleted
 
 ## Phase Details
 
-### Phase 1: Foundation + Tenant Config
-**Goal**: The PostgreSQL infrastructure exists and the first entity (tenant config) is verifiably running on it
-**Depends on**: Nothing (first phase)
-**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05, FOUND-06, TCFG-01, TCFG-02, TCFG-03, TCFG-04, TCFG-05, TCFG-06, TCFG-07, TCFG-08, MIGR-01, MIGR-02, MIGR-06
+### Phase 6: Scaffold
+**Goal**: The Pulumi toolchain is installed and both projects can be previewed without error — no AWS resources deployed yet
+**Depends on**: Nothing (first phase of v2.0)
+**Requirements**: PULUMI-01
 **Success Criteria** (what must be TRUE):
-  1. `docker compose up` starts PostgreSQL 16 and `npm run db:migrate` applies the schema without error
-  2. Running with `USE_PG_TENANT_CONFIG=true`, tenant config reads and writes go to PostgreSQL; with flag off, DynamoDB is used — no code change required to switch
-  3. All existing Vitest tests pass with the PostgreSQL flag enabled
-  4. The tenant config data migration script runs idempotently and produces a "Migrated X/Y records..." progress log
-**Plans**: 5 plans
+  1. `pulumi preview` runs without error in both `infra/networking/` and `infra/compute/` against the S3 backend
+  2. KMS secrets provider is configured — no passphrase required to unlock state
+  3. `infra/` directory structure exists with two Pulumi projects, each with their own `package.json`, `tsconfig.json`, and `Pulumi.yaml`
+**Plans**: TBD
 
-Plans:
-- [x] 01-01-PLAN.md — Docker Compose + Prisma schema (tenants + tenant_configs) + .env.local.example
-- [ ] 01-02-PLAN.md — PostgreSQL connection singleton (pg-config.ts) + repository factory
-- [ ] 01-03-PLAN.md — ITenantConfigRepository interface + DynamoDB repo + PostgreSQL repo
-- [ ] 01-04-PLAN.md — Service wiring (tenant-config-service.ts delegation) + TDD unit tests
-- [x] 01-05-PLAN.md — Data migration script (DynamoDB → PostgreSQL, idempotent)
-
-### Phase 2: Accounts + RBAC
-**Goal**: Account listing, filtering, and role assignment run entirely on PostgreSQL with verified cross-tenant isolation
-**Depends on**: Phase 1
-**Requirements**: ACCT-01, ACCT-02, ACCT-03, ACCT-04, ACCT-05, ACCT-06, ACCT-07, ACCT-08, ACCT-09, ACCT-10
+### Phase 7: Networking
+**Goal**: A new VPC with 4-tier subnets, NAT gateway, and VPC endpoints is deployed via Pulumi and exports stable outputs for compute to consume
+**Depends on**: Phase 6
+**Requirements**: PULUMI-02, PULUMI-03
 **Success Criteria** (what must be TRUE):
-  1. Account list page filters by name, status, and region without fetching all records first (server-side WHERE/ILIKE)
-  2. A user assigned a role in tenant A cannot see tenant B accounts — confirmed by cross-tenant isolation test
-  3. Playwright E2E tests for account listing, filtering, and creation pass against the PostgreSQL backend
-  4. Data migration script moves all accounts and RBAC records from DynamoDB; verify-migration shows matching row counts
-**Plans**: 5 plans
+  1. `pulumi up` in `infra/networking/` creates VPC, subnets, NAT gateway, IGW, and VPC Gateway Endpoints without error
+  2. Stack outputs (vpcId, subnetIds) are readable via `pulumi stack output` and match the deployed resource IDs
+  3. `infra/compute/` reads networking outputs via `StackReference.requireOutput()` without returning undefined — verified by a preview that references the outputs
+**Plans**: TBD
 
-Plans:
-- [x] 02-01-PLAN.md — Prisma Account and UserTenantRole models + migration
-- [x] 02-02-PLAN.md — Account and UserTenantRole repository implementations (TDD)
-- [ ] 02-03-PLAN.md — Account service wiring + RBAC integration
-- [x] 02-04-PLAN.md — Account data migration script (DynamoDB → PostgreSQL)
-- [x] 02-05-PLAN.md — Playwright E2E tests for accounts with PostgreSQL backend
-
-**UI hint**: yes
-
-### Phase 3: Schedules + Executions + Audit
-**Goal**: The full scheduling system — web UI, scheduler Lambda, and audit logs — runs on PostgreSQL with dual-write validation capability
-**Depends on**: Phase 2
-**Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, SCHED-06, SCHED-07, SCHED-08, SCHED-09, SCHED-10, SCHED-11, SCHED-12, SCHED-13, MIGR-05
+### Phase 8: Data Layer
+**Goal**: All stateful AWS resources (DynamoDB, S3, SQS, Cognito) are deployed via Pulumi with retention protection and correct configurations
+**Depends on**: Phase 7
+**Requirements**: PULUMI-04, PULUMI-05, PULUMI-06, PULUMI-07
 **Success Criteria** (what must be TRUE):
-  1. Schedule CRUD, execution history, and audit log viewing work end-to-end in the Playwright E2E suite
-  2. The scheduler Lambda reads and writes schedules from PostgreSQL using a max-3 connection pool without exhaustion errors
-  3. Dual-write mode can be enabled to write to both DynamoDB and PostgreSQL simultaneously; reads come from PostgreSQL
-  4. The TTL cleanup script deletes expired audit_logs and schedule_executions and runs idempotently
-  5. Audit log migration handles the full dataset in batched inserts of 500 records with progress logging
-**Plans**: 5 plans
+  1. All 9 DynamoDB tables deploy with correct GSIs, TTL attributes, and `retainOnDelete: true` — `pulumi preview` shows no replacements after initial deploy
+  2. All 4 S3 buckets deploy with correct lifecycle rules; both SQS queue pairs deploy with DLQs; CloudWatch alarm on VectorProcessingDLQ is active (threshold=1)
+  3. Cognito UserPool, UserPoolClient, and IdentityPool deploy successfully — client secret is stored as a Pulumi secret output, not plaintext in stack outputs
+**Plans**: TBD
 
-Plans:
-- [x] 03-01-PLAN.md — Prisma Schedule, ScheduleExecution, TargetedResource, AuditLog models + migration
-- [x] 03-02-PLAN.md — Schedule, ScheduleExecution, AuditLog repository implementations (interface + DynamoDB + PostgreSQL)
-- [x] 03-03-PLAN.md — Service wiring + Lambda pg-service (max-3 pool) + dual-write + 6 Vitest test files
-- [x] 03-04-PLAN.md — Data migration scripts (migrate-schedules, migrate-audit-logs batched 500) + cleanup-expired TTL script
-- [x] 03-05-PLAN.md — Playwright E2E tests for schedule CRUD, execution history, audit logs + human checkpoint
-
-**UI hint**: yes
-
-### Phase 4: KB + Inventory + Agent Ops
-**Goal**: Knowledge base management, inventory AI search, and the full agent ops system run on PostgreSQL — including the Python discovery Lambda and the Dynamoose rewrite
-**Depends on**: Phase 2
-**Requirements**: KB-01, KB-02, KB-03, KB-04, KB-05, KB-06, KB-07, KB-08, KB-09, AOPS-01, AOPS-02, AOPS-03, AOPS-04, AOPS-05, AOPS-06, AOPS-07, AOPS-08, AOPS-09
+### Phase 9: Lambda + EventBridge
+**Goal**: All Lambda functions and the Discovery ECS task are deployed via Pulumi with correct triggers, IAM roles, and env vars wired from data layer outputs
+**Depends on**: Phase 8
+**Requirements**: PULUMI-08, PULUMI-09, PULUMI-10, PULUMI-11
 **Success Criteria** (what must be TRUE):
-  1. The Python discovery Lambda writes discovered AWS resources to PostgreSQL via psycopg2; the inventory page shows results from PostgreSQL
-  2. Ask AI (inventory vector search) returns results after the vector_processor Lambda stores keys in PostgreSQL
-  3. Agent ops dashboard, run listing, and scheduled tasks all work via PostgreSQL — no Dynamoose calls remain in agent-ops API routes
-  4. Scheduled task lock acquisition uses ON CONFLICT (not scan-and-compare), confirmed by concurrent lock attempt test
-  5. All ~15 agent-ops API routes return correct responses with `USE_PG_AGENT_OPS=true`
-**Plans**: 7 plans
+  1. Scheduler Lambda deploys (ARM64, Node 20, esbuild pre-build) and EventBridge triggers it every 30 minutes — CloudWatch logs confirm invocations
+  2. VectorProcessor and KBSyncProcessor Lambdas deploy with SQS event sources; sending a test message to each queue triggers the respective Lambda
+  3. Discovery ECS task definition deploys with EventBridge Scheduler (daily 2AM UTC) and an on-demand `StartDiscovery` event rule
+**Plans**: TBD
 
-Plans:
-- [x] 04-01-PLAN.md — Prisma schema (KnowledgeBase, DataSource, InventoryResource, AgentOpsRun, AgentOpsEvent, ScheduledTask, ScheduledTaskLock) + migration
-- [x] 04-02-PLAN.md — KB + DataSource repository implementations (interface + DynamoDB + PostgreSQL) + factory wiring + TDD tests
-- [x] 04-03-PLAN.md — Inventory repository + Python discovery Lambda psycopg2 writer + data_processor dual-write
-- [x] 04-04-PLAN.md — Agent ops repositories (AgentOpsRun, AgentOpsEvent, ScheduledTask with ON CONFLICT lock) + data migration scripts
-- [x] 04-05-PLAN.md — Playwright E2E tests for KB management, agent ops dashboard, scheduled tasks + human checkpoint
-- [x] 04-06-PLAN.md — Gap closure: wire agent-ops service layer + inventory API route to repository factory
-- [x] 04-07-PLAN.md — Gap closure: InventoryVectorKey schema + vector_processor/kb_sync_processor PG wiring + migrate-inventory.ts
-
-**UI hint**: yes
-
-### Phase 5: LangGraph + Migration Validation
-**Goal**: All agent persistence (checkpoints, writes, chat history, memory) runs on PostgreSQL, and the complete migration is verified with matching row counts across all tables
-**Depends on**: Phase 3
-**Requirements**: LANG-01, LANG-02, LANG-03, LANG-04, LANG-05, LANG-06, LANG-07, LANG-08, MIGR-03, MIGR-04
+### Phase 10: ECS + ALB + CloudFront
+**Goal**: The web UI container is running on ECS Fargate behind ALB and CloudFront with all env vars wired from stack outputs
+**Depends on**: Phase 9
+**Requirements**: PULUMI-12, PULUMI-13, PULUMI-14, PULUMI-15
 **Success Criteria** (what must be TRUE):
-  1. Agent chat conversations persist across browser refreshes — thread history and memory recall work end-to-end on PostgreSQL
-  2. `migrate-all.ts` runs scripts in dependency order (tenants -> accounts -> schedules -> KB -> agent ops -> LangGraph) without error
-  3. `verify-migration.ts` reports matching row counts between DynamoDB and PostgreSQL for every migrated table
-  4. AgentConversationsTable usage is confirmed or ruled out; if dead code, CDK definition is flagged for removal
-**Plans**: 4 plans
+  1. ECS Fargate service deploys with circuit breaker enabled and `forceNewDeployment: true`; `pulumi up` waits for steady state before completing
+  2. ALB health check on `/api/health` returns 200; the web UI is reachable via the ALB DNS name
+  3. CloudFront distribution deploys with a stable `random.RandomString` origin verify secret; the web UI is reachable via the CloudFront URL
+  4. All 30+ container env vars are populated from stack outputs via `pulumi.all()` — no hardcoded resource IDs in the task definition
+**Plans**: TBD
 
-Plans:
-- [x] 05-01-PLAN.md — pgvector Docker image + AgentMemory/ChatMessage Prisma models + checkpoint-postgres install + AgentConversationsTable CDK removal
-- [x] 05-02-PLAN.md — persistence.ts rewrite with USE_PG_LANGGRAPH feature flag + TDD unit tests
-- [x] 05-03-PLAN.md — migrate-all.ts orchestration + verify-migration.ts row count validator
-- [x] 05-04-PLAN.md — Playwright E2E tests for agent chat + thread history + human checkpoint
-
-**UI hint**: yes
+### Phase 11: Cutover + CDK Removal
+**Goal**: Pulumi is the sole IaC for NetworkingStack and ComputeStack — CDK stacks are destroyed, source files deleted, and S3 Vectors/Tables wrapped in CloudFormation
+**Depends on**: Phase 10
+**Requirements**: PULUMI-16, PULUMI-17, PULUMI-18
+**Success Criteria** (what must be TRUE):
+  1. `scripts/generate-env.ts` reads `pulumi stack output --json` and writes a valid `web-ui/.env.local` — the app starts locally with the generated env file
+  2. CDK NetworkingStack and ComputeStack are destroyed without error; `lib/networkingStack.ts`, `lib/computeStack.ts`, and `bin/cdkStack.ts` are deleted from the repo
+  3. S3 Vectors (2 indexes) and S3 Tables (Iceberg TableBucket) are wrapped in `aws.cloudformation.Stack` in the Pulumi compute stack and deploy successfully
+  4. WebUIStack CDK deploy still works after cleanup — only NetworkingStack + ComputeStack CDK deps are removed
+**Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
-Note: Phase 4 depends on Phase 2 (not Phase 3) — can begin Phase 4 in parallel with Phase 3 if needed.
+Phases execute in strict numeric order: 6 → 7 → 8 → 9 → 10 → 11
+Data before ECS is the critical constraint — 30+ ECS env vars are Output<string> references to resources that must exist before the task definition can be written.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation + Tenant Config | 2/5 | In Progress|  |
-| 2. Accounts + RBAC | 4/5 | In Progress|  |
-| 3. Schedules + Executions + Audit | 4/5 | In Progress|  |
-| 4. KB + Inventory + Agent Ops | 6/7 | In Progress|  |
-| 5. LangGraph + Migration Validation | 4/4 | Complete   | 2026-03-28 |
+| 6. Scaffold | 0/? | Not started | - |
+| 7. Networking | 0/? | Not started | - |
+| 8. Data Layer | 0/? | Not started | - |
+| 9. Lambda + EventBridge | 0/? | Not started | - |
+| 10. ECS + ALB + CloudFront | 0/? | Not started | - |
+| 11. Cutover + CDK Removal | 0/? | Not started | - |
