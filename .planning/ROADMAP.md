@@ -29,7 +29,7 @@ Six phases migrate the core AWS infrastructure from CDK to Pulumi TypeScript. Ea
   3. `infra/` directory structure exists with two Pulumi projects, each with their own `package.json`, `tsconfig.json`, and `Pulumi.yaml`
 **Plans**: 2 plans
 Plans:
-- [ ] 06-01-PLAN.md — Bootstrap script + networking and compute project scaffolds (11 files)
+- [x] 06-01-PLAN.md — Bootstrap script + networking and compute project scaffolds (11 files)
 - [ ] 06-02-PLAN.md — npm install, stack init, pulumi preview verification in both projects
 
 ### Phase 7: Networking

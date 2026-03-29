@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Pulumi IaC Migration
-status: active
-stopped_at: Phase 6
-last_updated: "2026-03-29T00:00:00.000Z"
+milestone: v1.0
+milestone_name: milestone
+status: executing
+stopped_at: Completed 06-scaffold/06-01-PLAN.md
+last_updated: "2026-03-29T09:57:10.648Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack
-**Current focus:** Phase 6 — Scaffold
+**Current focus:** Phase 06 — scaffold
 
 ## Current Position
 
-Phase: 6 — Scaffold
-Plan: —
-Status: Not started
-Last activity: 2026-03-29 — Roadmap created for v2.0
+Phase: 06 (scaffold) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 06-scaffold P01 | 8 | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ Key decisions from research (2026-03-29):
 - `forceNewDeployment: true` on ECS service — ECS does not redeploy on task definition update without this
 - Blue/green cutover — Pulumi deploys new resources alongside CDK; CDK stays live until Pulumi smoke-tested
 - S3 Vectors + S3 Tables deferred to Phase 11 — no native `@pulumi/aws` support; wrap in `aws.cloudformation.Stack`
+- [Phase 06-scaffold]: getOutput() used in compute StackReference (not requireOutput()) — networking has placeholder values during scaffold; Phase 8+ switches to requireOutput()
+- [Phase 06-scaffold]: infra/ subdirectory isolation: Pulumi tsconfig commonjs module prevents conflict with root CDK tsconfig
 
 ### Pending Todos
 
@@ -88,6 +91,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-29
-Stopped at: Roadmap created — ready to begin Phase 6
+Last session: 2026-03-29T09:57:10.645Z
+Stopped at: Completed 06-scaffold/06-01-PLAN.md
 Resume file: None
