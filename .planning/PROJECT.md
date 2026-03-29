@@ -19,9 +19,13 @@ A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managi
 - Stack outputs wired to web-ui env vars (same values, different source)
 - CDK removed for migrated stacks (bin/, lib/networkingStack.ts, lib/computeStack.ts)
 
-## Current State (v1.0 — 2026-03-28)
+## Current State (v2.0 — Phase 6 complete, 2026-03-29)
 
-- **5 phases complete**, 28 plans, 50+ commits
+- **Phase 6 complete** (Pulumi scaffold) — `infra/` directory created with two Pulumi TypeScript projects
+- **S3 backend**: `nucleus-pulumi-state` bucket + KMS alias `alias/pulumi-secrets` bootstrapped
+- **infra/networking/**: Pulumi project with placeholder VPC exports, previews clean
+- **infra/compute/**: Pulumi project with StackReference to networking, previews clean
+- **v1.0 baseline**: 5 phases complete, 28 plans, 50+ commits
 - **Prisma schema**: 15+ models covering all migrated entities
 - **Repository layer**: Interface + DynamoDB + PostgreSQL implementations for every entity
 - **Feature flags**: `USE_PG_TENANT_CONFIG`, `USE_PG_ACCOUNTS`, `USE_PG_SCHEDULES`, `USE_PG_AUDIT_LOGS`, `USE_PG_KB`, `USE_PG_INVENTORY`, `USE_PG_AGENT_OPS`, `USE_PG_LANGGRAPH`
