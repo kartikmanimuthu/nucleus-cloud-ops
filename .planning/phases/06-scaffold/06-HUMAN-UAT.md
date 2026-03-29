@@ -1,5 +1,5 @@
 ---
-status: partial
+status: resolved
 phase: 06-scaffold
 source: [06-VERIFICATION.md]
 started: 2026-03-29T11:00:00Z
@@ -14,18 +14,18 @@ updated: 2026-03-29T11:00:00Z
 
 ### 1. pulumi preview in infra/networking/
 expected: Exits 0, shows placeholder stack outputs, no TypeScript errors, no S3 backend errors, no passphrase prompt
-result: [pending]
+result: passed
 
 ### 2. pulumi preview in infra/compute/
 expected: Exits 0, shows StackReference resource and placeholder exports, no errors, no passphrase prompt
-result: [pending]
+result: passed
 
 ## Summary
 
 total: 2
-passed: 0
+passed: 2
 issues: 0
-pending: 2
+pending: 0
 skipped: 0
 blocked: 0
 
