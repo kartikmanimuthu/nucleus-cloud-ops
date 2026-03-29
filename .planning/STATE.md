@@ -1,34 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: executing
-stopped_at: Completed 05-langgraph-migration-validation 05-04-PLAN.md
-last_updated: "2026-03-28T08:38:15.229Z"
-last_activity: 2026-03-28
+milestone: v2.0
+milestone_name: Pulumi IaC Migration
+status: planning
+stopped_at: —
+last_updated: "2026-03-29T00:00:00.000Z"
+last_activity: 2026-03-29
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 28
-  completed_plans: 28
-  percent: 20
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-26)
+See: .planning/PROJECT.md (updated 2026-03-29)
 
-**Core value:** Every DynamoDB table migrated to PostgreSQL with full test coverage and verified data migration scripts
-**Current focus:** Phase 05 — langgraph-migration-validation
+**Core value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack
+**Current focus:** Defining requirements for v2.0
 
 ## Current Position
 
-Phase: 05 (langgraph-migration-validation) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-03-28
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-29 — Milestone v2.0 started
 
 Progress: [██░░░░░░░░] 20%
 
