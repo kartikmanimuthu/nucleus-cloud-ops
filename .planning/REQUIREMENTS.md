@@ -1,208 +1,93 @@
-# Requirements: DynamoDB to PostgreSQL Migration
+# Requirements: Pulumi IaC Migration
 
-**Defined:** 2026-03-26
-**Core Value:** Every DynamoDB table migrated to PostgreSQL with full test coverage and verified data migration scripts
+**Milestone:** v2.0
+**Defined:** 2026-03-29
+**Core Value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack, WebUIStack stays in CDK
 
-## v1 Requirements
+---
+
+## Milestone v2.0 Requirements
 
 ### Foundation
 
-- [x] **FOUND-01**: Docker Compose starts PostgreSQL 16 locally with health check and persistent volume
-- [x] **FOUND-02**: Prisma ORM configured with schema file, migration directory, and TypeScript client generation
-- [ ] **FOUND-03**: PostgreSQL connection singleton (pg-config.ts) with pool sizes: max 10 for ECS, max 3 for Lambda
-- [ ] **FOUND-04**: Repository factory reads `USE_PG_<ENTITY>` env vars and returns correct implementation
-- [x] **FOUND-05**: npm scripts added: db:start, db:stop, db:generate, db:migrate, db:studio
-- [x] **FOUND-06**: .env.local.example updated with DATABASE_URL and all USE_PG_* flags
+- [ ] **PULUMI-01**: Engineer can scaffold the Pulumi project in `infra/` with S3 backend, KMS secrets provider, and two Pulumi projects (`infra/networking/`, `infra/compute/`) — `pulumi preview` runs without error
+- [ ] **PULUMI-02**: Engineer can deploy NetworkingStack via Pulumi: VPC, 4-tier subnets (Public/Private/Database/Intra), NAT gateway, IGW, VPC Gateway Endpoints (S3 + DynamoDB), RDS/ElastiCache subnet groups
+- [ ] **PULUMI-03**: ComputeStack reads VPC ID and subnet IDs from NetworkingStack via `StackReference.requireOutput()` — no hardcoded IDs
 
-### Tenant Config Migration
+### Data Layer
 
-- [x] **TCFG-01**: Prisma schema defines tenants and tenant_configs tables with correct types and constraints
-- [ ] **TCFG-02**: Repository interface defined with getConfig, saveConfig, deleteConfig, listConfigs
-- [ ] **TCFG-03**: DynamoDB repository implementation extracted from existing tenant-config-service.ts
-- [ ] **TCFG-04**: PostgreSQL repository implementation using Prisma client
-- [ ] **TCFG-05**: tenant-config-service.ts delegates to repository factory (no direct DynamoDB calls)
-- [ ] **TCFG-06**: TDD unit tests pass for both DynamoDB and PostgreSQL repository implementations
-- [x] **TCFG-07**: Data migration script seeds tenant configs from DynamoDB (AWS_PROFILE=PLATFORM-ADMIN)
-- [ ] **TCFG-08**: Existing Vitest tests continue passing with USE_PG_TENANT_CONFIG=true
+- [ ] **PULUMI-04**: Engineer can deploy all 9 DynamoDB tables via Pulumi with correct schemas, GSIs, TTL attributes, and `retainOnDelete: true` protection matching the CDK definitions
+- [ ] **PULUMI-05**: Engineer can deploy all 4 S3 buckets via Pulumi with correct lifecycle rules (checkpoint 30d, agent-temp 1d, inventory raw 365d/exports 7d, kb-staging 1d)
+- [ ] **PULUMI-06**: Engineer can deploy VectorProcessing and KBSync SQS queue pairs with DLQs and a CloudWatch alarm on VectorProcessingDLQ (threshold=1)
+- [ ] **PULUMI-07**: Engineer can deploy Cognito UserPool, UserPoolDomain, UserPoolClient (with generated secret), and IdentityPool via Pulumi — client secret stored as Pulumi secret output
 
-### Accounts + RBAC Migration
+### Compute — Lambda
 
-- [x] **ACCT-01**: Prisma schema defines accounts table with indexes on tenant_id and active
-- [x] **ACCT-02**: Prisma schema defines user_tenant_roles table with role CHECK constraint
-- [x] **ACCT-03**: Account repository replaces client-side filtering with PostgreSQL WHERE/ILIKE/LIMIT/OFFSET
-- [x] **ACCT-04**: RBAC repository handles getUserTenantRole, getUserAllRoles, assignUserRole, getTenantUsers
-- [ ] **ACCT-05**: account-service.ts delegates to repository (scanResources/validateCredentials unchanged)
-- [ ] **ACCT-06**: role-service.ts delegates to repository
-- [ ] **ACCT-07**: TDD unit tests for account + RBAC repositories (both backends)
-- [x] **ACCT-08**: Data migration scripts for accounts (GSI1 TYPE#ACCOUNT) and RBAC (UsersTeamsTable)
-- [x] **ACCT-09**: Playwright E2E tests verify account listing, filtering, creation after migration
-- [x] **ACCT-10**: Cross-tenant isolation test confirms no data leakage between tenants
+- [ ] **PULUMI-08**: Engineer can deploy Scheduler Lambda (ARM64, Node 20) via Pulumi with esbuild pre-build step, correct IAM role, EventBridge trigger (every 30 min), and all env vars wired from stack outputs
+- [ ] **PULUMI-09**: Engineer can deploy VectorProcessor Lambda (ARM64, Node 20) via Pulumi with SQS event source (batchSize=1, maxConcurrency=5) and esbuild pre-build
+- [ ] **PULUMI-10**: Engineer can deploy KBSyncProcessor Lambda (ARM64, Node 20) via Pulumi with SQS event source (batchSize=1) and esbuild pre-build
+- [ ] **PULUMI-11**: Engineer can deploy Discovery ECS task definition (ARM64, Python container) via Pulumi with EventBridge Scheduler (daily 2AM UTC) and EventBridge Rule for on-demand `StartDiscovery` events
 
-### Schedules + Executions + Audit Migration
+### Compute — ECS + ALB + CloudFront
 
-- [x] **SCHED-01**: Prisma schema defines schedules, schedule_executions, audit_logs tables with indexes
-- [x] **SCHED-02**: Schedule repository replaces GSI1 query + client filter with server-side WHERE/ORDER BY
-- [x] **SCHED-03**: Execution repository handles create, update, getHistory, getRecentExecutions
-- [x] **SCHED-04**: Audit repository handles createAuditLog (fire-and-forget) and getAuditLogs with server-side filtering
-- [x] **SCHED-05**: Scheduler Lambda has pg-service.ts alongside dynamodb-service.ts, switchable via feature flag
-- [x] **SCHED-06**: Scheduler Lambda connection pool: max 3, idleTimeoutMillis 10000
-- [x] **SCHED-07**: schedule-service.ts, schedule-execution-service.ts, audit-service.ts delegate to repositories
-- [x] **SCHED-08**: TDD unit tests for schedule, execution, audit repositories (both backends)
-- [x] **SCHED-09**: Data migration scripts for schedules (TYPE#SCHEDULE), executions (TYPE#EXECUTION), audit logs (TYPE#LOG)
-- [x] **SCHED-10**: Audit log migration handles large dataset with batched inserts (chunks of 500)
-- [x] **SCHED-11**: TTL cleanup script deletes expired audit_logs and schedule_executions
-- [x] **SCHED-12**: Playwright E2E tests verify schedule CRUD, execution history, audit log viewing
-- [x] **SCHED-13**: Dual-write mode available for validation period (write to both backends, read from PG)
+- [ ] **PULUMI-12**: Engineer can deploy ECS Fargate cluster and WebUI task definition (ARM64) via Pulumi with all 30+ container env vars wired from stack outputs via `pulumi.all()`
+- [ ] **PULUMI-13**: Engineer can deploy ECS Fargate service via Pulumi with `forceNewDeployment: true`, deployment circuit breaker (enable + rollback), ALB target group, and auto scaling (CPU 70% + Memory 75%)
+- [ ] **PULUMI-14**: Engineer can deploy ALB with HTTP listener (idleTimeout=1200s) and health check on `/api/health` via Pulumi
+- [ ] **PULUMI-15**: Engineer can deploy CloudFront distribution via Pulumi with ALB origin, caching disabled, and a stable `random.RandomString` origin verify secret (not `crypto.randomBytes`)
 
-### Knowledge Base + Inventory + Vector Migration
+### Cutover + Cleanup
 
-- [x] **KB-01**: Prisma schema defines knowledge_bases, data_sources, inventory_vector_keys tables
-- [x] **KB-02**: Knowledge base repository handles CRUD + atomic counter updates (vector_count, data_source_count)
-- [x] **KB-03**: kb_sync_processor Lambda uses repository for data source updates
-- [x] **KB-04**: vector_processor Lambda uses repository for vector key storage and audit logging
-- [x] **KB-05**: Inventory table Prisma schema defined for discovered AWS resources
-- [x] **KB-06**: Discovery Lambda (Python) uses psycopg2 to write to PostgreSQL inventory table
-- [x] **KB-07**: TDD unit tests for KB, inventory, vector key repositories
-- [x] **KB-08**: Data migration scripts for knowledge bases, data sources, vector keys, inventory
-- [x] **KB-09**: Playwright E2E tests verify KB management and Ask AI functionality
+- [ ] **PULUMI-16**: Engineer can run `scripts/generate-env.ts` to read `pulumi stack output --json` and write `web-ui/.env.local` with all required env vars
+- [ ] **PULUMI-17**: Engineer can destroy CDK NetworkingStack and ComputeStack after Pulumi stacks are smoke-tested — `lib/networkingStack.ts`, `lib/computeStack.ts`, and `bin/cdkStack.ts` deleted; CDK deps removed for those stacks (WebUIStack and its CDK deps remain)
+- [ ] **PULUMI-18**: S3 Vectors (2 indexes) and S3 Tables (Iceberg TableBucket) are wrapped in `aws.cloudformation.Stack` resources in the Pulumi compute stack — CFN templates extracted from `cdk synth` output
 
-### Agent Ops Migration (Dynamoose Rewrite)
+---
 
-- [x] **AOPS-01**: Prisma schema defines agent_ops_runs, agent_ops_events, scheduled_tasks, scheduled_task_locks
-- [x] **AOPS-02**: Agent ops run repository replaces all Dynamoose Model.create/get/query/update calls
-- [x] **AOPS-03**: Agent ops event repository handles chronological event recording and retrieval
-- [x] **AOPS-04**: Scheduled task repository handles CRUD + execution locking (ON CONFLICT for lock acquisition)
-- [x] **AOPS-05**: All ~15 agent-ops API routes work with PostgreSQL backend
-- [x] **AOPS-06**: findAwaitingApprovalRun queries use PostgreSQL WHERE instead of scanning 50+ records per source
-- [x] **AOPS-07**: TDD unit tests for all agent ops repositories (both backends)
-- [x] **AOPS-08**: Data migration script for agent ops (RUN#, EVENT#, SCHED# items from AgentOpsTable)
-- [x] **AOPS-09**: Playwright E2E tests verify agent ops dashboard, run listing, scheduled tasks
+## Future Requirements
 
-### LangGraph Persistence Migration
+- RDS/Aurora CDK stack for production PostgreSQL (from v1.0 active requirements)
+- RDS Proxy for Lambda connection pooling
+- Migrate WebUIStack from CDK to Pulumi (deferred — out of scope for v2.0)
+- CloudWatch alarms for PostgreSQL connection pool saturation
+- Full cutover: flip all USE_PG_* flags to true in production
 
-- [x] **LANG-01**: @langchain/langgraph-checkpoint-postgres replaces @farukada/aws-langgraph-dynamodb-ts for checkpoints and writes
-- [ ] **LANG-02**: PostgreSQL-backed chat message history replaces DynamoDBChatMessageHistory
-- [x] **LANG-03**: PostgreSQL-backed memory store replaces DynamoDBStore (with Bedrock embeddings)
-- [ ] **LANG-04**: persistence.ts updated to use PostgreSQL persistence with same public API
-- [x] **LANG-05**: Agent conversations table verified for usage; migrated if used, CDK definition dropped if dead code
-- [ ] **LANG-06**: TDD unit tests for chat history and memory store PostgreSQL implementations
-- [x] **LANG-07**: Playwright E2E tests verify agent chat, thread history, memory recall
-- [x] **LANG-08**: Data migration script for chat history and memory (or fresh start if ephemeral data is acceptable)
-
-### Data Migration Infrastructure
-
-- [x] **MIGR-01**: Each migration script uses AWS_PROFILE=PLATFORM-ADMIN for DynamoDB access
-- [x] **MIGR-02**: All scripts are idempotent (ON CONFLICT DO UPDATE) for safe re-runs
-- [x] **MIGR-03**: migrate-all.ts runs scripts in dependency order (tenants → accounts → schedules → ...)
-- [x] **MIGR-04**: verify-migration.ts compares row counts between DynamoDB and PostgreSQL per table
-- [x] **MIGR-05**: cleanup-expired.ts handles TTL replacement for all tables with expires_at
-- [x] **MIGR-06**: Progress logging shows "Migrated X/Y records..." during execution
-
-## v2 Requirements
-
-### Production Infrastructure
-- **PROD-01**: RDS PostgreSQL or Aurora Serverless v2 CDK stack
-- **PROD-02**: RDS Proxy for Lambda connection pooling in production
-- **PROD-03**: Remove DynamoDB table definitions from CDK after full cutover validation
-- **PROD-04**: pg_cron or EventBridge Lambda for TTL cleanup in production
-- **PROD-05**: CloudWatch alarms for PostgreSQL connection pool saturation
-
-### Performance
-- **PERF-01**: Keyset pagination for large datasets (audit logs, agent events)
-- **PERF-02**: Read replicas for heavy read queries (inventory, audit)
-- **PERF-03**: Connection pool monitoring dashboard
+---
 
 ## Out of Scope
 
-| Feature | Reason |
-|---------|--------|
-| Cloud PostgreSQL provisioning (RDS/Aurora) | Deferred — start with Docker locally, decide cloud DB later |
-| DynamoDB table removal from CDK | Tables stay as rollback path until full cutover validated |
-| Rewriting discovery Lambda to TypeScript | Keep Python, add psycopg2 — avoid risky rewrite |
-| DynamoDB-to-PostgreSQL real-time sync/CDC | One-time migration scripts sufficient |
-| Performance benchmarking DynamoDB vs PG | Migration correctness is priority |
-| Schema redesign beyond migration needs | Match existing data model, improve queries only |
-| Multi-region PostgreSQL | Not needed at current scale |
+- WebUIStack migration to Pulumi — stays in CDK; no benefit, adds risk
+- Importing existing live CDK-managed AWS resources into Pulumi state — blue/green fresh deploy instead
+- `@pulumi/cdk` adapter — defeats the migration purpose
+- `@pulumi/awsx` higher-level abstractions — use `@pulumi/aws` primitives for CDK parity
+- Pulumi Cloud backend — S3 backend is sufficient
+- Discovery Lambda rewrite from Python to TypeScript — stays Python per project constraints
+- Performance benchmarking CDK vs Pulumi deploy times
+
+---
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| FOUND-01 | Phase 1 | Complete |
-| FOUND-02 | Phase 1 | Complete |
-| FOUND-03 | Phase 1 | Pending |
-| FOUND-04 | Phase 1 | Pending |
-| FOUND-05 | Phase 1 | Complete |
-| FOUND-06 | Phase 1 | Complete |
-| TCFG-01 | Phase 1 | Complete |
-| TCFG-02 | Phase 1 | Pending |
-| TCFG-03 | Phase 1 | Pending |
-| TCFG-04 | Phase 1 | Pending |
-| TCFG-05 | Phase 1 | Pending |
-| TCFG-06 | Phase 1 | Pending |
-| TCFG-07 | Phase 1 | Complete |
-| TCFG-08 | Phase 1 | Pending |
-| ACCT-01 | Phase 2 | Complete |
-| ACCT-02 | Phase 2 | Complete |
-| ACCT-03 | Phase 2 | Complete |
-| ACCT-04 | Phase 2 | Complete |
-| ACCT-05 | Phase 2 | Pending |
-| ACCT-06 | Phase 2 | Pending |
-| ACCT-07 | Phase 2 | Pending |
-| ACCT-08 | Phase 2 | Complete |
-| ACCT-09 | Phase 2 | Complete |
-| ACCT-10 | Phase 2 | Complete |
-| SCHED-01 | Phase 3 | Complete |
-| SCHED-02 | Phase 3 | Complete |
-| SCHED-03 | Phase 3 | Complete |
-| SCHED-04 | Phase 3 | Complete |
-| SCHED-05 | Phase 3 | Complete |
-| SCHED-06 | Phase 3 | Complete |
-| SCHED-07 | Phase 3 | Complete |
-| SCHED-08 | Phase 3 | Complete |
-| SCHED-09 | Phase 3 | Complete |
-| SCHED-10 | Phase 3 | Complete |
-| SCHED-11 | Phase 3 | Complete |
-| SCHED-12 | Phase 3 | Complete |
-| SCHED-13 | Phase 3 | Complete |
-| KB-01 | Phase 4 | Complete |
-| KB-02 | Phase 4 | Complete |
-| KB-03 | Phase 4 | Complete |
-| KB-04 | Phase 4 | Complete |
-| KB-05 | Phase 4 | Complete |
-| KB-06 | Phase 4 | Complete |
-| KB-07 | Phase 4 | Complete |
-| KB-08 | Phase 4 | Complete |
-| KB-09 | Phase 4 | Complete |
-| AOPS-01 | Phase 4 | Complete |
-| AOPS-02 | Phase 4 | Complete |
-| AOPS-03 | Phase 4 | Complete |
-| AOPS-04 | Phase 4 | Complete |
-| AOPS-05 | Phase 4 | Complete |
-| AOPS-06 | Phase 4 | Complete |
-| AOPS-07 | Phase 4 | Complete |
-| AOPS-08 | Phase 4 | Complete |
-| AOPS-09 | Phase 4 | Complete |
-| LANG-01 | Phase 5 | Complete |
-| LANG-02 | Phase 5 | Pending |
-| LANG-03 | Phase 5 | Complete |
-| LANG-04 | Phase 5 | Pending |
-| LANG-05 | Phase 5 | Complete |
-| LANG-06 | Phase 5 | Pending |
-| LANG-07 | Phase 5 | Complete |
-| LANG-08 | Phase 5 | Complete |
-| MIGR-01 | Phase 1 | Complete |
-| MIGR-02 | Phase 1 | Complete |
-| MIGR-03 | Phase 5 | Complete |
-| MIGR-04 | Phase 5 | Complete |
-| MIGR-05 | Phase 3 | Complete |
-| MIGR-06 | Phase 1 | Complete |
-
-**Coverage:**
-- v1 requirements: 62 total
-- Mapped to phases: 62
-- Unmapped: 0
+| REQ-ID | Phase | Status |
+|--------|-------|--------|
+| PULUMI-01 | — | Pending |
+| PULUMI-02 | — | Pending |
+| PULUMI-03 | — | Pending |
+| PULUMI-04 | — | Pending |
+| PULUMI-05 | — | Pending |
+| PULUMI-06 | — | Pending |
+| PULUMI-07 | — | Pending |
+| PULUMI-08 | — | Pending |
+| PULUMI-09 | — | Pending |
+| PULUMI-10 | — | Pending |
+| PULUMI-11 | — | Pending |
+| PULUMI-12 | — | Pending |
+| PULUMI-13 | — | Pending |
+| PULUMI-14 | — | Pending |
+| PULUMI-15 | — | Pending |
+| PULUMI-16 | — | Pending |
+| PULUMI-17 | — | Pending |
+| PULUMI-18 | — | Pending |
 
 ---
-*Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 after roadmap creation — traceability confirmed 62/62*
+
+*Last updated: 2026-03-29 — v2.0 milestone requirements defined*
