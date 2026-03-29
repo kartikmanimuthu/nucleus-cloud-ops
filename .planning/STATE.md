@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 06-scaffold/06-01-PLAN.md
-last_updated: "2026-03-29T09:57:10.648Z"
+status: verifying
+stopped_at: Completed 06-scaffold/06-02-PLAN.md
+last_updated: "2026-03-29T10:09:33.758Z"
 last_activity: 2026-03-29
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 Phase: 06 (scaffold) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-29
 
 Progress: [░░░░░░░░░░] 0%
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 06-scaffold P01 | 8 | 2 tasks | 11 files |
+| Phase 06-scaffold P02 | 25 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Key decisions from research (2026-03-29):
 - S3 Vectors + S3 Tables deferred to Phase 11 — no native `@pulumi/aws` support; wrap in `aws.cloudformation.Stack`
 - [Phase 06-scaffold]: getOutput() used in compute StackReference (not requireOutput()) — networking has placeholder values during scaffold; Phase 8+ switches to requireOutput()
 - [Phase 06-scaffold]: infra/ subdirectory isolation: Pulumi tsconfig commonjs module prevents conflict with root CDK tsconfig
+- [Phase 06-scaffold]: KMS URI needs ?region=us-east-1 suffix — profile default region (ap-south-1) does not match bucket/key region (us-east-1)
+- [Phase 06-scaffold]: StackReference for S3 backend requires literal 'organization' prefix: organization/nucleus-networking/prod
 
 ### Pending Todos
 
@@ -91,6 +94,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-29T09:57:10.645Z
-Stopped at: Completed 06-scaffold/06-01-PLAN.md
+Last session: 2026-03-29T10:09:33.755Z
+Stopped at: Completed 06-scaffold/06-02-PLAN.md
 Resume file: None

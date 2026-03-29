@@ -10,7 +10,7 @@ Six phases migrate the core AWS infrastructure from CDK to Pulumi TypeScript. Ea
 - Phases 1–5 belong to v1.0 (DynamoDB → PostgreSQL migration, archived in `.planning/milestones/v1.0-ROADMAP.md`)
 - v2.0 continues from Phase 6
 
-- [ ] **Phase 6: Scaffold** - Pulumi toolchain installed, S3 backend configured, KMS secrets provider set up, both projects preview without error
+- [x] **Phase 6: Scaffold** - Pulumi toolchain installed, S3 backend configured, KMS secrets provider set up, both projects preview without error (completed 2026-03-29)
 - [ ] **Phase 7: Networking** - VPC, 4-tier subnets, NAT gateway, VPC endpoints deployed via Pulumi with stable stack outputs
 - [ ] **Phase 8: Data Layer** - All DynamoDB tables, S3 buckets, SQS queues, and Cognito resources deployed with retention protection
 - [ ] **Phase 9: Lambda + EventBridge** - Scheduler, VectorProcessor, KBSyncProcessor Lambdas and Discovery ECS task deployed with correct triggers
@@ -30,7 +30,7 @@ Six phases migrate the core AWS infrastructure from CDK to Pulumi TypeScript. Ea
 **Plans**: 2 plans
 Plans:
 - [x] 06-01-PLAN.md — Bootstrap script + networking and compute project scaffolds (11 files)
-- [ ] 06-02-PLAN.md — npm install, stack init, pulumi preview verification in both projects
+- [x] 06-02-PLAN.md — npm install, stack init, pulumi preview verification in both projects
 
 ### Phase 7: Networking
 **Goal**: A new VPC with 4-tier subnets, NAT gateway, and VPC endpoints is deployed via Pulumi and exports stable outputs for compute to consume
@@ -92,7 +92,7 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 6. Scaffold | 0/2 | Planning complete | - |
+| 6. Scaffold | 2/2 | Complete   | 2026-03-29 |
 | 7. Networking | 0/? | Not started | - |
 | 8. Data Layer | 0/? | Not started | - |
 | 9. Lambda + EventBridge | 0/? | Not started | - |
