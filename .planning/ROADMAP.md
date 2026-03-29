@@ -27,7 +27,10 @@ Six phases migrate the core AWS infrastructure from CDK to Pulumi TypeScript. Ea
   1. `pulumi preview` runs without error in both `infra/networking/` and `infra/compute/` against the S3 backend
   2. KMS secrets provider is configured — no passphrase required to unlock state
   3. `infra/` directory structure exists with two Pulumi projects, each with their own `package.json`, `tsconfig.json`, and `Pulumi.yaml`
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 06-01-PLAN.md — Bootstrap script + networking and compute project scaffolds (11 files)
+- [ ] 06-02-PLAN.md — npm install, stack init, pulumi preview verification in both projects
 
 ### Phase 7: Networking
 **Goal**: A new VPC with 4-tier subnets, NAT gateway, and VPC endpoints is deployed via Pulumi and exports stable outputs for compute to consume
@@ -89,7 +92,7 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 6. Scaffold | 0/? | Not started | - |
+| 6. Scaffold | 0/2 | Planning complete | - |
 | 7. Networking | 0/? | Not started | - |
 | 8. Data Layer | 0/? | Not started | - |
 | 9. Lambda + EventBridge | 0/? | Not started | - |
