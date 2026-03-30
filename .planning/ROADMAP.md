@@ -13,7 +13,7 @@ Six phases migrate the core AWS infrastructure from CDK to Pulumi TypeScript. Ea
 - [x] **Phase 6: Scaffold** - Pulumi toolchain installed, S3 backend configured, KMS secrets provider set up, both projects preview without error (completed 2026-03-29)
 - [x] **Phase 7: Networking** - VPC, 4-tier subnets, NAT gateway, VPC endpoints deployed via Pulumi with stable stack outputs (completed 2026-03-29)
 - [x] **Phase 8: Data Layer** - All DynamoDB tables, S3 buckets, SQS queues, and Cognito resources deployed with retention protection (completed 2026-03-30)
-- [ ] **Phase 9: Lambda + EventBridge** - Scheduler, VectorProcessor, KBSyncProcessor Lambdas and Discovery ECS task deployed with correct triggers
+- [x] **Phase 9: Lambda + EventBridge** - Scheduler, VectorProcessor, KBSyncProcessor Lambdas and Discovery ECS task deployed with correct triggers (completed 2026-03-30)
 - [ ] **Phase 10: ECS + ALB + CloudFront** - Web UI running on ECS Fargate behind ALB and CloudFront with all env vars wired from stack outputs
 - [ ] **Phase 11: Cutover + CDK Removal** - Stack outputs wired to web-ui env, CDK NetworkingStack + ComputeStack destroyed and source deleted
 
@@ -103,6 +103,6 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 | 6. Scaffold | 2/2 | Complete   | 2026-03-29 |
 | 7. Networking | 3/3 | Complete   | 2026-03-29 |
 | 8. Data Layer | 3/3 | Complete   | 2026-03-30 |
-| 9. Lambda + EventBridge | 1/3 | In Progress|  |
+| 9. Lambda + EventBridge | 3/3 | Complete   | 2026-03-30 |
 | 10. ECS + ALB + CloudFront | 0/? | Not started | - |
 | 11. Cutover + CDK Removal | 0/? | Not started | - |
