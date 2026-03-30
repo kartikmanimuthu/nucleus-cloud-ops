@@ -177,12 +177,14 @@ export default function SchedulesClient({
     router.push("/app/schedules/create");
   };
 
-  // Calculate summary statistics from ALL schedules, not just current page
+  // Calculate summary statistics — reflect filtered data when filters are active
+  const hasActiveFilters = statusFilter !== 'all' || resourceFilter !== 'all' || searchTerm;
+  const statsSource = hasActiveFilters ? schedules : allSchedules;
   const stats = {
-    total: allSchedules.length,
-    active: allSchedules.filter((s) => s.active).length,
-    inactive: allSchedules.filter((s) => !s.active).length,
-    totalSavings: allSchedules.reduce(
+    total: statsSource.length,
+    active: statsSource.filter((s) => s.active).length,
+    inactive: statsSource.filter((s) => !s.active).length,
+    totalSavings: statsSource.reduce(
       (sum, s) => sum + (s.estimatedSavings || 0),
       0
     ),

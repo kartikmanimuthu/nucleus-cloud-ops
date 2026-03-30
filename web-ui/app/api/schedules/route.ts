@@ -116,6 +116,17 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Validate start and end times are different
+        if (body.starttime === body.endtime) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: 'Start time and end time must be different',
+                },
+                { status: 400 }
+            );
+        }
+
         // Create schedule
         const schedule = await ScheduleService.createSchedule({
             ...body,

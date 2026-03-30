@@ -13,6 +13,25 @@ import { getPrismaClient } from '@/lib/db/pg-config';
 import type { UISchedule } from '@/lib/types';
 import type { IScheduleRepository, ScheduleFilters, SchedulePage } from './interface';
 
+const DAY_ORDER: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function computeNextExecution(days: string[], starttime: string, timezone: string, active: boolean): string | undefined {
+    if (!active || !days.length || !starttime) return undefined;
+    const now = new Date();
+    for (let offset = 0; offset < 7; offset++) {
+        const candidate = new Date(now.getTime() + offset * 86400000);
+        const dayName = DAY_NAMES[candidate.getDay()];
+        if (!days.includes(dayName)) continue;
+        const [hh, mm, ss] = starttime.split(':').map(Number);
+        const exec = new Date(candidate);
+        exec.setHours(hh, mm, ss || 0, 0);
+        if (exec > now) return exec.toISOString();
+    }
+    return undefined;
+}
+
 export class SchedulePostgresRepository implements IScheduleRepository {
     async getSchedules(filters: ScheduleFilters): Promise<SchedulePage> {
         try {
@@ -221,9 +240,9 @@ export class SchedulePostgresRepository implements IScheduleRepository {
             endtime: record.endtime,
             timezone: record.timezone,
             active: record.active,
-            days: record.days,
+            days: [...record.days].sort((a, b) => (DAY_ORDER[a] ?? 99) - (DAY_ORDER[b] ?? 99)),
             accounts: [record.accountId],
-            resourceTypes: resources.map((r) => r.type).filter(Boolean),
+            resourceTypes: [...new Set(resources.map((r) => r.type).filter(Boolean))],
             description: record.description ?? '',
             createdAt: record.createdAt.toISOString(),
             updatedAt: record.updatedAt.toISOString(),
@@ -233,6 +252,7 @@ export class SchedulePostgresRepository implements IScheduleRepository {
             executionCount: 0,
             successRate: 100,
             estimatedSavings: 0,
+            nextExecution: computeNextExecution(record.days, record.starttime, record.timezone, record.active),
         };
     }
 }

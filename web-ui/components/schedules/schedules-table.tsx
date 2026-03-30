@@ -236,9 +236,9 @@ export function SchedulesTable({
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {schedule.resourceTypes?.map((type: string) => (
+                      {schedule.resourceTypes?.map((type: string, index: number) => (
                         <Badge
-                          key={type}
+                          key={`${type}-${index}`}
                           variant="secondary"
                           className="text-xs bg-info/10 text-blue-800"
                         >

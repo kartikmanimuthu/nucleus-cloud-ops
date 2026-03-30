@@ -278,8 +278,8 @@ export function ScheduleDetailsDialog({
                   <div className="space-y-2">
                     <h4 className="text-sm font-medium">Resource Types</h4>
                     <div className="flex flex-wrap gap-1">
-                      {schedule.resourceTypes.map((type: string) => (
-                        <Badge key={type} variant="secondary">
+                      {schedule.resourceTypes.map((type: string, index: number) => (
+                        <Badge key={`${type}-${index}`} variant="secondary">
                           {type}
                         </Badge>
                       ))}

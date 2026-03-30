@@ -90,17 +90,21 @@ test.describe('Schedules -- PostgreSQL backend: server-side filtering', () => {
     });
 
     test('status filter sends query param to API (not client-side filtering)', async ({ page }) => {
-        // Open the status dropdown and select "Active Only"
-        await page.getByText('All Schedules').first().click();
-        await page.getByRole('option', { name: 'Active Only' }).first().click();
-
-        // Intercept the API call triggered by filter change
+        // Set up request interception BEFORE triggering the filter
         const requestPromise = page.waitForRequest(
             (req) =>
                 req.url().includes('/api/schedules') &&
                 req.url().includes('status'),
             { timeout: 10000 }
         );
+
+        // Open the status dropdown and select "Active Only"
+        await page.getByText('All Schedules').first().click();
+        await page.getByRole('option', { name: 'Active Only' }).first().click();
+
+        // Click "Apply Filters" to trigger the API call
+        const applyButton = page.getByRole('button', { name: /Apply Filters/i });
+        await applyButton.click();
 
         const request = await requestPromise;
         const url = new URL(request.url());
