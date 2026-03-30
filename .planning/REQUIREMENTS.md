@@ -16,7 +16,7 @@
 
 ### Data Layer
 
-- [ ] **PULUMI-04**: Engineer can deploy all 9 DynamoDB tables via Pulumi with correct schemas, GSIs, TTL attributes, and `retainOnDelete: true` protection matching the CDK definitions
+- [x] **PULUMI-04**: Engineer can deploy all 9 DynamoDB tables via Pulumi with correct schemas, GSIs, TTL attributes, and `retainOnDelete: true` protection matching the CDK definitions
 - [ ] **PULUMI-05**: Engineer can deploy all 4 S3 buckets via Pulumi with correct lifecycle rules (checkpoint 30d, agent-temp 1d, inventory raw 365d/exports 7d, kb-staging 1d)
 - [ ] **PULUMI-06**: Engineer can deploy VectorProcessing and KBSync SQS queue pairs with DLQs and a CloudWatch alarm on VectorProcessingDLQ (threshold=1)
 - [ ] **PULUMI-07**: Engineer can deploy Cognito UserPool, UserPoolDomain, UserPoolClient (with generated secret), and IdentityPool via Pulumi — client secret stored as Pulumi secret output
@@ -72,7 +72,7 @@
 | PULUMI-01 | Phase 6 | Complete |
 | PULUMI-02 | Phase 7 | Complete |
 | PULUMI-03 | Phase 7 | Complete |
-| PULUMI-04 | Phase 8 | Pending |
+| PULUMI-04 | Phase 8 | Complete |
 | PULUMI-05 | Phase 8 | Pending |
 | PULUMI-06 | Phase 8 | Pending |
 | PULUMI-07 | Phase 8 | Pending |

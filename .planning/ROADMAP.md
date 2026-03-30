@@ -56,7 +56,7 @@ Plans:
   3. Cognito UserPool, UserPoolClient, and IdentityPool deploy successfully — client secret is stored as a Pulumi secret output, not plaintext in stack outputs
 **Plans**: 3 plans
 Plans:
-- [ ] 08-01-PLAN.md — Define all 9 DynamoDB tables with schemas, GSIs, TTL, retainOnDelete + pulumi preview
+- [x] 08-01-PLAN.md — Define all 9 DynamoDB tables with schemas, GSIs, TTL, retainOnDelete + pulumi preview
 - [ ] 08-02-PLAN.md — S3 buckets with lifecycle rules + SQS queue pairs with DLQs + CloudWatch alarm + appUrl config
 - [ ] 08-03-PLAN.md — Cognito (UserPool, Domain, Client, IdentityPool, AuthRole) + stack outputs + pulumi up + human verify
 

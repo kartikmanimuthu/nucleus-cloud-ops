@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 07-networking/07-03-PLAN.md
-last_updated: "2026-03-29T19:15:25.478Z"
-last_activity: 2026-03-29
+status: executing
+stopped_at: Completed 08-data-layer/08-01-PLAN.md
+last_updated: "2026-03-30T08:42:55.454Z"
+last_activity: 2026-03-30
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack
-**Current focus:** Phase 07 — networking
+**Current focus:** Phase 08 — data-layer
 
 ## Current Position
 
-Phase: 8
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-03-29
+Phase: 08 (data-layer) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-03-30
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 07-networking P02 | 25 | 1 tasks | 1 files |
 | Phase 07-networking P03 | 8 | 1 tasks | 0 files |
 | Phase 07-networking P03 | 8 | 1 tasks | 0 files |
+| Phase 08-data-layer P01 | 3 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,7 @@ Key decisions from research (2026-03-29):
 - [Phase 07-networking]: No repo file changes on pulumi up — Pulumi state is in S3; task commit skipped (nothing to stage)
 - [Phase 07-networking]: databaseSubnetIds and intraSubnetIds Name tag filters confirmed correct at deploy time — each returned exactly 2 IDs
 - [Phase 07-networking]: compute requireOutput() resolves to vpc-0cd6e5fd607d1a494 — StackReference wiring is live and enforced
+- [Phase 08-data-layer]: Deprecated hashKey/rangeKey in globalSecondaryIndexes are warnings only — preview exits 0; no migration to key_schema needed for this phase
 
 ### Pending Todos
 
@@ -107,6 +109,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-29T19:14:28.249Z
-Stopped at: Completed 07-networking/07-03-PLAN.md
+Last session: 2026-03-30T08:42:55.451Z
+Stopped at: Completed 08-data-layer/08-01-PLAN.md
 Resume file: None
