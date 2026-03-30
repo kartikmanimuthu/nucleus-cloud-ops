@@ -186,7 +186,7 @@ def main():
             
             if args.inventory_table and dynamodb:
                 count = process_and_store_resources(
-                    dynamodb, s3, args.inventory_table, args.bucket, target_acc_id, resources, raw_results,
+                    dynamodb, s3, args.inventory_table, args.bucket, target_acc_id, '', resources, raw_results,
                     s3_table_bucket_arn=args.s3_table_bucket_arn,
                     s3_table_namespace=args.s3_table_namespace,
                     aws_region=boto3.session.Session().region_name or 'us-east-1',

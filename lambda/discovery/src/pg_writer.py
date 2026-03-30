@@ -10,8 +10,20 @@ Column names match the Prisma schema (camelCase, no @map on individual fields):
 import os
 import json
 import logging
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timezone, date
+from decimal import Decimal
 from typing import List, Dict, Any
+
+
+class _SafeEncoder(json.JSONEncoder):
+    """Handles datetime, date, and Decimal objects from AWS API responses."""
+    def default(self, o):
+        if isinstance(o, (datetime, date)):
+            return o.isoformat()
+        if isinstance(o, Decimal):
+            return float(o)
+        return super().default(o)
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +66,21 @@ def write_resources_to_pg(
 
     conn = get_connection()
     total = 0
+    # Deduplicate entire list on conflict key before batching
+    seen: dict = {}
+    for r in resources:
+        if not isinstance(r, dict):
+            continue
+        key = (
+            r.get('resourceType', r.get('resource_type', '')),
+            r.get('resourceId', r.get('resource_id', '')),
+        )
+        seen[key] = r
+    deduped = list(seen.values())
     try:
         with conn.cursor() as cur:
-            for i in range(0, len(resources), batch_size):
-                batch = resources[i:i + batch_size]
+            for i in range(0, len(deduped), batch_size):
+                batch = deduped[i:i + batch_size]
                 values_placeholders = []
                 params = []
 
@@ -68,14 +91,15 @@ def write_resources_to_pg(
                     name = r.get('name', r.get('resourceName', None))
                     # Use 'state' field as status (matches DynamoDB schema)
                     status = r.get('status', r.get('state', None))
-                    tags = json.dumps(r.get('tags', {}))
+                    tags = json.dumps(r.get('tags', {}), cls=_SafeEncoder)
                     # Everything not in typed columns goes to metadata JSONB
-                    metadata = json.dumps(r.get('metadata', r.get('details', {})))
+                    metadata = json.dumps(r.get('metadata', r.get('details', {})), cls=_SafeEncoder)
 
                     values_placeholders.append(
-                        "(%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW(), NOW())"
+                        "(%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW(), NOW())"
                     )
                     params.extend([
+                        str(uuid.uuid4()),
                         tenant_id, account_id, region, resource_type,
                         resource_id, name, status, tags, metadata,
                     ])
@@ -85,7 +109,7 @@ def write_resources_to_pg(
 
                 sql = """
                     INSERT INTO inventory_resources
-                        ("tenantId", "accountId", region, "resourceType", "resourceId",
+                        (id, "tenantId", "accountId", region, "resourceType", "resourceId",
                          name, status, tags, metadata, "discoveredAt", "updatedAt")
                     VALUES {placeholders}
                     ON CONFLICT ("tenantId", "accountId", "resourceType", "resourceId")

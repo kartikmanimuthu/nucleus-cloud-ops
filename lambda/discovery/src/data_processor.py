@@ -841,6 +841,8 @@ def process_and_store_resources(
     items_to_write = []
     
     for resource in resources:
+        if not isinstance(resource, dict):
+            continue
         resource_arn = generate_resource_arn(resource, account_id)
         resource_type = resource.get('resourceType', 'unknown')
         resource_id = resource.get('resourceId', 'unknown')
@@ -989,6 +991,8 @@ def _store_normalized_for_vectors(
     # Serialize without rawData to keep the file small
     normalized = []
     for r in resources:
+        if not isinstance(r, dict):
+            continue
         item = {
             'resourceId': r.get('resourceId', ''),
             'resourceArn': r.get('resourceArn', ''),
