@@ -15,7 +15,7 @@ Six phases migrate the core AWS infrastructure from CDK to Pulumi TypeScript. Ea
 - [x] **Phase 8: Data Layer** - All DynamoDB tables, S3 buckets, SQS queues, and Cognito resources deployed with retention protection (completed 2026-03-30)
 - [x] **Phase 9: Lambda + EventBridge** - Scheduler, VectorProcessor, KBSyncProcessor Lambdas and Discovery ECS task deployed with correct triggers (completed 2026-03-30)
 - [x] **Phase 10: ECS + ALB + CloudFront** - Web UI running on ECS Fargate behind ALB and CloudFront with all env vars wired from stack outputs (completed 2026-03-30)
-- [ ] **Phase 11: Cutover + CDK Removal** - Stack outputs wired to web-ui env, CDK NetworkingStack + ComputeStack destroyed and source deleted
+- [x] **Phase 11: Cutover + CDK Removal** - Stack outputs wired to web-ui env, CDK NetworkingStack + ComputeStack destroyed and source deleted (completed 2026-03-30)
 
 ## Phase Details
 
@@ -98,7 +98,7 @@ Plans:
 Plans:
 - [x] 11-01-PLAN.md — generate-env.ts script (Pulumi stack output to web-ui/.env.local)
 - [x] 11-02-PLAN.md — S3 Vectors + S3 Tables CFN template extraction and aws.cloudformation.Stack wrapping
-- [ ] 11-03-PLAN.md — CDK source deletion + bin/webUIStack.ts entry point + cdk.json update + human verify
+- [x] 11-03-PLAN.md — CDK source deletion + bin/webUIStack.ts entry point + cdk.json update + human verify
 
 ## Progress
 
@@ -113,4 +113,4 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 | 8. Data Layer | 3/3 | Complete   | 2026-03-30 |
 | 9. Lambda + EventBridge | 3/3 | Complete   | 2026-03-30 |
 | 10. ECS + ALB + CloudFront | 3/3 | Complete   | 2026-03-30 |
-| 11. Cutover + CDK Removal | 2/3 | In Progress|  |
+| 11. Cutover + CDK Removal | 3/3 | Complete   | 2026-03-30 |

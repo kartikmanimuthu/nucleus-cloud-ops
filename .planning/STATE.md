@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 11-cutover-cdk-removal/11-02-PLAN.md — S3 Vectors + S3 Tables CFN wrappers added to Pulumi compute stack
-last_updated: "2026-03-30T13:59:50.440Z"
+status: verifying
+stopped_at: Completed 11-cutover-cdk-removal/11-03-PLAN.md — awaiting human checkpoint Task 3
+last_updated: "2026-03-30T14:04:41.426Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 Phase: 11 (cutover-cdk-removal) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-30
 
 Progress: [░░░░░░░░░░] 0%
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 10-ecs-alb-cloudfront P03 | 31 | 1 tasks | 2 files |
 | Phase 11-cutover-cdk-removal P01 | 2 | 1 tasks | 1 files |
 | Phase 11-cutover-cdk-removal P02 | 12 | 2 tasks | 3 files |
+| Phase 11-cutover-cdk-removal P03 | 3 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,8 @@ Key decisions from research (2026-03-29):
 - [Phase 11-cutover-cdk-removal]: S3 Vectors CFN template includes 21 resources: VectorBucket custom resource + 2 index custom resources with Lambda-backed providers and IAM roles
 - [Phase 11-cutover-cdk-removal]: cdk synth requires APP_NAME/AWS_ACCOUNT_ID/AWS_REGION env vars + AWS_PROFILE env var (not --profile flag which is a stack selector)
 - [Phase 11-cutover-cdk-removal]: templateBody read via fs.readFileSync inline (not S3-hosted) per CONTEXT.md locked decision; CAPABILITY_IAM required for vectors template IAM resources
+- [Phase 11-cutover-cdk-removal]: bin/webUIStack.ts omits schedulerLambdaArn — optional prop, can be wired via CDK context later if needed
+- [Phase 11-cutover-cdk-removal]: CDK package.json dependencies preserved — WebUIStack still requires aws-cdk-lib, constructs, etc.
 
 ### Pending Todos
 
@@ -140,6 +143,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-30T13:59:50.437Z
-Stopped at: Completed 11-cutover-cdk-removal/11-02-PLAN.md — S3 Vectors + S3 Tables CFN wrappers added to Pulumi compute stack
+Last session: 2026-03-30T14:04:41.422Z
+Stopped at: Completed 11-cutover-cdk-removal/11-03-PLAN.md — awaiting human checkpoint Task 3
 Resume file: None
