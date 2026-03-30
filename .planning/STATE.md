@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 10-ecs-alb-cloudfront/10-01-PLAN.md
-last_updated: "2026-03-30T11:39:57.051Z"
+stopped_at: Completed 10-ecs-alb-cloudfront/10-02-PLAN.md
+last_updated: "2026-03-30T11:45:05.416Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 14
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 10 (ecs-alb-cloudfront) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-30
 
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 09-lambda-eventbridge P09-02 | 3 | 2 tasks | 1 files |
 | Phase 09-lambda-eventbridge P09-03 | 11 | 2 tasks | 1 files |
 | Phase 10-ecs-alb-cloudfront P01 | 18 | 2 tasks | 4 files |
+| Phase 10-ecs-alb-cloudfront P02 | 12 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,9 @@ Key decisions from research (2026-03-29):
 - [Phase 10-ecs-alb-cloudfront]: webUiImageUri stored in Pulumi config — executor sets after running build-images.sh
 - [Phase 10-ecs-alb-cloudfront]: nextauthSecret uses config.requireSecret() — KMS-encrypted in Pulumi state, not plaintext
 - [Phase 10-ecs-alb-cloudfront]: Discovery task def corrected 256/512 -> 1024/2048 CPU/MiB to match CDK (Phase 9 deployed wrong values)
+- [Phase 10-ecs-alb-cloudfront]: ALB inbound restricted to CloudFront managed prefix list — not open to internet
+- [Phase 10-ecs-alb-cloudfront]: ECS service desiredCount=0 at deploy — scale up after smoke testing
+- [Phase 10-ecs-alb-cloudfront]: dependsOn: [httpListener] on ECS service ensures listener exists before target registration
 
 ### Pending Todos
 
@@ -126,6 +130,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-30T11:39:57.047Z
-Stopped at: Completed 10-ecs-alb-cloudfront/10-01-PLAN.md
+Last session: 2026-03-30T11:45:05.400Z
+Stopped at: Completed 10-ecs-alb-cloudfront/10-02-PLAN.md
 Resume file: None
