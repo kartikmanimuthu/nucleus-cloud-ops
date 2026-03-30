@@ -12,6 +12,7 @@ const appUrl = config.get("appUrl") ?? "https://placeholder.cloudfront.net";
 const subscriptionEmails = config.get("subscriptionEmails") ?? "";
 const crossAccountRoleName = config.get("crossAccountRoleName") ?? "NucleusAccess";
 const vectorBucketName = config.get("vectorBucketName") ?? "";
+const discoveryImageUri = config.get("discoveryImageUri") ?? "";
 
 // Phase 7+: Networking stack is deployed — use requireOutput() to enforce dependency.
 // requireOutput() throws at preview time if networking stack is not deployed,
@@ -966,6 +967,171 @@ new aws.lambda.EventSourceMapping("kb-sync-processor-sqs-trigger", {
 });
 
 // ============================================================================
+// DISCOVERY ECS TASK DEFINITION + IAM + SECURITY GROUP + EVENTBRIDGE RULE
+// ============================================================================
+
+// CloudWatch Log Group for Discovery
+const discoveryLogGroup = new aws.cloudwatch.LogGroup("discovery-log-group", {
+    name: "/ecs/nucleus-cloud-ops-discovery",
+    retentionInDays: 14,
+});
+
+// Discovery ECS Execution Role — ECR pull + CloudWatch logs
+const discoveryExecutionRole = new aws.iam.Role("discovery-execution-role", {
+    name: "nucleus-cloud-ops-discovery-execution-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "ecs-tasks.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+});
+
+new aws.iam.RolePolicyAttachment("discovery-execution-role-policy", {
+    role: discoveryExecutionRole.name,
+    policyArn: "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+});
+
+// Discovery Task Role — cross-account STS, DynamoDB, S3, S3Tables, CloudWatch Logs
+const discoveryTaskRole = new aws.iam.Role("discovery-task-role", {
+    name: "nucleus-cloud-ops-discovery-task-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "ecs-tasks.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+});
+
+new aws.iam.RolePolicy("discovery-task-role-policy", {
+    role: discoveryTaskRole.id,
+    policy: pulumi.all([
+        appTable.arn,
+        inventoryTable.arn,
+        auditTable.arn,
+        inventoryBucket.arn,
+        discoveryLogGroup.arn,
+    ]).apply(([appArn, inventoryArn, auditArn, bucketArn, logGroupArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                {
+                    Effect: "Allow",
+                    Action: ["sts:AssumeRole"],
+                    Resource: [
+                        `arn:aws:iam::*:role/${crossAccountRoleName}`,
+                        "arn:aws:iam::*:role/NucleusAccess-*",
+                    ],
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem"],
+                    Resource: [appArn, `${appArn}/index/*`],
+                },
+                {
+                    Effect: "Allow",
+                    Action: [
+                        "dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan",
+                        "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem",
+                        "dynamodb:DeleteItem",
+                    ],
+                    Resource: [inventoryArn, `${inventoryArn}/index/*`],
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["dynamodb:PutItem"],
+                    Resource: [auditArn],
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
+                    Resource: [bucketArn, `${bucketArn}/*`],
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["s3tables:*"],
+                    Resource: ["*"],
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
+                    Resource: [logGroupArn],
+                },
+            ],
+        })
+    ),
+});
+
+// Discovery Security Group — egress only (AWS API calls)
+const discoverySecurityGroup = new aws.ec2.SecurityGroup("discovery-sg", {
+    name: "nucleus-cloud-ops-discovery-sg",
+    description: "Security Group for AWS Auto-Discovery ECS Task",
+    vpcId: vpcId,
+    egress: [{
+        fromPort: 0,
+        toPort: 0,
+        protocol: "-1",
+        cidrBlocks: ["0.0.0.0/0"],
+        description: "Allow all outbound for AWS API calls",
+    }],
+});
+
+// Discovery ECS Task Definition — ARM64, FARGATE, 256 CPU / 512 MiB
+const discoveryTaskDef = new aws.ecs.TaskDefinition("discovery-task-def", {
+    family: "nucleus-cloud-ops-discovery",
+    cpu: "256",
+    memory: "512",
+    networkMode: "awsvpc",
+    requiresCompatibilities: ["FARGATE"],
+    executionRoleArn: discoveryExecutionRole.arn,
+    taskRoleArn: discoveryTaskRole.arn,
+    runtimePlatform: {
+        cpuArchitecture: "ARM64",
+        operatingSystemFamily: "LINUX",
+    },
+    containerDefinitions: pulumi.all([
+        appTable.name,
+        auditTable.name,
+        inventoryBucket.bucket,
+        discoveryLogGroup.name,
+    ]).apply(([appTableN, auditTableN, inventoryBucketN, logGroupN]) =>
+        JSON.stringify([{
+            name: "DiscoveryContainer",
+            image: discoveryImageUri || "public.ecr.aws/docker/library/python:3.12-slim",
+            essential: true,
+            environment: [
+                { name: "APP_TABLE_NAME", value: appTableN },
+                { name: "AUDIT_TABLE_NAME", value: auditTableN },
+                { name: "INVENTORY_BUCKET_NAME", value: inventoryBucketN },
+                { name: "AWS_REGION", value: region },
+                { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
+            ],
+            logConfiguration: {
+                logDriver: "awslogs",
+                options: {
+                    "awslogs-group": logGroupN,
+                    "awslogs-region": region,
+                    "awslogs-stream-prefix": "discovery",
+                },
+            },
+        }])
+    ),
+});
+
+// EventBridge Rule — on-demand StartDiscovery trigger (Phase 10 adds ECS target)
+const discoveryTriggerRule = new aws.cloudwatch.EventRule("discovery-trigger-rule", {
+    name: "nucleus-cloud-ops-discovery-trigger-rule",
+    eventPattern: JSON.stringify({
+        source: ["nucleus.app"],
+        "detail-type": ["StartDiscovery"],
+    }),
+});
+
+// ============================================================================
 // STACK OUTPUTS
 // ============================================================================
 
@@ -1015,3 +1181,9 @@ export const snsTopicArn = snsTopic.arn;
 // VectorProcessor + KBSyncProcessor exports
 export const vectorProcessorArn = vectorProcessorLambda.arn;
 export const kbSyncProcessorArn = kbSyncProcessorLambda.arn;
+
+// Discovery ECS task exports
+export const discoveryTaskDefinitionArn = discoveryTaskDef.arn;
+export const discoveryTaskRoleArn = discoveryTaskRole.arn;
+export const discoveryExecutionRoleArn = discoveryExecutionRole.arn;
+export const discoverySecurityGroupId = discoverySecurityGroup.id;
