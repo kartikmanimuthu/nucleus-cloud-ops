@@ -5,7 +5,10 @@ config:
   nucleus-compute:discoveryImageUri: ""
   nucleus-compute:crossAccountRoleName: "NucleusAccess"
   nucleus-compute:vectorBucketName: ""
-  nucleus-compute:webUiImageUri: ""
+  nucleus-compute:webUiImageUri: "970547372609.dkr.ecr.us-east-1.amazonaws.com/nucleus-cloud-ops-web-ui:latest"
   # nextauthSecret: run: cd infra/compute && pulumi config set --secret nextauthSecret "change-in-production"
+
+  nucleus-compute:nextauthSecret:
+    secure: v1:WvdMHHoiYq5ViD1H:hQgCfrd9Lu5Pj410uRyGzkedLGyiq2uXFH4afXfvCAh+mIau
 secretsprovider: awskms://alias/pulumi-secrets?region=us-east-1
 encryptedkey: AQICAHgKGeti15Vdcfk9By77gHbFq3IykDNyF5lB23hWk4E3nQHc6Ho6T+iM2Lo+gStzUwciAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMSen7cscQDJw7g6O0AgEQgDtbSSbyQ9dbVjvoDRwP98DBGvCn3npSNyqIH/WM7bUniLKiQRJs1gEPJYRNPm56IG9vCpJ8IE2G5KHweQ==

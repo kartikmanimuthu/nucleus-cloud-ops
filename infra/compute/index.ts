@@ -1456,7 +1456,7 @@ const cloudFrontPrefixList = aws.ec2.getManagedPrefixListOutput({
 // ALB Security Group — inbound port 80 from CloudFront managed prefix list only
 const albSecurityGroup = new aws.ec2.SecurityGroup("alb-sg", {
     name: "nucleus-cloud-ops-alb-sg",
-    description: "Security group for WebUI ALB — CloudFront origin only",
+    description: "Security group for WebUI ALB - CloudFront origin only",
     vpcId: vpcId,
     ingress: [{
         fromPort: 80,
@@ -1477,7 +1477,7 @@ const albSecurityGroup = new aws.ec2.SecurityGroup("alb-sg", {
 // ECS Service Security Group — inbound port 3000 from ALB security group only
 const ecsServiceSecurityGroup = new aws.ec2.SecurityGroup("ecs-service-sg", {
     name: "nucleus-cloud-ops-ecs-service-sg",
-    description: "Security group for WebUI ECS tasks — ALB traffic only",
+    description: "Security group for WebUI ECS tasks - ALB traffic only",
     vpcId: vpcId,
     ingress: [{
         fromPort: 3000,
@@ -1665,3 +1665,160 @@ export const discoveryTaskDefinitionArn = discoveryTaskDef.arn;
 export const discoveryTaskRoleArn = discoveryTaskRole.arn;
 export const discoveryExecutionRoleArn = discoveryExecutionRole.arn;
 export const discoverySecurityGroupId = discoverySecurityGroup.id;
+
+// ============================================================================
+// CLOUDFRONT DISTRIBUTION
+// ============================================================================
+
+// Stable origin verify secret — random.RandomString does NOT change on every preview
+// (unlike crypto.randomBytes which would force CloudFront update on every deploy)
+const originVerifySecret = new random.RandomString("origin-verify-secret", {
+    length: 32,
+    special: false,
+});
+
+const cloudFrontDistribution = new aws.cloudfront.Distribution("web-ui-cloudfront", {
+    enabled: true,
+    comment: "Nucleus Cloud Ops WebUI",
+    defaultRootObject: "",
+    httpVersion: "http2",
+    isIpv6Enabled: true,
+    priceClass: "PriceClass_All",
+
+    origins: [{
+        domainName: alb.dnsName,
+        originId: "alb-origin",
+        customOriginConfig: {
+            httpPort: 80,
+            httpsPort: 443,
+            originProtocolPolicy: "http-only",
+            originSslProtocols: ["TLSv1.2"],
+            originReadTimeout: 60,
+            originKeepaliveTimeout: 60,
+        },
+        customHeaders: [{
+            name: "X-Origin-Verify",
+            value: originVerifySecret.result,
+        }],
+    }],
+
+    defaultCacheBehavior: {
+        targetOriginId: "alb-origin",
+        viewerProtocolPolicy: "redirect-to-https",
+        allowedMethods: ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"],
+        cachedMethods: ["GET", "HEAD"],
+        compress: true,
+        // Caching disabled — forward all requests to ALB
+        forwardedValues: {
+            queryString: true,
+            headers: ["*"],
+            cookies: { forward: "all" },
+        },
+        minTtl: 0,
+        defaultTtl: 0,
+        maxTtl: 0,
+    },
+
+    restrictions: {
+        geoRestriction: {
+            restrictionType: "none",
+        },
+    },
+
+    viewerCertificate: {
+        cloudfrontDefaultCertificate: true,
+    },
+});
+
+// ============================================================================
+// DISCOVERY EVENTBRIDGE SCHEDULER (deferred from Phase 9 — needs cluster ARN)
+// ============================================================================
+
+// Scheduler IAM Role — allows EventBridge Scheduler to run ECS tasks
+const discoverySchedulerRole = new aws.iam.Role("discovery-scheduler-role", {
+    name: "nucleus-cloud-ops-discovery-scheduler-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "scheduler.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+});
+
+new aws.iam.RolePolicy("discovery-scheduler-ecs-policy", {
+    role: discoverySchedulerRole.id,
+    policy: pulumi.all([
+        discoveryTaskDef.arn,
+        discoveryExecutionRole.arn,
+        discoveryTaskRole.arn,
+    ]).apply(([taskDefArn, execRoleArn, taskRoleArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                {
+                    Effect: "Allow",
+                    Action: ["ecs:RunTask"],
+                    Resource: [taskDefArn],
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["iam:PassRole"],
+                    Resource: [execRoleArn, taskRoleArn],
+                },
+            ],
+        })
+    ),
+});
+
+// Daily Discovery Schedule — 2AM UTC
+const dailyDiscoverySchedule = new aws.scheduler.Schedule("daily-discovery-schedule", {
+    name: "nucleus-cloud-ops-daily-discovery",
+    description: "Runs AWS resource discovery daily at 2:00 AM UTC",
+    scheduleExpression: "cron(0 2 * * ? *)",
+    flexibleTimeWindow: { mode: "OFF" },
+    state: "ENABLED",
+    target: {
+        arn: ecsCluster.arn,
+        roleArn: discoverySchedulerRole.arn,
+        ecsParameters: {
+            taskDefinitionArn: discoveryTaskDef.arn,
+            launchType: "FARGATE",
+            taskCount: 1,
+            networkConfiguration: {
+                subnets: privateSubnetIds,
+                securityGroups: [discoverySecurityGroup.id],
+                assignPublicIp: false,
+            },
+        },
+    },
+});
+
+// Wire on-demand StartDiscovery rule to ECS cluster (deferred from Phase 9)
+new aws.cloudwatch.EventTarget("discovery-trigger-target", {
+    rule: discoveryTriggerRule.name,
+    arn: ecsCluster.arn,
+    roleArn: discoverySchedulerRole.arn,  // reuse same role — has ecs:RunTask + iam:PassRole
+    ecsTarget: {
+        taskDefinitionArn: discoveryTaskDef.arn,
+        launchType: "FARGATE",
+        taskCount: 1,
+        networkConfiguration: {
+            subnets: privateSubnetIds,
+            securityGroups: [discoverySecurityGroup.id],
+            assignPublicIp: false,
+        },
+    },
+});
+
+// ============================================================================
+// PHASE 10 STACK OUTPUTS — ECS + ALB + CloudFront
+// ============================================================================
+
+export const webUiServiceName = webUiService.name;
+export const albDnsName = alb.dnsName;
+export const albArn = alb.arn;
+export const cloudFrontUrl = pulumi.interpolate`https://${cloudFrontDistribution.domainName}`;
+export const cloudFrontDistributionId = cloudFrontDistribution.id;
+export const originVerifySecretValue = pulumi.secret(originVerifySecret.result);
