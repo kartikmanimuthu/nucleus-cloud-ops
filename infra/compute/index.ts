@@ -561,6 +561,7 @@ export const vectorProcessingQueueArn = vectorProcessingQueue.arn;
 export const vectorProcessingDlqArn = vectorProcessingDlq.arn;
 export const kbSyncQueueUrl = kbSyncQueue.url;
 export const kbSyncQueueArn = kbSyncQueue.arn;
+export const kbSyncDlqArn = kbSyncDlq.arn;
 // Cognito exports
 export const cognitoUserPoolId = userPool.id;
 export const cognitoUserPoolArn = userPool.arn;
