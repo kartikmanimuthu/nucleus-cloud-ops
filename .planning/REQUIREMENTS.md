@@ -30,7 +30,7 @@
 
 ### Compute — ECS + ALB + CloudFront
 
-- [ ] **PULUMI-12**: Engineer can deploy ECS Fargate cluster and WebUI task definition (ARM64) via Pulumi with all 30+ container env vars wired from stack outputs via `pulumi.all()`
+- [x] **PULUMI-12**: Engineer can deploy ECS Fargate cluster and WebUI task definition (ARM64) via Pulumi with all 30+ container env vars wired from stack outputs via `pulumi.all()`
 - [ ] **PULUMI-13**: Engineer can deploy ECS Fargate service via Pulumi with `forceNewDeployment: true`, deployment circuit breaker (enable + rollback), ALB target group, and auto scaling (CPU 70% + Memory 75%)
 - [ ] **PULUMI-14**: Engineer can deploy ALB with HTTP listener (idleTimeout=1200s) and health check on `/api/health` via Pulumi
 - [ ] **PULUMI-15**: Engineer can deploy CloudFront distribution via Pulumi with ALB origin, caching disabled, and a stable `random.RandomString` origin verify secret (not `crypto.randomBytes`)
@@ -80,7 +80,7 @@
 | PULUMI-09 | Phase 9 | Complete |
 | PULUMI-10 | Phase 9 | Complete |
 | PULUMI-11 | Phase 9 + Phase 10 | Complete |
-| PULUMI-12 | Phase 10 | Pending |
+| PULUMI-12 | Phase 10 | Complete |
 | PULUMI-13 | Phase 10 | Pending |
 | PULUMI-14 | Phase 10 | Pending |
 | PULUMI-15 | Phase 10 | Pending |

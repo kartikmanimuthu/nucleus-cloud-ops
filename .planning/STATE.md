@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 09-lambda-eventbridge/09-03-PLAN.md — awaiting human verification
-last_updated: "2026-03-30T10:49:52.464Z"
+status: executing
+stopped_at: Completed 10-ecs-alb-cloudfront/10-01-PLAN.md
+last_updated: "2026-03-30T11:39:57.051Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 14
+  completed_plans: 12
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack
-**Current focus:** Phase 09 — lambda-eventbridge
+**Current focus:** Phase 10 — ecs-alb-cloudfront
 
 ## Current Position
 
-Phase: 09 (lambda-eventbridge) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 10 (ecs-alb-cloudfront) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-03-30
 
 Progress: [░░░░░░░░░░] 0%
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 09-lambda-eventbridge P09-01 | 8 | 2 tasks | 5 files |
 | Phase 09-lambda-eventbridge P09-02 | 3 | 2 tasks | 1 files |
 | Phase 09-lambda-eventbridge P09-03 | 11 | 2 tasks | 1 files |
+| Phase 10-ecs-alb-cloudfront P01 | 18 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,9 @@ Key decisions from research (2026-03-29):
 - [Phase 09-lambda-eventbridge]: aws.lambda.Function uses name not functionName — Pulumi API difference from CDK NodejsFunction
 - [Phase 09-lambda-eventbridge]: VECTOR_BUCKET_ARN and KB_VECTOR_BUCKET_NAME are intentional placeholders — Phase 11 wires real S3 Vectors bucket
 - [Phase 09-lambda-eventbridge]: Discovery ECS task definition created without cluster ARN — Phase 10 adds EventBridge Scheduler target when cluster exists
+- [Phase 10-ecs-alb-cloudfront]: webUiImageUri stored in Pulumi config — executor sets after running build-images.sh
+- [Phase 10-ecs-alb-cloudfront]: nextauthSecret uses config.requireSecret() — KMS-encrypted in Pulumi state, not plaintext
+- [Phase 10-ecs-alb-cloudfront]: Discovery task def corrected 256/512 -> 1024/2048 CPU/MiB to match CDK (Phase 9 deployed wrong values)
 
 ### Pending Todos
 
@@ -122,6 +126,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-30T10:49:52.461Z
-Stopped at: Completed 09-lambda-eventbridge/09-03-PLAN.md — awaiting human verification
+Last session: 2026-03-30T11:39:57.047Z
+Stopped at: Completed 10-ecs-alb-cloudfront/10-01-PLAN.md
 Resume file: None

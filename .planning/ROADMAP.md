@@ -81,7 +81,7 @@ Plans:
   4. All 30+ container env vars are populated from stack outputs via `pulumi.all()` — no hardcoded resource IDs in the task definition
 **Plans**: 3 plans
 Plans:
-- [ ] 10-01-PLAN.md — ECR repo + build script + ECS cluster + IAM roles + WebUI task definition with 30+ env vars
+- [x] 10-01-PLAN.md — ECR repo + build script + ECS cluster + IAM roles + WebUI task definition with 30+ env vars
 - [ ] 10-02-PLAN.md — ALB + target group + HTTP listener + ECS Fargate service + auto scaling
 - [ ] 10-03-PLAN.md — CloudFront distribution + Discovery EventBridge Scheduler + stack outputs + pulumi up + human verify
 
@@ -108,5 +108,5 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 | 7. Networking | 3/3 | Complete   | 2026-03-29 |
 | 8. Data Layer | 3/3 | Complete   | 2026-03-30 |
 | 9. Lambda + EventBridge | 3/3 | Complete   | 2026-03-30 |
-| 10. ECS + ALB + CloudFront | 0/? | Not started | - |
+| 10. ECS + ALB + CloudFront | 1/3 | In Progress|  |
 | 11. Cutover + CDK Removal | 0/? | Not started | - |
