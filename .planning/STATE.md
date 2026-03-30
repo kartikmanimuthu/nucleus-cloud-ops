@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 10-ecs-alb-cloudfront/10-02-PLAN.md
-last_updated: "2026-03-30T11:45:05.416Z"
+status: verifying
+stopped_at: Completed 10-ecs-alb-cloudfront/10-03-PLAN.md — awaiting human verification checkpoint
+last_updated: "2026-03-30T12:20:27.760Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 Phase: 10 (ecs-alb-cloudfront) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-30
 
 Progress: [░░░░░░░░░░] 0%
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 09-lambda-eventbridge P09-03 | 11 | 2 tasks | 1 files |
 | Phase 10-ecs-alb-cloudfront P01 | 18 | 2 tasks | 4 files |
 | Phase 10-ecs-alb-cloudfront P02 | 12 | 2 tasks | 1 files |
+| Phase 10-ecs-alb-cloudfront P03 | 31 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,9 @@ Key decisions from research (2026-03-29):
 - [Phase 10-ecs-alb-cloudfront]: ALB inbound restricted to CloudFront managed prefix list — not open to internet
 - [Phase 10-ecs-alb-cloudfront]: ECS service desiredCount=0 at deploy — scale up after smoke testing
 - [Phase 10-ecs-alb-cloudfront]: dependsOn: [httpListener] on ECS service ensures listener exists before target registration
+- [Phase 10-ecs-alb-cloudfront]: random.RandomString for CloudFront origin verify secret — stable value prevents CloudFront replacement on every pulumi preview
+- [Phase 10-ecs-alb-cloudfront]: AWS EC2 security group descriptions must use ASCII only — em dash causes 400 InvalidParameterValue error
+- [Phase 10-ecs-alb-cloudfront]: Public ECR requires separate auth (aws ecr-public get-login-password) before docker build — not covered by private ECR login
 
 ### Pending Todos
 
@@ -130,6 +134,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-30T11:45:05.400Z
-Stopped at: Completed 10-ecs-alb-cloudfront/10-02-PLAN.md
+Last session: 2026-03-30T12:20:27.756Z
+Stopped at: Completed 10-ecs-alb-cloudfront/10-03-PLAN.md — awaiting human verification checkpoint
 Resume file: None

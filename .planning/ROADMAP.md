@@ -14,7 +14,7 @@ Six phases migrate the core AWS infrastructure from CDK to Pulumi TypeScript. Ea
 - [x] **Phase 7: Networking** - VPC, 4-tier subnets, NAT gateway, VPC endpoints deployed via Pulumi with stable stack outputs (completed 2026-03-29)
 - [x] **Phase 8: Data Layer** - All DynamoDB tables, S3 buckets, SQS queues, and Cognito resources deployed with retention protection (completed 2026-03-30)
 - [x] **Phase 9: Lambda + EventBridge** - Scheduler, VectorProcessor, KBSyncProcessor Lambdas and Discovery ECS task deployed with correct triggers (completed 2026-03-30)
-- [ ] **Phase 10: ECS + ALB + CloudFront** - Web UI running on ECS Fargate behind ALB and CloudFront with all env vars wired from stack outputs
+- [x] **Phase 10: ECS + ALB + CloudFront** - Web UI running on ECS Fargate behind ALB and CloudFront with all env vars wired from stack outputs (completed 2026-03-30)
 - [ ] **Phase 11: Cutover + CDK Removal** - Stack outputs wired to web-ui env, CDK NetworkingStack + ComputeStack destroyed and source deleted
 
 ## Phase Details
@@ -83,7 +83,7 @@ Plans:
 Plans:
 - [x] 10-01-PLAN.md — ECR repo + build script + ECS cluster + IAM roles + WebUI task definition with 30+ env vars
 - [x] 10-02-PLAN.md — ALB + target group + HTTP listener + ECS Fargate service + auto scaling
-- [ ] 10-03-PLAN.md — CloudFront distribution + Discovery EventBridge Scheduler + stack outputs + pulumi up + human verify
+- [x] 10-03-PLAN.md — CloudFront distribution + Discovery EventBridge Scheduler + stack outputs + pulumi up + human verify
 
 ### Phase 11: Cutover + CDK Removal
 **Goal**: Pulumi is the sole IaC for NetworkingStack and ComputeStack — CDK stacks are destroyed, source files deleted, and S3 Vectors/Tables wrapped in CloudFormation
@@ -108,5 +108,5 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 | 7. Networking | 3/3 | Complete   | 2026-03-29 |
 | 8. Data Layer | 3/3 | Complete   | 2026-03-30 |
 | 9. Lambda + EventBridge | 3/3 | Complete   | 2026-03-30 |
-| 10. ECS + ALB + CloudFront | 2/3 | In Progress|  |
+| 10. ECS + ALB + CloudFront | 3/3 | Complete   | 2026-03-30 |
 | 11. Cutover + CDK Removal | 0/? | Not started | - |
