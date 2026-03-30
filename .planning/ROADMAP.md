@@ -103,6 +103,6 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 | 6. Scaffold | 2/2 | Complete   | 2026-03-29 |
 | 7. Networking | 3/3 | Complete   | 2026-03-29 |
 | 8. Data Layer | 3/3 | Complete   | 2026-03-30 |
-| 9. Lambda + EventBridge | 0/? | Not started | - |
+| 9. Lambda + EventBridge | 1/3 | In Progress|  |
 | 10. ECS + ALB + CloudFront | 0/? | Not started | - |
 | 11. Cutover + CDK Removal | 0/? | Not started | - |

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 08-data-layer/08-03-PLAN.md — awaiting human verify
-last_updated: "2026-03-30T08:59:19.130Z"
+status: executing
+stopped_at: Completed 09-lambda-eventbridge/09-01-PLAN.md
+last_updated: "2026-03-30T10:30:19.437Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 11
+  completed_plans: 9
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack
-**Current focus:** Phase 08 — data-layer
+**Current focus:** Phase 09 — lambda-eventbridge
 
 ## Current Position
 
-Phase: 08 (data-layer) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 09 (lambda-eventbridge) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-03-30
 
 Progress: [░░░░░░░░░░] 0%
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 08-data-layer P01 | 3 | 2 tasks | 1 files |
 | Phase 08-data-layer P02 | 6 | 2 tasks | 2 files |
 | Phase 08-data-layer P03 | 10 | 2 tasks | 1 files |
+| Phase 09-lambda-eventbridge P09-01 | 8 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,9 @@ Key decisions from research (2026-03-29):
 - [Phase 08-data-layer]: Deprecated hashKey/rangeKey in globalSecondaryIndexes are warnings only — preview exits 0; no migration to key_schema needed for this phase
 - [Phase 08-data-layer]: Used aws.getCallerIdentityOutput() instead of top-level await — tsconfig commonjs module incompatible with top-level await
 - [Phase 08-data-layer]: cognitoUserPoolClientSecret exported as pulumi.secret() — encrypted in Pulumi state, shows [secret] in stack output
+- [Phase 09-lambda-eventbridge]: npm ci required before esbuild for scheduler Lambda (uuid, dayjs, pg are non-AWS-SDK deps not in Lambda runtime)
+- [Phase 09-lambda-eventbridge]: vector_processor esbuild runs from project root — no package.json, needs root node_modules for @aws-sdk/client-s3vectors and @prisma/client
+- [Phase 09-lambda-eventbridge]: lambda.zip files added to .gitignore — build artifacts produced by infra/build-lambdas.sh, not committed to source
 
 ### Pending Todos
 
@@ -113,6 +117,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-30T08:59:19.127Z
-Stopped at: Completed 08-data-layer/08-03-PLAN.md — awaiting human verify
+Last session: 2026-03-30T10:30:19.434Z
+Stopped at: Completed 09-lambda-eventbridge/09-01-PLAN.md
 Resume file: None
