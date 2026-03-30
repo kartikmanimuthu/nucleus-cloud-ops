@@ -1,5 +1,25 @@
 # Milestones
 
+## v2.0 Pulumi IaC Migration (Shipped: 2026-03-30)
+
+**Phases completed:** 6 phases (6–11), 17 plans
+**Timeline:** 2026-03-29 → 2026-03-30
+
+**Key accomplishments:**
+
+- Pulumi TypeScript project scaffold with S3 backend + KMS secrets provider — no passphrase, CI-ready
+- `nucleus-vpc` deployed via `awsx.ec2.Vpc` — 4-tier subnets, 2 NAT gateways, S3+DynamoDB gateway endpoints, stable StackReference outputs
+- All 9 DynamoDB tables + 4 S3 buckets + 4 SQS queues + CloudWatch alarm + full Cognito stack deployed with `retainOnDelete: true`
+- 3 TypeScript Lambdas (Scheduler, VectorProcessor, KBSyncProcessor) + Discovery ECS task deployed with esbuild pre-build script and correct SQS/EventBridge triggers
+- ECS Fargate + ALB + CloudFront deployed with 50+ env vars wired via `pulumi.all()`, `forceNewDeployment: true`, circuit breaker, auto scaling
+- `scripts/generate-env.ts` generates `web-ui/.env.local` from `pulumi stack output --json --show-secrets`
+- CDK NetworkingStack + ComputeStack source files deleted; `bin/webUIStack.ts` created; WebUIStack CDK synth verified
+- S3 Vectors + S3 Tables wrapped in `aws.cloudformation.Stack` using CFN templates from `cdk synth`
+
+**Archive:** `.planning/milestones/v2.0-ROADMAP.md`
+
+---
+
 ## v1.0 DynamoDB to PostgreSQL Migration (Shipped: 2026-03-28)
 
 **Phases completed:** 5 phases, 28 plans, 41 tasks

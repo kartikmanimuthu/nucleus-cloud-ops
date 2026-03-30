@@ -2,13 +2,80 @@
 
 ## What This Is
 
-AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops agent powered by AWS Bedrock. v1.0 completed a full DynamoDB → PostgreSQL migration (Prisma ORM, repository pattern, feature flags, pgvector). v2.0 replaces AWS CDK with Pulumi TypeScript for the core infrastructure stacks (NetworkingStack + ComputeStack), using an S3 backend for state.
+AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops agent powered by AWS Bedrock. v1.0 completed a full DynamoDB → PostgreSQL migration (Prisma ORM, repository pattern, feature flags, pgvector). v2.0 replaced AWS CDK with Pulumi TypeScript for the core infrastructure stacks (NetworkingStack + ComputeStack), using an S3 backend for state.
 
 ## Core Value
 
 A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managing all core AWS infrastructure (VPC, ECS Fargate, ALB, CloudFront, Lambda, DynamoDB, SQS, EventBridge, Cognito) — CDK removed for migrated stacks, WebUIStack stays in CDK.
 
-## Current Milestone: v2.0 Pulumi IaC Migration
+## Current State (v2.0 — SHIPPED 2026-03-30)
+
+- **All 6 phases complete** (Phases 6–11) — 17 plans, 18/18 requirements
+- **infra/networking/**: `nucleus-vpc` live (`vpc-0cd6e5fd607d1a494`), 4-tier subnets, 2 NAT gateways
+- **infra/compute/**: 49 stack outputs — all DynamoDB tables, S3 buckets, SQS queues, Cognito, Lambdas, ECS, ALB, CloudFront
+- **CloudFront URL**: `https://d11lr8aqp8vqde.cloudfront.net`
+- **CDK source deleted**: `lib/networkingStack.ts`, `lib/computeStack.ts`, `bin/cdkStack.ts` removed
+- **WebUIStack**: stays in CDK, new entry point `bin/webUIStack.ts`
+- **scripts/generate-env.ts**: generates `web-ui/.env.local` from Pulumi stack outputs
+- **S3 Vectors + S3 Tables**: wrapped in `aws.cloudformation.Stack`
+
+## Next Milestone: v3.0 (TBD)
+
+Run `/gsd:new-milestone` to define v3.0 goals.
+
+**Candidates from backlog:**
+- CDK NetworkingStack + ComputeStack destruction (manual step deferred from v2.0)
+- Wire real S3 Vectors bucket ARN to VectorProcessor/KBSyncProcessor Lambda env vars
+- RDS/Aurora for production PostgreSQL (from v1.0 future requirements)
+- WebUIStack migration to Pulumi
+- Full USE_PG_* feature flag cutover in production
+
+## Requirements
+
+### Validated — v1.0
+
+- ✓ Docker Compose + Prisma ORM foundation — v1.0
+- ✓ All 8 DynamoDB tables migrated to PostgreSQL with repository pattern — v1.0
+- ✓ Data migration scripts (migrate-all.ts + verify-migration.ts) — v1.0
+- ✓ Unit tests (TDD) for each repository implementation — v1.0
+- ✓ Playwright E2E tests for all migrated modules — v1.0
+
+### Validated — v2.0
+
+- ✓ Pulumi project scaffold: S3 backend, KMS secrets provider — PULUMI-01
+- ✓ NetworkingStack: VPC, 4-tier subnets, NAT gateway, VPC endpoints — PULUMI-02, PULUMI-03
+- ✓ Data Layer: 9 DynamoDB tables, 4 S3 buckets, SQS, Cognito — PULUMI-04 through PULUMI-07
+- ✓ Lambda + EventBridge: Scheduler, VectorProcessor, KBSyncProcessor, Discovery — PULUMI-08 through PULUMI-11
+- ✓ ECS + ALB + CloudFront: Fargate service, circuit breaker, auto scaling — PULUMI-12 through PULUMI-15
+- ✓ Cutover: generate-env.ts, CDK source deleted, S3 Vectors/Tables wrapped — PULUMI-16 through PULUMI-18
+
+### Out of Scope
+
+- Rewriting discovery Lambda from Python to TypeScript
+- Performance benchmarking CDK vs Pulumi deploy times
+- WebUIStack migration to Pulumi (v2.0 scope)
+
+## Key Decisions
+
+| Decision | Rationale | Outcome |
+|----------|-----------|---------|
+| Prisma ORM over Drizzle | User prefers Prisma DX | ✓ Shipped v1.0 |
+| Repository pattern with feature flags | Zero-downtime migration | ✓ Shipped v1.0 |
+| S3 backend (no DynamoDB lock) | Pulumi uses S3 conditional writes | ✓ Shipped v2.0 |
+| KMS secrets provider | No passphrase; CI-ready | ✓ Shipped v2.0 |
+| `@pulumi/aws` primitives only | CDK parity easier to verify | ✓ Shipped v2.0 |
+| Explicit physical names | Pulumi auto-naming causes delete+create on rename | ✓ Shipped v2.0 |
+| `retainOnDelete: true` on tables/buckets | Protection against accidental destroy | ✓ Shipped v2.0 |
+| `awsx.ec2.Vpc` for networking | Matches CDK abstraction level | ✓ Shipped v2.0 |
+| Blue/green cutover | CDK stays live until Pulumi smoke-tested | ✓ Shipped v2.0 |
+| CDK destruction is manual | User controls timing after production verification | ✓ Deferred |
+
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+---
+*Last updated: 2026-03-30 — v2.0 milestone shipped*
 
 **Goal:** Replace AWS CDK with Pulumi TypeScript for NetworkingStack and ComputeStack — full rewrite, CDK removed for those stacks.
 

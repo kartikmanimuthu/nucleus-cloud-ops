@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: verifying
-stopped_at: Completed 11-cutover-cdk-removal/11-03-PLAN.md — awaiting human checkpoint Task 3
-last_updated: "2026-03-30T14:04:41.426Z"
+milestone: v2.0
+milestone_name: Pulumi IaC Migration
+status: complete
+stopped_at: v2.0 milestone shipped 2026-03-30
+last_updated: "2026-03-30T14:30:00.000Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
   completed_phases: 6
   total_plans: 17
   completed_plans: 17
-  percent: 0
+  percent: 100
 ---
 
 # Project State
