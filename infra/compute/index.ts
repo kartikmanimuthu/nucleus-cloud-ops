@@ -9,6 +9,8 @@ const region = aws.config.region ?? "us-east-1";
 // Pulumi config
 const config = new pulumi.Config();
 const appUrl = config.get("appUrl") ?? "https://placeholder.cloudfront.net";
+const subscriptionEmails = config.get("subscriptionEmails") ?? "";
+const crossAccountRoleName = config.get("crossAccountRoleName") ?? "NucleusAccess";
 
 // Phase 7+: Networking stack is deployed — use requireOutput() to enforce dependency.
 // requireOutput() throws at preview time if networking stack is not deployed,
@@ -528,6 +530,143 @@ new aws.cognito.IdentityPoolRoleAttachment("web-ui-identity-pool-role-attachment
 });
 
 // ============================================================================
+// SNS TOPIC
+// ============================================================================
+
+const snsTopic = new aws.sns.Topic("scheduler-sns-topic", {
+    name: "nucleus-cloud-ops-sns-topic",
+});
+
+// Email subscriptions from config (comma-separated, skip empty)
+const emails = subscriptionEmails.split(",").map((e: string) => e.trim()).filter((e: string) => e.length > 0);
+emails.forEach((email: string, i: number) => {
+    new aws.sns.TopicSubscription(`sns-email-sub-${i}`, {
+        topic: snsTopic.arn,
+        protocol: "email",
+        endpoint: email,
+    });
+});
+
+// ============================================================================
+// SCHEDULER LAMBDA
+// ============================================================================
+
+// IAM Role for Scheduler Lambda
+const schedulerLambdaRole = new aws.iam.Role("scheduler-lambda-role", {
+    name: "nucleus-cloud-ops-lambda-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "lambda.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+    managedPolicyArns: [
+        "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+    ],
+});
+
+// Inline policy — DynamoDB access on app + audit tables
+new aws.iam.RolePolicy("scheduler-lambda-dynamodb-policy", {
+    role: schedulerLambdaRole.id,
+    policy: pulumi.all([appTable.arn, auditTable.arn]).apply(([appArn, auditArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "dynamodb:GetItem", "dynamodb:Scan", "dynamodb:Query",
+                    "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
+                    "dynamodb:BatchWriteItem",
+                ],
+                Resource: [
+                    appArn, `${appArn}/index/*`,
+                    auditArn, `${auditArn}/index/*`,
+                ],
+            }],
+        })
+    ),
+});
+
+// Inline policy — cross-account STS AssumeRole
+new aws.iam.RolePolicy("scheduler-lambda-sts-policy", {
+    role: schedulerLambdaRole.id,
+    policy: pulumi.output(crossAccountRoleName).apply(roleName =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["sts:AssumeRole"],
+                Resource: [
+                    `arn:aws:iam::*:role/${roleName}`,
+                    "arn:aws:iam::*:role/NucleusAccess-*",
+                ],
+            }],
+        })
+    ),
+});
+
+// Inline policy — SNS Publish
+new aws.iam.RolePolicy("scheduler-lambda-sns-policy", {
+    role: schedulerLambdaRole.id,
+    policy: snsTopic.arn.apply(topicArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["sns:Publish"],
+                Resource: [topicArn],
+            }],
+        })
+    ),
+});
+
+// Scheduler Lambda Function
+const schedulerLambda = new aws.lambda.Function("scheduler-lambda", {
+    name: "nucleus-cloud-ops-function",
+    role: schedulerLambdaRole.arn,
+    runtime: "nodejs20.x",
+    architectures: ["arm64"],
+    handler: "index.handler",
+    code: new pulumi.asset.FileArchive("../../lambda/scheduler/lambda.zip"),
+    timeout: 900,
+    memorySize: 1024,
+    environment: {
+        variables: {
+            APP_TABLE_NAME: appTable.name,
+            AUDIT_TABLE_NAME: auditTable.name,
+            CROSS_ACCOUNT_ROLE_ARN: schedulerLambdaRole.arn,
+            SCHEDULER_TAG: "cost-optimization-scheduler",
+            SNS_TOPIC_ARN: snsTopic.arn,
+            HUB_ACCOUNT_ID: accountId,
+            NEXT_PUBLIC_HUB_ACCOUNT_ID: accountId,
+        },
+    },
+});
+
+// ============================================================================
+// EVENTBRIDGE RULE — Scheduler cron trigger
+// ============================================================================
+
+const schedulerRule = new aws.cloudwatch.EventRule("scheduler-trigger-rule", {
+    name: "nucleus-cloud-ops-rule",
+    scheduleExpression: "cron(0,30 * * * ? *)",
+});
+
+new aws.cloudwatch.EventTarget("scheduler-trigger-target", {
+    rule: schedulerRule.name,
+    arn: schedulerLambda.arn,
+});
+
+new aws.lambda.Permission("scheduler-eventbridge-permission", {
+    action: "lambda:InvokeFunction",
+    function: schedulerLambda.name,
+    principal: "events.amazonaws.com",
+    sourceArn: schedulerRule.arn,
+});
+
+// ============================================================================
 // STACK OUTPUTS
 // ============================================================================
 
@@ -569,3 +708,7 @@ export const cognitoUserPoolClientId = userPoolClient.id;
 export const cognitoUserPoolClientSecret = pulumi.secret(userPoolClient.clientSecret);
 export const cognitoIdentityPoolId = identityPool.id;
 export const cognitoDomainPrefix = pulumi.interpolate`nucleus-cloud-ops-web-ui-auth-${accountId}`;
+
+// Scheduler Lambda + SNS exports
+export const schedulerLambdaArn = schedulerLambda.arn;
+export const snsTopicArn = snsTopic.arn;
