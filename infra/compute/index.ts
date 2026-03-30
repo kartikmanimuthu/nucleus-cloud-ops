@@ -1,5 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
+import * as random from "@pulumi/random";
 
 // Account ID + region for resource name suffixes (no top-level await needed)
 const callerIdentity = aws.getCallerIdentityOutput({});
@@ -13,6 +14,8 @@ const subscriptionEmails = config.get("subscriptionEmails") ?? "";
 const crossAccountRoleName = config.get("crossAccountRoleName") ?? "NucleusAccess";
 const vectorBucketName = config.get("vectorBucketName") ?? "";
 const discoveryImageUri = config.get("discoveryImageUri") ?? "";
+const webUiImageUri = config.require("webUiImageUri");
+const nextauthSecret = config.requireSecret("nextauthSecret");
 
 // Phase 7+: Networking stack is deployed — use requireOutput() to enforce dependency.
 // requireOutput() throws at preview time if networking stack is not deployed,
@@ -1080,11 +1083,11 @@ const discoverySecurityGroup = new aws.ec2.SecurityGroup("discovery-sg", {
     }],
 });
 
-// Discovery ECS Task Definition — ARM64, FARGATE, 256 CPU / 512 MiB
+// Discovery ECS Task Definition — ARM64, FARGATE, 1024 CPU / 2048 MiB (matches CDK)
 const discoveryTaskDef = new aws.ecs.TaskDefinition("discovery-task-def", {
     family: "nucleus-cloud-ops-discovery",
-    cpu: "256",
-    memory: "512",
+    cpu: "1024",
+    memory: "2048",
     networkMode: "awsvpc",
     requiresCompatibilities: ["FARGATE"],
     executionRoleArn: discoveryExecutionRole.arn,
@@ -1132,8 +1135,324 @@ const discoveryTriggerRule = new aws.cloudwatch.EventRule("discovery-trigger-rul
 });
 
 // ============================================================================
+// ECS + ALB + CLOUDFRONT
+// ============================================================================
+
+// ECR Repository — WebUI container images
+const ecrRepository = new aws.ecr.Repository("web-ui-ecr-repo", {
+    name: "nucleus-cloud-ops-web-ui",
+    imageTagMutability: "MUTABLE",
+    forceDelete: false,
+});
+
+// ECS Cluster
+const ecsCluster = new aws.ecs.Cluster("web-ui-ecs-cluster", {
+    name: "nucleus-cloud-ops-ecs-cluster",
+    settings: [{ name: "containerInsights", value: "enabled" }],
+});
+
+// WebUI CloudWatch Log Group
+const webUiLogGroup = new aws.cloudwatch.LogGroup("web-ui-log-group", {
+    name: "/ecs/nucleus-cloud-ops-web-ui-service",
+    retentionInDays: 7,
+});
+
+// ECS Task Execution Role — ECR pull + CloudWatch logs
+const ecsTaskExecutionRole = new aws.iam.Role("ecs-task-execution-role", {
+    name: "nucleus-cloud-ops-ecs-execution-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "ecs-tasks.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+});
+
+new aws.iam.RolePolicyAttachment("ecs-task-execution-role-policy", {
+    role: ecsTaskExecutionRole.name,
+    policyArn: "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+});
+
+// ECS Task Role — application permissions
+const ecsTaskRole = new aws.iam.Role("ecs-task-role", {
+    name: "nucleus-cloud-ops-ecs-task-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "ecs-tasks.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+});
+
+// 5a. DynamoDB — read/write on all 9 tables + GSI indexes
+new aws.iam.RolePolicy("ecs-task-dynamodb-policy", {
+    role: ecsTaskRole.id,
+    policy: pulumi.all([
+        appTable.arn, auditTable.arn, inventoryTable.arn,
+        usersTeamsTable.arn, checkpointTable.arn, writesTable.arn,
+        chatHistoryTable.arn, memoryTable.arn, agentOpsTable.arn,
+    ]).apply(([appArn, auditArn, inventoryArn, usersTeamsArn, checkpointArn, writesArn, chatHistoryArn, memoryArn, agentOpsArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
+                    "dynamodb:BatchWriteItem", "dynamodb:BatchGetItem",
+                ],
+                Resource: [
+                    appArn, `${appArn}/index/*`,
+                    auditArn, `${auditArn}/index/*`,
+                    inventoryArn, `${inventoryArn}/index/*`,
+                    usersTeamsArn, `${usersTeamsArn}/index/*`,
+                    checkpointArn, `${checkpointArn}/index/*`,
+                    writesArn, `${writesArn}/index/*`,
+                    chatHistoryArn, `${chatHistoryArn}/index/*`,
+                    memoryArn, `${memoryArn}/index/*`,
+                    agentOpsArn, `${agentOpsArn}/index/*`,
+                ],
+            }],
+        })
+    ),
+});
+
+// 5b. S3 — read/write on 4 buckets
+new aws.iam.RolePolicy("ecs-task-s3-policy", {
+    role: ecsTaskRole.id,
+    policy: pulumi.all([
+        checkpointBucket.arn, agentTempBucket.arn,
+        inventoryBucket.arn, kbStagingBucket.arn,
+    ]).apply(([cpArn, atArn, invArn, kbArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+                    "s3:ListBucket", "s3:GetBucketLocation",
+                ],
+                Resource: [
+                    cpArn, `${cpArn}/*`,
+                    atArn, `${atArn}/*`,
+                    invArn, `${invArn}/*`,
+                    kbArn, `${kbArn}/*`,
+                ],
+            }],
+        })
+    ),
+});
+
+// 5c. SQS — SendMessage on kbSyncQueue
+new aws.iam.RolePolicy("ecs-task-sqs-policy", {
+    role: ecsTaskRole.id,
+    policy: kbSyncQueue.arn.apply(queueArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["sqs:SendMessage"],
+                Resource: [queueArn],
+            }],
+        })
+    ),
+});
+
+// 5d. Bedrock — InvokeModel
+new aws.iam.RolePolicy("ecs-task-bedrock-policy", {
+    role: ecsTaskRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+// 5e. STS — cross-account AssumeRole
+new aws.iam.RolePolicy("ecs-task-sts-policy", {
+    role: ecsTaskRole.id,
+    policy: pulumi.output(crossAccountRoleName).apply(roleName =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["sts:AssumeRole"],
+                Resource: [
+                    "arn:aws:iam::*:role/NucleusAccess-*",
+                    `arn:aws:iam::*:role/${roleName}`,
+                ],
+            }],
+        })
+    ),
+});
+
+// 5f. S3Vectors — placeholder ARNs (Phase 11 scopes to real bucket)
+new aws.iam.RolePolicy("ecs-task-s3vectors-policy", {
+    role: ecsTaskRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: [
+                "s3vectors:QueryVectors", "s3vectors:PutVectors",
+                "s3vectors:DeleteVectors", "s3vectors:GetVectors",
+                "s3vectors:ListVectorIndices",
+            ],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+// 5g. CloudWatch Logs
+new aws.iam.RolePolicy("ecs-task-logs-policy", {
+    role: ecsTaskRole.id,
+    policy: webUiLogGroup.arn.apply(logArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
+                Resource: [logArn, `${logArn}:*`],
+            }],
+        })
+    ),
+});
+
+// WebUI Task Definition — ARM64, FARGATE, 512 CPU / 1024 MiB
+const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
+    family: "nucleus-cloud-ops-web-ui-task",
+    cpu: "512",
+    memory: "1024",
+    networkMode: "awsvpc",
+    requiresCompatibilities: ["FARGATE"],
+    executionRoleArn: ecsTaskExecutionRole.arn,
+    taskRoleArn: ecsTaskRole.arn,
+    runtimePlatform: {
+        cpuArchitecture: "ARM64",
+        operatingSystemFamily: "LINUX",
+    },
+    containerDefinitions: pulumi.all([
+        appTable.name,
+        auditTable.name,
+        checkpointTable.name,
+        writesTable.name,
+        checkpointBucket.bucket,
+        chatHistoryTable.name,
+        memoryTable.name,
+        usersTeamsTable.name,
+        userPool.id,
+        userPoolClient.id,
+        userPoolClient.clientSecret,
+        identityPool.id,
+        inventoryBucket.bucket,
+        inventoryTable.name,
+        kbSyncQueue.url,
+        kbStagingBucket.bucket,
+        agentTempBucket.bucket,
+        agentOpsTable.name,
+        schedulerLambda.arn,
+        ecsTaskRole.arn,
+        webUiLogGroup.name,
+        accountId,
+        nextauthSecret,
+    ]).apply(([
+        appTableN, auditTableN, checkpointTableN, writesTableN,
+        checkpointBucketN, chatHistoryTableN, memoryTableN, usersTeamsTableN,
+        cognitoPoolId, cognitoClientId, cognitoClientSecret, identityPoolId,
+        inventoryBucketN, inventoryTableN, kbSyncQueueUrl, kbStagingBucketN,
+        agentTempBucketN, agentOpsTableN, schedulerLambdaArnVal, ecsTaskRoleArnVal,
+        webUiLogGroupN, acctId, nextauthSecretVal,
+    ]) => JSON.stringify([{
+        name: "WebUIContainer",
+        image: webUiImageUri,
+        essential: true,
+        portMappings: [{ containerPort: 3000, hostPort: 3000, protocol: "tcp" }],
+        logConfiguration: {
+            logDriver: "awslogs",
+            options: {
+                "awslogs-group": webUiLogGroupN,
+                "awslogs-region": region,
+                "awslogs-stream-prefix": "web-ui",
+            },
+        },
+        environment: [
+            { name: "NODE_ENV", value: "production" },
+            { name: "PORT", value: "3000" },
+            { name: "AWS_REGION", value: region },
+            { name: "NEXT_PUBLIC_AWS_REGION", value: region },
+            { name: "NEXT_PUBLIC_HUB_ACCOUNT_ID", value: acctId },
+            { name: "HUB_ACCOUNT_ID", value: acctId },
+            { name: "APP_TABLE_NAME", value: appTableN },
+            { name: "NEXT_PUBLIC_APP_TABLE_NAME", value: appTableN },
+            { name: "AUDIT_TABLE_NAME", value: auditTableN },
+            { name: "NEXT_PUBLIC_AUDIT_TABLE_NAME", value: auditTableN },
+            { name: "DYNAMODB_CHECKPOINT_TABLE", value: checkpointTableN },
+            { name: "DYNAMODB_WRITES_TABLE", value: writesTableN },
+            { name: "CHECKPOINT_S3_BUCKET", value: checkpointBucketN },
+            { name: "DYNAMODB_CHAT_HISTORY_TABLE", value: chatHistoryTableN },
+            { name: "DYNAMODB_MEMORY_TABLE", value: memoryTableN },
+            { name: "DYNAMODB_USERS_TEAMS_TABLE", value: usersTeamsTableN },
+            { name: "COGNITO_USER_POOL_ID", value: cognitoPoolId },
+            { name: "NEXT_PUBLIC_COGNITO_USER_POOL_ID", value: cognitoPoolId },
+            { name: "COGNITO_USER_POOL_CLIENT_ID", value: cognitoClientId },
+            { name: "NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID", value: cognitoClientId },
+            { name: "COGNITO_CLIENT_SECRET", value: cognitoClientSecret },
+            { name: "COGNITO_DOMAIN", value: `nucleus-cloud-ops-web-ui-auth-${acctId}.auth.${region}.amazoncognito.com` },
+            { name: "NEXT_PUBLIC_COGNITO_DOMAIN", value: `nucleus-cloud-ops-web-ui-auth-${acctId}.auth.${region}.amazoncognito.com` },
+            { name: "COGNITO_REGION", value: region },
+            { name: "NEXT_PUBLIC_COGNITO_REGION", value: region },
+            { name: "COGNITO_IDENTITY_POOL_ID", value: identityPoolId },
+            { name: "NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID", value: identityPoolId },
+            { name: "NEXTAUTH_URL", value: appUrl },
+            { name: "NEXT_PUBLIC_NEXTAUTH_URL", value: appUrl },
+            { name: "NEXTAUTH_SECRET", value: nextauthSecretVal },
+            { name: "COGNITO_ISSUER", value: `https://cognito-idp.${region}.amazonaws.com/${cognitoPoolId}` },
+            { name: "NEXT_PUBLIC_COGNITO_ISSUER", value: `https://cognito-idp.${region}.amazonaws.com/${cognitoPoolId}` },
+            { name: "AWS_LAMBDA_EXECUTION_ROLE_ARN", value: ecsTaskRoleArnVal },
+            { name: "NEXT_PUBLIC_AWS_LAMBDA_EXECUTION_ROLE_ARN", value: ecsTaskRoleArnVal },
+            { name: "AWS_USE_STS", value: "true" },
+            { name: "NEXT_PUBLIC_AWS_USE_STS", value: "true" },
+            { name: "COGNITO_APP_CLIENT_ID", value: cognitoClientId },
+            { name: "COGNITO_APP_CLIENT_SECRET", value: cognitoClientSecret },
+            { name: "DATA_DIR", value: "/tmp" },
+            { name: "SCHEDULER_LAMBDA_ARN", value: schedulerLambdaArnVal },
+            { name: "EVENTBRIDGE_RULE_NAME", value: "nucleus-cloud-ops-rule" },
+            { name: "AGENT_TEMP_BUCKET", value: agentTempBucketN },
+            { name: "AGENT_OPS_TABLE_NAME", value: agentOpsTableN },
+            { name: "INVENTORY_BUCKET_NAME", value: inventoryBucketN },
+            { name: "INVENTORY_TABLE_NAME", value: inventoryTableN },
+            { name: "VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
+            { name: "VECTOR_INDEX_NAME", value: "text-embeddings" },
+            { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
+            { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
+            { name: "KB_VECTOR_INDEX_NAME", value: "knowledge-base-embeddings" },
+            { name: "KB_SYNC_QUEUE_URL", value: kbSyncQueueUrl },
+            { name: "KB_STAGING_BUCKET_NAME", value: kbStagingBucketN },
+            { name: "ASK_AI_GENERATION_MODEL", value: "global.anthropic.claude-sonnet-4-6" },
+            { name: "LANGFUSE_ENABLED", value: "false" },
+            { name: "LANGFUSE_PUBLIC_KEY", value: "" },
+            { name: "LANGFUSE_SECRET_KEY", value: "" },
+            { name: "LANGFUSE_HOST", value: "https://cloud.langfuse.com" },
+        ],
+    }])),
+});
+
+// ============================================================================
 // STACK OUTPUTS
 // ============================================================================
+
+// ECS + ECR exports (Phase 10)
+export const ecsClusterArn = ecsCluster.arn;
+export const ecsClusterName = ecsCluster.name;
+export const ecrRepositoryUri = ecrRepository.repositoryUrl;
+export const webUiTaskDefinitionArn = webUiTaskDef.arn;
 
 export const networkingVpcId = vpcId;
 export const networkingVpcCidr = vpcCidr;
