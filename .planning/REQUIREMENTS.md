@@ -79,7 +79,7 @@
 | PULUMI-08 | Phase 9 | Pending |
 | PULUMI-09 | Phase 9 | Pending |
 | PULUMI-10 | Phase 9 | Pending |
-| PULUMI-11 | Phase 9 | Pending |
+| PULUMI-11 | Phase 9 + Phase 10 | Pending |
 | PULUMI-12 | Phase 10 | Pending |
 | PULUMI-13 | Phase 10 | Pending |
 | PULUMI-14 | Phase 10 | Pending |
