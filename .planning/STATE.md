@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 11-cutover-cdk-removal/11-01-PLAN.md
-last_updated: "2026-03-30T13:53:14.355Z"
+stopped_at: Completed 11-cutover-cdk-removal/11-02-PLAN.md — S3 Vectors + S3 Tables CFN wrappers added to Pulumi compute stack
+last_updated: "2026-03-30T13:59:50.440Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 11 (cutover-cdk-removal) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-30
 
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 10-ecs-alb-cloudfront P02 | 12 | 2 tasks | 1 files |
 | Phase 10-ecs-alb-cloudfront P03 | 31 | 1 tasks | 2 files |
 | Phase 11-cutover-cdk-removal P01 | 2 | 1 tasks | 1 files |
+| Phase 11-cutover-cdk-removal P02 | 12 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,9 @@ Key decisions from research (2026-03-29):
 - [Phase 10-ecs-alb-cloudfront]: AWS EC2 security group descriptions must use ASCII only — em dash causes 400 InvalidParameterValue error
 - [Phase 10-ecs-alb-cloudfront]: Public ECR requires separate auth (aws ecr-public get-login-password) before docker build — not covered by private ECR login
 - [Phase 11-cutover-cdk-removal]: generate-env.ts uses --show-secrets to resolve cognitoUserPoolClientSecret; writes to web-ui/.env.local; constructs COGNITO_DOMAIN from prefix
+- [Phase 11-cutover-cdk-removal]: S3 Vectors CFN template includes 21 resources: VectorBucket custom resource + 2 index custom resources with Lambda-backed providers and IAM roles
+- [Phase 11-cutover-cdk-removal]: cdk synth requires APP_NAME/AWS_ACCOUNT_ID/AWS_REGION env vars + AWS_PROFILE env var (not --profile flag which is a stack selector)
+- [Phase 11-cutover-cdk-removal]: templateBody read via fs.readFileSync inline (not S3-hosted) per CONTEXT.md locked decision; CAPABILITY_IAM required for vectors template IAM resources
 
 ### Pending Todos
 
@@ -136,6 +140,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-30T13:53:14.352Z
-Stopped at: Completed 11-cutover-cdk-removal/11-01-PLAN.md
+Last session: 2026-03-30T13:59:50.437Z
+Stopped at: Completed 11-cutover-cdk-removal/11-02-PLAN.md — S3 Vectors + S3 Tables CFN wrappers added to Pulumi compute stack
 Resume file: None

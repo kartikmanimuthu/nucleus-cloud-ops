@@ -39,7 +39,7 @@
 
 - [x] **PULUMI-16**: Engineer can run `scripts/generate-env.ts` to read `pulumi stack output --json` and write `web-ui/.env.local` with all required env vars
 - [ ] **PULUMI-17**: Engineer can destroy CDK NetworkingStack and ComputeStack after Pulumi stacks are smoke-tested — `lib/networkingStack.ts`, `lib/computeStack.ts`, and `bin/cdkStack.ts` deleted; CDK deps removed for those stacks (WebUIStack and its CDK deps remain)
-- [ ] **PULUMI-18**: S3 Vectors (2 indexes) and S3 Tables (Iceberg TableBucket) are wrapped in `aws.cloudformation.Stack` resources in the Pulumi compute stack — CFN templates extracted from `cdk synth` output
+- [x] **PULUMI-18**: S3 Vectors (2 indexes) and S3 Tables (Iceberg TableBucket) are wrapped in `aws.cloudformation.Stack` resources in the Pulumi compute stack — CFN templates extracted from `cdk synth` output
 
 ---
 
@@ -86,7 +86,7 @@
 | PULUMI-15 | Phase 10 | Complete |
 | PULUMI-16 | Phase 11 | Complete |
 | PULUMI-17 | Phase 11 | Pending |
-| PULUMI-18 | Phase 11 | Pending |
+| PULUMI-18 | Phase 11 | Complete |
 
 ---
 

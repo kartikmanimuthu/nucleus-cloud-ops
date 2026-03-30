@@ -97,7 +97,7 @@ Plans:
 **Plans**: 3 plans
 Plans:
 - [x] 11-01-PLAN.md — generate-env.ts script (Pulumi stack output to web-ui/.env.local)
-- [ ] 11-02-PLAN.md — S3 Vectors + S3 Tables CFN template extraction and aws.cloudformation.Stack wrapping
+- [x] 11-02-PLAN.md — S3 Vectors + S3 Tables CFN template extraction and aws.cloudformation.Stack wrapping
 - [ ] 11-03-PLAN.md — CDK source deletion + bin/webUIStack.ts entry point + cdk.json update + human verify
 
 ## Progress
@@ -113,4 +113,4 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 | 8. Data Layer | 3/3 | Complete   | 2026-03-30 |
 | 9. Lambda + EventBridge | 3/3 | Complete   | 2026-03-30 |
 | 10. ECS + ALB + CloudFront | 3/3 | Complete   | 2026-03-30 |
-| 11. Cutover + CDK Removal | 1/3 | In Progress|  |
+| 11. Cutover + CDK Removal | 2/3 | In Progress|  |
