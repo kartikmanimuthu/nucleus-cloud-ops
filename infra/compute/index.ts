@@ -1,6 +1,15 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 
+// Account ID + region for resource name suffixes (no top-level await needed)
+const callerIdentity = aws.getCallerIdentityOutput({});
+const accountId = callerIdentity.accountId;
+const region = aws.config.region ?? "us-east-1";
+
+// Pulumi config
+const config = new pulumi.Config();
+const appUrl = config.get("appUrl") ?? "https://placeholder.cloudfront.net";
+
 // Phase 7+: Networking stack is deployed — use requireOutput() to enforce dependency.
 // requireOutput() throws at preview time if networking stack is not deployed,
 // preventing silent undefined values from propagating into compute resources.
@@ -240,6 +249,153 @@ const agentOpsTable = new aws.dynamodb.Table("agentOpsTable", {
 }, { retainOnDelete: true });
 
 // ============================================================================
+// S3 BUCKETS
+// ============================================================================
+
+// 1. CheckpointBucket — LangGraph checkpoint offloading (30-day expiry)
+const checkpointBucket = new aws.s3.BucketV2("checkpoint-bucket", {
+    bucket: pulumi.interpolate`${appName}-checkpoints-bucket-${accountId}-${region}`,
+    forceDestroy: false,
+}, { retainOnDelete: true });
+
+new aws.s3.BucketLifecycleConfigurationV2("checkpoint-bucket-lifecycle", {
+    bucket: checkpointBucket.id,
+    rules: [{
+        id: "expire-all-30d",
+        status: "Enabled",
+        filter: {},
+        expiration: { days: 30 },
+    }],
+});
+
+// 2. AgentTempBucket — temporary agent storage (1-day expiry)
+const agentTempBucket = new aws.s3.BucketV2("agent-temp-bucket", {
+    bucket: pulumi.interpolate`${appName}-agent-temp-${accountId}-${region}`,
+    forceDestroy: false,
+}, { retainOnDelete: true });
+
+new aws.s3.BucketLifecycleConfigurationV2("agent-temp-bucket-lifecycle", {
+    bucket: agentTempBucket.id,
+    rules: [{
+        id: "expire-all-1d",
+        status: "Enabled",
+        filter: {},
+        expiration: { days: 1 },
+    }],
+});
+
+// 3. KBStagingBucket — KB sync staging (1-day expiry)
+const kbStagingBucket = new aws.s3.BucketV2("kb-staging-bucket", {
+    bucket: pulumi.interpolate`${appName}-kb-staging-${accountId}-${region}`,
+    forceDestroy: false,
+}, { retainOnDelete: true });
+
+new aws.s3.BucketLifecycleConfigurationV2("kb-staging-bucket-lifecycle", {
+    bucket: kbStagingBucket.id,
+    rules: [{
+        id: "expire-all-1d",
+        status: "Enabled",
+        filter: {},
+        expiration: { days: 1 },
+    }],
+});
+
+// 4. InventoryBucket — auto-discovery raw data + exports
+const inventoryBucket = new aws.s3.BucketV2("inventory-bucket", {
+    bucket: pulumi.interpolate`${appName}-inventory-${accountId}-${region}`,
+    forceDestroy: false,
+}, { retainOnDelete: true });
+
+new aws.s3.BucketLifecycleConfigurationV2("inventory-bucket-lifecycle", {
+    bucket: inventoryBucket.id,
+    rules: [
+        {
+            id: "raw-expire-365d",
+            status: "Enabled",
+            filter: { prefix: "raw/" },
+            expiration: { days: 365 },
+        },
+        {
+            id: "exports-expire-7d",
+            status: "Enabled",
+            filter: { prefix: "exports/" },
+            expiration: { days: 7 },
+        },
+    ],
+});
+
+// ============================================================================
+// SQS QUEUES
+// ============================================================================
+
+// VectorProcessing pair — buffers S3 normalized/ events before vector processing
+const vectorProcessingDlq = new aws.sqs.Queue("vector-processing-dlq", {
+    name: "nucleus-cloud-ops-vector-processing-dlq",
+    messageRetentionSeconds: 1209600, // 14 days
+});
+
+const vectorProcessingQueue = new aws.sqs.Queue("vector-processing-queue", {
+    name: "nucleus-cloud-ops-vector-processing-queue",
+    visibilityTimeoutSeconds: 900, // >= Lambda timeout of 15 min
+    receiveWaitTimeSeconds: 20,    // long polling
+    redrivePolicy: vectorProcessingDlq.arn.apply(dlqArn => JSON.stringify({
+        deadLetterTargetArn: dlqArn,
+        maxReceiveCount: 3,
+    })),
+});
+
+// Allow inventory bucket to send messages to the vector processing queue
+new aws.sqs.QueuePolicy("vector-processing-queue-policy", {
+    queueUrl: vectorProcessingQueue.url,
+    policy: pulumi.all([vectorProcessingQueue.arn, inventoryBucket.arn]).apply(
+        ([queueArn, bucketArn]) => JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Principal: { Service: "s3.amazonaws.com" },
+                Action: "sqs:SendMessage",
+                Resource: queueArn,
+                Condition: { ArnLike: { "aws:SourceArn": bucketArn } },
+            }],
+        })
+    ),
+});
+
+// KBSync pair — buffers KB sync jobs
+const kbSyncDlq = new aws.sqs.Queue("kb-sync-dlq", {
+    name: "nucleus-cloud-ops-kb-sync-dlq",
+    messageRetentionSeconds: 1209600, // 14 days
+});
+
+const kbSyncQueue = new aws.sqs.Queue("kb-sync-queue", {
+    name: "nucleus-cloud-ops-kb-sync-queue",
+    visibilityTimeoutSeconds: 900,
+    receiveWaitTimeSeconds: 20,
+    redrivePolicy: kbSyncDlq.arn.apply(dlqArn => JSON.stringify({
+        deadLetterTargetArn: dlqArn,
+        maxReceiveCount: 3,
+    })),
+});
+
+// ============================================================================
+// CLOUDWATCH ALARMS
+// ============================================================================
+
+new aws.cloudwatch.MetricAlarm("vector-dlq-alarm", {
+    name: "nucleus-cloud-ops-vector-dlq-depth",
+    alarmDescription: "Vector processor DLQ has messages — check Lambda errors",
+    namespace: "AWS/SQS",
+    metricName: "ApproximateNumberOfMessagesVisible",
+    dimensions: { QueueName: vectorProcessingDlq.name },
+    statistic: "Sum",
+    period: 300,
+    evaluationPeriods: 1,
+    threshold: 1,
+    comparisonOperator: "GreaterThanOrEqualToThreshold",
+    treatMissingData: "notBreaching",
+});
+
+// ============================================================================
 // STACK OUTPUTS
 // ============================================================================
 
@@ -256,3 +412,21 @@ export const writesTableName = writesTable.name;
 export const chatHistoryTableName = chatHistoryTable.name;
 export const memoryTableName = memoryTable.name;
 export const agentOpsTableName = agentOpsTable.name;
+
+// S3 bucket exports
+export const checkpointBucketName = checkpointBucket.bucket;
+export const checkpointBucketArn = checkpointBucket.arn;
+export const agentTempBucketName = agentTempBucket.bucket;
+export const agentTempBucketArn = agentTempBucket.arn;
+export const kbStagingBucketName = kbStagingBucket.bucket;
+export const kbStagingBucketArn = kbStagingBucket.arn;
+export const inventoryBucketName = inventoryBucket.bucket;
+export const inventoryBucketArn = inventoryBucket.arn;
+
+// SQS exports
+export const vectorProcessingQueueUrl = vectorProcessingQueue.url;
+export const vectorProcessingQueueArn = vectorProcessingQueue.arn;
+export const vectorProcessingDlqArn = vectorProcessingDlq.arn;
+export const kbSyncQueueUrl = kbSyncQueue.url;
+export const kbSyncQueueArn = kbSyncQueue.arn;
+export const kbSyncDlqArn = kbSyncDlq.arn;
