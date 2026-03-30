@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 08-data-layer/08-02-PLAN.md
-last_updated: "2026-03-30T08:48:37.764Z"
+status: verifying
+stopped_at: Completed 08-data-layer/08-03-PLAN.md — awaiting human verify
+last_updated: "2026-03-30T08:59:19.130Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 Phase: 08 (data-layer) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-30
 
 Progress: [░░░░░░░░░░] 0%
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 07-networking P03 | 8 | 1 tasks | 0 files |
 | Phase 08-data-layer P01 | 3 | 2 tasks | 1 files |
 | Phase 08-data-layer P02 | 6 | 2 tasks | 2 files |
+| Phase 08-data-layer P03 | 10 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,7 @@ Key decisions from research (2026-03-29):
 - [Phase 07-networking]: compute requireOutput() resolves to vpc-0cd6e5fd607d1a494 — StackReference wiring is live and enforced
 - [Phase 08-data-layer]: Deprecated hashKey/rangeKey in globalSecondaryIndexes are warnings only — preview exits 0; no migration to key_schema needed for this phase
 - [Phase 08-data-layer]: Used aws.getCallerIdentityOutput() instead of top-level await — tsconfig commonjs module incompatible with top-level await
+- [Phase 08-data-layer]: cognitoUserPoolClientSecret exported as pulumi.secret() — encrypted in Pulumi state, shows [secret] in stack output
 
 ### Pending Todos
 
@@ -111,6 +113,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-30T08:48:37.760Z
-Stopped at: Completed 08-data-layer/08-02-PLAN.md
+Last session: 2026-03-30T08:59:19.127Z
+Stopped at: Completed 08-data-layer/08-03-PLAN.md — awaiting human verify
 Resume file: None

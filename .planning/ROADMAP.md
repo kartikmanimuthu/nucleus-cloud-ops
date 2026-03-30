@@ -58,7 +58,7 @@ Plans:
 Plans:
 - [x] 08-01-PLAN.md — Define all 9 DynamoDB tables with schemas, GSIs, TTL, retainOnDelete + pulumi preview
 - [x] 08-02-PLAN.md — S3 buckets with lifecycle rules + SQS queue pairs with DLQs + CloudWatch alarm + appUrl config
-- [ ] 08-03-PLAN.md — Cognito (UserPool, Domain, Client, IdentityPool, AuthRole) + stack outputs + pulumi up + human verify
+- [x] 08-03-PLAN.md — Cognito (UserPool, Domain, Client, IdentityPool, AuthRole) + stack outputs + pulumi up + human verify
 
 ### Phase 9: Lambda + EventBridge
 **Goal**: All Lambda functions and the Discovery ECS task are deployed via Pulumi with correct triggers, IAM roles, and env vars wired from data layer outputs
