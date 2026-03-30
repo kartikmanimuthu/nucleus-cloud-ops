@@ -201,6 +201,160 @@ describe('AccountPostgresRepository', () => {
     });
 });
 
+describe('AccountPostgresRepository — updateAccount', () => {
+    let mockPrisma: {
+        account: {
+            update: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            account: {
+                update: vi.fn(),
+            },
+        };
+        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('calls update with tenantId_accountId composite key', async () => {
+        mockPrisma.account.update.mockResolvedValue(makeRow({ name: 'Updated Name' }));
+
+        const repo = new AccountPostgresRepository();
+        await repo.updateAccount('acc-1', { name: 'Updated Name' }, 'org-default');
+
+        expect(mockPrisma.account.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                where: { tenantId_accountId: { tenantId: 'org-default', accountId: 'acc-1' } },
+            })
+        );
+    });
+
+    it('only includes defined fields in data payload', async () => {
+        mockPrisma.account.update.mockResolvedValue(makeRow({ active: false }));
+
+        const repo = new AccountPostgresRepository();
+        await repo.updateAccount('acc-1', { active: false }, 'org-default');
+
+        const callArg = mockPrisma.account.update.mock.calls[0][0];
+        expect(callArg.data.active).toBe(false);
+        expect(callArg.data.name).toBeUndefined();
+    });
+
+    it('returns mapped UIAccount after update', async () => {
+        mockPrisma.account.update.mockResolvedValue(makeRow({ name: 'Renamed', connectionStatus: 'connected' }));
+
+        const repo = new AccountPostgresRepository();
+        const result = await repo.updateAccount('acc-1', { name: 'Renamed' }, 'org-default');
+
+        expect(result.name).toBe('Renamed');
+        expect(result.accountId).toBe('acc-1');
+    });
+
+    it('throws wrapped error when prisma update fails', async () => {
+        mockPrisma.account.update.mockRejectedValue(new Error('Record not found'));
+
+        const repo = new AccountPostgresRepository();
+        await expect(repo.updateAccount('acc-missing', { name: 'X' }, 'org-default')).rejects.toThrow(
+            'Failed to update account'
+        );
+    });
+});
+
+describe('AccountPostgresRepository — deleteAccount', () => {
+    let mockPrisma: {
+        account: {
+            deleteMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            account: {
+                deleteMany: vi.fn(),
+            },
+        };
+        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('calls deleteMany with tenantId and accountId in where clause', async () => {
+        mockPrisma.account.deleteMany.mockResolvedValue({ count: 1 });
+
+        const repo = new AccountPostgresRepository();
+        await repo.deleteAccount('acc-del', 'org-default');
+
+        expect(mockPrisma.account.deleteMany).toHaveBeenCalledWith({
+            where: { tenantId: 'org-default', accountId: 'acc-del' },
+        });
+    });
+
+    it('does not throw when deleteMany returns count=0 (already deleted)', async () => {
+        mockPrisma.account.deleteMany.mockResolvedValue({ count: 0 });
+
+        const repo = new AccountPostgresRepository();
+        await expect(repo.deleteAccount('acc-gone', 'org-default')).resolves.toBeUndefined();
+    });
+
+    it('throws wrapped error when deleteMany fails', async () => {
+        mockPrisma.account.deleteMany.mockRejectedValue(new Error('DB error'));
+
+        const repo = new AccountPostgresRepository();
+        await expect(repo.deleteAccount('acc-1', 'org-default')).rejects.toThrow('Failed to delete account');
+    });
+});
+
+describe('AccountPostgresRepository — getAccounts connectionFilter and defaults', () => {
+    let mockPrisma: {
+        account: {
+            findMany: MockedFunction<any>;
+            count: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            account: {
+                findMany: vi.fn().mockResolvedValue([]),
+                count: vi.fn().mockResolvedValue(0),
+            },
+        };
+        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('sets where.connectionStatus when connectionFilter is not "all"', async () => {
+        const repo = new AccountPostgresRepository();
+        await repo.getAccounts({ tenantId: 'org-default', connectionFilter: 'connected' });
+
+        const callArg = mockPrisma.account.findMany.mock.calls[0][0];
+        expect(callArg.where.connectionStatus).toBe('connected');
+    });
+
+    it('does NOT set where.connectionStatus when connectionFilter is "all"', async () => {
+        const repo = new AccountPostgresRepository();
+        await repo.getAccounts({ tenantId: 'org-default', connectionFilter: 'all' });
+
+        const callArg = mockPrisma.account.findMany.mock.calls[0][0];
+        expect(callArg.where.connectionStatus).toBeUndefined();
+    });
+
+    it('uses page=1 and limit=10 as defaults when not provided', async () => {
+        const repo = new AccountPostgresRepository();
+        await repo.getAccounts({ tenantId: 'org-default' });
+
+        const callArg = mockPrisma.account.findMany.mock.calls[0][0];
+        expect(callArg.skip).toBe(0); // (1-1) * 10
+        expect(callArg.take).toBe(10);
+    });
+
+    it('orders results by createdAt desc', async () => {
+        const repo = new AccountPostgresRepository();
+        await repo.getAccounts({ tenantId: 'org-default' });
+
+        const callArg = mockPrisma.account.findMany.mock.calls[0][0];
+        expect(callArg.orderBy).toEqual({ createdAt: 'desc' });
+    });
+});
+
 describe('AccountPostgresRepository — cross-tenant isolation', () => {
     let mockPrisma: { account: { findMany: MockedFunction<any>; count: MockedFunction<any>; findUnique: MockedFunction<any>; create: MockedFunction<any>; update: MockedFunction<any>; delete: MockedFunction<any> } };
 
