@@ -841,7 +841,14 @@ def process_and_store_resources(
     # PostgreSQL-only path (USE_PG_INVENTORY=true — DynamoDB writes skipped)
     if is_pg_enabled():
         try:
-            pg_count = write_resources_to_pg(resources, tenant_id, account_id)
+            # Enrich resources with extracted metadata before writing
+            enriched = []
+            for r in resources:
+                if not isinstance(r, dict):
+                    continue
+                resource_type = r.get('resourceType', 'unknown')
+                enriched.append({**r, 'metadata': _extract_metadata(r, resource_type)})
+            pg_count = write_resources_to_pg(enriched, tenant_id, account_id)
             print(f"  [pg_writer] PostgreSQL write: {pg_count} resources for account {account_id}")
         except Exception as e:
             print(f"  [pg_writer] PostgreSQL write failed: {e}")
