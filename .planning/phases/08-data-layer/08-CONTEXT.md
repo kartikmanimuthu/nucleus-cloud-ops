@@ -160,7 +160,7 @@ One alarm on VectorProcessingDLQ:
 ### Cognito Configuration — Match CDK Exactly
 
 **UserPool:**
-- selfSignUpEnabled: false (CDK default — no self-registration)
+- selfSignUpEnabled: true (CDK line 712 — self-registration is enabled)
 - autoVerifiedAttributes: `["email"]`
 - signInAliases: email only, case-insensitive
 - passwordPolicy: minLength 8, requireDigits, requireLowercase; NO requireSymbols, NO requireUppercase
