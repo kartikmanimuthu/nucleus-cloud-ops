@@ -14,6 +14,10 @@ cdk.out/
 cdk.context.json
 
 
+# Lambda build artifacts
+lambda/*/lambda.zip
+lambda/*/dist/
+
 # Dependency directories
 node_modules/
 
