@@ -1,0 +1,819 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "S3 Vectors bucket and indexes (extracted from CDK ComputeStack for Pulumi wrapping)",
+  "Resources": {
+    "nucleusappVectorBucketS3VectorsBucketHandlerServiceRoleCA51473E": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorBucket/S3VectorsBucketHandler/ServiceRole/Resource"
+      }
+    },
+    "nucleusappVectorBucketS3VectorsBucketHandlerServiceRoleDefaultPolicyF9B780D9": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3vectors:CreateVectorBucket",
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "s3vectors:DeleteIndex",
+                "s3vectors:DeleteVectorBucket",
+                "s3vectors:ListIndexes"
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:s3vectors:us-east-1:970547372609:bucket/nucleus-app-vectors-970547372609-us-east-1"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "nucleusappVectorBucketS3VectorsBucketHandlerServiceRoleDefaultPolicyF9B780D9",
+        "Roles": [
+          {
+            "Ref": "nucleusappVectorBucketS3VectorsBucketHandlerServiceRoleCA51473E"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorBucket/S3VectorsBucketHandler/ServiceRole/DefaultPolicy/Resource"
+      }
+    },
+    "nucleusappVectorBucketS3VectorsBucketHandler040217FD": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-970547372609-us-east-1",
+          "S3Key": "a50a28a3c40a4dff6b35319ea29722ad451d768361890b12c23d8396adb1b410.zip"
+        },
+        "Handler": "s3-vectors-create-bucket.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "nucleusappVectorBucketS3VectorsBucketHandlerServiceRoleCA51473E",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Timeout": 300
+      },
+      "DependsOn": [
+        "nucleusappVectorBucketS3VectorsBucketHandlerServiceRoleDefaultPolicyF9B780D9",
+        "nucleusappVectorBucketS3VectorsBucketHandlerServiceRoleCA51473E"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorBucket/S3VectorsBucketHandler/Resource",
+        "aws:asset:path": "asset.a50a28a3c40a4dff6b35319ea29722ad451d768361890b12c23d8396adb1b410",
+        "aws:asset:is-bundled": false,
+        "aws:asset:property": "Code"
+      }
+    },
+    "nucleusappVectorBucketS3VectorsProviderframeworkonEventServiceRole3D86FE95": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorBucket/S3VectorsProvider/framework-onEvent/ServiceRole/Resource"
+      }
+    },
+    "nucleusappVectorBucketS3VectorsProviderframeworkonEventServiceRoleDefaultPolicy7534C490": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "lambda:InvokeFunction",
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "nucleusappVectorBucketS3VectorsBucketHandler040217FD",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "nucleusappVectorBucketS3VectorsBucketHandler040217FD",
+                          "Arn"
+                        ]
+                      },
+                      ":*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": "lambda:GetFunction",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "nucleusappVectorBucketS3VectorsBucketHandler040217FD",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "nucleusappVectorBucketS3VectorsProviderframeworkonEventServiceRoleDefaultPolicy7534C490",
+        "Roles": [
+          {
+            "Ref": "nucleusappVectorBucketS3VectorsProviderframeworkonEventServiceRole3D86FE95"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorBucket/S3VectorsProvider/framework-onEvent/ServiceRole/DefaultPolicy/Resource"
+      }
+    },
+    "nucleusappVectorBucketS3VectorsProviderframeworkonEvent38F08628": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-970547372609-us-east-1",
+          "S3Key": "07a90cc3efdfc34da22208dcd9d211f06f5b0e01b21e778edc7c3966b1f61d57.zip"
+        },
+        "Description": "AWS CDK resource provider framework - onEvent (nucleus-app-ComputeStack/nucleus-app-VectorBucket/S3VectorsProvider)",
+        "Environment": {
+          "Variables": {
+            "USER_ON_EVENT_FUNCTION_ARN": {
+              "Fn::GetAtt": [
+                "nucleusappVectorBucketS3VectorsBucketHandler040217FD",
+                "Arn"
+              ]
+            }
+          }
+        },
+        "Handler": "framework.onEvent",
+        "LoggingConfig": {
+          "ApplicationLogLevel": "FATAL",
+          "LogFormat": "JSON"
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "nucleusappVectorBucketS3VectorsProviderframeworkonEventServiceRole3D86FE95",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Timeout": 900
+      },
+      "DependsOn": [
+        "nucleusappVectorBucketS3VectorsProviderframeworkonEventServiceRoleDefaultPolicy7534C490",
+        "nucleusappVectorBucketS3VectorsProviderframeworkonEventServiceRole3D86FE95"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorBucket/S3VectorsProvider/framework-onEvent/Resource",
+        "aws:asset:path": "asset.07a90cc3efdfc34da22208dcd9d211f06f5b0e01b21e778edc7c3966b1f61d57",
+        "aws:asset:is-bundled": false,
+        "aws:asset:property": "Code"
+      }
+    },
+    "nucleusappVectorBucketVectorBucketCustomResource149A8A5B": {
+      "Type": "AWS::CloudFormation::CustomResource",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "nucleusappVectorBucketS3VectorsProviderframeworkonEvent38F08628",
+            "Arn"
+          ]
+        },
+        "vectorBucketName": "nucleus-app-vectors-970547372609-us-east-1",
+        "encryptionConfiguration": {}
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorBucket/VectorBucketCustomResource/Default"
+      }
+    },
+    "nucleusappVectorIndexS3VectorsHandlerServiceRole4317CE66": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorIndex/S3VectorsHandler/ServiceRole/Resource"
+      }
+    },
+    "nucleusappVectorIndexS3VectorsHandlerServiceRoleDefaultPolicyF7162D1A": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3vectors:CreateIndex",
+                "s3vectors:DeleteIndex"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:s3vectors:us-east-1:970547372609:bucket/",
+                    {
+                      "Fn::GetAtt": [
+                        "nucleusappVectorBucketVectorBucketCustomResource149A8A5B",
+                        "VectorBucketName"
+                      ]
+                    },
+                    "/index/text-embeddings"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:GenerateDataKey"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "nucleusappVectorIndexS3VectorsHandlerServiceRoleDefaultPolicyF7162D1A",
+        "Roles": [
+          {
+            "Ref": "nucleusappVectorIndexS3VectorsHandlerServiceRole4317CE66"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorIndex/S3VectorsHandler/ServiceRole/DefaultPolicy/Resource"
+      }
+    },
+    "nucleusappVectorIndexS3VectorsHandler29A526DA": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-970547372609-us-east-1",
+          "S3Key": "a50a28a3c40a4dff6b35319ea29722ad451d768361890b12c23d8396adb1b410.zip"
+        },
+        "Handler": "s3-vectors-create-index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "nucleusappVectorIndexS3VectorsHandlerServiceRole4317CE66",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Timeout": 300
+      },
+      "DependsOn": [
+        "nucleusappVectorIndexS3VectorsHandlerServiceRoleDefaultPolicyF7162D1A",
+        "nucleusappVectorIndexS3VectorsHandlerServiceRole4317CE66"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorIndex/S3VectorsHandler/Resource",
+        "aws:asset:path": "asset.a50a28a3c40a4dff6b35319ea29722ad451d768361890b12c23d8396adb1b410",
+        "aws:asset:is-bundled": false,
+        "aws:asset:property": "Code"
+      }
+    },
+    "nucleusappVectorIndexS3VectorsProviderframeworkonEventServiceRole29823126": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorIndex/S3VectorsProvider/framework-onEvent/ServiceRole/Resource"
+      }
+    },
+    "nucleusappVectorIndexS3VectorsProviderframeworkonEventServiceRoleDefaultPolicy30EF9B04": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "lambda:InvokeFunction",
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "nucleusappVectorIndexS3VectorsHandler29A526DA",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "nucleusappVectorIndexS3VectorsHandler29A526DA",
+                          "Arn"
+                        ]
+                      },
+                      ":*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": "lambda:GetFunction",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "nucleusappVectorIndexS3VectorsHandler29A526DA",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "nucleusappVectorIndexS3VectorsProviderframeworkonEventServiceRoleDefaultPolicy30EF9B04",
+        "Roles": [
+          {
+            "Ref": "nucleusappVectorIndexS3VectorsProviderframeworkonEventServiceRole29823126"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorIndex/S3VectorsProvider/framework-onEvent/ServiceRole/DefaultPolicy/Resource"
+      }
+    },
+    "nucleusappVectorIndexS3VectorsProviderframeworkonEventE4B2DB61": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-970547372609-us-east-1",
+          "S3Key": "07a90cc3efdfc34da22208dcd9d211f06f5b0e01b21e778edc7c3966b1f61d57.zip"
+        },
+        "Description": "AWS CDK resource provider framework - onEvent (nucleus-app-ComputeStack/nucleus-app-VectorIndex/S3VectorsProvider)",
+        "Environment": {
+          "Variables": {
+            "USER_ON_EVENT_FUNCTION_ARN": {
+              "Fn::GetAtt": [
+                "nucleusappVectorIndexS3VectorsHandler29A526DA",
+                "Arn"
+              ]
+            }
+          }
+        },
+        "Handler": "framework.onEvent",
+        "LoggingConfig": {
+          "ApplicationLogLevel": "FATAL",
+          "LogFormat": "JSON"
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "nucleusappVectorIndexS3VectorsProviderframeworkonEventServiceRole29823126",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Timeout": 900
+      },
+      "DependsOn": [
+        "nucleusappVectorIndexS3VectorsProviderframeworkonEventServiceRoleDefaultPolicy30EF9B04",
+        "nucleusappVectorIndexS3VectorsProviderframeworkonEventServiceRole29823126"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorIndex/S3VectorsProvider/framework-onEvent/Resource",
+        "aws:asset:path": "asset.07a90cc3efdfc34da22208dcd9d211f06f5b0e01b21e778edc7c3966b1f61d57",
+        "aws:asset:is-bundled": false,
+        "aws:asset:property": "Code"
+      }
+    },
+    "nucleusappVectorIndexS3VectorIndexCustomResource66CDD55D": {
+      "Type": "AWS::CloudFormation::CustomResource",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "nucleusappVectorIndexS3VectorsProviderframeworkonEventE4B2DB61",
+            "Arn"
+          ]
+        },
+        "physicalId": {
+          "Fn::Join": [
+            "",
+            [
+              {
+                "Fn::GetAtt": [
+                  "nucleusappVectorBucketVectorBucketCustomResource149A8A5B",
+                  "VectorBucketName"
+                ]
+              },
+              "-text-embeddings"
+            ]
+          ]
+        },
+        "vectorBucketName": {
+          "Fn::GetAtt": [
+            "nucleusappVectorBucketVectorBucketCustomResource149A8A5B",
+            "VectorBucketName"
+          ]
+        },
+        "indexName": "text-embeddings",
+        "dataType": "float32",
+        "dimension": 1024,
+        "distanceMetric": "cosine"
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-VectorIndex/S3VectorIndexCustomResource/Default"
+      }
+    },
+    "nucleusappKBVectorIndexS3VectorsHandlerServiceRole874F4F8B": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-KBVectorIndex/S3VectorsHandler/ServiceRole/Resource"
+      }
+    },
+    "nucleusappKBVectorIndexS3VectorsHandlerServiceRoleDefaultPolicyC85BE8C1": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3vectors:CreateIndex",
+                "s3vectors:DeleteIndex"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:s3vectors:us-east-1:970547372609:bucket/",
+                    {
+                      "Fn::GetAtt": [
+                        "nucleusappVectorBucketVectorBucketCustomResource149A8A5B",
+                        "VectorBucketName"
+                      ]
+                    },
+                    "/index/knowledge-base-embeddings"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": [
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:GenerateDataKey"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "nucleusappKBVectorIndexS3VectorsHandlerServiceRoleDefaultPolicyC85BE8C1",
+        "Roles": [
+          {
+            "Ref": "nucleusappKBVectorIndexS3VectorsHandlerServiceRole874F4F8B"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-KBVectorIndex/S3VectorsHandler/ServiceRole/DefaultPolicy/Resource"
+      }
+    },
+    "nucleusappKBVectorIndexS3VectorsHandlerEA75A1C9": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-970547372609-us-east-1",
+          "S3Key": "a50a28a3c40a4dff6b35319ea29722ad451d768361890b12c23d8396adb1b410.zip"
+        },
+        "Handler": "s3-vectors-create-index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "nucleusappKBVectorIndexS3VectorsHandlerServiceRole874F4F8B",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Timeout": 300
+      },
+      "DependsOn": [
+        "nucleusappKBVectorIndexS3VectorsHandlerServiceRoleDefaultPolicyC85BE8C1",
+        "nucleusappKBVectorIndexS3VectorsHandlerServiceRole874F4F8B"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-KBVectorIndex/S3VectorsHandler/Resource",
+        "aws:asset:path": "asset.a50a28a3c40a4dff6b35319ea29722ad451d768361890b12c23d8396adb1b410",
+        "aws:asset:is-bundled": false,
+        "aws:asset:property": "Code"
+      }
+    },
+    "nucleusappKBVectorIndexS3VectorsProviderframeworkonEventServiceRole5DD4D9D7": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              ]
+            ]
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-KBVectorIndex/S3VectorsProvider/framework-onEvent/ServiceRole/Resource"
+      }
+    },
+    "nucleusappKBVectorIndexS3VectorsProviderframeworkonEventServiceRoleDefaultPolicy9EEA9AA8": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "lambda:InvokeFunction",
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "nucleusappKBVectorIndexS3VectorsHandlerEA75A1C9",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "nucleusappKBVectorIndexS3VectorsHandlerEA75A1C9",
+                          "Arn"
+                        ]
+                      },
+                      ":*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": "lambda:GetFunction",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "nucleusappKBVectorIndexS3VectorsHandlerEA75A1C9",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "nucleusappKBVectorIndexS3VectorsProviderframeworkonEventServiceRoleDefaultPolicy9EEA9AA8",
+        "Roles": [
+          {
+            "Ref": "nucleusappKBVectorIndexS3VectorsProviderframeworkonEventServiceRole5DD4D9D7"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-KBVectorIndex/S3VectorsProvider/framework-onEvent/ServiceRole/DefaultPolicy/Resource"
+      }
+    },
+    "nucleusappKBVectorIndexS3VectorsProviderframeworkonEvent14F2FD77": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-970547372609-us-east-1",
+          "S3Key": "07a90cc3efdfc34da22208dcd9d211f06f5b0e01b21e778edc7c3966b1f61d57.zip"
+        },
+        "Description": "AWS CDK resource provider framework - onEvent (nucleus-app-ComputeStack/nucleus-app-KBVectorIndex/S3VectorsProvider)",
+        "Environment": {
+          "Variables": {
+            "USER_ON_EVENT_FUNCTION_ARN": {
+              "Fn::GetAtt": [
+                "nucleusappKBVectorIndexS3VectorsHandlerEA75A1C9",
+                "Arn"
+              ]
+            }
+          }
+        },
+        "Handler": "framework.onEvent",
+        "LoggingConfig": {
+          "ApplicationLogLevel": "FATAL",
+          "LogFormat": "JSON"
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "nucleusappKBVectorIndexS3VectorsProviderframeworkonEventServiceRole5DD4D9D7",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Timeout": 900
+      },
+      "DependsOn": [
+        "nucleusappKBVectorIndexS3VectorsProviderframeworkonEventServiceRoleDefaultPolicy9EEA9AA8",
+        "nucleusappKBVectorIndexS3VectorsProviderframeworkonEventServiceRole5DD4D9D7"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-KBVectorIndex/S3VectorsProvider/framework-onEvent/Resource",
+        "aws:asset:path": "asset.07a90cc3efdfc34da22208dcd9d211f06f5b0e01b21e778edc7c3966b1f61d57",
+        "aws:asset:is-bundled": false,
+        "aws:asset:property": "Code"
+      }
+    },
+    "nucleusappKBVectorIndexS3VectorIndexCustomResourceC4874AC3": {
+      "Type": "AWS::CloudFormation::CustomResource",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "nucleusappKBVectorIndexS3VectorsProviderframeworkonEvent14F2FD77",
+            "Arn"
+          ]
+        },
+        "physicalId": {
+          "Fn::Join": [
+            "",
+            [
+              {
+                "Fn::GetAtt": [
+                  "nucleusappVectorBucketVectorBucketCustomResource149A8A5B",
+                  "VectorBucketName"
+                ]
+              },
+              "-knowledge-base-embeddings"
+            ]
+          ]
+        },
+        "vectorBucketName": {
+          "Fn::GetAtt": [
+            "nucleusappVectorBucketVectorBucketCustomResource149A8A5B",
+            "VectorBucketName"
+          ]
+        },
+        "indexName": "knowledge-base-embeddings",
+        "dataType": "float32",
+        "dimension": 1024,
+        "distanceMetric": "cosine"
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-KBVectorIndex/S3VectorIndexCustomResource/Default"
+      }
+    }
+  }
+}

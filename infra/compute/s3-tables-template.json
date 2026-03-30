@@ -1,0 +1,111 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "S3 Tables TableBucket, namespace, and Iceberg table (extracted from CDK ComputeStack for Pulumi wrapping)",
+  "Resources": {
+    "nucleusappTableBucket59E9236D": {
+      "Type": "AWS::S3Tables::TableBucket",
+      "Properties": {
+        "TableBucketName": "nucleus-app-inventory-bucket",
+        "UnreferencedFileRemoval": {}
+      },
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain",
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-TableBucket/nucleus-app-TableBucket"
+      }
+    },
+    "nucleusappNamespace94753DF3": {
+      "Type": "AWS::S3Tables::Namespace",
+      "Properties": {
+        "Namespace": "nucleus",
+        "TableBucketARN": {
+          "Fn::GetAtt": [
+            "nucleusappTableBucket59E9236D",
+            "TableBucketARN"
+          ]
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-Namespace/nucleus-app-Namespace"
+      }
+    },
+    "nucleusappInventoryIcebergTable063244DC": {
+      "Type": "AWS::S3Tables::Table",
+      "Properties": {
+        "IcebergMetadata": {
+          "IcebergSchema": {
+            "SchemaFieldList": [
+              {
+                "Name": "resourceId",
+                "Required": true,
+                "Type": "string"
+              },
+              {
+                "Name": "resourceType",
+                "Required": true,
+                "Type": "string"
+              },
+              {
+                "Name": "name",
+                "Required": false,
+                "Type": "string"
+              },
+              {
+                "Name": "arn",
+                "Required": true,
+                "Type": "string"
+              },
+              {
+                "Name": "region",
+                "Required": true,
+                "Type": "string"
+              },
+              {
+                "Name": "accountId",
+                "Required": true,
+                "Type": "string"
+              },
+              {
+                "Name": "state",
+                "Required": false,
+                "Type": "string"
+              },
+              {
+                "Name": "tags",
+                "Required": false,
+                "Type": "string"
+              },
+              {
+                "Name": "lastSeenAt",
+                "Required": true,
+                "Type": "timestamp"
+              },
+              {
+                "Name": "discoveryStatus",
+                "Required": false,
+                "Type": "string"
+              }
+            ]
+          }
+        },
+        "Namespace": "nucleus",
+        "OpenTableFormat": "ICEBERG",
+        "TableBucketARN": {
+          "Fn::GetAtt": [
+            "nucleusappTableBucket59E9236D",
+            "TableBucketARN"
+          ]
+        },
+        "TableName": "resources"
+      },
+      "DependsOn": [
+        "nucleusappNamespace94753DF3"
+      ],
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain",
+      "Metadata": {
+        "aws:cdk:path": "nucleus-app-ComputeStack/nucleus-app-InventoryIcebergTable/nucleus-app-InventoryIcebergTable"
+      }
+    }
+  }
+}
