@@ -191,7 +191,7 @@ def main():
                     s3_table_namespace=args.s3_table_namespace,
                     aws_region=boto3.session.Session().region_name or 'us-east-1',
                 )
-                print(f"  Persisted {count} items to DynamoDB")
+                print(f"  Persisted {count} items to {'PostgreSQL' if os.environ.get('USE_PG_INVENTORY','').lower()=='true' else 'DynamoDB'}")
                 
                 # Mark missing? Only if we are doing a "full" scan of the account
                 # If doing partial regions, marking missing might be dangerous 

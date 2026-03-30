@@ -835,130 +835,95 @@ def process_and_store_resources(
         print(f"  Stored raw data to s3://{bucket_name}/{s3_key}")
     
     # Truncate existing inventory records for this account before writing fresh data
-    _truncate_account_inventory(dynamodb_client, table_name, account_id, tenant_id)
+    if not is_pg_enabled():
+        _truncate_account_inventory(dynamodb_client, table_name, account_id, tenant_id)
 
-    # Prepare DynamoDB items
-    items_to_write = []
-    
-    for resource in resources:
-        if not isinstance(resource, dict):
-            continue
-        resource_arn = generate_resource_arn(resource, account_id)
-        resource_type = resource.get('resourceType', 'unknown')
-        resource_id = resource.get('resourceId', 'unknown')
-        name = resource.get('name', resource_id)
-        region = resource.get('region', 'unknown')
-        state = resource.get('state', 'unknown')
-        tags = resource.get('tags', {})
-        
-        # Skip resources without valid ID
-        if not resource_id or resource_id == 'unknown':
-            continue
-        
-        # Create DynamoDB item with new schema
-        item = {
-            # Primary key: TENANT#<tenantId>#ACCOUNT#<accountId>
-            'pk': {'S': f'TENANT#{tenant_id}#ACCOUNT#{account_id}'},
-            # Sort key: INVENTORY#<resourceType>#<arn>
-            'sk': {'S': f'INVENTORY#{resource_type}#{resource_arn}'},
-            
-            # GSI1: Query all inventory items - TYPE#INVENTORY -> {resourceType}#{region}#{name}
-            'gsi1pk': {'S': 'TYPE#INVENTORY'},
-            'gsi1sk': {'S': f'{resource_type}#{region}#{name}'},
-            
-            # GSI2: Query by region - REGION#{region} -> {resourceType}#{timestamp}
-            'gsi2pk': {'S': f'REGION#{region}'},
-            'gsi2sk': {'S': f'{resource_type}#{timestamp}'},
-            
-            # GSI3: Query by resource type - RESOURCE_TYPE#{resourceType} -> {accountId}#{resourceId}
-            'gsi3pk': {'S': f'RESOURCE_TYPE#{resource_type}'},
-            'gsi3sk': {'S': f'{account_id}#{resource_id}'},
-            
-            # Resource attributes
-            'resourceId': {'S': str(resource_id)},
-            'resourceArn': {'S': str(resource_arn)},
-            'resourceType': {'S': str(resource_type)},
-            'name': {'S': str(name)},
-            'region': {'S': str(region)},
-            'state': {'S': str(state)},
-            'accountId': {'S': str(account_id)},
-            
-            # Discovery tracking
-            'tenantId': {'S': tenant_id},
-            'discoveryScanId': {'S': scan_id},
-            'lastDiscoveredAt': {'S': timestamp},
-            'discoveryStatus': {'S': 'active'},
-        }
-        
-        # Add tags if present
-        if tags and isinstance(tags, dict):
-            # Filter empty keys and values to avoid DynamoDB errors
-            item['tags'] = {'M': {str(k): {'S': str(v)} for k, v in tags.items() if k and v}}
-        
-        # Add service info
-        if resource.get('service'):
-            item['service'] = {'S': str(resource.get('service'))}
-        
-        # Add Metadata - structured JSON with resource-type-specific metadata
-        # Different resource types will have different metadata fields
-        metadata = _extract_metadata(resource, resource_type)
-        if metadata:
-            item['Metadata'] = {'S': json.dumps(metadata)}
-        
-        # Add RawMetadata - store raw AWS API response for future use
-        raw_data = _get_raw_metadata(resource)
-        if raw_data:
-            item['RawMetadata'] = {'S': json.dumps(raw_data, default=str)}
-        
-        items_to_write.append({'PutRequest': {'Item': item}})
-    
-    # Deduplicate items before writing to avoid ValidationException
-    unique_items = {}
-    for item_request in items_to_write:
-        item = item_request['PutRequest']['Item']
-        key = (item['pk']['S'], item['sk']['S'])
-        unique_items[key] = item_request
-    
-    items_to_write = list(unique_items.values())
-
-    # Batch write to DynamoDB (max 25 items per batch)
-    batch_size = 25
-    total_written = 0
-    
-    for i in range(0, len(items_to_write), batch_size):
-        batch = items_to_write[i:i + batch_size]
-        
-        try:
-            response = dynamodb_client.batch_write_item(
-                RequestItems={table_name: batch}
-            )
-            
-            # Handle unprocessed items with exponential backoff
-            unprocessed = response.get('UnprocessedItems', {})
-            retry_count = 0
-            
-            while unprocessed and retry_count < 5:
-                time.sleep(2 ** retry_count)
-                response = dynamodb_client.batch_write_item(RequestItems=unprocessed)
-                unprocessed = response.get('UnprocessedItems', {})
-                retry_count += 1
-            
-            total_written += len(batch) - len(unprocessed.get(table_name, []))
-            
-        except Exception as e:
-            print(f"  ERROR writing batch to DynamoDB: {e}")
-    
-    print(f"  Stored {total_written} resources to DynamoDB")
-
-    # Dual-write to PostgreSQL when USE_PG_INVENTORY=true
-    # Non-blocking: DynamoDB is still the primary during the dual-write period
+    # PostgreSQL-only path (USE_PG_INVENTORY=true — DynamoDB writes skipped)
     if is_pg_enabled():
         try:
             pg_count = write_resources_to_pg(resources, tenant_id, account_id)
-            print(f"  [pg_writer] PostgreSQL dual-write: {pg_count} resources for account {account_id}")
+            print(f"  [pg_writer] PostgreSQL write: {pg_count} resources for account {account_id}")
         except Exception as e:
-            print(f"  [pg_writer] PostgreSQL write failed (DynamoDB write succeeded): {e}")
-            # Do not raise — DynamoDB write already succeeded
+            print(f"  [pg_writer] PostgreSQL write failed: {e}")
+            raise
+        total_written = pg_count
+    else:
+        # DynamoDB write path
+        items_to_write = []
+
+        for resource in resources:
+            if not isinstance(resource, dict):
+                continue
+            resource_arn = generate_resource_arn(resource, account_id)
+            resource_type = resource.get('resourceType', 'unknown')
+            resource_id = resource.get('resourceId', 'unknown')
+            name = resource.get('name', resource_id)
+            region = resource.get('region', 'unknown')
+            state = resource.get('state', 'unknown')
+            tags = resource.get('tags', {})
+
+            if not resource_id or resource_id == 'unknown':
+                continue
+
+            item = {
+                'pk': {'S': f'TENANT#{tenant_id}#ACCOUNT#{account_id}'},
+                'sk': {'S': f'INVENTORY#{resource_type}#{resource_arn}'},
+                'gsi1pk': {'S': 'TYPE#INVENTORY'},
+                'gsi1sk': {'S': f'{resource_type}#{region}#{name}'},
+                'gsi2pk': {'S': f'REGION#{region}'},
+                'gsi2sk': {'S': f'{resource_type}#{timestamp}'},
+                'gsi3pk': {'S': f'RESOURCE_TYPE#{resource_type}'},
+                'gsi3sk': {'S': f'{account_id}#{resource_id}'},
+                'resourceId': {'S': str(resource_id)},
+                'resourceArn': {'S': str(resource_arn)},
+                'resourceType': {'S': str(resource_type)},
+                'name': {'S': str(name)},
+                'region': {'S': str(region)},
+                'state': {'S': str(state)},
+                'accountId': {'S': str(account_id)},
+                'tenantId': {'S': tenant_id},
+                'discoveryScanId': {'S': scan_id},
+                'lastDiscoveredAt': {'S': timestamp},
+                'discoveryStatus': {'S': 'active'},
+            }
+
+            if tags and isinstance(tags, dict):
+                item['tags'] = {'M': {str(k): {'S': str(v)} for k, v in tags.items() if k and v}}
+            if resource.get('service'):
+                item['service'] = {'S': str(resource.get('service'))}
+            metadata = _extract_metadata(resource, resource_type)
+            if metadata:
+                item['Metadata'] = {'S': json.dumps(metadata)}
+            raw_data = _get_raw_metadata(resource)
+            if raw_data:
+                item['RawMetadata'] = {'S': json.dumps(raw_data, default=str)}
+
+            items_to_write.append({'PutRequest': {'Item': item}})
+
+        unique_items = {}
+        for item_request in items_to_write:
+            item = item_request['PutRequest']['Item']
+            key = (item['pk']['S'], item['sk']['S'])
+            unique_items[key] = item_request
+        items_to_write = list(unique_items.values())
+
+        batch_size = 25
+        for i in range(0, len(items_to_write), batch_size):
+            batch = items_to_write[i:i + batch_size]
+            try:
+                response = dynamodb_client.batch_write_item(RequestItems={table_name: batch})
+                unprocessed = response.get('UnprocessedItems', {})
+                retry_count = 0
+                while unprocessed and retry_count < 5:
+                    time.sleep(2 ** retry_count)
+                    response = dynamodb_client.batch_write_item(RequestItems=unprocessed)
+                    unprocessed = response.get('UnprocessedItems', {})
+                    retry_count += 1
+                total_written += len(batch) - len(unprocessed.get(table_name, []))
+            except Exception as e:
+                print(f"  ERROR writing batch to DynamoDB: {e}")
+
+        print(f"  Stored {total_written} resources to DynamoDB")
 
     # Write normalized resources to S3 for vector processing pipeline
     # normalized/{date}/{account_id}.json triggers the vector processor Lambda via SQS
