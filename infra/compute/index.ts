@@ -11,6 +11,7 @@ const config = new pulumi.Config();
 const appUrl = config.get("appUrl") ?? "https://placeholder.cloudfront.net";
 const subscriptionEmails = config.get("subscriptionEmails") ?? "";
 const crossAccountRoleName = config.get("crossAccountRoleName") ?? "NucleusAccess";
+const vectorBucketName = config.get("vectorBucketName") ?? "";
 
 // Phase 7+: Networking stack is deployed — use requireOutput() to enforce dependency.
 // requireOutput() throws at preview time if networking stack is not deployed,
@@ -667,6 +668,304 @@ new aws.lambda.Permission("scheduler-eventbridge-permission", {
 });
 
 // ============================================================================
+// VECTOR PROCESSOR LAMBDA
+// ============================================================================
+
+// IAM Role for VectorProcessor Lambda
+const vectorProcessorRole = new aws.iam.Role("vector-processor-role", {
+    name: "nucleus-cloud-ops-vector-processor-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "lambda.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+    managedPolicyArns: [
+        "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+    ],
+});
+
+// Inline policy — S3 read on inventory bucket
+new aws.iam.RolePolicy("vector-processor-s3-policy", {
+    role: vectorProcessorRole.id,
+    policy: pulumi.all([inventoryBucket.arn]).apply(([bucketArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["s3:GetObject", "s3:ListBucket"],
+                Resource: [bucketArn, `${bucketArn}/*`],
+            }],
+        })
+    ),
+});
+
+// Inline policy — DynamoDB read/write on appTable + auditTable
+new aws.iam.RolePolicy("vector-processor-dynamodb-policy", {
+    role: vectorProcessorRole.id,
+    policy: pulumi.all([appTable.arn, auditTable.arn]).apply(([appArn, auditArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan",
+                    "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
+                    "dynamodb:BatchWriteItem",
+                ],
+                Resource: [
+                    appArn, `${appArn}/index/*`,
+                    auditArn, `${auditArn}/index/*`,
+                ],
+            }],
+        })
+    ),
+});
+
+// Inline policy — S3 Vectors permissions
+new aws.iam.RolePolicy("vector-processor-s3vectors-policy", {
+    role: vectorProcessorRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: [
+                "s3vectors:PutVectors",
+                "s3vectors:DeleteVectors",
+                "s3vectors:QueryVectors",
+                "s3vectors:CreateVectorIndex",
+                "s3vectors:GetIndex",
+            ],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+// Inline policy — Bedrock embedding
+new aws.iam.RolePolicy("vector-processor-bedrock-policy", {
+    role: vectorProcessorRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: ["bedrock:InvokeModel"],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+// Inline policy — SQS receive from vectorProcessingQueue
+new aws.iam.RolePolicy("vector-processor-sqs-policy", {
+    role: vectorProcessorRole.id,
+    policy: vectorProcessingQueue.arn.apply(queueArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:GetQueueAttributes",
+                ],
+                Resource: [queueArn],
+            }],
+        })
+    ),
+});
+
+// VectorProcessor Lambda Function
+const vectorProcessorLambda = new aws.lambda.Function("vector-processor-lambda", {
+    name: "nucleus-cloud-ops-vector-processor",
+    role: vectorProcessorRole.arn,
+    runtime: "nodejs20.x",
+    architectures: ["arm64"],
+    handler: "index.handler",
+    code: new pulumi.asset.FileArchive("../../lambda/vector_processor/lambda.zip"),
+    timeout: 900,
+    memorySize: 1024,
+    reservedConcurrentExecutions: 10,
+    environment: {
+        variables: {
+            INVENTORY_BUCKET_NAME: inventoryBucket.bucket,
+            VECTOR_BUCKET_NAME: vectorBucketName,
+            VECTOR_BUCKET_ARN: "",  // placeholder — Phase 11 wires real S3 Vectors
+            VECTOR_INDEX_NAME: "text-embeddings",
+            BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+            APP_TABLE_NAME: appTable.name,
+            AUDIT_TABLE_NAME: auditTable.name,
+        },
+    },
+});
+
+// SQS EventSourceMapping — VectorProcessor triggered by vectorProcessingQueue
+new aws.lambda.EventSourceMapping("vector-processor-sqs-trigger", {
+    eventSourceArn: vectorProcessingQueue.arn,
+    functionName: vectorProcessorLambda.arn,
+    batchSize: 1,
+    scalingConfig: {
+        maximumConcurrency: 5,
+    },
+});
+
+// S3 BucketNotification — inventory bucket normalized/ prefix → vectorProcessingQueue
+new aws.s3.BucketNotification("inventory-bucket-notification", {
+    bucket: inventoryBucket.id,
+    queues: [{
+        queueArn: vectorProcessingQueue.arn,
+        events: ["s3:ObjectCreated:*"],
+        filterPrefix: "normalized/",
+    }],
+});
+
+// ============================================================================
+// KB SYNC PROCESSOR LAMBDA
+// ============================================================================
+
+// IAM Role for KBSyncProcessor Lambda
+const kbSyncProcessorRole = new aws.iam.Role("kb-sync-processor-role", {
+    name: "nucleus-cloud-ops-kb-sync-processor-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "lambda.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+    managedPolicyArns: [
+        "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+    ],
+});
+
+// Inline policy — S3 read/write on kbStagingBucket
+new aws.iam.RolePolicy("kb-sync-processor-kb-staging-policy", {
+    role: kbSyncProcessorRole.id,
+    policy: pulumi.all([kbStagingBucket.arn]).apply(([bucketArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket",
+                ],
+                Resource: [bucketArn, `${bucketArn}/*`],
+            }],
+        })
+    ),
+});
+
+// Inline policy — S3 read on arbitrary buckets (s3-sync data source type)
+new aws.iam.RolePolicy("kb-sync-processor-s3-read-policy", {
+    role: kbSyncProcessorRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: ["s3:GetObject", "s3:ListBucket"],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+// Inline policy — DynamoDB read/write on appTable
+new aws.iam.RolePolicy("kb-sync-processor-dynamodb-policy", {
+    role: kbSyncProcessorRole.id,
+    policy: appTable.arn.apply(tableArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan",
+                    "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
+                    "dynamodb:BatchWriteItem",
+                ],
+                Resource: [tableArn, `${tableArn}/index/*`],
+            }],
+        })
+    ),
+});
+
+// Inline policy — S3 Vectors permissions
+new aws.iam.RolePolicy("kb-sync-processor-s3vectors-policy", {
+    role: kbSyncProcessorRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: [
+                "s3vectors:PutVectors",
+                "s3vectors:DeleteVectors",
+                "s3vectors:QueryVectors",
+            ],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+// Inline policy — Bedrock embedding
+new aws.iam.RolePolicy("kb-sync-processor-bedrock-policy", {
+    role: kbSyncProcessorRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: ["bedrock:InvokeModel"],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+// Inline policy — SQS receive from kbSyncQueue
+new aws.iam.RolePolicy("kb-sync-processor-sqs-policy", {
+    role: kbSyncProcessorRole.id,
+    policy: kbSyncQueue.arn.apply(queueArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:GetQueueAttributes",
+                ],
+                Resource: [queueArn],
+            }],
+        })
+    ),
+});
+
+// KBSyncProcessor Lambda Function
+const kbSyncProcessorLambda = new aws.lambda.Function("kb-sync-processor-lambda", {
+    name: "nucleus-cloud-ops-kb-sync-processor",
+    role: kbSyncProcessorRole.arn,
+    runtime: "nodejs20.x",
+    architectures: ["arm64"],
+    handler: "index.handler",
+    code: new pulumi.asset.FileArchive("../../lambda/kb_sync_processor/lambda.zip"),
+    timeout: 900,
+    memorySize: 1024,
+    environment: {
+        variables: {
+            APP_TABLE_NAME: appTable.name,
+            KB_VECTOR_BUCKET_NAME: vectorBucketName,  // placeholder — Phase 11
+            KB_VECTOR_INDEX_NAME: "knowledge-base-embeddings",
+            KB_STAGING_BUCKET_NAME: kbStagingBucket.bucket,
+            BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+        },
+    },
+});
+
+// SQS EventSourceMapping — KBSyncProcessor triggered by kbSyncQueue
+new aws.lambda.EventSourceMapping("kb-sync-processor-sqs-trigger", {
+    eventSourceArn: kbSyncQueue.arn,
+    functionName: kbSyncProcessorLambda.arn,
+    batchSize: 1,
+});
+
+// ============================================================================
 // STACK OUTPUTS
 // ============================================================================
 
@@ -712,3 +1011,7 @@ export const cognitoDomainPrefix = pulumi.interpolate`nucleus-cloud-ops-web-ui-a
 // Scheduler Lambda + SNS exports
 export const schedulerLambdaArn = schedulerLambda.arn;
 export const snsTopicArn = snsTopic.arn;
+
+// VectorProcessor + KBSyncProcessor exports
+export const vectorProcessorArn = vectorProcessorLambda.arn;
+export const kbSyncProcessorArn = kbSyncProcessorLambda.arn;
