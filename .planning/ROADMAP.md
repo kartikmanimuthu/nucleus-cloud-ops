@@ -54,7 +54,11 @@ Plans:
   1. All 9 DynamoDB tables deploy with correct GSIs, TTL attributes, and `retainOnDelete: true` — `pulumi preview` shows no replacements after initial deploy
   2. All 4 S3 buckets deploy with correct lifecycle rules; both SQS queue pairs deploy with DLQs; CloudWatch alarm on VectorProcessingDLQ is active (threshold=1)
   3. Cognito UserPool, UserPoolClient, and IdentityPool deploy successfully — client secret is stored as a Pulumi secret output, not plaintext in stack outputs
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 08-01-PLAN.md — Define all 9 DynamoDB tables with schemas, GSIs, TTL, retainOnDelete + pulumi preview
+- [ ] 08-02-PLAN.md — S3 buckets with lifecycle rules + SQS queue pairs with DLQs + CloudWatch alarm + appUrl config
+- [ ] 08-03-PLAN.md — Cognito (UserPool, Domain, Client, IdentityPool, AuthRole) + stack outputs + pulumi up + human verify
 
 ### Phase 9: Lambda + EventBridge
 **Goal**: All Lambda functions and the Discovery ECS task are deployed via Pulumi with correct triggers, IAM roles, and env vars wired from data layer outputs
@@ -97,8 +101,8 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 6. Scaffold | 2/2 | Complete   | 2026-03-29 |
-| 7. Networking | 2/3 | In Progress|  |
-| 8. Data Layer | 0/? | Not started | - |
+| 7. Networking | 3/3 | Complete   | 2026-03-29 |
+| 8. Data Layer | 0/3 | Not started | - |
 | 9. Lambda + EventBridge | 0/? | Not started | - |
 | 10. ECS + ALB + CloudFront | 0/? | Not started | - |
 | 11. Cutover + CDK Removal | 0/? | Not started | - |
