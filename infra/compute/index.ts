@@ -1,6 +1,8 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import * as random from "@pulumi/random";
+import * as fs from "fs";
+import * as path from "path";
 
 // Account ID + region for resource name suffixes (no top-level await needed)
 const callerIdentity = aws.getCallerIdentityOutput({});
@@ -1822,3 +1824,34 @@ export const albArn = alb.arn;
 export const cloudFrontUrl = pulumi.interpolate`https://${cloudFrontDistribution.domainName}`;
 export const cloudFrontDistributionId = cloudFrontDistribution.id;
 export const originVerifySecretValue = pulumi.secret(originVerifySecret.result);
+
+// ============================================================================
+// PHASE 11: S3 VECTORS + S3 TABLES — CloudFormation Stack Wrappers
+// ============================================================================
+// These resources use alpha CDK constructs with no native Pulumi equivalent.
+// CFN templates extracted from `cdk synth` output and wrapped in Pulumi.
+
+const s3VectorsTemplate = fs.readFileSync(
+    path.join(__dirname, "s3-vectors-template.json"),
+    "utf-8"
+);
+
+const s3VectorsCfnStack = new aws.cloudformation.Stack("s3-vectors-stack", {
+    name: "nucleus-cloud-ops-s3-vectors-stack",
+    templateBody: s3VectorsTemplate,
+    capabilities: ["CAPABILITY_IAM"],
+});
+
+const s3TablesTemplate = fs.readFileSync(
+    path.join(__dirname, "s3-tables-template.json"),
+    "utf-8"
+);
+
+const s3TablesCfnStack = new aws.cloudformation.Stack("s3-tables-stack", {
+    name: "nucleus-cloud-ops-s3-tables-stack",
+    templateBody: s3TablesTemplate,
+    capabilities: ["CAPABILITY_IAM"],
+});
+
+export const s3VectorsCfnStackId = s3VectorsCfnStack.id;
+export const s3TablesCfnStackId = s3TablesCfnStack.id;
