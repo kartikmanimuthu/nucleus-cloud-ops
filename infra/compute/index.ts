@@ -396,6 +396,138 @@ new aws.cloudwatch.MetricAlarm("vector-dlq-alarm", {
 });
 
 // ============================================================================
+// COGNITO AUTHENTICATION
+// ============================================================================
+
+// UserPool — self-signup enabled, email sign-in, case-insensitive
+const userPool = new aws.cognito.UserPool("web-ui-user-pool", {
+    name: "nucleus-cloud-ops-web-ui-user-pool",
+    autoVerifiedAttributes: ["email"],
+    usernameAttributes: ["email"],
+    usernameConfiguration: { caseSensitive: false },
+    passwordPolicy: {
+        minimumLength: 8,
+        requireNumbers: true,
+        requireLowercase: true,
+        requireSymbols: false,
+        requireUppercase: false,
+        temporaryPasswordValidityDays: 7,
+    },
+    accountRecoverySetting: {
+        recoveryMechanisms: [{ name: "verified_email", priority: 1 }],
+    },
+    schemas: [
+        { name: "email", attributeDataType: "String", required: true, mutable: true },
+        { name: "name", attributeDataType: "String", required: false, mutable: true },
+        { name: "given_name", attributeDataType: "String", required: false, mutable: true },
+        { name: "family_name", attributeDataType: "String", required: false, mutable: true },
+    ],
+});
+
+// UserPoolDomain — hosted UI domain prefix
+const userPoolDomain = new aws.cognito.UserPoolDomain("web-ui-user-pool-domain", {
+    userPoolId: userPool.id,
+    domain: pulumi.interpolate`nucleus-cloud-ops-web-ui-auth-${accountId}`,
+});
+
+// UserPoolClient — OAuth code grant, secret required for NextAuth
+const userPoolClient = new aws.cognito.UserPoolClient("web-ui-user-pool-client", {
+    name: "nucleus-cloud-ops-web-ui-app-client",
+    userPoolId: userPool.id,
+    generateSecret: true,
+    explicitAuthFlows: [
+        "ALLOW_USER_PASSWORD_AUTH",
+        "ALLOW_USER_SRP_AUTH",
+        "ALLOW_REFRESH_TOKEN_AUTH",
+    ],
+    allowedOauthFlows: ["code"],
+    allowedOauthFlowsUserPoolClient: true,
+    allowedOauthScopes: ["openid", "email", "profile", "aws.cognito.signin.user.admin"],
+    callbackUrls: [
+        "http://localhost:3000/api/auth/callback/cognito",
+        `${appUrl}/api/auth/callback/cognito`,
+    ],
+    logoutUrls: ["http://localhost:3000", appUrl],
+    preventUserExistenceErrors: "ENABLED",
+    enableTokenRevocation: true,
+    accessTokenValidity: 1,
+    idTokenValidity: 1,
+    refreshTokenValidity: 30,
+    tokenValidityUnits: {
+        accessToken: "hours",
+        idToken: "hours",
+        refreshToken: "days",
+    },
+    supportedIdentityProviders: ["COGNITO"],
+});
+
+// IdentityPool — links UserPoolClient to federated identity
+const identityPool = new aws.cognito.IdentityPool("web-ui-identity-pool", {
+    identityPoolName: "nucleus-cloud-ops-web-ui-identity-pool",
+    allowUnauthenticatedIdentities: false,
+    cognitoIdentityProviders: [{
+        clientId: userPoolClient.id,
+        providerName: userPool.endpoint,
+    }],
+});
+
+// AuthenticatedRole — Cognito federated principal
+const authenticatedRole = new aws.iam.Role("web-ui-authenticated-role", {
+    name: "nucleus-cloud-ops-web-ui-authenticated-role",
+    assumeRolePolicy: identityPool.id.apply(poolId =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Principal: { Federated: "cognito-identity.amazonaws.com" },
+                Action: "sts:AssumeRoleWithWebIdentity",
+                Condition: {
+                    StringEquals: { "cognito-identity.amazonaws.com:aud": poolId },
+                    "ForAnyValue:StringLike": { "cognito-identity.amazonaws.com:amr": "authenticated" },
+                },
+            }],
+        })
+    ),
+});
+
+// Inline policy 1 — cognito-sync + mobile analytics
+new aws.iam.RolePolicy("web-ui-auth-cognito-sync-policy", {
+    role: authenticatedRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: ["mobileanalytics:PutEvents", "cognito-sync:*", "cognito-identity:*"],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+// Inline policy 2 — DynamoDB on UsersTeamsTable
+new aws.iam.RolePolicy("web-ui-auth-dynamodb-policy", {
+    role: authenticatedRole.id,
+    policy: pulumi.all([usersTeamsTable.arn]).apply(([tableArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+                    "dynamodb:Query", "dynamodb:Scan", "dynamodb:DeleteItem",
+                ],
+                Resource: [tableArn, `${tableArn}/index/*`],
+            }],
+        })
+    ),
+});
+
+// Wire authenticated role to identity pool
+new aws.cognito.IdentityPoolRoleAttachment("web-ui-identity-pool-role-attachment", {
+    identityPoolId: identityPool.id,
+    roles: { authenticated: authenticatedRole.arn },
+});
+
+// ============================================================================
 // STACK OUTPUTS
 // ============================================================================
 
@@ -429,4 +561,10 @@ export const vectorProcessingQueueArn = vectorProcessingQueue.arn;
 export const vectorProcessingDlqArn = vectorProcessingDlq.arn;
 export const kbSyncQueueUrl = kbSyncQueue.url;
 export const kbSyncQueueArn = kbSyncQueue.arn;
-export const kbSyncDlqArn = kbSyncDlq.arn;
+// Cognito exports
+export const cognitoUserPoolId = userPool.id;
+export const cognitoUserPoolArn = userPool.arn;
+export const cognitoUserPoolClientId = userPoolClient.id;
+export const cognitoUserPoolClientSecret = pulumi.secret(userPoolClient.clientSecret);
+export const cognitoIdentityPoolId = identityPool.id;
+export const cognitoDomainPrefix = pulumi.interpolate`nucleus-cloud-ops-web-ui-auth-${accountId}`;
