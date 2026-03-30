@@ -95,6 +95,10 @@ Plans:
   3. S3 Vectors (2 indexes) and S3 Tables (Iceberg TableBucket) are wrapped in `aws.cloudformation.Stack` in the Pulumi compute stack and deploy successfully
   4. WebUIStack CDK deploy still works after cleanup — only NetworkingStack + ComputeStack CDK deps are removed
 **Plans**: 3 plans
+Plans:
+- [ ] 11-01-PLAN.md — generate-env.ts script (Pulumi stack output to web-ui/.env.local)
+- [ ] 11-02-PLAN.md — S3 Vectors + S3 Tables CFN template extraction and aws.cloudformation.Stack wrapping
+- [ ] 11-03-PLAN.md — CDK source deletion + bin/webUIStack.ts entry point + cdk.json update + human verify
 
 ## Progress
 
@@ -109,4 +113,4 @@ Data before ECS is the critical constraint — 30+ ECS env vars are Output<strin
 | 8. Data Layer | 3/3 | Complete   | 2026-03-30 |
 | 9. Lambda + EventBridge | 3/3 | Complete   | 2026-03-30 |
 | 10. ECS + ALB + CloudFront | 3/3 | Complete   | 2026-03-30 |
-| 11. Cutover + CDK Removal | 0/? | Not started | - |
+| 11. Cutover + CDK Removal | 0/3 | Not started | - |
