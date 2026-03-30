@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 09-lambda-eventbridge/09-01-PLAN.md
-last_updated: "2026-03-30T10:30:19.437Z"
+stopped_at: Completed 09-lambda-eventbridge/09-02-PLAN.md
+last_updated: "2026-03-30T10:37:11.474Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 09 (lambda-eventbridge) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-03-30
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 08-data-layer P02 | 6 | 2 tasks | 2 files |
 | Phase 08-data-layer P03 | 10 | 2 tasks | 1 files |
 | Phase 09-lambda-eventbridge P09-01 | 8 | 2 tasks | 5 files |
+| Phase 09-lambda-eventbridge P09-02 | 3 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,8 @@ Key decisions from research (2026-03-29):
 - [Phase 09-lambda-eventbridge]: npm ci required before esbuild for scheduler Lambda (uuid, dayjs, pg are non-AWS-SDK deps not in Lambda runtime)
 - [Phase 09-lambda-eventbridge]: vector_processor esbuild runs from project root — no package.json, needs root node_modules for @aws-sdk/client-s3vectors and @prisma/client
 - [Phase 09-lambda-eventbridge]: lambda.zip files added to .gitignore — build artifacts produced by infra/build-lambdas.sh, not committed to source
+- [Phase 09-lambda-eventbridge]: aws.lambda.Function uses name not functionName — Pulumi API difference from CDK NodejsFunction
+- [Phase 09-lambda-eventbridge]: VECTOR_BUCKET_ARN and KB_VECTOR_BUCKET_NAME are intentional placeholders — Phase 11 wires real S3 Vectors bucket
 
 ### Pending Todos
 
@@ -117,6 +120,6 @@ None at start of milestone.
 
 ## Session Continuity
 
-Last session: 2026-03-30T10:30:19.434Z
-Stopped at: Completed 09-lambda-eventbridge/09-01-PLAN.md
+Last session: 2026-03-30T10:37:11.471Z
+Stopped at: Completed 09-lambda-eventbridge/09-02-PLAN.md
 Resume file: None

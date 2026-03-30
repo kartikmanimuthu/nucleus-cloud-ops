@@ -24,8 +24,8 @@
 ### Compute — Lambda
 
 - [x] **PULUMI-08**: Engineer can deploy Scheduler Lambda (ARM64, Node 20) via Pulumi with esbuild pre-build step, correct IAM role, EventBridge trigger (every 30 min), and all env vars wired from stack outputs
-- [ ] **PULUMI-09**: Engineer can deploy VectorProcessor Lambda (ARM64, Node 20) via Pulumi with SQS event source (batchSize=1, maxConcurrency=5) and esbuild pre-build
-- [ ] **PULUMI-10**: Engineer can deploy KBSyncProcessor Lambda (ARM64, Node 20) via Pulumi with SQS event source (batchSize=1) and esbuild pre-build
+- [x] **PULUMI-09**: Engineer can deploy VectorProcessor Lambda (ARM64, Node 20) via Pulumi with SQS event source (batchSize=1, maxConcurrency=5) and esbuild pre-build
+- [x] **PULUMI-10**: Engineer can deploy KBSyncProcessor Lambda (ARM64, Node 20) via Pulumi with SQS event source (batchSize=1) and esbuild pre-build
 - [ ] **PULUMI-11**: Engineer can deploy Discovery ECS task definition (ARM64, Python container) via Pulumi with EventBridge Scheduler (daily 2AM UTC) and EventBridge Rule for on-demand `StartDiscovery` events
 
 ### Compute — ECS + ALB + CloudFront
@@ -77,8 +77,8 @@
 | PULUMI-06 | Phase 8 | Complete |
 | PULUMI-07 | Phase 8 | Complete |
 | PULUMI-08 | Phase 9 | Complete |
-| PULUMI-09 | Phase 9 | Pending |
-| PULUMI-10 | Phase 9 | Pending |
+| PULUMI-09 | Phase 9 | Complete |
+| PULUMI-10 | Phase 9 | Complete |
 | PULUMI-11 | Phase 9 + Phase 10 | Pending |
 | PULUMI-12 | Phase 10 | Pending |
 | PULUMI-13 | Phase 10 | Pending |
