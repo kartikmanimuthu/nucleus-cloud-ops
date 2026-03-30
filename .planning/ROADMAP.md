@@ -68,7 +68,7 @@ Plans:
   1. Scheduler Lambda deploys (ARM64, Node 20, esbuild pre-build) and EventBridge triggers it every 30 minutes — CloudWatch logs confirm invocations
   2. VectorProcessor and KBSyncProcessor Lambdas deploy with SQS event sources; sending a test message to each queue triggers the respective Lambda
   3. Discovery ECS task definition deploys with EventBridge Scheduler (daily 2AM UTC) and an on-demand `StartDiscovery` event rule
-**Plans**: TBD
+**Plans**: 3 plans
 
 ### Phase 10: ECS + ALB + CloudFront
 **Goal**: The web UI container is running on ECS Fargate behind ALB and CloudFront with all env vars wired from stack outputs
@@ -79,7 +79,11 @@ Plans:
   2. ALB health check on `/api/health` returns 200; the web UI is reachable via the ALB DNS name
   3. CloudFront distribution deploys with a stable `random.RandomString` origin verify secret; the web UI is reachable via the CloudFront URL
   4. All 30+ container env vars are populated from stack outputs via `pulumi.all()` — no hardcoded resource IDs in the task definition
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 10-01-PLAN.md — ECR repo + build script + ECS cluster + IAM roles + WebUI task definition with 30+ env vars
+- [ ] 10-02-PLAN.md — ALB + target group + HTTP listener + ECS Fargate service + auto scaling
+- [ ] 10-03-PLAN.md — CloudFront distribution + Discovery EventBridge Scheduler + stack outputs + pulumi up + human verify
 
 ### Phase 11: Cutover + CDK Removal
 **Goal**: Pulumi is the sole IaC for NetworkingStack and ComputeStack — CDK stacks are destroyed, source files deleted, and S3 Vectors/Tables wrapped in CloudFormation
@@ -90,7 +94,7 @@ Plans:
   2. CDK NetworkingStack and ComputeStack are destroyed without error; `lib/networkingStack.ts`, `lib/computeStack.ts`, and `bin/cdkStack.ts` are deleted from the repo
   3. S3 Vectors (2 indexes) and S3 Tables (Iceberg TableBucket) are wrapped in `aws.cloudformation.Stack` in the Pulumi compute stack and deploy successfully
   4. WebUIStack CDK deploy still works after cleanup — only NetworkingStack + ComputeStack CDK deps are removed
-**Plans**: TBD
+**Plans**: 3 plans
 
 ## Progress
 
