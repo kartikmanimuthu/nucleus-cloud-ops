@@ -10,7 +10,7 @@ import {
     createExecutionAuditLog,
     DEFAULT_TENANT_ID,
 } from './dynamodb-service.js';
-import { getSchedules as getSchedulesPg } from './pg-service.js';
+import { getSchedules as getSchedulesPg, getAccounts as getAccountsPg, logExecution as logExecutionPg } from './pg-service.js';
 
 // USE_PG_SCHEDULES=true routes schedule reads/writes to PostgreSQL
 const USE_PG_SCHEDULES = process.env.USE_PG_SCHEDULES === 'true';
@@ -22,10 +22,21 @@ async function fetchActiveSchedules(): Promise<Awaited<ReturnType<typeof fetchAc
     if (USE_PG_SCHEDULES) {
         logger.info('[scheduler-service] Using PostgreSQL for schedule fetch (USE_PG_SCHEDULES=true)');
         const pgSchedules = await getSchedulesPg(DEFAULT_TENANT_ID);
-        // Cast to match DynamoDB Schedule type (pg-service returns compatible shape)
         return pgSchedules as Awaited<ReturnType<typeof fetchActiveSchedulesDynamo>>;
     }
     return fetchActiveSchedulesDynamo();
+}
+
+/**
+ * Fetch active accounts — switches between DynamoDB and PostgreSQL via USE_PG_SCHEDULES.
+ */
+async function fetchAccounts(): Promise<Awaited<ReturnType<typeof fetchActiveAccounts>>> {
+    if (USE_PG_SCHEDULES) {
+        logger.info('[scheduler-service] Using PostgreSQL for account fetch (USE_PG_SCHEDULES=true)');
+        const pgAccounts = await getAccountsPg(DEFAULT_TENANT_ID);
+        return pgAccounts as Awaited<ReturnType<typeof fetchActiveAccounts>>;
+    }
+    return fetchActiveAccounts();
 }
 import {
     createExecutionRecord,
@@ -72,7 +83,7 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
 
     // Filter to ensure we only get actual schedules (in case GSI3 returns other active items like Accounts)
     const schedules = (await fetchActiveSchedules()).filter(s => s.type === 'schedule');
-    const accounts = await fetchActiveAccounts();
+    const accounts = await fetchAccounts();
 
     logger.info(`Found ${schedules.length} active schedules and ${accounts.length} active accounts`);
 
@@ -202,7 +213,7 @@ export async function runPartialScan(
 
     logger.debug('Fetched schedule for partial scan', { schedule });
 
-    const accounts = await fetchActiveAccounts();
+    const accounts = await fetchAccounts();
     logger.debug(`Fetched ${accounts.length} active accounts for partial scan`);
 
     try {
@@ -477,11 +488,33 @@ async function processSchedule(
     const hasActions = started > 0 || stopped > 0 || failed > 0;
 
     if (hasActions) {
+        const duration = Date.now() - scheduleStartTime;
+
+        // Write execution record to PostgreSQL if USE_PG_SCHEDULES is enabled
+        if (USE_PG_SCHEDULES) {
+            try {
+                await logExecutionPg({
+                    tenantId: execParams.tenantId,
+                    scheduleId: execParams.scheduleId,
+                    accountId: execParams.accountId,
+                    status: failed > 0 ? 'partial' : 'success',
+                    executionTime: new Date().toISOString(),
+                    resourcesStarted: started,
+                    resourcesStopped: stopped,
+                    resourcesFailed: failed,
+                    duration,
+                    scheduleMetadata,
+                });
+                logger.info(`[pg-service] Execution record written to PostgreSQL for schedule ${schedule.name}`);
+            } catch (pgError) {
+                logger.warn('[scheduler-service] Failed to write execution to PostgreSQL (non-fatal)', pgError);
+            }
+        }
+
         // Create execution record now that we know actions were performed
         const execRecord = await createExecutionRecord(execParams);
 
         // Update execution record with final results and metadata
-        const duration = Date.now() - scheduleStartTime;
         await updateExecutionRecord(execRecord, {
             status: failed > 0 ? 'partial' : 'success',
             resourcesStarted: started,

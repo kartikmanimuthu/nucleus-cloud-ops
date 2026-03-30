@@ -35,9 +35,9 @@ export async function getSchedules(tenantId: string = DEFAULT_TENANT_ID): Promis
     const client: PoolClient = await getPool().connect();
     try {
         const result = await client.query(
-            `SELECT schedule_id as "scheduleId",
-                    tenant_id    as "tenantId",
-                    account_id   as "accountId",
+            `SELECT "scheduleId",
+                    "tenantId",
+                    "accountId",
                     name,
                     description,
                     starttime,
@@ -46,12 +46,12 @@ export async function getSchedules(tenantId: string = DEFAULT_TENANT_ID): Promis
                     days,
                     active,
                     resources,
-                    created_at   as "createdAt",
-                    updated_at   as "updatedAt"
+                    "createdAt",
+                    "updatedAt"
              FROM schedules
-             WHERE tenant_id = $1
+             WHERE "tenantId" = $1
                AND active = true
-             ORDER BY created_at DESC`,
+             ORDER BY "createdAt" DESC`,
             [tenantId]
         );
 
@@ -90,18 +90,20 @@ export async function logExecution(execution: {
 }): Promise<void> {
     const client: PoolClient = await getPool().connect();
     try {
+        const id = `clex-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const executionId = `exec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         // 90-day TTL replacement — expiresAt used for WHERE expiresAt < NOW() cleanup jobs
         const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
 
         await client.query(
             `INSERT INTO schedule_executions
-               (tenant_id, execution_id, schedule_id, account_id, status, execution_time,
-                resources_started, resources_stopped, resources_failed, duration,
-                error_message, schedule_metadata, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-             ON CONFLICT (tenant_id, execution_id) DO NOTHING`,
+               (id, "tenantId", "executionId", "scheduleId", "accountId", status, "executionTime",
+                "resourcesStarted", "resourcesStopped", "resourcesFailed", duration,
+                "errorMessage", "scheduleMetadata", "expiresAt")
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             ON CONFLICT ("tenantId", "executionId") DO NOTHING`,
             [
+                id,
                 execution.tenantId,
                 executionId,
                 execution.scheduleId,
@@ -123,6 +125,36 @@ export async function logExecution(execution: {
         );
     } catch (error) {
         logger.error('[pg-service] Error logging execution to PostgreSQL', error);
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * Get all active accounts for a tenant.
+ * Replaces DynamoDB GSI3 TYPE#ACCOUNT / STATUS#active query.
+ */
+export async function getAccounts(tenantId: string = DEFAULT_TENANT_ID): Promise<import('../types/index.js').Account[]> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        const result = await client.query(
+            `SELECT "accountId",
+                    name,
+                    "roleArn",
+                    "externalId",
+                    regions,
+                    active,
+                    "tenantId"
+             FROM accounts
+             WHERE "tenantId" = $1
+               AND active = true`,
+            [tenantId]
+        );
+        logger.debug(`[pg-service] Fetched ${result.rows.length} active accounts for tenant ${tenantId}`);
+        return result.rows;
+    } catch (error) {
+        logger.error('[pg-service] Error fetching accounts from PostgreSQL', error);
         throw error;
     } finally {
         client.release();
