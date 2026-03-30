@@ -1445,6 +1445,165 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
 });
 
 // ============================================================================
+// ALB + SECURITY GROUPS + TARGET GROUP + LISTENER
+// ============================================================================
+
+// Look up CloudFront managed prefix list (restricts ALB inbound to CloudFront only)
+const cloudFrontPrefixList = aws.ec2.getManagedPrefixListOutput({
+    name: "com.amazonaws.global.cloudfront.origin-facing",
+});
+
+// ALB Security Group — inbound port 80 from CloudFront managed prefix list only
+const albSecurityGroup = new aws.ec2.SecurityGroup("alb-sg", {
+    name: "nucleus-cloud-ops-alb-sg",
+    description: "Security group for WebUI ALB — CloudFront origin only",
+    vpcId: vpcId,
+    ingress: [{
+        fromPort: 80,
+        toPort: 80,
+        protocol: "tcp",
+        prefixListIds: [cloudFrontPrefixList.id],
+        description: "HTTP from CloudFront managed prefix list",
+    }],
+    egress: [{
+        fromPort: 0,
+        toPort: 0,
+        protocol: "-1",
+        cidrBlocks: ["0.0.0.0/0"],
+        description: "Allow all outbound",
+    }],
+});
+
+// ECS Service Security Group — inbound port 3000 from ALB security group only
+const ecsServiceSecurityGroup = new aws.ec2.SecurityGroup("ecs-service-sg", {
+    name: "nucleus-cloud-ops-ecs-service-sg",
+    description: "Security group for WebUI ECS tasks — ALB traffic only",
+    vpcId: vpcId,
+    ingress: [{
+        fromPort: 3000,
+        toPort: 3000,
+        protocol: "tcp",
+        securityGroups: [albSecurityGroup.id],
+        description: "Container port from ALB",
+    }],
+    egress: [{
+        fromPort: 0,
+        toPort: 0,
+        protocol: "-1",
+        cidrBlocks: ["0.0.0.0/0"],
+        description: "Allow all outbound",
+    }],
+});
+
+// Application Load Balancer — internet-facing, idleTimeout 1200s for long streaming requests
+const alb = new aws.lb.LoadBalancer("web-ui-alb", {
+    name: "nucleus-cloud-ops-alb",
+    internal: false,
+    loadBalancerType: "application",
+    securityGroups: [albSecurityGroup.id],
+    subnets: publicSubnetIds,
+    idleTimeout: 1200,
+});
+
+// Target Group — IP target type, port 3000, /api/health health check
+const webUiTargetGroup = new aws.lb.TargetGroup("web-ui-tg", {
+    name: "nucleus-cloud-ops-web-ui-tg",
+    port: 3000,
+    protocol: "HTTP",
+    targetType: "ip",
+    vpcId: vpcId,
+    deregistrationDelay: 30,
+    healthCheck: {
+        path: "/api/health",
+        interval: 60,
+        timeout: 5,
+        healthyThreshold: 2,
+        unhealthyThreshold: 3,
+        matcher: "200",
+    },
+});
+
+// HTTP Listener — port 80, forward to target group
+const httpListener = new aws.lb.Listener("http-listener", {
+    loadBalancerArn: alb.arn,
+    port: 80,
+    protocol: "HTTP",
+    defaultActions: [{
+        type: "forward",
+        targetGroupArn: webUiTargetGroup.arn,
+    }],
+});
+
+// ============================================================================
+// ECS FARGATE SERVICE + AUTO SCALING
+// ============================================================================
+
+// ECS Fargate Service — forceNewDeployment, circuit breaker with rollback, desiredCount 0
+const webUiService = new aws.ecs.Service("web-ui-service", {
+    name: "nucleus-cloud-ops-web-ui-service",
+    cluster: ecsCluster.arn,
+    taskDefinition: webUiTaskDef.arn,
+    desiredCount: 0,  // safe start — scale up after smoke testing
+    launchType: "FARGATE",
+    forceNewDeployment: true,
+    deploymentCircuitBreaker: {
+        enable: true,
+        rollback: true,
+    },
+    deploymentMinimumHealthyPercent: 100,
+    deploymentMaximumPercent: 200,
+    networkConfiguration: {
+        subnets: privateSubnetIds,
+        securityGroups: [ecsServiceSecurityGroup.id],
+        assignPublicIp: false,
+    },
+    loadBalancers: [{
+        targetGroupArn: webUiTargetGroup.arn,
+        containerName: "WebUIContainer",
+        containerPort: 3000,
+    }],
+}, { dependsOn: [httpListener] });
+
+// Auto Scaling Target — min 2, max 10
+const scalingTarget = new aws.appautoscaling.Target("web-ui-scaling-target", {
+    maxCapacity: 10,
+    minCapacity: 2,
+    resourceId: pulumi.interpolate`service/${ecsCluster.name}/${webUiService.name}`,
+    scalableDimension: "ecs:service:DesiredCount",
+    serviceNamespace: "ecs",
+});
+
+// CPU Scaling Policy — target 70%
+new aws.appautoscaling.Policy("web-ui-cpu-scaling", {
+    name: "nucleus-cloud-ops-web-ui-cpu-scaling",
+    policyType: "TargetTrackingScaling",
+    resourceId: scalingTarget.resourceId,
+    scalableDimension: scalingTarget.scalableDimension,
+    serviceNamespace: scalingTarget.serviceNamespace,
+    targetTrackingScalingPolicyConfiguration: {
+        predefinedMetricSpecification: {
+            predefinedMetricType: "ECSServiceAverageCPUUtilization",
+        },
+        targetValue: 70,
+    },
+});
+
+// Memory Scaling Policy — target 75%
+new aws.appautoscaling.Policy("web-ui-memory-scaling", {
+    name: "nucleus-cloud-ops-web-ui-memory-scaling",
+    policyType: "TargetTrackingScaling",
+    resourceId: scalingTarget.resourceId,
+    scalableDimension: scalingTarget.scalableDimension,
+    serviceNamespace: scalingTarget.serviceNamespace,
+    targetTrackingScalingPolicyConfiguration: {
+        predefinedMetricSpecification: {
+            predefinedMetricType: "ECSServiceAverageMemoryUtilization",
+        },
+        targetValue: 75,
+    },
+});
+
+// ============================================================================
 // STACK OUTPUTS
 // ============================================================================
 
