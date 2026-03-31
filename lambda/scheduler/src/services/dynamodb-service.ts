@@ -190,6 +190,10 @@ export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
         logger.warn('AUDIT_TABLE_NAME not configured, skipping audit log');
         return;
     }
+    // When PG is the source of truth, skip DynamoDB audit log writes
+    if (process.env.USE_PG_SCHEDULES === 'true') {
+        return;
+    }
 
     const client = getDynamoDBClient();
     const id = uuidv4();
