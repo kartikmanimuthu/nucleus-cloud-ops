@@ -32,14 +32,14 @@ Declared values (must be multiples of 4):
 | Token | Value | Usage |
 |-------|-------|-------|
 | xs | 4px | Icon gaps, inline padding |
-| sm | 8px | Compact element spacing, field gap within form group |
+| sm | 8px | Compact element spacing, field gap within form group, logo row gap |
 | md | 16px | Default element spacing, input padding |
 | lg | 24px | Section padding, heading-to-form gap |
 | xl | 32px | Card padding (p-8), major section breaks |
 | 2xl | 48px | Page-level vertical centering padding |
 | 3xl | 64px | Not used in this phase |
 
-Exceptions: Logo row uses gap-2.5 (10px) — matches existing login page pattern; do not change.
+Logo row uses gap-2 (8px) — standard `sm` token.
 
 ---
 
@@ -49,7 +49,7 @@ Exceptions: Logo row uses gap-2.5 (10px) — matches existing login page pattern
 |------|------|--------|-------------|-------|
 | Heading | 24px (text-2xl) | 700 (bold) | 1.2 | "Welcome back" page heading |
 | Body | 14px (text-sm) | 400 (regular) | 1.5 | Helper text, tab content, "Forgot password?" link |
-| Label | 14px (text-sm) | 500 (medium) | 1.4 | Form field labels (Email, Password) |
+| Label | 14px (text-sm) | 400 (regular) | 1.4 | Form field labels (Email, Password) — distinguished from body by htmlFor association and position |
 | Error | 12px (text-xs) | 400 (regular) | 1.4 | Inline field error messages below inputs |
 
 Font: Inter via `var(--font-sans)`. No additional font loading needed — already declared in globals.css.
@@ -92,11 +92,13 @@ All components already installed in `web-ui/components/ui/`. No new shadcn insta
 
 Login page (`/login`) is a full-page centered layout — no sidebar, no nav.
 
+Primary visual anchor: "Welcome back" heading — largest text element on the page, first content after the logo row.
+
 ```
 min-h-screen bg-background flex items-center justify-center p-4
   └── w-full max-w-sm
         └── bg-card border border-border rounded-xl shadow-sm p-8
-              ├── Logo row (Zap icon + "Nucleus Ops" wordmark)
+              ├── Logo row (Zap icon + "Nucleus Ops" wordmark, gap-2)
               ├── Heading block ("Welcome back" + subtext)
               ├── Tabs (Email & Password | SSO)
               │     ├── Tab: Email & Password
