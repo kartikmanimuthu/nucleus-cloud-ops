@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-options';
 import { authorize } from '@/lib/rbac/authorize';
+import { canAssignRole } from '@/lib/rbac/permissions';
 import { assignUserRole } from '@/lib/rbac/role-service';
-import { TenantRole } from '@/lib/rbac/types';
+import { getAuthSession } from '@/lib/auth-session';
+import type { PredefinedRole } from '@/lib/rbac/types';
 
-const VALID_ROLES: TenantRole[] = ['TenantAdmin', 'TenantOperator', 'TenantViewer'];
+const VALID_ROLES: PredefinedRole[] = ['Owner', 'Admin', 'Member', 'Viewer'];
 const DEFAULT_TENANT_ID = 'default';
 
 export async function POST(request: Request) {
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     if (authError) return authError;
 
     try {
-        const session = await getServerSession(authOptions);
+        const session = await getAuthSession();
         const adminEmail = session?.user?.email || 'system';
 
         const body = await request.json();
@@ -28,11 +28,20 @@ export async function POST(request: Request) {
             );
         }
 
-        // Validate role
+        // Validate role is a known predefined role
         if (!VALID_ROLES.includes(role)) {
             return NextResponse.json(
                 { error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` },
                 { status: 400 }
+            );
+        }
+
+        // Enforce role hierarchy: assigner cannot assign a role above their own level (D-09)
+        const currentUserRole = session?.user?.role as PredefinedRole | undefined;
+        if (!currentUserRole || !canAssignRole(currentUserRole, role as PredefinedRole)) {
+            return NextResponse.json(
+                { error: 'Forbidden', message: 'Cannot assign a role above your own level' },
+                { status: 403 }
             );
         }
 
@@ -44,7 +53,7 @@ export async function POST(request: Request) {
             userId,
             email,
             effectiveTenantId,
-            role as TenantRole,
+            role as PredefinedRole,
             adminEmail
         );
 
