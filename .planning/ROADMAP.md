@@ -27,7 +27,7 @@ See [archive](milestones/v2.0-ROADMAP.md) for full phase details.
 **Milestone Goal:** Transform Nucleus Cloud Ops into a standard SaaS product with full multi-tenant isolation, custom per-module RBAC, tenant lifecycle management, and dual auth (Cognito + Credentials).
 
 - [x] **Phase 12: Auth Foundation** - Dual auth (Cognito + Credentials), Prisma adapter, session normalization with tenantId/role/isSuperAdmin (completed 2026-03-31)
-- [ ] **Phase 13: Custom RBAC** - Replace CASL with static role/permission map; migrate all API routes; remove @casl/ability
+- [x] **Phase 13: Custom RBAC** - Replace CASL with static role/permission map; migrate all API routes; remove @casl/ability (completed 2026-03-31)
 - [ ] **Phase 14: Tenant Context Enforcement** - Scoped Prisma client factory; remove DEFAULT_TENANT_ID fallbacks; Lambda + LangGraph tenant isolation
 - [ ] **Phase 15: Super Admin + Onboarding + Suspension** - /admin panel, tenant CRUD, two-mode suspension with immediate session invalidation
 - [ ] **Phase 16: User Invitations + Onboarding Completion** - Email invitations via Resend, accept/decline flow, multi-org membership
@@ -67,7 +67,7 @@ Plans:
 - [x] 13-01-PLAN.md — Permission system core (types, static map, authorize rewrite, hierarchy)
 - [x] 13-02-PLAN.md — Migrate all API routes to new RBAC + remove CASL
 - [x] 13-03-PLAN.md — Custom roles backend (Prisma model, service, API routes)
-- [ ] 13-04-PLAN.md — Custom roles UI (settings page, permission matrix, dialogs)
+- [x] 13-04-PLAN.md — Custom roles UI (settings page, permission matrix, dialogs)
 **UI hint**: yes
 
 ### Phase 14: Tenant Context Enforcement
@@ -127,7 +127,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 12. Auth Foundation | v3.0 | 3/3 | Complete    | 2026-03-31 |
-| 13. Custom RBAC | v3.0 | 3/4 | In Progress|  |
+| 13. Custom RBAC | v3.0 | 4/4 | Complete   | 2026-03-31 |
 | 14. Tenant Context Enforcement | v3.0 | 0/? | Not started | - |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 0/? | Not started | - |
 | 16. User Invitations + Onboarding Completion | v3.0 | 0/? | Not started | - |
