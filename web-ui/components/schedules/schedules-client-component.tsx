@@ -463,12 +463,14 @@ export default function SchedulesClient({
 
       {/* Pagination */}
       {!loading && totalItems > 0 && (
-        <div className="flex items-center justify-between gap-4 rounded-lg border bg-card px-4 py-3">
-          <span className="flex-none whitespace-nowrap text-sm text-muted-foreground">
+        <div className="grid grid-cols-3 items-center rounded-lg border bg-card px-4 py-3">
+          {/* Left: record count */}
+          <span className="whitespace-nowrap text-sm text-muted-foreground">
             Showing {(currentPage - 1) * limit + 1}–{Math.min(currentPage * limit, totalItems)} of {totalItems} schedules
           </span>
 
-          <div className="flex flex-1 items-center justify-center gap-1">
+          {/* Center: prev / page indicator / next */}
+          <div className="flex items-center justify-center gap-1">
             <PaginationPrevious
               href="#"
               onClick={(e) => {
@@ -492,7 +494,8 @@ export default function SchedulesClient({
             />
           </div>
 
-          <div className="flex flex-none items-center gap-2">
+          {/* Right: rows per page */}
+          <div className="flex items-center justify-end gap-2">
             <span className="whitespace-nowrap text-sm text-muted-foreground">Rows per page</span>
             <Select value={String(limit)} onValueChange={handleLimitChange}>
               <SelectTrigger className="h-8 w-[70px]">
