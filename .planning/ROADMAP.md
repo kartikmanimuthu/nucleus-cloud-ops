@@ -127,7 +127,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 12. Auth Foundation | v3.0 | 3/3 | Complete    | 2026-03-31 |
-| 13. Custom RBAC | v3.0 | 4/4 | Complete   | 2026-03-31 |
+| 13. Custom RBAC | v3.0 | 4/4 | Complete    | 2026-03-31 |
 | 14. Tenant Context Enforcement | v3.0 | 0/? | Not started | - |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 0/? | Not started | - |
 | 16. User Invitations + Onboarding Completion | v3.0 | 0/? | Not started | - |
