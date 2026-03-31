@@ -1002,21 +1002,40 @@ def save_sync_status(
     accounts_synced: int = 1
 ) -> bool:
     """
-    Save sync status metadata to APP_TABLE for the status endpoint.
-    
-    Args:
-        dynamodb_client: Boto3 DynamoDB client
-        app_table_name: APP_TABLE name
-        scan_id: The unique scan ID for this run
-        total_resources: Total count of resources discovered
-        accounts_synced: Number of accounts scanned
-        
-    Returns:
-        True if successful, False otherwise
+    Save sync status metadata.
+    Writes to PostgreSQL when USE_PG_INVENTORY=true, otherwise DynamoDB.
     """
     now = datetime.now(timezone.utc)
     timestamp = now.isoformat()
-    
+
+    if is_pg_enabled():
+        try:
+            from pg_writer import get_connection, _SafeEncoder
+            import uuid as _uuid
+            conn = get_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO inventory_sync_status
+                            (id, "scanId", "totalResources", "accountsSynced", status, "syncedAt", "createdAt")
+                        VALUES (%s, %s, %s, %s, 'completed', NOW(), NOW())
+                        ON CONFLICT ("scanId") DO UPDATE SET
+                            "totalResources" = EXCLUDED."totalResources",
+                            "accountsSynced" = EXCLUDED."accountsSynced",
+                            "syncedAt" = NOW()
+                        """,
+                        (str(_uuid.uuid4()), scan_id, total_resources, accounts_synced)
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+            print(f"  Saved sync status to PostgreSQL: {total_resources} resources, {accounts_synced} accounts")
+            return True
+        except Exception as e:
+            print(f"  ERROR saving sync status to PostgreSQL: {e}")
+            return False
+
     try:
         dynamodb_client.put_item(
             TableName=app_table_name,

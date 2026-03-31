@@ -278,6 +278,21 @@ model InventoryVectorKey {
   @@map("inventory_vector_keys")
 }
 
+// InventorySyncStatus — tracks per-scan metadata (replaces DynamoDB SYNC#INVENTORY pattern)
+// Written by discovery Lambda after each scan run
+model InventorySyncStatus {
+  id              String   @id @default(cuid())
+  scanId          String   @unique
+  totalResources  Int      @default(0)
+  accountsSynced  Int      @default(0)
+  status          String   @default("completed")
+  syncedAt        DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([syncedAt])
+  @@map("inventory_sync_status")
+}
+
 // AgentOpsRun — migrated from DynamoDB AgentOpsTable run records (AOPS-01)
 // source, status, mode fields use CHECK constraints in migration SQL (not Prisma-native)
 // expiresAt replaces DynamoDB TTL (30-day retention)
