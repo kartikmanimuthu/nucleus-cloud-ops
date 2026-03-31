@@ -35,11 +35,12 @@ aws ecr get-login-password \
   | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
 # Build image (ARM64 for Fargate Graviton)
+# Build context is PROJECT_ROOT so Dockerfile can access both web-ui/ and prisma/
 docker build \
     -f "${PROJECT_ROOT}/web-ui/Dockerfile.ecs" \
     --platform linux/arm64 \
     -t "${ECR_URI}:latest" \
-    "${PROJECT_ROOT}/web-ui/"
+    "${PROJECT_ROOT}"
 
 # Push to ECR
 docker push "${ECR_URI}:latest"

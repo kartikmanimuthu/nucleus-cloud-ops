@@ -1,10 +1,11 @@
 # Multi-stage Dockerfile for Next.js Web UI on ECS Fargate
 # Optimized for ARM64 (AWS Graviton2) architecture
+# Build context: project root (not web-ui/) — required to include prisma/
 FROM public.ecr.aws/docker/library/node:20.9.0-slim AS deps
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY web-ui/package*.json ./
 
 # Install production dependencies only
 RUN npm ci --only=production --omit=dev --legacy-peer-deps && \
@@ -14,14 +15,15 @@ FROM public.ecr.aws/docker/library/node:20.9.0-slim AS builder
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY web-ui/package*.json ./
 
 # Install all dependencies for build
 RUN npm ci --legacy-peer-deps && \
     npm cache clean --force
 
-# Copy source code
-COPY . .
+# Copy source code and prisma schema
+COPY web-ui/ .
+COPY prisma/ ./prisma/
 
 # Set Next.js environment for standalone build
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -107,5 +109,8 @@ USER node
 # Expose port
 EXPOSE 3000
 
-# Start the application
-CMD ["node", "server.js"]
+# Copy Prisma schema for migrate deploy at startup
+COPY --from=builder /app/prisma ./prisma
+
+# Start: run migrations then start the app
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=./prisma/schema.prisma && node server.js"]
