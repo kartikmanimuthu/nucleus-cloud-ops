@@ -10,7 +10,9 @@ A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managi
 
 ## Current Milestone: v3.0 Multi-Tenancy
 
-**Goal:** Transform Nucleus Cloud Ops into a standard SaaS product with full multi-tenant isolation, custom per-module RBAC (replacing CASL), tenant lifecycle management, and dual auth (Cognito + Credentials).
+**Goal:** Transform Nucleus Cloud Ops into a standard SaaS product with full multi-tenant isolation, custom per-module RBAC, tenant lifecycle management, and dual auth (Cognito + Credentials).
+
+**Phase 13 complete (2026-03-31):** Custom RBAC system live — CASL fully removed, new authorize() with static ROLE_PERMISSIONS map, custom roles backend (Prisma + API), and roles management UI.
 
 **Target features:**
 - Dual Auth (Cognito + Credentials) — NextAuth with both providers, Prisma adapter for user persistence
