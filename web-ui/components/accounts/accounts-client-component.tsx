@@ -490,39 +490,61 @@ export default function AccountsClient({
 
       {/* Pagination */}
       {!loading && totalItems > 0 && (
-        <Pagination className="mt-4">
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious 
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (currentPage > 1) setCurrentPage(currentPage - 1);
-                }}
-                aria-disabled={currentPage === 1}
-                className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
-              />
-            </PaginationItem>
-            
-            <PaginationItem>
-              <span className="px-4 text-sm text-muted-foreground">
-                Page {currentPage} of {Math.ceil(totalItems / limit)}
-              </span>
-            </PaginationItem>
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-sm text-muted-foreground">
+            Showing {(currentPage - 1) * limit + 1}–{Math.min(currentPage * limit, totalItems)} of {totalItems} records
+          </span>
 
-            <PaginationItem>
-              <PaginationNext 
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (currentPage < Math.ceil(totalItems / limit)) setCurrentPage(currentPage + 1);
-                }}
-                aria-disabled={currentPage >= Math.ceil(totalItems / limit)}
-                className={currentPage >= Math.ceil(totalItems / limit) ? "pointer-events-none opacity-50" : ""}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (currentPage > 1) setCurrentPage(currentPage - 1);
+                  }}
+                  aria-disabled={currentPage === 1}
+                  className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                />
+              </PaginationItem>
+              <PaginationItem>
+                <span className="px-4 text-sm text-muted-foreground">
+                  Page {currentPage} of {Math.ceil(totalItems / limit)}
+                </span>
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (currentPage < Math.ceil(totalItems / limit)) setCurrentPage(currentPage + 1);
+                  }}
+                  aria-disabled={currentPage >= Math.ceil(totalItems / limit)}
+                  className={currentPage >= Math.ceil(totalItems / limit) ? "pointer-events-none opacity-50" : ""}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+
+          <Select
+            value={String(limit)}
+            onValueChange={(val) => {
+              setLimit(Number(val));
+              setCurrentPage(1);
+            }}
+          >
+            <SelectTrigger className="w-[110px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10 / page</SelectItem>
+              <SelectItem value="25">25 / page</SelectItem>
+              <SelectItem value="50">50 / page</SelectItem>
+              <SelectItem value="100">100 / page</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       )}
 
       {/* Dialogs */}

@@ -28,6 +28,13 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { SchedulesTable } from "@/components/schedules/schedules-table";
 import { SchedulesGrid } from "@/components/schedules/schedules-grid";
 import { BulkActionsDialog } from "@/components/schedules/bulk-actions-dialog";
@@ -77,6 +84,11 @@ export default function SchedulesClient({
   const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
   const [selectedSchedules, setSelectedSchedules] = useState<string[]>([]);
   
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [totalItems, setTotalItems] = useState(0);
+
   // Stats state
   const [allSchedules, setAllSchedules] = useState<UISchedule[]>([]);
   const [loadingStats, setLoadingStats] = useState(false);
@@ -90,30 +102,33 @@ export default function SchedulesClient({
     try {
       setLoading(true);
       setError(null);
-      
+
       const filters = {
         statusFilter: statusFilter !== 'all' ? statusFilter : undefined,
         resourceFilter: resourceFilter !== 'all' ? resourceFilter : undefined,
         searchTerm: searchTerm || undefined,
+        page: currentPage,
+        limit,
       };
-      
+
       const result = await ClientScheduleService.getSchedules(filters);
       setSchedules(result.schedules);
-      
+      setTotalItems(result.total ?? 0);
+
     } catch (err) {
       console.error("Error loading schedules:", err);
       setError(err instanceof Error ? err.message : "Failed to load schedules");
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, resourceFilter, searchTerm]);
+  }, [statusFilter, resourceFilter, searchTerm, currentPage, limit]);
 
   // Load global stats (all schedules)
   const loadStats = useCallback(async () => {
     try {
       setLoadingStats(true);
-      // Fetch all schedules for stats (no limit)
-      const result = await ClientScheduleService.getSchedules({ limit: 1000 });
+      // Fetch schedules for stats count
+      const result = await ClientScheduleService.getSchedules({ limit: 20 });
       setAllSchedules(result.schedules);
     } catch (err) {
       console.error("Error loading stats:", err);
@@ -126,6 +141,17 @@ export default function SchedulesClient({
   useEffect(() => {
      loadStats();
   }, [loadStats]);
+
+  // Re-fetch when filters, page, or limit change
+  useEffect(() => {
+    loadSchedulesWithFilters();
+  }, [loadSchedulesWithFilters]);
+
+  // Handle page size change — reset to page 1
+  const handleLimitChange = (val: string) => {
+    setLimit(Number(val));
+    setCurrentPage(1);
+  };
 
   // Refresh schedules (load with current filters)
   const refreshSchedules = () => {
@@ -433,6 +459,59 @@ export default function SchedulesClient({
             />
           </TabsContent>
         </Tabs>
+      )}
+
+      {/* Pagination */}
+      {!loading && totalItems > 0 && (
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-sm text-muted-foreground">
+            Showing {(currentPage - 1) * limit + 1}–{Math.min(currentPage * limit, totalItems)} of {totalItems} records
+          </span>
+
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setCurrentPage(p => p - 1);
+                  }}
+                  aria-disabled={currentPage === 1}
+                  className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                />
+              </PaginationItem>
+              <PaginationItem>
+                <span className="px-4 text-sm text-muted-foreground">
+                  Page {currentPage} of {Math.ceil(totalItems / limit)}
+                </span>
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setCurrentPage(p => p + 1);
+                  }}
+                  aria-disabled={currentPage * limit >= totalItems}
+                  className={currentPage * limit >= totalItems ? "pointer-events-none opacity-50" : ""}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+
+          <Select value={String(limit)} onValueChange={handleLimitChange}>
+            <SelectTrigger className="w-[110px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10 / page</SelectItem>
+              <SelectItem value="25">25 / page</SelectItem>
+              <SelectItem value="50">50 / page</SelectItem>
+              <SelectItem value="100">100 / page</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       )}
 
       {/* Dialogs */}
