@@ -29,15 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useIsFirstRender } from "@/hooks/use-first-render";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 
 const statusFilters = [
   { value: "all", label: "All Schedules" },
@@ -491,43 +483,16 @@ export function SchedulesPageClient({
       )}
 
       {/* Pagination */}
-      {!loading && totalItems > 0 && (
-        <Pagination className="mt-4">
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious 
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (currentPage > 1) setCurrentPage(currentPage - 1);
-                }}
-                aria-disabled={currentPage === 1}
-                className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
-              />
-            </PaginationItem>
-            
-            {/* Simple pagination logic: just show current page context or ranges */}
-            {/* For now, simplified view: Prev, Page X of Y, Next */}
-            
-            <PaginationItem>
-              <span className="px-4 text-sm text-muted-foreground">
-                Page {currentPage} of {Math.ceil(totalItems / limit)}
-              </span>
-            </PaginationItem>
-
-            <PaginationItem>
-              <PaginationNext 
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (currentPage < Math.ceil(totalItems / limit)) setCurrentPage(currentPage + 1);
-                }}
-                aria-disabled={currentPage >= Math.ceil(totalItems / limit)}
-                className={currentPage >= Math.ceil(totalItems / limit) ? "pointer-events-none opacity-50" : ""}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
+      {!loading && (
+        <PaginationBar
+          currentPage={currentPage}
+          totalItems={totalItems}
+          pageSize={limit}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => { setLimit(size); setCurrentPage(1); }}
+          pageSizeOptions={[10, 25, 50, 100]}
+          itemLabel="schedules"
+        />
       )}
 
       {/* Dialogs */}

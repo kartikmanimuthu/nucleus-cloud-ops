@@ -37,13 +37,7 @@ import { UIAccount } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useIsFirstRender } from "@/hooks/use-first-render";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 
 interface FilterOption {
   value: string;
@@ -489,65 +483,16 @@ export default function AccountsClient({
       </Tabs>
 
       {/* Pagination */}
-      {!loading && totalItems > 0 && (
-        <div className="flex items-center justify-between gap-4 rounded-lg border bg-card px-4 py-3">
-          <span className="whitespace-nowrap text-sm text-muted-foreground">
-            Showing {(currentPage - 1) * limit + 1}–{Math.min(currentPage * limit, totalItems)} of {totalItems} accounts
-          </span>
-
-          <Pagination className="mx-0 w-auto">
-            <PaginationContent className="gap-1">
-              <PaginationItem>
-                <PaginationPrevious
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (currentPage > 1) setCurrentPage(currentPage - 1);
-                  }}
-                  aria-disabled={currentPage === 1}
-                  className={currentPage === 1 ? "pointer-events-none opacity-40" : ""}
-                />
-              </PaginationItem>
-              <PaginationItem>
-                <span className="px-3 text-sm font-medium tabular-nums">
-                  Page {currentPage} of {Math.ceil(totalItems / limit)}
-                </span>
-              </PaginationItem>
-              <PaginationItem>
-                <PaginationNext
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (currentPage < Math.ceil(totalItems / limit)) setCurrentPage(currentPage + 1);
-                  }}
-                  aria-disabled={currentPage >= Math.ceil(totalItems / limit)}
-                  className={currentPage >= Math.ceil(totalItems / limit) ? "pointer-events-none opacity-40" : ""}
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
-
-          <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap text-sm text-muted-foreground">Rows per page</span>
-            <Select
-              value={String(limit)}
-              onValueChange={(val) => {
-                setLimit(Number(val));
-                setCurrentPage(1);
-              }}
-            >
-              <SelectTrigger className="h-8 w-[70px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                <SelectItem value="10">10</SelectItem>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+      {!loading && (
+        <PaginationBar
+          currentPage={currentPage}
+          totalItems={totalItems}
+          pageSize={limit}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => { setLimit(size); setCurrentPage(1); }}
+          pageSizeOptions={[10, 25, 50, 100]}
+          itemLabel="accounts"
+        />
       )}
 
       {/* Dialogs */}

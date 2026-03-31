@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { RefreshCw, Download, Search, Filter, ChevronLeft, ChevronRight, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, Download, Search, Filter, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X, SlidersHorizontal } from "lucide-react";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 import { toast } from "sonner";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
@@ -77,10 +78,9 @@ export default function InventoryPage() {
     const [draftAccounts, setDraftAccounts] = useState<string[]>([]);
 
     // Pagination
-    const [cursor, setCursor] = useState<string | undefined>();
-    const [hasMore, setHasMore] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalItems, setTotalItems] = useState(0);
     const [pageSize, setPageSize] = useState(50);
-    const [isFirstPage, setIsFirstPage] = useState(true);
 
     const hasPendingChanges =
         draftSearch !== searchTerm ||
@@ -93,7 +93,7 @@ export default function InventoryPage() {
         setResourceType(draftResourceType);
         setRegion(draftRegion);
         setSelectedAccounts(draftAccounts);
-        setCursor(undefined);
+        setCurrentPage(1);
     };
 
     const handleClearFilters = () => {
@@ -105,7 +105,7 @@ export default function InventoryPage() {
         setResourceType("all");
         setRegion("all");
         setSelectedAccounts([]);
-        setCursor(undefined);
+        setCurrentPage(1);
     };
 
     // Dynamic columns — recomputed whenever the resourceType filter changes
@@ -116,27 +116,25 @@ export default function InventoryPage() {
 
     // Keep a ref to fetchResources so the debounce effect can always call the latest version
     // without listing fetchResources as a dependency (which would cause it to fire on page size changes too)
-    const fetchResourcesRef = useRef<(newCursor?: string) => Promise<void>>(async () => {});
+    const fetchResourcesRef = useRef<() => Promise<void>>(async () => {});
 
-    const fetchResources = useCallback(async (newCursor?: string) => {
+    const fetchResources = useCallback(async () => {
         setLoading(true);
         try {
             const params = new URLSearchParams();
             params.set("limit", pageSize.toString());
+            params.set("page", currentPage.toString());
             if (resourceType !== "all") params.set("resourceType", resourceType);
             if (region !== "all") params.set("region", region);
             if (selectedAccounts.length > 0) params.set("accountIds", selectedAccounts.join(","));
             if (searchTerm) params.set("search", searchTerm);
-            if (newCursor) params.set("cursor", newCursor);
 
             const response = await fetch(`/api/inventory/resources?${params.toString()}`);
             const data = await response.json();
 
             if (response.ok) {
                 setResources(data.resources || []);
-                setHasMore(data.hasMore || false);
-                setCursor(data.nextCursor);
-                setIsFirstPage(!newCursor);
+                setTotalItems(data.total || 0);
             } else {
                 toast.error(data.error || "Failed to fetch resources");
             }
@@ -145,7 +143,7 @@ export default function InventoryPage() {
         } finally {
             setLoading(false);
         }
-    }, [resourceType, region, selectedAccounts, searchTerm, pageSize]);
+    }, [resourceType, region, selectedAccounts, searchTerm, pageSize, currentPage]);
 
     // Keep ref in sync so the debounce effect always calls the latest version
     useEffect(() => {
@@ -231,10 +229,9 @@ export default function InventoryPage() {
 
     // Re-fetch when applied filters change (triggered by Apply button)
     useEffect(() => {
-        setCursor(undefined);
         fetchResourcesRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchTerm, resourceType, region, selectedAccounts]);
+    }, [searchTerm, resourceType, region, selectedAccounts, currentPage, pageSize]);
 
     useEffect(() => {
         const fetchAccounts = async () => {
@@ -342,7 +339,7 @@ export default function InventoryPage() {
                             <Filter className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">{resources.length}</div>
+                            <div className="text-2xl font-bold">{totalItems.toLocaleString()}</div>
                             <p className="text-xs text-muted-foreground">Matching filters</p>
                         </CardContent>
                     </Card>
@@ -599,52 +596,23 @@ export default function InventoryPage() {
                                     data={resources}
                                     onRowClick={handleRowClick}
                                 />
-
-                                {/* Pagination */}
-                                <div className="flex items-center justify-between mt-4">
-                                    <div className="flex items-center gap-4">
-                                        <div className="text-sm text-muted-foreground">
-                                            Showing {resources.length} resources
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm text-muted-foreground">Page size:</span>
-                                            <Select value={pageSize.toString()} onValueChange={(val) => setPageSize(parseInt(val, 10))}>
-                                                <SelectTrigger className="w-[80px] h-8">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {PAGE_SIZES.map((size) => (
-                                                        <SelectItem key={size} value={size.toString()}>{size}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={isFirstPage}
-                                            onClick={() => { setCursor(undefined); fetchResources(); }}
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                            First
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            disabled={!hasMore}
-                                            onClick={() => fetchResources(cursor)}
-                                        >
-                                            Next
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                </div>
                             </>
                         )}
                     </CardContent>
                 </Card>
+
+                {/* Pagination */}
+                {!loading && (
+                    <PaginationBar
+                        currentPage={currentPage}
+                        totalItems={totalItems}
+                        pageSize={pageSize}
+                        onPageChange={setCurrentPage}
+                        onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+                        pageSizeOptions={PAGE_SIZES}
+                        itemLabel="resources"
+                    />
+                )}
             </div>
 
             {/* Resource Detail Dialog */}
