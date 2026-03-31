@@ -51,9 +51,11 @@ Exceptions: Permission matrix cell touch targets minimum 44px height (accessibil
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Body | 14px | 400 | 1.5 |
-| Label | 14px | 500 | 1.4 |
+| Label | 14px | 400 | 1.4 |
 | Heading | 20px | 600 | 1.2 |
-| Display | 28px | 700 | 1.2 |
+| Display | 28px | 600 | 1.2 |
+
+Two weights only: 400 (regular) for Body and Label; 600 (semibold) for Heading and Display.
 
 Source: shadcn default scale + Inter font declared in `globals.css`.
 
@@ -87,7 +89,7 @@ All components already exist in `web-ui/components/ui/` — no new installs requ
 | `AlertDialog` | Delete role confirmation |
 | `Checkbox` | Permission matrix cells (5 modules × 4 CRUD actions = 20 cells) |
 | `Badge` | Role level indicator (Owner/Admin/Member/Viewer/Custom) |
-| `Button` | "Create Role", "Save", "Cancel", "Delete" |
+| `Button` | "Create Role", "Save Role", "Discard Changes", "Keep Role", "Delete Role" |
 | `Input` | Custom role name field |
 | `Label` | Matrix row/column headers, form field labels |
 | `Table` | Permission matrix layout (rows = modules, columns = CRUD) |
@@ -105,6 +107,8 @@ Layout:
 - Settings sidebar (existing layout from `app/app/settings/layout.tsx`) — add "Roles" nav item
 - Main content: page heading + "Create Role" button (top-right) + roles list
 
+Primary focal point: the "Create Role" button in the top-right of the content area.
+
 Roles list structure:
 - Predefined roles section (Owner, Admin, Member, Viewer): read-only cards, no edit/delete controls
 - Custom roles section: editable cards, each with Edit and Delete icon buttons
@@ -114,8 +118,8 @@ Role card anatomy:
 - Role name (heading weight)
 - Role level badge (maps to closest predefined level)
 - Permission summary: comma-separated list of modules with any access (e.g., "Accounts, Schedules, Inventory")
-- Edit button (Pencil icon, ghost variant) — visible only on custom roles
-- Delete button (Trash2 icon, ghost variant, destructive color) — visible only on custom roles
+- Edit button (Pencil icon, ghost variant) — visible only on custom roles; `aria-label="Edit {role name}"`
+- Delete button (Trash2 icon, ghost variant, destructive color) — visible only on custom roles; `aria-label="Delete {role name}"`
 
 ### 2. Create / Edit Custom Role Dialog
 
@@ -129,7 +133,7 @@ Dialog content:
   - Row headers: Accounts, Schedules, AI Ops, Inventory, Settings
   - Each cell: Checkbox
   - Read column always enabled (cannot uncheck Read if any other action is checked — enforced client-side)
-- Footer: "Cancel" (outline) + "Save Role" (primary) buttons
+- Footer: "Discard Changes" (outline) + "Save Role" (primary) buttons
 
 Validation:
 - Role name required, unique within tenant
@@ -143,7 +147,7 @@ Component: `AlertDialog`
 Copy:
 - Title: "Delete {role name}?"
 - Body: "Users assigned this role will be downgraded to Viewer. This cannot be undone."
-- Cancel: "Cancel"
+- Cancel: "Keep Role"
 - Confirm: "Delete Role" (destructive button variant)
 
 ### 4. 403 Forbidden State
@@ -169,6 +173,8 @@ Copy:
 | Destructive confirmation — delete role | "Delete {role name}? — Users assigned this role will be downgraded to Viewer. This cannot be undone." |
 | Destructive CTA | "Delete Role" |
 | Role downgrade notice (inline) | "Deleting this role will move {N} user(s) to Viewer." |
+| Dismiss (Create/Edit dialog) | "Discard Changes" |
+| Dismiss (Delete confirmation) | "Keep Role" |
 
 ---
 
