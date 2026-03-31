@@ -146,11 +146,83 @@ ORDER BY count DESC;
 
 ---
 
+## Scan missing / specific accounts
+
+If some accounts were not scanned (e.g. after a partial run), scan them individually:
+
+```bash
+cd lambda/discovery && \
+AWS_PROFILE=PLATFORM-ADMIN python3 - <<'EOF'
+import boto3, os, subprocess, sys
+
+# List the account IDs you want to scan
+ACCOUNTS = [
+    "176520790818",   # STX-STATIC-WEBSITE-PROD
+    "121212121212",   # Kartik-testing-one
+]
+
+sts = boto3.client('sts')
+creds = sts.assume_role(
+    RoleArn='arn:aws:iam::970547372609:role/nucleus-app-discovery-task-role',
+    RoleSessionName='nucleus-local-discovery'
+)['Credentials']
+
+env = {
+    **os.environ,
+    'AWS_ACCESS_KEY_ID':     creds['AccessKeyId'],
+    'AWS_SECRET_ACCESS_KEY': creds['SecretAccessKey'],
+    'AWS_SESSION_TOKEN':     creds['SessionToken'],
+    'AWS_DEFAULT_REGION':    'ap-south-1',
+    'USE_PG_INVENTORY':      'true',
+    'DATABASE_URL':          'postgresql://nucleus:nucleus_dev@localhost:5432/nucleus',
+    'APP_TABLE_NAME':        'nucleus-app-app-table',
+    'INVENTORY_TABLE_NAME':  'nucleus-app-inventory-table',
+}
+env.pop('AWS_PROFILE', None)
+
+for account_id in ACCOUNTS:
+    print(f"\n--- Scanning {account_id} ---")
+    subprocess.run(
+        [sys.executable, 'local_runner.py',
+         '--account-id',      account_id,
+         '--app-table',       'nucleus-app-app-table',
+         '--inventory-table', 'nucleus-app-inventory-table',
+         '--bucket',          'nucleus-app-inventory-970547372609-ap-south-1',
+        ],
+        env=env, text=True
+    )
+EOF
+```
+
+---
+
+## Check which accounts are missing from PostgreSQL
+
+```bash
+docker exec nucleus-postgres psql -U nucleus -d nucleus -c "
+SELECT
+  a.\"accountId\",
+  a.name,
+  COALESCE(i.resources, 0) as resources_in_pg,
+  CASE WHEN i.resources IS NULL THEN 'NOT SCANNED' ELSE 'OK' END as status
+FROM accounts a
+LEFT JOIN (
+  SELECT \"accountId\", COUNT(*) as resources
+  FROM inventory_resources
+  GROUP BY \"accountId\"
+) i ON a.\"accountId\" = i.\"accountId\"
+WHERE a.active = true
+ORDER BY status DESC, a.\"accountId\";
+"
+```
+
+---
+
 ## Notes
 
 - `USE_PG_INVENTORY=true` — writes exclusively to PostgreSQL, skips DynamoDB
 - `DATABASE_URL` — points to local Docker postgres (`nucleus-postgres` container)
 - `ERROR saving sync status` — harmless; the task role lacks `dynamodb:PutItem` locally
-- Account `123456778901` returns 0 resources (test/placeholder account)
+- Account `121212121212` / `123456778901` — test/placeholder accounts, return 0 resources
 - The `nucleus-app-discovery-task-role` trust policy was updated to allow the
   `AWSReservedSSO_stx-devops-super-admin-kt4t_b59b88c38dd16578` SSO role for local dev
