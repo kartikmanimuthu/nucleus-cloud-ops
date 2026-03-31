@@ -1,301 +1,421 @@
-# Domain Pitfalls: CDK → Pulumi TypeScript Migration
+# Pitfalls Research: Multi-Tenancy on Existing Next.js + Prisma + NextAuth
 
-**Domain:** AWS CDK to Pulumi TypeScript IaC migration
-**Researched:** 2026-03-29
-**Confidence:** MEDIUM-HIGH (core Pulumi behaviors HIGH from official docs; service-specific patterns MEDIUM from training data, cutoff Aug 2025)
+**Domain:** Adding multi-tenancy, custom RBAC, dual auth, user invitations, tenant suspension, and admin panel to an existing single-tenant Next.js + Prisma + NextAuth application
+**Researched:** 2026-03-31
+**Confidence:** HIGH (core patterns well-established; specific NextAuth/Prisma integration details verified against known behavior)
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause resource recreation, data loss, or production downtime.
+### Pitfall 1: Tenant Data Leak via Missing tenant_id in Prisma Queries
 
-### Pitfall 1: Auto-Naming Mismatch Causes Resource Recreation
+**What goes wrong:**
+A developer adds a new query or forgets to include `WHERE tenant_id = $1` on an existing one. The query returns data from all tenants. Because the app appears to work correctly for the logged-in user (their data is in the result set), the leak goes undetected until a security audit or incident.
 
-**What goes wrong:** Pulumi auto-appends a random 7-character suffix to physical resource names by default (e.g., `my-vpc` → `my-vpc-a1b2c3d`). CDK also auto-names but uses a different scheme (stack name + logical ID hash). When you import existing CDK-managed resources into Pulumi state, the physical names in AWS won't match what Pulumi expects unless you pin them explicitly with the `name` property.
+**Why it happens:**
+Prisma has no built-in row-level security enforcement. The `tenant_id` column exists on tables but nothing in the ORM prevents a query without it. In a large codebase with many service files, it's easy to miss one. The existing codebase already has this risk — `tenant_id` exists from v1.0 but enforcement was described as "may be inconsistent."
 
-**Why it happens:** Pulumi's URN is based on the logical name in code. If you rename a resource in code — even a minor refactor — Pulumi treats it as a delete + create of a different resource. The old resource is destroyed and a new one is created.
+**How to avoid:**
+- Wrap every Prisma client in a tenant-scoped factory: `getTenantClient(tenantId)` returns a Prisma extension that automatically appends `WHERE tenant_id = tenantId` to every `findMany`, `findFirst`, `findUnique`, `update`, `delete`, and `count` call via Prisma Client Extensions (`$extends`).
+- Never expose the raw `prisma` client to service layer code — only the scoped client.
+- Add a lint rule or custom ESLint plugin that flags direct `prisma.*` calls outside the factory module.
+- Write a test that creates two tenants with overlapping data and asserts that querying as tenant A never returns tenant B's records.
 
-**Consequences:** VPC deletion, ECS service restart, DynamoDB table drop (if not protected), security group recreation breaking existing rules.
+**Warning signs:**
+- Service functions that accept `tenantId` as a parameter but don't pass it to Prisma queries.
+- Any `prisma.findMany()` call without a `where: { tenantId }` clause.
+- API routes that read `tenantId` from the request body (user-controlled) rather than from the session.
 
-**Prevention:**
-- For every imported resource, set the `name` property to the exact physical name that exists in AWS: `new aws.ec2.Vpc("main", { tags: { Name: "nucleus-vpc" } }, { name: "nucleus-vpc" })` — wait, the correct property is the resource's name argument in the AWS provider, e.g. `vpcId` is read-only but `tags.Name` is the display name. For resources where the physical name is a first-class property (S3 bucket: `bucket`, DynamoDB table: `name`, security group: `name`), set it explicitly.
-- Use `pulumi import` to bring existing resources into state before writing any code that manages them.
-- Add `protect: true` to stateful resources (DynamoDB tables, S3 buckets, RDS) to prevent accidental deletion.
-- Run `pulumi preview` and scrutinize any `replace` operations before `pulumi up`.
-
-**Detection:** `pulumi preview` output showing `[replace]` or `[-+]` on resources you expected to be unchanged. Any `delete` on a resource you didn't intend to remove.
-
-**Confidence:** HIGH — confirmed from official Pulumi resource naming documentation.
-
----
-
-### Pitfall 2: CDK Bootstrap Stack Conflicts
-
-**What goes wrong:** CDK creates a `CDKToolkit` bootstrap stack in every account/region with an S3 bucket (for assets), ECR repository, and IAM roles. These resources have predictable names like `cdk-hnb659fds-assets-<account>-<region>`. When Pulumi tries to create resources with overlapping names or manage the same IAM roles, conflicts arise.
-
-**Why it happens:** CDK bootstrap resources are CloudFormation-managed. Pulumi has no knowledge of them. If your Pulumi code creates an S3 bucket or IAM role with the same name, AWS returns a `BucketAlreadyOwnedByYou` or `EntityAlreadyExists` error.
-
-**Consequences:** `pulumi up` fails mid-run, leaving partial state. Worse: if CDK bootstrap resources are accidentally imported into Pulumi state and then Pulumi tries to delete them, CDK deployments break.
-
-**Prevention:**
-- Audit all CDK bootstrap resource names before writing Pulumi code.
-- Never import CDK bootstrap resources into Pulumi state — they remain CloudFormation-managed until CDK is fully removed.
-- Use distinct naming prefixes for Pulumi-managed resources (e.g., `pulumi-nucleus-` vs CDK's `cdk-` prefix).
-- Keep CDK and Pulumi stacks in separate AWS accounts or use separate naming conventions during the transition period.
-
-**Detection:** `ResourceAlreadyExistsException` or `BucketAlreadyOwnedByYou` errors during `pulumi up`.
-
-**Confidence:** HIGH — well-documented CDK/Pulumi coexistence issue.
+**Phase to address:** Foundation phase — tenant isolation must be the first thing built, before any feature work. Every subsequent phase inherits this guarantee.
 
 ---
 
-### Pitfall 3: Import Without Code Reconciliation Causes Immediate Replacement
+### Pitfall 2: Reading tenant_id from Request Body Instead of Session
 
-**What goes wrong:** `pulumi import` brings a resource into Pulumi state and generates TypeScript code. But the generated code is often incomplete — it omits computed properties, uses defaults that differ from the actual resource configuration, or includes properties that force a diff. On the first `pulumi up` after import, Pulumi shows a diff and may replace the resource.
+**What goes wrong:**
+An API route accepts `tenantId` as a POST body parameter or query string. A malicious user sends a different `tenantId` and reads or modifies another tenant's data. This is a horizontal privilege escalation — the user is authenticated but accesses resources they don't own.
 
-**Why it happens:** AWS resources have many properties. `pulumi import` generates code for the most common ones but can't always infer every property. Any property in the generated code that differs from the live resource triggers an update or replace.
+**Why it happens:**
+It's convenient during development to pass `tenantId` explicitly. The developer assumes the frontend will always send the correct value. This assumption breaks the moment someone uses curl or a browser devtools override.
 
-**Consequences:** Resources that were supposed to be imported in-place get deleted and recreated — exactly what the import was meant to avoid.
+**How to avoid:**
+- `tenantId` must always come from `getServerSession()` — never from request parameters.
+- Pattern: `const { tenantId } = await getServerSession(authOptions)` at the top of every API route, before any data access.
+- Add a middleware layer (`withTenantSession`) that extracts and validates `tenantId` from the session and injects it into the request context.
+- In the Prisma scoped client factory, the `tenantId` is sealed at construction time from the session — it cannot be overridden by caller code.
 
-**Prevention:**
-- After `pulumi import`, always run `pulumi preview` before `pulumi up`. Expect diffs.
-- For each diff, either update the code to match the live resource, or add `ignoreChanges: ["propertyName"]` to suppress it.
-- For immutable properties (e.g., VPC CIDR, DynamoDB table name), any diff means recreation — fix the code, not the resource.
-- Use `pulumi state show <urn>` to inspect what Pulumi has stored vs what the code declares.
-- Import resources one at a time, not in bulk, so diffs are isolated.
+**Warning signs:**
+- `req.body.tenantId`, `searchParams.get('tenantId')`, or `params.tenantId` used in data queries.
+- API routes that don't call `getServerSession()` before accessing data.
 
-**Detection:** `pulumi preview` showing `~` (update) or `+-` (replace) on freshly imported resources.
-
-**Confidence:** HIGH — standard Pulumi import workflow behavior.
-
----
-
-### Pitfall 4: S3 Backend Passphrase Loss = Permanent Secret Lockout
-
-**What goes wrong:** When using the S3 backend, Pulumi encrypts secrets (config values marked `--secret`) with a passphrase stored in `PULUMI_CONFIG_PASSPHRASE`. If this env var is not set consistently across all environments (local dev, CI/CD, team members), `pulumi up` fails with a decryption error. If the passphrase is lost entirely, secrets in state are permanently inaccessible.
-
-**Why it happens:** The S3 backend uses local passphrase encryption by default (unlike Pulumi Cloud which uses managed keys). The passphrase is not stored anywhere — it's the operator's responsibility.
-
-**Consequences:** CI/CD pipeline breaks. Team members can't run `pulumi up` without the passphrase. In the worst case, the entire stack state becomes unreadable.
-
-**Prevention:**
-- Store `PULUMI_CONFIG_PASSPHRASE` in AWS Secrets Manager or your CI/CD secret store (GitHub Actions secrets, etc.) immediately after creating the stack.
-- Document the passphrase retrieval procedure in the project runbook.
-- Consider using `PULUMI_CONFIG_PASSPHRASE_FILE` pointing to a file managed by your secrets system.
-- Alternatively, use AWS KMS as the secrets provider: `pulumi stack init --secrets-provider="awskms://alias/pulumi-secrets"` — this removes the passphrase requirement entirely and is the recommended approach for team environments.
-
-**Detection:** `error: failed to decrypt encrypted configuration value` during `pulumi up` or `pulumi config get`.
-
-**Confidence:** HIGH — well-documented S3 backend behavior.
+**Phase to address:** Foundation phase — establish the session-extraction pattern before any API routes are written or modified.
 
 ---
 
-### Pitfall 5: S3 Backend DynamoDB Lock Table Wrong Key Schema
+### Pitfall 3: CASL Removal Leaves an Unguarded Window
 
-**What goes wrong:** Pulumi's S3 backend uses DynamoDB for state locking. The DynamoDB table must have `LockID` as the partition key with type `String`. If the table is created with a different key name or type (e.g., `id`, `lock_id`, or `Number` type), Pulumi silently fails to acquire locks, allowing concurrent `pulumi up` runs to corrupt state.
+**What goes wrong:**
+CASL is removed from all routes before the new custom RBAC system is fully implemented and tested. During the gap, API routes have no authorization checks — any authenticated user can perform any action on any tenant's data.
 
-**Why it happens:** Pulumi's S3 backend is modeled after Terraform's S3 backend, which has the same `LockID` requirement. The table name is configurable but the key schema is not.
+**Why it happens:**
+The natural instinct is to rip out the old system first, then build the new one. But in a production app, this creates a window of zero authorization enforcement.
 
-**Consequences:** Concurrent `pulumi up` runs corrupt the state file. State corruption requires manual repair via `pulumi state` commands.
+**How to avoid:**
+- Build and test the new RBAC system completely before removing a single CASL import.
+- Use a feature flag: `USE_NEW_RBAC=true` routes through the new system; `false` falls back to CASL. Flip the flag per-route as each is migrated.
+- The cutover sequence per route: (1) add new RBAC check alongside CASL, (2) verify both agree in staging, (3) remove CASL check.
+- Never delete `@casl/ability` from `package.json` until every route has been migrated and verified.
 
-**Prevention:**
-- Create the DynamoDB lock table with exactly: partition key `LockID` (String), no sort key, PAY_PER_REQUEST billing.
-- Reference the table in `Pulumi.yaml`: `backend: url: s3://bucket?region=us-east-1&dynamodbTable=pulumi-lock`
-- Verify lock acquisition works by running two concurrent `pulumi preview` commands and confirming the second one waits.
+**Warning signs:**
+- Any API route that has `// TODO: add RBAC` comments.
+- Routes where the old `authorize()` call was deleted but no new permission check was added.
+- Integration tests that pass because they're running as a super admin (which bypasses all checks).
 
-**Detection:** No error on `pulumi up` but concurrent runs don't block each other. Check DynamoDB table key schema in AWS console.
-
-**Confidence:** HIGH — matches Terraform S3 backend spec which Pulumi S3 backend follows.
-
----
-
-## Moderate Pitfalls
-
-### Pitfall 6: Cross-Stack References Require StackReference (Not SSM/Exports)
-
-**What goes wrong:** CDK cross-stack references use CloudFormation `Fn::ImportValue` (stack exports) or SSM Parameter Store. Pulumi uses `StackReference` — a first-class construct that reads outputs from another Pulumi stack. Teams migrating from CDK often try to replicate the SSM pattern or read CloudFormation exports directly, which works but bypasses Pulumi's dependency tracking.
-
-**Why it happens:** The mental model is different. In CDK, stacks are loosely coupled via CloudFormation exports. In Pulumi, stacks are explicitly coupled via `StackReference`, which creates a tracked dependency.
-
-**Consequences:** If you read SSM parameters directly in Pulumi code, Pulumi doesn't know the networking stack must be deployed before the compute stack. Deployment order becomes manual. Also, `pulumi destroy` won't warn you that another stack depends on the one you're destroying.
-
-**Prevention:**
-- Use `pulumi.StackReference` for all cross-stack values: `const net = new pulumi.StackReference("org/nucleus-networking/prod")`.
-- Export all shared values (VPC ID, subnet IDs, security group IDs) as stack outputs in the networking stack.
-- The full stack reference name format is `<org>/<project>/<stack>` — get this right or the reference silently returns `undefined`.
-- For the S3 backend (no org), the format is just `<project>/<stack>`.
-
-**Detection:** `undefined` values from `StackReference.getOutput()` at runtime. Resources created with `undefined` IDs fail silently or create with wrong config.
-
-**Confidence:** HIGH — core Pulumi concept.
+**Phase to address:** RBAC phase — the migration plan must be explicit about the parallel-run period.
 
 ---
 
-### Pitfall 7: Lambda Bundling — No Built-in Equivalent to CDK's NodejsFunction
+### Pitfall 4: New RBAC System Has No Default-Deny Baseline
 
-**What goes wrong:** CDK's `aws_lambda_nodejs.NodejsFunction` automatically bundles TypeScript Lambda code with esbuild, handles `node_modules` externalization, and produces a minimal zip. Pulumi's `aws.lambda.Function` has no equivalent — you must handle bundling yourself. Teams often deploy unbundled TypeScript source or forget to exclude `node_modules`, producing oversized zips or runtime errors.
+**What goes wrong:**
+The custom RBAC system is built with an explicit allow-list but no default-deny. A new route is added without a permission check. Because there's no catch-all denial, the route is accessible to any authenticated user.
 
-**Why it happens:** Pulumi is a lower-level abstraction than CDK constructs. CDK L2/L3 constructs encapsulate operational complexity; Pulumi's AWS Classic provider maps 1:1 to CloudFormation resource types.
+**Why it happens:**
+Developers focus on "what should be allowed" and forget to enforce "everything else is denied." This is especially common when the RBAC check is opt-in (called explicitly per route) rather than opt-out (enforced by middleware with explicit bypass).
 
-**Consequences:** Lambda deployment fails (zip too large), cold starts increase (unnecessary dependencies included), or runtime errors (`Cannot find module` for TypeScript source without transpilation).
+**How to avoid:**
+- The RBAC middleware must be applied globally (Next.js middleware or a route wrapper) with an explicit allowlist of public routes.
+- Pattern: every route is protected by default; routes opt out by being listed in `PUBLIC_ROUTES`.
+- The `authorize()` function must throw/return 403 if no matching permission rule is found — never silently allow.
+- Add a test: create a new route without any RBAC annotation and assert it returns 403 for a non-admin user.
 
-**Prevention:**
-- Use a pre-build step: run esbuild before `pulumi up` to produce `dist/index.js`, then reference the output directory.
-- In `Pulumi.yaml`, add a `preLaunch` command or use a Makefile target that runs esbuild first.
-- Use `pulumi.asset.FileArchive("./dist")` pointing to the esbuild output directory.
-- For the scheduler Lambda (already uses esbuild): keep the existing `lambda/scheduler/` build pipeline, just change how the zip is referenced in Pulumi vs CDK.
-- Mark AWS SDK packages as external in esbuild config — Lambda runtime includes them: `external: ["@aws-sdk/*"]`.
-- Consider `@pulumi/aws-native` or community packages like `pulumi-aws-lambda-nodejs` if available, but verify they're maintained.
+**Warning signs:**
+- `authorize()` function that returns `true` when no rule matches (instead of `false`).
+- RBAC checks that are copy-pasted per route rather than enforced by middleware.
+- New routes added during feature development that don't appear in any RBAC rule set.
 
-**Detection:** Lambda function size > 50MB (hard limit), or `Runtime.ImportModuleError` in CloudWatch logs.
-
-**Confidence:** MEDIUM — based on training data; verify current Pulumi AWS provider docs for any new higher-level constructs.
-
----
-
-### Pitfall 8: ECS Task Definition Updates Don't Auto-Redeploy the Service
-
-**What goes wrong:** In CDK, updating a task definition automatically triggers a new ECS service deployment. In Pulumi, creating a new task definition revision is a separate resource from the ECS service. Pulumi updates the task definition but the ECS service continues running the old revision unless you explicitly force a new deployment.
-
-**Why it happens:** ECS task definitions are immutable — each change creates a new revision. The ECS service has a `taskDefinition` property pointing to a specific revision ARN. Pulumi updates the ARN in state but ECS doesn't redeploy unless the service resource itself changes.
-
-**Consequences:** You deploy new application code, `pulumi up` succeeds, but ECS is still running the old container image. Silent failure — no error, just stale deployment.
-
-**Prevention:**
-- Set `forceNewDeployment: true` on `aws.ecs.Service` to trigger redeployment whenever the task definition changes.
-- Use `deploymentCircuitBreaker: { enable: true, rollback: true }` to auto-rollback failed deployments.
-- Set `waitForSteadyState: true` (default in Pulumi AWS provider) so `pulumi up` waits for the service to stabilize before completing.
-- Ensure `minimumHealthyPercent: 100` and `maximumPercent: 200` for zero-downtime rolling updates.
-
-**Detection:** `pulumi up` succeeds but `aws ecs describe-services` shows the service running an old task definition revision.
-
-**Confidence:** MEDIUM — based on training data; ECS service behavior is well-established.
+**Phase to address:** RBAC phase — the default-deny baseline must be the first thing implemented in the RBAC system.
 
 ---
 
-### Pitfall 9: CloudFront Distribution Updates Take 15-30 Minutes
+### Pitfall 5: Dual Auth Providers Produce Inconsistent Session Shapes
 
-**What goes wrong:** Any change to a CloudFront distribution (adding a behavior, changing cache policy, updating origins) triggers a full distribution deployment that takes 15-30 minutes. Pulumi waits for the distribution to reach `Deployed` state before completing. This makes `pulumi up` appear hung and can cause CI/CD pipeline timeouts.
+**What goes wrong:**
+NextAuth with Cognito provider produces a session where `session.user.id` is the Cognito `sub` (a UUID). NextAuth with Credentials provider produces a session where `session.user.id` is whatever the `authorize()` callback returns. If these shapes differ, code that reads `session.user.id` works for one provider and breaks for the other — or worse, silently uses the wrong value.
 
-**Why it happens:** CloudFront is a global service — changes must propagate to all 400+ edge locations. This is an AWS constraint, not a Pulumi issue, but Pulumi's synchronous `pulumi up` makes it more visible than CDK's async CloudFormation deployments.
+**Why it happens:**
+NextAuth's session object is shaped by the provider's profile callback and the `session` callback in `authOptions`. When adding a second provider, developers often forget to normalize the session shape in the `session` callback.
 
-**Consequences:** CI/CD pipelines timeout (default GitHub Actions job timeout is 6 hours, but many teams set lower limits). Developers think the deployment failed when it's just slow.
+**How to avoid:**
+- Define a canonical session type: `{ user: { id: string, tenantId: string, role: string, email: string } }`.
+- In the NextAuth `session` callback, explicitly map both providers' outputs to this canonical shape.
+- In the `jwt` callback, normalize the token regardless of which provider authenticated the user.
+- Write a test for each provider that asserts the session shape matches the canonical type.
+- Use TypeScript module augmentation to override NextAuth's `Session` type — this catches shape mismatches at compile time.
 
-**Prevention:**
-- Set a generous timeout for `pulumi up` in CI/CD (at least 45 minutes for stacks with CloudFront).
-- Batch CloudFront changes — don't make incremental changes that each trigger a 20-minute wait.
-- For cache invalidations after S3 asset updates, use a separate script (AWS CLI `aws cloudfront create-invalidation`) rather than a Pulumi custom resource — custom resources for invalidation add complexity and can fail silently.
-- Consider `skipDestroy: true` on the CloudFront distribution during development to avoid accidental deletion.
+**Warning signs:**
+- `session.user.id` returning `undefined` for one provider.
+- Code that checks `if (session.user.provider === 'cognito')` to branch behavior — this is a smell that the session isn't normalized.
+- `session.user.sub` used in some places and `session.user.id` in others.
 
-**Detection:** `pulumi up` running for >5 minutes with no output — check AWS console for CloudFront distribution status.
-
-**Confidence:** MEDIUM — CloudFront deployment time is well-known; Pulumi wait behavior based on training data.
-
----
-
-### Pitfall 10: Pulumi TypeScript Compilation Errors from Strict tsconfig
-
-**What goes wrong:** Pulumi runs your TypeScript program via ts-node at deploy time. If your project's `tsconfig.json` has strict settings (`noImplicitAny`, `strictNullChecks`) and Pulumi's generated/provider types have `any` or optional types that don't satisfy strict checks, `pulumi up` fails with TypeScript compilation errors before any AWS API calls are made.
-
-**Why it happens:** The `@pulumi/aws` package types are auto-generated from the AWS provider schema. Some properties are typed as `pulumi.Input<string | undefined>` which requires null checks in strict mode. Also, `pulumi.Output<T>` is not directly assignable to `T` — you must use `.apply()` or `pulumi.interpolate`.
-
-**Consequences:** `pulumi up` fails immediately with TS errors. Common error: passing `Output<string>` where `string` is expected (e.g., passing a VPC ID output directly to a security group's `vpcId` without wrapping).
-
-**Prevention:**
-- Create a separate `tsconfig.json` for the Pulumi project (in `infra/` or `pulumi/`) with relaxed settings if needed.
-- Never use `Output<T>` values directly as plain `T` — always use `pulumi.interpolate`, `.apply()`, or pass the `Output` directly to another Pulumi resource property (which accepts `Input<T>`).
-- Use `pulumi.output(value).apply(v => ...)` for transformations.
-- The Pulumi project's `tsconfig.json` should extend the root but override `noEmit: false` and set `outDir`.
-
-**Detection:** `error TS2345: Argument of type 'Output<string>' is not assignable to parameter of type 'string'` during `pulumi up`.
-
-**Confidence:** HIGH — core Pulumi TypeScript pattern.
+**Phase to address:** Auth foundation phase — normalize session shape before any feature code reads from the session.
 
 ---
 
-### Pitfall 11: Pulumi Refresh Required After Manual AWS Console Changes
+### Pitfall 6: Cognito and Credentials Providers Share a User Table with Conflicting Identity
 
-**What goes wrong:** If anyone makes manual changes in the AWS console or via CLI after a `pulumi up`, Pulumi's state file is out of sync with reality. The next `pulumi up` may show unexpected diffs, try to revert manual changes, or fail with conflicts. CDK has the same issue but `cdk diff` is more commonly run as a check; Pulumi teams often skip `pulumi refresh`.
+**What goes wrong:**
+A user signs up via Credentials (email + password stored in PostgreSQL). Later, the same email is used to sign in via Cognito. NextAuth's Prisma adapter creates a second `User` record (or links to the wrong account), resulting in two separate identities for the same person — with different `tenantId` associations, different roles, and split data.
 
-**Why it happens:** Pulumi state is a snapshot of what Pulumi last deployed. It doesn't poll AWS continuously. Manual changes create drift between state and reality.
+**Why it happens:**
+NextAuth's account linking logic depends on the `email` field being unique and the adapter correctly matching existing users. With the Prisma adapter, if the `Account` table doesn't have a record for the Cognito provider for that user, a new user is created.
 
-**Consequences:** `pulumi up` reverts manual hotfixes. Or worse: Pulumi sees a resource as needing update, applies a partial update, and leaves the resource in an inconsistent state.
+**How to avoid:**
+- Enable `allowDangerousEmailAccountLinking: true` in NextAuth config only if you've verified the email is confirmed by both providers (Cognito verifies email; Credentials must also verify before allowing login).
+- Alternatively, enforce a single auth path per user: if a user was created via Credentials, they cannot log in via Cognito with the same email (and vice versa) — return an error with a clear message.
+- Add a unique constraint on `User.email` in the Prisma schema.
+- In the `signIn` callback, check if the email already exists with a different provider and handle explicitly.
 
-**Prevention:**
-- Run `pulumi refresh` before any `pulumi up` in production to sync state with actual AWS resources.
-- Establish a policy: no manual AWS console changes to Pulumi-managed resources. Use `pulumi up` for all changes.
-- For emergency hotfixes, document the manual change and immediately follow up with a `pulumi refresh` + code update.
+**Warning signs:**
+- Duplicate `User` records with the same email in the database.
+- Users reporting lost data after switching login methods.
+- `tenantId` being `null` on users created via one provider but not the other.
 
-**Detection:** `pulumi preview` showing changes you didn't make in code. `pulumi refresh` output showing resources that have drifted.
-
-**Confidence:** HIGH — standard IaC state management concern.
-
----
-
-## Minor Pitfalls
-
-### Pitfall 12: Stack Output Names Must Be Stable
-
-**What goes wrong:** If you rename a stack output (e.g., rename `vpcId` to `mainVpcId`), any `StackReference` in another stack that reads the old name gets `undefined`. This is a silent failure — no error, just missing values that cause downstream resources to be created with wrong config.
-
-**Prevention:** Treat stack output names as a public API. Never rename them without updating all consumers. Add both old and new names during a transition period.
-
-**Confidence:** HIGH.
+**Phase to address:** Auth foundation phase — account linking strategy must be decided and implemented before both providers go live.
 
 ---
 
-### Pitfall 13: Pulumi Destroy Order for Dependent Stacks
+### Pitfall 7: Invitation Tokens Are Guessable or Reusable
 
-**What goes wrong:** If you run `pulumi destroy` on the networking stack while the compute stack still has a `StackReference` to it, Pulumi will destroy networking resources that the compute stack depends on (VPC, subnets, security groups). ECS tasks lose network connectivity.
+**What goes wrong:**
+Invitation tokens are generated with `Math.random()` or a short UUID, making them brute-forceable. Or tokens don't expire. Or a token can be used multiple times (no single-use enforcement). An attacker enumerates tokens and joins a tenant they weren't invited to.
 
-**Prevention:** Always destroy stacks in reverse dependency order: compute stack first, then networking stack. Use `protect: true` on the networking stack during active development.
+**Why it happens:**
+Invitation flows are often built quickly. Developers use whatever random generation is handy and forget to add expiry and single-use enforcement.
 
-**Confidence:** HIGH.
+**How to avoid:**
+- Generate tokens with `crypto.randomBytes(32).toString('hex')` — 256 bits of entropy, not guessable.
+- Store a hashed version of the token in the database (`sha256(token)`) — never the raw token.
+- Set a 48-hour expiry on all invitation tokens.
+- Mark tokens as `used: true` immediately on acceptance — check this flag before processing any invitation.
+- Rate-limit the invitation acceptance endpoint (5 attempts per IP per hour).
+- Scope tokens to a specific email address — reject if the accepting user's email doesn't match.
 
----
+**Warning signs:**
+- `Math.random()` or `uuid()` (v4 is fine for IDs but not for security tokens) used for invitation tokens.
+- No `expiresAt` column on the `Invitation` table.
+- No `usedAt` or `status` column to track single-use enforcement.
+- Invitation acceptance endpoint not rate-limited.
 
-### Pitfall 14: CloudFront OAC/OAI Not Auto-Wired for S3 Origins
-
-**What goes wrong:** CDK's `Distribution` construct automatically creates an Origin Access Identity (OAI) or Origin Access Control (OAC) and updates the S3 bucket policy. In Pulumi, you must manually create the OAC, reference it in the CloudFront distribution origin config, and write the S3 bucket policy granting CloudFront access. Missing any step causes 403 errors from CloudFront.
-
-**Prevention:** Create `aws.cloudfront.OriginAccessControl`, reference its `id` in the distribution's `s3OriginConfig`, and add a bucket policy with `Principal: { Service: "cloudfront.amazonaws.com" }` and a condition on the distribution ARN.
-
-**Confidence:** MEDIUM — based on training data.
-
----
-
-### Pitfall 15: ECS Fargate Requires Explicit Log Group Creation
-
-**What goes wrong:** CDK's `FargateTaskDefinition` auto-creates a CloudWatch log group. In Pulumi, if you reference a log group name in the container definition's `logConfiguration` without creating the `aws.cloudwatch.LogGroup` resource first, ECS task launch fails with a log driver error.
-
-**Prevention:** Always create `aws.cloudwatch.LogGroup` explicitly and use its `name` output in the container definition. Set `retentionInDays` to avoid unbounded log growth.
-
-**Confidence:** MEDIUM — based on training data.
+**Phase to address:** User invitations phase — security requirements must be in the acceptance criteria, not added as an afterthought.
 
 ---
 
-## Phase-Specific Warnings
+### Pitfall 8: Tenant Suspension Not Enforced at the Session Layer
 
-| Phase | Topic | Likely Pitfall | Mitigation |
-|-------|-------|---------------|------------|
-| PULUMI-01 | S3 backend init | Wrong DynamoDB key schema (`id` instead of `LockID`) | Create table with exact schema before `pulumi login s3://...` |
-| PULUMI-01 | Passphrase management | Lost passphrase = locked state | Use KMS secrets provider instead of passphrase |
-| PULUMI-02 | VPC import | Auto-naming mismatch causes VPC recreation | Set explicit `tags.Name` and use `pulumi import` before writing code |
-| PULUMI-02 | Subnet import | Multiple subnets with similar names confuse import | Import by subnet ID, not name |
-| PULUMI-03 | ECS service | Task definition update doesn't redeploy | Set `forceNewDeployment: true` |
-| PULUMI-03 | CloudFront | 20-minute update blocks CI/CD | Set pipeline timeout ≥45 min; batch CF changes |
-| PULUMI-03 | CloudFront S3 | Missing OAC → 403 errors | Manually create OAC and bucket policy |
-| PULUMI-04 | Lambda bundling | No NodejsFunction equivalent | Pre-build with esbuild; reference `dist/` directory |
-| PULUMI-04 | Lambda log group | Missing log group → task launch failure | Create `aws.cloudwatch.LogGroup` explicitly |
-| PULUMI-05 | DynamoDB import | Table recreation destroys production data | Add `protect: true` immediately after import |
-| PULUMI-06 | Stack outputs | Renamed outputs break StackReference consumers | Treat output names as stable API |
-| PULUMI-06 | CDK removal | CDK bootstrap stack still exists | Leave `CDKToolkit` stack in place; don't import into Pulumi |
+**What goes wrong:**
+A tenant is suspended in the database (`status: 'suspended'`). But existing sessions for users of that tenant remain valid — they can continue using the app until their session expires (potentially 30 days). The suspension has no immediate effect.
+
+**Why it happens:**
+NextAuth sessions are stateless JWTs (or database sessions that are only checked at login). Suspension status is checked at login time but not on every request.
+
+**How to avoid:**
+- Use database sessions (not JWT sessions) so you can invalidate them server-side. With the Prisma adapter, set `session: { strategy: 'database' }` in NextAuth config.
+- Add a middleware check on every request: look up the tenant's `status` from a fast cache (Redis or in-memory with a 60-second TTL) and return 403 if suspended.
+- Alternatively, on suspension, delete all active sessions for that tenant's users from the `Session` table directly.
+- The suspension check must happen in Next.js middleware (runs on every request) not just in API routes.
+
+**Warning signs:**
+- `session: { strategy: 'jwt' }` in NextAuth config — JWTs cannot be revoked without a denylist.
+- Suspension only checked in the login flow, not on authenticated requests.
+- No mechanism to force-logout all users of a suspended tenant.
+
+**Phase to address:** Tenant lifecycle phase — suspension must be designed with session invalidation in mind from the start.
+
+---
+
+### Pitfall 9: Super Admin Panel Accessible to Tenant Admins
+
+**What goes wrong:**
+The `/admin` route is protected by a check like `if (user.role === 'admin')`. A tenant-level admin (who has `role: 'admin'` within their tenant) passes this check and gains access to the super admin panel — seeing all tenants, being able to suspend other orgs, etc.
+
+**Why it happens:**
+The role system conflates "admin within a tenant" with "platform-level super admin." Both use the string `'admin'` but mean completely different things.
+
+**How to avoid:**
+- Use a separate `isSuperAdmin: boolean` flag on the `User` model (or a dedicated `role: 'super_admin'` that is never assignable within a tenant context).
+- Super admin is a platform-level concept — it must be set directly in the database, never through any tenant-facing UI or API.
+- The `/admin` route middleware must check `isSuperAdmin === true`, not `role === 'admin'`.
+- Super admin users must not have a `tenantId` — they are platform-level only. Any query that joins on `tenantId` must exclude super admins.
+- Add a test: create a tenant admin, attempt to access `/admin`, assert 403.
+
+**Warning signs:**
+- `role === 'admin'` used as the super admin check anywhere in the codebase.
+- Super admin creation available through any API endpoint (must be database-only or a protected CLI script).
+- `/admin` routes that don't verify `isSuperAdmin` before every data access.
+
+**Phase to address:** Super admin phase — the role separation must be in the data model before any admin UI is built.
+
+---
+
+### Pitfall 10: Lambda Functions Contaminate Cross-Tenant Data
+
+**What goes wrong:**
+The scheduler Lambda processes schedules for all tenants in a single invocation. It reads a schedule, assumes a cross-account IAM role, and executes the action. If the Lambda doesn't scope its DynamoDB/PostgreSQL queries by `tenantId`, it may process schedules from tenant A using context loaded for tenant B — or worse, write results back to the wrong tenant's records.
+
+**Why it happens:**
+Lambda functions were written for a single-tenant world. `tenantId` was added to the schema but the Lambda code was never updated to filter by it. The Lambda runs with a single IAM role that has access to all tenants' data.
+
+**How to avoid:**
+- Every Lambda that reads from PostgreSQL must include `WHERE tenant_id = $1` — use the same scoped Prisma client pattern as the web app.
+- For the scheduler Lambda: process schedules grouped by `tenantId`; load tenant config once per tenant group, not once per invocation.
+- For the discovery Lambda (Python): add `tenant_id` filter to all psycopg2 queries.
+- Add a `tenantId` field to all Lambda event payloads (SQS messages, EventBridge events) so the Lambda knows which tenant context it's operating in.
+- Write an integration test that creates schedules for two tenants and asserts the Lambda only processes each schedule in its correct tenant context.
+
+**Warning signs:**
+- Lambda handler that calls `prisma.schedule.findMany()` without `where: { tenantId }`.
+- SQS message payloads that don't include `tenantId`.
+- Lambda that loads "global" config at cold start without tenant scoping.
+
+**Phase to address:** Lambda tenant awareness phase — must be addressed before any tenant goes live with scheduled operations.
+
+---
+
+### Pitfall 11: LangGraph Agent Sessions Leak Across Tenants
+
+**What goes wrong:**
+LangGraph uses a thread ID for checkpointing agent state. If thread IDs are not namespaced by `tenantId`, a user from tenant A could (accidentally or maliciously) pass a thread ID that belongs to tenant B and read that tenant's agent conversation history, tool call results, or AWS resource data.
+
+**Why it happens:**
+Thread IDs are often generated client-side or passed as URL parameters. The checkpointer stores and retrieves state by thread ID alone, with no tenant validation.
+
+**How to avoid:**
+- Namespace all thread IDs: `threadId = ${tenantId}:${userId}:${uuid}` — never accept a bare UUID as a thread ID.
+- Before loading any checkpoint, verify that the thread ID's embedded `tenantId` matches the session's `tenantId`.
+- The DynamoDB/PostgreSQL checkpointer table must have `tenantId` as a partition key component, not just `threadId`.
+- Memory store (long-term agent memory) must also be scoped: queries to the memory store must include `tenantId` in the filter.
+
+**Warning signs:**
+- Thread IDs that are plain UUIDs with no tenant prefix.
+- Checkpoint retrieval that doesn't validate tenant ownership before returning state.
+- Agent memory queries without `tenantId` filter.
+
+**Phase to address:** AI agent tenant scoping phase — must be addressed before multi-tenant users can access the AI agent.
+
+---
+
+### Pitfall 12: Org Switcher Doesn't Invalidate Cached Data
+
+**What goes wrong:**
+A user switches from tenant A to tenant B using the org switcher. The UI updates the active tenant in the session, but React Query / SWR caches still hold tenant A's data. The user sees tenant A's accounts, schedules, and inventory under tenant B's context — until the cache expires or the page is refreshed.
+
+**Why it happens:**
+Client-side data fetching libraries cache by query key. If the query key doesn't include `tenantId`, switching tenants doesn't invalidate the cache.
+
+**How to avoid:**
+- Include `tenantId` in every React Query / SWR cache key: `['accounts', tenantId]` not `['accounts']`.
+- On tenant switch, call `queryClient.invalidateQueries()` (React Query) or `mutate()` (SWR) to clear all cached data.
+- The session update that changes `activeTenantId` must trigger a full cache invalidation before the UI re-renders with new tenant context.
+- Consider a brief loading state during tenant switch to prevent stale data flash.
+
+**Warning signs:**
+- Query keys that don't include `tenantId` or `activeTenantId`.
+- No cache invalidation logic in the tenant switcher component.
+- Users reporting seeing "wrong" data after switching orgs.
+
+**Phase to address:** Org switcher phase — cache invalidation must be part of the switcher implementation, not a follow-up fix.
+
+---
+
+## Technical Debt Patterns
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Raw `prisma` client in service layer (no tenant scoping wrapper) | Faster to write | Every query is a potential data leak; requires audit of entire codebase | Never — build the wrapper first |
+| JWT sessions instead of database sessions | No DB lookup per request | Cannot revoke sessions on suspension; suspended tenants stay active | Never for a multi-tenant SaaS |
+| Checking `role === 'admin'` for super admin | Simple | Tenant admins gain platform access | Never — use a separate `isSuperAdmin` flag |
+| Storing raw invitation tokens in DB | Simpler queries | Token theft from DB = account takeover | Never — always store hashed |
+| Thread IDs without tenant namespace | Simpler client code | Cross-tenant agent session access | Never — namespace from day one |
+| Skipping tenant_id on Lambda SQS payloads | Less message overhead | Lambda processes wrong tenant's data | Never — always include tenantId in events |
+| CASL removed before new RBAC is complete | Clean codebase | Zero authorization enforcement window | Never — parallel run required |
+| Checking suspension only at login | Simpler implementation | Suspended tenants stay active for session lifetime | Only acceptable if session TTL is <5 minutes |
+
+---
+
+## Integration Gotchas
+
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| NextAuth Prisma adapter | Assuming adapter auto-links accounts by email | Explicitly handle account linking in `signIn` callback; test both providers |
+| NextAuth + Cognito | Using Cognito `sub` as user ID without storing it in User table | Store `sub` in `Account` table via Prisma adapter; use internal `User.id` everywhere |
+| NextAuth session callbacks | Forgetting to add `tenantId` to the JWT/session in the `jwt` and `session` callbacks | Explicitly map `token.tenantId` → `session.user.tenantId` in both callbacks |
+| Prisma Client Extensions | Extension not applied to all query types (e.g., `$queryRaw` bypasses extensions) | Audit all raw SQL calls; apply tenant filter manually to `$queryRaw` and `$executeRaw` |
+| LangGraph DynamoDB checkpointer | Thread IDs stored without tenant prefix | Migrate existing threads to namespaced IDs before multi-tenant launch |
+| Cognito user pool | Cognito user attributes don't include `tenantId` | Store tenant association in PostgreSQL `User` table, not in Cognito attributes |
+| SQS + Lambda | SQS messages don't carry `tenantId` | Add `tenantId` to message attributes; Lambda reads from attributes, not just body |
+| psycopg2 (discovery Lambda) | Connection pool shared across tenant invocations | Use connection-per-invocation or ensure all queries include `tenant_id` filter |
+
+---
+
+## Performance Traps
+
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Tenant suspension check hits DB on every request | High DB load, slow response times | Cache suspension status in Redis or in-memory with 60s TTL | At ~100 req/s per tenant |
+| No index on `tenant_id` columns | Slow queries as data grows | Add `@@index([tenantId])` to every Prisma model that has `tenantId` | At ~10K rows per table |
+| Loading all tenant members to check permissions | N+1 queries in RBAC middleware | Denormalize role into the session JWT; check session, not DB | At ~50 members per tenant |
+| React Query cache keys without tenantId | Stale data shown after org switch | Include `tenantId` in all cache keys | Immediately on first org switch |
+| LangGraph checkpoint table without tenant partition | Full table scan for thread lookup | Composite key: `(tenantId, threadId)` as primary key | At ~1K threads across tenants |
+
+---
+
+## Security Mistakes
+
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| `tenantId` from request body | Horizontal privilege escalation — read/write any tenant's data | Always extract `tenantId` from `getServerSession()` |
+| Invitation token not scoped to email | Token forwarding attack — anyone with the link can join | Bind token to invitee email; reject if accepting user's email doesn't match |
+| Super admin route protected only by `role === 'admin'` | Tenant admin gains platform-level access | Separate `isSuperAdmin` flag; never assignable via tenant UI |
+| Raw invitation token stored in DB | DB read = account takeover | Store `sha256(token)`; send raw token in email only |
+| JWT sessions with long TTL | Suspended tenant stays active for days | Use database sessions; delete sessions on suspension |
+| RBAC permission check missing on new route | Any authenticated user can call the route | Default-deny middleware; explicit allowlist for public routes |
+| Agent thread ID accepted from client without validation | Cross-tenant agent session access | Validate thread ID's embedded tenantId matches session tenantId |
+| Lambda reads tenantId from event body (user-controlled) | Tenant impersonation in async jobs | Lambda derives tenantId from the resource being processed, not from caller input |
+
+---
+
+## UX Pitfalls
+
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| Suspension shows generic 500 error | User confused, thinks app is broken | Show a clear "Your organization has been suspended. Contact support." page |
+| Invitation link works after account already created | User tries to re-use link, gets cryptic error | Show "This invitation has already been accepted" with a login link |
+| Org switcher reloads entire page | Jarring UX, loses scroll position | Invalidate React Query cache and re-fetch in background; update URL without full reload |
+| Tenant settings saved without confirmation | Accidental changes to branding/timezone | Require explicit "Save" action; show diff of what changed |
+| Super admin panel looks identical to tenant admin panel | Super admin accidentally thinks they're in a tenant context | Distinct visual treatment (banner, color scheme) for super admin context |
+| Permission denied shows no explanation | User doesn't know what they're missing | Show which permission is required; link to contact their org admin |
+
+---
+
+## "Looks Done But Isn't" Checklist
+
+- [ ] **Tenant isolation:** `tenant_id` column exists on all tables — verify every Prisma query actually filters by it (not just the tables, the queries)
+- [ ] **Session normalization:** Both Cognito and Credentials providers tested — verify `session.user.tenantId` is populated for both
+- [ ] **Suspension enforcement:** Tenant suspended in DB — verify existing sessions are invalidated immediately, not just blocked at next login
+- [ ] **RBAC migration:** CASL imports removed — verify no route lost its authorization check during the migration
+- [ ] **Invitation security:** Invitation flow works end-to-end — verify token is single-use, expires in 48h, and is scoped to the invitee's email
+- [ ] **Super admin isolation:** `/admin` route returns 403 for tenant admins — verify with a test using a tenant-level `role: 'admin'` user
+- [ ] **Lambda tenant scoping:** Scheduler Lambda processes schedules — verify it only processes schedules for the correct tenant when multiple tenants have active schedules
+- [ ] **Org switcher cache:** Switching orgs shows correct data — verify no stale data from previous tenant appears after switch
+- [ ] **Agent session scoping:** LangGraph thread IDs are namespaced — verify a user cannot load another tenant's thread by guessing the ID
+- [ ] **Default-deny RBAC:** New route added without permission annotation — verify it returns 403, not 200
+
+---
+
+## Recovery Strategies
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Tenant data leak discovered in production | HIGH | Audit all queries immediately; add tenant_id filters; notify affected tenants; rotate any exposed credentials |
+| CASL removed before new RBAC complete | HIGH | Re-add CASL temporarily; treat as a security incident; implement new RBAC under feature flag |
+| Invitation tokens not hashed (raw tokens in DB) | MEDIUM | Rotate all pending invitations; re-hash existing tokens; notify users with active invitations |
+| Suspended tenant still has active sessions | MEDIUM | Delete all sessions for tenant's users from Session table directly via DB query |
+| Duplicate User records from dual auth | MEDIUM | Write a migration script to merge accounts; pick canonical User.id; update all foreign keys |
+| Lambda processed wrong tenant's data | HIGH | Audit Lambda execution logs; identify affected records; restore from backup or manual correction |
+| Super admin route accessible to tenant admin | HIGH | Immediately restrict route; audit all actions taken via the route; treat as security incident |
+
+---
+
+## Pitfall-to-Phase Mapping
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Tenant data leak via missing tenant_id | Foundation — Prisma scoped client | Test: two tenants, query as tenant A, assert no tenant B records returned |
+| tenantId from request body | Foundation — session extraction pattern | Code review: grep for `req.body.tenantId` and `searchParams.get('tenantId')` |
+| CASL removal window | RBAC phase — parallel run strategy | Feature flag test: both old and new RBAC agree on same decisions |
+| Default-deny RBAC gap | RBAC phase — middleware baseline | Test: new route without annotation returns 403 |
+| Dual auth session shape mismatch | Auth foundation phase | Test: both providers produce identical session shape |
+| Cognito + Credentials account collision | Auth foundation phase | Test: same email via both providers handled without duplicate User |
+| Invitation token security | User invitations phase | Security checklist: entropy, expiry, single-use, email-scoped |
+| Suspension not enforced on active sessions | Tenant lifecycle phase | Test: suspend tenant, verify existing session returns 403 within 60s |
+| Super admin accessible to tenant admin | Super admin phase | Test: tenant admin role cannot access /admin |
+| Lambda cross-tenant contamination | Lambda tenant awareness phase | Integration test: two tenants' schedules, assert correct tenant isolation |
+| LangGraph session leak | AI agent scoping phase | Test: attempt to load another tenant's thread ID, assert 403 |
+| Org switcher stale cache | Org switcher phase | Test: switch orgs, assert all data refreshes to new tenant |
 
 ---
 
 ## Sources
 
-- Pulumi resource naming documentation (official, verified via WebFetch 2026-03-29): auto-naming behavior and URN-based recreation confirmed HIGH confidence
-- Pulumi state and backends documentation (official, verified via WebFetch 2026-03-29): S3 backend DIY management requirements confirmed
-- Remaining findings: training data (cutoff Aug 2025), MEDIUM confidence — verify against current Pulumi docs before implementation
+- NextAuth.js documentation — session callbacks, Prisma adapter, account linking behavior (training data, cutoff Aug 2025, HIGH confidence for established patterns)
+- Prisma Client Extensions documentation — `$extends` for query middleware (HIGH confidence, well-established feature)
+- OWASP multi-tenancy security guidelines — horizontal privilege escalation, tenant isolation patterns (HIGH confidence)
+- LangGraph checkpointing documentation — thread ID and state management patterns (MEDIUM confidence — verify current LangGraph version behavior)
+- General SaaS multi-tenancy patterns — invitation token security, suspension enforcement, RBAC default-deny (HIGH confidence, industry-standard patterns)
+- Next.js middleware documentation — request interception for auth/tenant checks (HIGH confidence)
+
+---
+*Pitfalls research for: Multi-tenancy on existing Next.js + Prisma + NextAuth (v3.0 milestone)*
+*Researched: 2026-03-31*

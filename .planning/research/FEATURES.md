@@ -1,142 +1,267 @@
-# Feature Landscape: Pulumi IaC Migration
+# Feature Landscape: Multi-Tenancy SaaS
 
-**Domain:** CDK-to-Pulumi TypeScript rewrite (NetworkingStack + ComputeStack)
-**Researched:** 2026-03-29
-**Source:** Direct analysis of lib/networkingStack.ts and lib/computeStack.ts
+**Domain:** SaaS multi-tenancy — tenant lifecycle, custom RBAC, user invitations, org switching, tenant settings
+**Researched:** 2026-03-31
+**Confidence:** HIGH (well-established SaaS patterns; training data corroborated by platform analysis)
 
 ---
 
-## Table Stakes
+## Feature Landscape
 
-Features that must exist for the migration to be considered complete. Missing any = the platform doesn't run.
+### Table Stakes (Users Expect These)
+
+Features every SaaS platform must have. Missing any = product feels broken or unsafe.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Pulumi project scaffold (S3 backend + DynamoDB lock) | All state must be stored; concurrent deploys need locking | Low | `pulumi login s3://...`; DynamoDB table for state locking |
-| NetworkingStack parity: VPC, 4-tier subnets, NAT, IGW | ECS, ALB, RDS all depend on this VPC | Medium | 4 subnet tiers: Public/Private/Database/Intra; cidrMask per tier must match CDK |
-| VPC Gateway Endpoints (S3 + DynamoDB) | Free; Lambda/ECS traffic stays off public internet | Low | Both are gateway type — no interface endpoint cost |
-| RDS + ElastiCache subnet groups | Required by v1.0 PostgreSQL (RDS) and any future ElastiCache | Low | CfnDBSubnetGroup + CfnSubnetGroup equivalents |
-| NetworkingStack outputs (VpcId, subnet IDs, AZs) | ComputeStack consumes these via StackReference | Low | Must export same logical names CDK used |
-| Cross-stack reference (StackReference) | ComputeStack takes `vpc` from NetworkingStack | Low | Pulumi `StackReference` replaces CDK prop passing |
-| 9 DynamoDB tables with correct schemas + GSIs | App, Audit, Inventory, UsersTeams, Checkpoint, Writes, ChatHistory, Memory, AgentOps | High | AppTable/AuditTable/InventoryTable each have 3 GSIs; TTL attributes must match exactly |
-| 4 S3 buckets with lifecycle rules | Checkpoint (30d), AgentTemp (1d), Inventory (raw 365d/exports 7d), KBStaging (1d) | Low | Bucket names include account+region suffix — use `pulumi.interpolate` |
-| SQS queues + DLQs (VectorProcessing + KBSync) | Lambda event sources; DLQ for retry handling | Low | visibilityTimeout must be >= Lambda timeout (900s) |
-| CloudWatch alarm on VectorProcessingDLQ | Alerts on failed vector processing | Low | threshold=1, evaluationPeriods=1 |
-| SNS topic with email subscriptions | Scheduler Lambda notifications | Low | Email list from config |
-| Scheduler Lambda (ARM64, Node 20, esbuild) | Core resource scheduling feature | Medium | esbuild bundling must happen before Pulumi asset upload; external: `@aws-sdk/*` |
-| VectorProcessor Lambda (ARM64, Node 20, esbuild) | Inventory vector indexing pipeline | Medium | SQS event source, batchSize=1, maxConcurrency=5 |
-| KBSyncProcessor Lambda (ARM64, Node 20, esbuild) | Knowledge base sync pipeline | Medium | SQS event source, batchSize=1; bundles `pdf-parse` + `@aws-sdk/client-s3vectors` |
-| S3 event notification → SQS (normalized/ prefix) | Triggers vector processing on discovery output | Low | S3 bucket notification to SQS with prefix filter |
-| S3 Vector Bucket + 2 vector indexes | Inventory + KB semantic search | High | `cdk-s3-vectors` has no Pulumi equivalent — needs `aws.cloudformation.Stack` or raw CFN resource |
-| S3 Tables (Iceberg) TableBucket + Namespace + Table | Discovery stores normalized inventory in Iceberg | High | `@aws-cdk/aws-s3tables-alpha` has no Pulumi equivalent — needs raw CFN or `aws.cloudformation.Stack` |
-| Cognito UserPool + UserPoolDomain + UserPoolClient + IdentityPool | Auth for web UI | Medium | UserPoolClient has `generateSecret: true` — client secret must be passed to ECS env |
-| IAM roles (Lambda, ECS task, ECS execution, Discovery, Scheduler, Cognito authenticated) | Least-privilege access for all compute | High | 6 distinct roles; cross-account STS AssumeRole patterns must be preserved |
-| ECS Fargate cluster + WebUI task definition (ARM64) | Runs the Next.js web UI | Medium | Container image built from `web-ui/Dockerfile.ecs`; needs ECR push step |
-| ECS Fargate service (desiredCount from config, circuit breaker) | Keeps web UI running | Low | minHealthyPercent=100, maxHealthyPercent=200 |
-| ALB + target group + HTTP listener | Routes traffic to ECS service | Low | idleTimeout=1200s for streaming; health check on `/api/health` |
-| Auto scaling (CPU 70% + Memory 75%) | Handles load spikes | Low | min/max from config |
-| Discovery ECS task definition (ARM64, Python image) | Multi-account resource discovery | Medium | Python container from `lambda/discovery/`; ARM64 platform |
-| EventBridge Scheduler (daily discovery at 2AM UTC) | Scheduled discovery runs | Low | `aws.scheduler.Schedule` resource; needs scheduler IAM role |
-| EventBridge Rule (StartDiscovery event pattern) | On-demand discovery trigger from web UI | Low | source: `nucleus.app`, detailType: `StartDiscovery` |
-| EventBridge Rule (scheduler cron, every 30 min) | Triggers scheduler Lambda | Low | cron expression from config |
-| CloudFront distribution (ALB origin, caching disabled) | CDN + HTTPS termination | Medium | originVerifySecret must be a stable Pulumi random resource, not `crypto.randomBytes` |
-| 30+ ECS container env vars wired from stack outputs | Web UI reads all resource names/IDs from env | High | Every table name, bucket name, Cognito ID, Lambda ARN must flow through as Pulumi Output<string> |
-| CDK removal for NetworkingStack + ComputeStack | bin/cdkStack.ts, lib/networkingStack.ts, lib/computeStack.ts deleted | Low | WebUIStack stays; CDK deps stay in package.json for WebUIStack |
+| Row-level tenant isolation | Users assume their data is private; data leakage is a trust-ending bug | MEDIUM | `tenant_id` already on most tables from v1.0; need to audit every query and enforce in repository layer |
+| Tenant onboarding (super admin flow) | Platform operators need a way to provision new customers | MEDIUM | Super admin creates org + root user; root user gets invite email; no self-serve signup needed for enterprise cloud ops |
+| User invitation via email | Standard SaaS pattern; users expect to invite teammates | MEDIUM | Token-based invite link (24–48h expiry), accept/decline, resend, revoke; new users set password on accept |
+| Role-based access control | Users expect admins to have more power than members | HIGH | Replacing CASL entirely; custom roles per tenant; per-module permission matrix (module × action) |
+| Org/tenant switcher | Users belonging to multiple orgs expect to switch without re-logging in | LOW | Header dropdown; full data reload on switch; current org persisted in session |
+| Tenant suspension | Platform operators need to freeze bad actors or unpaid accounts | LOW | Suspended state blocks all mutations (or all logins); super admin can suspend/unsuspend with reason; audit logged |
+| Super admin panel (/admin) | Platform operators need visibility and control over all tenants | MEDIUM | List tenants, create tenant, view users, suspend/unsuspend; behind super-admin auth guard; not a tenant member |
+| Tenant settings page | Orgs expect to configure their own name, timezone, notifications | LOW | Display name, default timezone, notification preferences; scoped to tenant admin role |
+| Dual auth (Cognito + Credentials) | Enterprise customers use SSO; smaller teams want simple email/password | MEDIUM | NextAuth multi-provider; Prisma adapter for user persistence; Cognito for enterprise, Credentials for direct-managed users |
 
----
+### Differentiators (Competitive Advantage)
 
-## Differentiators
-
-Features that make this a good migration, not just a working one.
+Features that go beyond baseline and add real value for a cloud ops platform.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Typed stack outputs via `StackReference` | Compile-time safety on cross-stack references vs CDK's stringly-typed CfnOutput | Low | Export outputs as typed object from networking stack |
-| Stable resource names (no CDK logical ID hashing) | CDK appends 8-char hashes to logical IDs; Pulumi uses explicit names | Low | Explicitly set `name:` on every resource — avoids replacement on rename |
-| `pulumi preview` before every deploy | Shows exact diff including replacements — safer than `cdk diff` | Low | Enforce in runbook: always preview before up |
-| Pulumi config secrets for sensitive values | `pulumi config set --secret` encrypts at rest in state; CDK puts secrets in plaintext env vars | Low | Replace `NEXTAUTH_SECRET` and `COGNITO_CLIENT_SECRET` hardcoded strings |
-| `pulumi.random.RandomString` for originVerifySecret | CDK uses `crypto.randomBytes` which changes every synth; Pulumi random is stable across deploys | Low | Prevents CloudFront origin header from rotating on every deploy |
-| Explicit `retainOnDelete` on stateful resources | DynamoDB tables, S3 buckets — protect against accidental `pulumi destroy` | Low | Set `retainOnDelete: true` on all DynamoDB tables and S3 buckets |
-| Per-stack TypeScript config interface | Typed config object replaces CDK's `getConfig()` + env var parsing | Low | `new pulumi.Config()` with typed getters |
+| Per-module RBAC (not just global roles) | Cloud ops teams have specialists — a scheduler admin shouldn't touch AI Ops config | HIGH | Permission matrix: role × module (Accounts, Schedules, AI Ops, Inventory, Settings) × action (create/read/update/delete); custom role creation per tenant |
+| Custom role creation per tenant | Tenants model their own org structure (e.g., "FinOps Viewer", "DevOps Lead") | MEDIUM | Tenant admin defines role name + permission set; roles are tenant-scoped, not platform-global |
+| Tenant-level branding | White-label feel; enterprise customers want their logo in the header | LOW | Logo upload, org display name; stored in tenant settings; rendered in layout |
+| Invitation with pre-assigned role | Inviter specifies role at invite time, not after acceptance | LOW | Role baked into invitation record; assignable roles limited to inviter's own role level (no privilege escalation) |
+| Suspension with read-only mode | Suspended tenants can still read data (useful for billing disputes) vs full lockout | LOW | Two suspension modes: `read_only` (mutations blocked) and `locked` (login blocked); super admin chooses |
 
----
+### Anti-Features (Commonly Requested, Often Problematic)
 
-## Anti-Features
-
-Features to explicitly NOT build.
-
-| Anti-Feature | Why Avoid | What to Do Instead |
-|--------------|-----------|-------------------|
-| Use `@pulumi/cdk` (CDK adapter) | Defeats the purpose; still runs CloudFormation under the hood | Full rewrite using `@pulumi/aws` primitives |
-| Import existing live AWS resources | Risky; state drift causes replacement surprises; this is a fresh deploy | Deploy fresh, cut over DNS/env vars, decommission CDK stacks |
-| Pulumi Cloud backend | Adds external dependency and cost; S3 backend is sufficient | S3 backend with DynamoDB locking |
-| Migrate WebUIStack to Pulumi | Out of scope per PROJECT.md; adds risk with no benefit | Keep WebUIStack in CDK as-is |
-| Add new AWS resources not in CDK | Scope creep; parity is the goal | Exact resource parity only |
-| Timestamp+random suffix in IAM role names | CDK anti-pattern that causes role replacement on every deploy | Use stable, deterministic role names |
-| Monolithic single Pulumi program | Hard to reason about; networking and compute have different change cadences | Two separate Pulumi stacks (networking + compute) |
-| Python Lambda rewrite | Discovery Lambda stays Python per PROJECT.md constraints | Keep Python container, just reference it from Pulumi |
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Schema-per-tenant isolation | "True" isolation, easier per-tenant backup | Operational nightmare: migrations run N times, connection pool exhaustion, no cross-tenant queries | Row-level isolation with `tenant_id` enforced in repository layer — already the chosen pattern |
+| Real-time permission sync (WebSocket) | Permissions change mid-session should take effect immediately | Over-engineered for this use case; adds WebSocket infrastructure; permissions rarely change mid-session | Re-validate permissions on each API request (already happens with server-side auth); session invalidation on role change is sufficient |
+| Self-serve tenant signup | Reduce friction for new customers | Enterprise cloud ops platforms don't want random signups; creates compliance and security risk | Super-admin-initiated onboarding only; keeps tenant list clean and auditable |
+| Billing/subscription tiers | Monetize different feature sets | Explicitly deferred to v4.0; adds significant complexity (Stripe integration, entitlement checks, dunning) | Suspension covers the "non-paying" case for now |
+| SSO/SAML per tenant | Enterprise customers want their IdP | Deferred to v4.0; Cognito handles enterprise SSO at platform level for now | Dual auth (Cognito + Credentials) covers the enterprise vs SMB split |
+| Permission inheritance chains (role hierarchy) | "Admin inherits all Member permissions" | Implicit inheritance creates confusion about what a role actually has; hard to audit | Explicit permission sets per role; predefined roles (Owner, Admin, Member, Viewer) have explicit permission sets, not inheritance |
+| Impersonation ("login as tenant") | Super admin debugging | Security and audit risk; hard to implement safely | Super admin can view tenant data directly in /admin panel; no impersonation needed |
 
 ---
 
 ## Feature Dependencies
 
 ```
-PULUMI-01: Scaffold (S3 backend, DynamoDB lock, tsconfig, pulumi.yaml)
-  └── PULUMI-02: NetworkingStack (VPC, subnets, NAT, endpoints, subnet groups, outputs)
-        └── PULUMI-03: ComputeStack — ECS (cluster, task defs, ALB, CloudFront, auto scaling)
-              ├── PULUMI-04: ComputeStack — Lambda (scheduler, vector processor, kb sync, discovery task)
-              │     └── depends on: DynamoDB tables, S3 buckets, SQS queues (PULUMI-05)
-              └── PULUMI-05: ComputeStack — Data (DynamoDB, SQS, EventBridge, Cognito, S3, S3 Vectors, S3 Tables)
-                    └── PULUMI-06: Stack outputs → web-ui env vars; CDK removal
+[Row-Level Tenant Isolation]
+    └──required by──> [All other features]
+                          (nothing works correctly without tenant_id enforcement)
+
+[Dual Auth + Prisma Adapter]
+    └──required by──> [User Invitations]
+                          └──required by──> [Tenant Onboarding]
+    └──required by──> [Custom RBAC]
+                          └──required by──> [Per-Module Permissions]
+
+[Tenant Entity (DB model)]
+    └──required by──> [Org Switcher]
+    └──required by──> [Tenant Settings]
+    └──required by──> [Tenant Suspension]
+    └──required by──> [Super Admin Panel]
+
+[Super Admin Panel]
+    └──enables──> [Tenant Onboarding]
+    └──enables──> [Tenant Suspension]
+
+[User Invitations]
+    └──requires──> [Custom RBAC] (role assigned at invite time)
+    └──requires──> [Email delivery] (Nodemailer or SES)
+
+[Org Switcher]
+    └──requires──> [Row-Level Tenant Isolation] (switching must re-scope all data)
+    └──requires──> [Tenant entity in session]
+
+[Tenant Suspension]
+    └──requires──> [Middleware check on every request]
+    └──enhances──> [Super Admin Panel] (suspension triggered from there)
 ```
 
-Key ordering constraints:
-- DynamoDB tables must exist before ECS task env vars can reference their names
-- Cognito UserPool + UserPoolClient must exist before ECS env vars (COGNITO_USER_POOL_ID, client secret)
-- S3 Vector Bucket must exist before vector indexes can be created
-- VPC must exist before ECS cluster, ALB, security groups, discovery task
+### Dependency Notes
+
+- **Row-level isolation is the foundation:** Every other feature assumes `tenant_id` is correctly enforced. Build and verify this first.
+- **Dual auth before invitations:** Invitations create users in the Prisma-managed users table. The Prisma adapter must be wired into NextAuth before invitation acceptance can create accounts.
+- **Custom RBAC before per-module permissions:** The role/permission DB schema must exist before you can assign roles at invite time or enforce module-level access.
+- **Tenant entity before org switcher:** The switcher reads the list of tenants a user belongs to — requires the tenant membership model.
+- **Suspension middleware must be early in request pipeline:** Check suspension state before RBAC, before any data access. A suspended tenant should never reach business logic.
 
 ---
 
-## MVP Recommendation
+## MVP Definition
 
-Prioritize in this order:
+### Launch With (v3.0 — all in scope per PROJECT.md)
 
-1. Scaffold + S3 backend (PULUMI-01) — unblocks everything
-2. NetworkingStack (PULUMI-02) — unblocks ComputeStack
-3. Data layer: DynamoDB + S3 + SQS + Cognito (PULUMI-05) — unblocks ECS env vars
-4. Lambda functions (PULUMI-04) — depends on data layer
-5. ECS + ALB + CloudFront (PULUMI-03) — depends on all of the above
-6. Stack outputs + CDK removal (PULUMI-06) — final cutover
+- [ ] Row-level tenant isolation enforced across all repositories — foundational safety
+- [ ] Dual auth (Cognito + Credentials) with Prisma adapter — users exist in PostgreSQL
+- [ ] Tenant entity + super admin panel (create, list, view, suspend/unsuspend)
+- [ ] Tenant onboarding flow (super admin creates org + root user invite)
+- [ ] User invitation system (invite by email, role pre-assigned, accept/decline)
+- [ ] Custom RBAC per module (replace CASL; Owner/Admin/Member/Viewer + custom roles)
+- [ ] Org switcher in header (switch between tenants user belongs to)
+- [ ] Tenant suspension (read-only and locked modes; middleware enforcement)
+- [ ] Tenant-level settings (name, timezone, notification preferences, logo)
 
-Defer: S3 Vectors and S3 Tables (Iceberg) — no native Pulumi provider support; use raw CloudFormation resources via `aws.cloudformation.Stack` as a last step. These are non-blocking for the web UI to function.
+### Add After Validation (v3.x)
+
+- [ ] Invitation expiry management UI (view pending, resend, revoke from settings)
+- [ ] Role audit log (who changed whose role, when)
+- [ ] Tenant usage dashboard in /admin (user count, last active, resource counts)
+
+### Future Consideration (v4+)
+
+- [ ] SSO/SAML per tenant — deferred; Cognito covers enterprise for now
+- [ ] Billing/subscription tiers — deferred; suspension covers non-payment case
+- [ ] Usage quotas/rate limits per tenant — deferred
+- [ ] Self-serve tenant signup — deferred; enterprise onboarding only for now
 
 ---
 
-## Special Complexity Notes
+## Feature Prioritization Matrix
 
-### S3 Vectors (`cdk-s3-vectors`)
-CDK uses an alpha construct (`cdk-s3-vectors`) that wraps a new AWS service. Pulumi's `@pulumi/aws` provider may not have native support yet. Options:
-1. `aws.cloudformation.Stack` wrapping the CFN template — HIGH confidence this works
-2. Wait for `@pulumi/aws` provider update — LOW confidence on timeline
+| Feature | User Value | Implementation Cost | Priority |
+|---------|------------|---------------------|----------|
+| Row-level tenant isolation | HIGH | MEDIUM | P1 |
+| Dual auth + Prisma adapter | HIGH | MEDIUM | P1 |
+| Custom RBAC (replace CASL) | HIGH | HIGH | P1 |
+| Tenant onboarding (super admin) | HIGH | MEDIUM | P1 |
+| User invitations | HIGH | MEDIUM | P1 |
+| Org switcher | MEDIUM | LOW | P1 |
+| Tenant suspension | MEDIUM | LOW | P1 |
+| Tenant settings | MEDIUM | LOW | P1 |
+| Per-module custom roles | HIGH | MEDIUM | P1 |
+| Tenant branding (logo) | LOW | LOW | P2 |
+| Invitation management UI | LOW | LOW | P2 |
+| Role audit log | MEDIUM | LOW | P2 |
 
-### S3 Tables / Apache Iceberg (`@aws-cdk/aws-s3tables-alpha`)
-Same situation as S3 Vectors — alpha CDK construct. Use `aws.cloudformation.Stack` as a wrapper.
+**Priority key:** P1 = v3.0 launch, P2 = v3.x follow-on, P3 = v4+
 
-### Container Image Builds
-CDK's `ecs.ContainerImage.fromAsset` builds Docker images during `cdk deploy`. Pulumi equivalent is `docker.Image` from `@pulumi/docker` or `awsx.ecr.Image` from `@pulumi/awsx`. Requires Docker daemon available during `pulumi up`.
+---
 
-### Cognito Client Secret
-CDK uses `.userPoolClientSecret?.unsafeUnwrap()` to pass the secret as a plaintext env var. In Pulumi, use `aws.cognito.UserPoolClient` and reference `.clientSecret` as a Pulumi secret output — never log it.
+## Standard SaaS Flow Reference
 
-### EventBridge Scheduler
-CDK uses `new cdk.CfnResource(... type: 'AWS::Scheduler::Schedule')` (raw CFN). Pulumi has `aws.scheduler.Schedule` as a native resource — cleaner than CDK's approach.
+### Tenant Onboarding Flow (super-admin-initiated)
+
+```
+Super Admin
+  → /admin/tenants/new
+  → Enter: org name, root user email, default timezone
+  → System creates: Tenant record (status=active) + pending User record
+  → System sends: invite email to root user with signed token (48h expiry)
+
+Root User
+  → Clicks invite link → /auth/accept-invite?token=<jwt>
+  → Token validated (not expired, not used, matches email)
+  → Set password form (Credentials provider) OR "Sign in with Cognito" option
+  → On complete: User activated, assigned Owner role for tenant
+  → Redirected to tenant dashboard
+```
+
+### User Invitation Flow (tenant admin)
+
+```
+Tenant Admin
+  → /settings/members → "Invite User"
+  → Enter: email address, select role (limited to roles ≤ inviter's role)
+  → System creates: Invitation record (status=pending, token, expiry=48h)
+  → System sends: invite email with accept link
+
+Invitee
+  → Clicks link → /auth/accept-invite?token=<jwt>
+  → If new user: set password → account created → joins tenant with pre-assigned role
+  → If existing user (already in another tenant): confirm join → added to tenant
+  → Invitation marked accepted
+
+Tenant Admin (management)
+  → Can see pending invitations in /settings/members
+  → Can resend (resets expiry) or revoke (marks cancelled)
+```
+
+### RBAC Permission Model
+
+```
+Predefined roles (per tenant, not platform-global):
+  Owner   → all permissions on all modules
+  Admin   → all permissions except tenant deletion and owner management
+  Member  → read + create on assigned modules; no delete
+  Viewer  → read-only on all modules
+
+Custom roles:
+  Tenant admin defines role name + explicit permission set
+  Permission set = { module: string, actions: ('create'|'read'|'update'|'delete')[] }[]
+  Modules: Accounts, Schedules, AI_Ops, Inventory, Settings
+
+Enforcement:
+  API route → check session tenant_id → load user's role for that tenant
+           → check role has required permission for module+action
+           → 403 if not; proceed if yes
+```
+
+### Org Switcher Pattern
+
+```
+Header dropdown shows:
+  - Current org name (with avatar/initials)
+  - List of other orgs user belongs to
+  - Clicking an org: updates session.tenantId → full page reload
+  - All API calls include tenantId from session → data re-scoped automatically
+
+Session shape:
+  session.user.id
+  session.user.tenantId        ← active tenant
+  session.user.tenantIds[]     ← all tenants user belongs to
+  session.user.role            ← role in active tenant
+```
+
+### Tenant Suspension States
+
+```
+active      → normal operation
+read_only   → all write/delete API calls return 423 Locked; reads allowed
+              users see banner: "This account is suspended. Contact support."
+locked      → all API calls return 423; login blocked at middleware
+              users see: "Account suspended. Contact support to restore access."
+deleted     → soft delete; data retained; login blocked; not shown in /admin list by default
+
+Transitions (super admin only):
+  active → read_only  (suspend with read access)
+  active → locked     (full suspension)
+  read_only → active  (unsuspend)
+  locked → active     (unsuspend)
+  any → deleted       (irreversible via UI; requires explicit confirmation)
+```
+
+---
+
+## Competitor Feature Analysis
+
+| Feature | Linear / Vercel (SaaS reference) | AWS Organizations (domain reference) | Our Approach |
+|---------|----------------------------------|--------------------------------------|--------------|
+| Org switcher | Header dropdown, instant switch, workspace-scoped data | Account switcher in console header | Header dropdown, session-based tenantId, full reload |
+| Invitations | Email invite with role, 7-day expiry, resend/revoke | Email invite to join org, role assigned | Email invite, 48h expiry, role pre-assigned, resend/revoke |
+| RBAC | Global roles (Owner/Member) + fine-grained resource permissions | IAM policies (very granular, complex) | Per-module roles; predefined + custom; explicit permission sets |
+| Suspension | Account deactivation (billing-driven) | Account suspension via Organizations | Two modes: read_only and locked; super admin triggered |
+| Tenant settings | Workspace settings page (name, avatar, integrations) | Account settings (billing, contacts) | Name, timezone, notifications, logo; tenant-admin scoped |
 
 ---
 
 ## Sources
 
-- Direct analysis of `lib/networkingStack.ts` (177 lines) — HIGH confidence
-- Direct analysis of `lib/computeStack.ts` (1385 lines) — HIGH confidence
-- `.planning/PROJECT.md` for scope constraints — HIGH confidence
-- Pulumi AWS provider docs (aws.scheduler.Schedule, aws.cognito.*) — MEDIUM confidence (training data, verify against current provider)
+- SaaS multi-tenancy patterns: training data (HIGH confidence — well-established domain)
+- NextAuth multi-provider + Prisma adapter: official NextAuth.js docs (https://next-auth.js.org/adapters/prisma)
+- Row-level security patterns: PostgreSQL RLS documentation + Prisma middleware patterns
+- RBAC permission model: CASL docs (being replaced), OWASP RBAC guidance
+- Invitation token patterns: JWT signed tokens with expiry — standard practice
+- Suspension state machine: derived from Stripe, Vercel, Linear SaaS patterns
+
+---
+*Feature research for: Multi-Tenancy SaaS (Nucleus Cloud Ops v3.0)*
+*Researched: 2026-03-31*
