@@ -1500,6 +1500,17 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "LANGFUSE_SECRET_KEY", value: "" },
             { name: "LANGFUSE_HOST", value: "https://cloud.langfuse.com" },
             { name: "DATABASE_URL", value: databaseUrlVal },
+            // PostgreSQL feature flags — disable DynamoDB, route all entities to PostgreSQL
+            { name: "USE_PG_ACCOUNTS", value: "true" },
+            { name: "USE_PG_SCHEDULES", value: "true" },
+            { name: "USE_PG_AUDIT", value: "true" },
+            { name: "USE_PG_AUDIT_LOGS", value: "true" },
+            { name: "USE_PG_INVENTORY", value: "true" },
+            { name: "USE_PG_AGENT_OPS", value: "true" },
+            { name: "USE_PG_LANGGRAPH", value: "true" },
+            { name: "USE_PG_RBAC", value: "true" },
+            { name: "USE_PG_TENANT_CONFIG", value: "true" },
+            { name: "USE_PG_KB", value: "true" },
         ],
     }])),
 });
