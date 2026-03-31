@@ -451,6 +451,24 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
+// CustomRole — tenant-scoped custom roles with per-module permission sets (Phase 13 RBAC)
+// permissions column stores PermissionSet shape: { Accounts: ['read','update'], ... }
+// level is auto-computed via getAutoLevel() — 1=Viewer, 2=Member, 3=Admin, 4=Owner
+model CustomRole {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  permissions Json     // PermissionSet shape: { Accounts: ['read','update'], ... }
+  level       Int      @default(1) // Auto-computed: 1=Viewer, 2=Member, 3=Admin, 4=Owner
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("custom_roles")
+}
+
 // === NextAuth Prisma Adapter Models ===
 // Per D-05: database sessions (not JWT) for suspension enforcement
 // @@map to auth_* tables to avoid collision with existing Account model

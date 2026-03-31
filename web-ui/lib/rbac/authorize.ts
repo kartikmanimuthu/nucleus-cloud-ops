@@ -13,20 +13,12 @@ import {
 } from './types';
 import { hasPermission, hasCustomPermission } from './permissions';
 
+import { getCustomRolePermissions } from './custom-role-service';
+
 /** Predefined role names for runtime check */
 const PREDEFINED_ROLES = new Set<string>(['Owner', 'Admin', 'Member', 'Viewer']);
 
-/**
- * Stub for custom role permission lookup.
- * Plan 03 will replace this with a real DB lookup via Prisma.
- * Returns null (deny-all) for any unknown custom role.
- */
-export async function getCustomRolePermissions(
-    _roleName: string,
-    _tenantId: string
-): Promise<PermissionSet | null> {
-    return null;
-}
+export { getCustomRolePermissions };
 
 /**
  * Authorization helper for API routes.
