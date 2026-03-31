@@ -47,7 +47,7 @@ See [archive](milestones/v2.0-ROADMAP.md) for full phase details.
   5. `/admin` and `/api/admin` routes return 403 for any user where `isSuperAdmin !== true`
 **Plans**: 3 plans
 Plans:
-- [ ] 12-01-PLAN.md — Prisma adapter models + dual auth config + database sessions
+- [x] 12-01-PLAN.md — Prisma adapter models + dual auth config + database sessions
 - [ ] 12-02-PLAN.md — Session helpers (getSessionTenantId, assertSuperAdmin) + middleware x-tenant-id injection
 - [ ] 12-03-PLAN.md — Tabbed login page UI (Credentials + SSO)
 **UI hint**: yes
@@ -121,7 +121,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 12. Auth Foundation | v3.0 | 0/3 | Planning complete | - |
+| 12. Auth Foundation | v3.0 | 1/3 | In Progress|  |
 | 13. Custom RBAC | v3.0 | 0/? | Not started | - |
 | 14. Tenant Context Enforcement | v3.0 | 0/? | Not started | - |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 0/? | Not started | - |

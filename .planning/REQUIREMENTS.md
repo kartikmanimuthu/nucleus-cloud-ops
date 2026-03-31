@@ -7,10 +7,10 @@
 
 ### Authentication
 
-- [ ] **AUTH-01**: NextAuth Prisma adapter persists users, accounts, and sessions in PostgreSQL (AuthUser, AuthAccount, AuthSession, VerificationToken models)
-- [ ] **AUTH-02**: CredentialsProvider allows login with email + bcrypt-hashed password alongside existing Cognito provider
-- [ ] **AUTH-03**: JWT/session callbacks normalize session shape to `{ id, email, tenantId, role, isSuperAdmin }` for both Cognito and Credentials providers
-- [ ] **AUTH-04**: Database session strategy (not JWT) enables server-side session invalidation for tenant suspension
+- [x] **AUTH-01**: NextAuth Prisma adapter persists users, accounts, and sessions in PostgreSQL (AuthUser, AuthAccount, AuthSession, VerificationToken models)
+- [x] **AUTH-02**: CredentialsProvider allows login with email + bcrypt-hashed password alongside existing Cognito provider
+- [x] **AUTH-03**: JWT/session callbacks normalize session shape to `{ id, email, tenantId, role, isSuperAdmin }` for both Cognito and Credentials providers
+- [x] **AUTH-04**: Database session strategy (not JWT) enables server-side session invalidation for tenant suspension
 - [ ] **AUTH-05**: `getSessionTenantId()` helper extracts tenantId from session; returns 401 if missing
 - [ ] **AUTH-06**: `assertSuperAdmin()` helper checks `isSuperAdmin === true`; returns 403 if not
 - [ ] **AUTH-07**: Next.js middleware injects `x-tenant-id` header from session into every authenticated request
@@ -112,10 +112,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | Phase 12 | Pending |
-| AUTH-02 | Phase 12 | Pending |
-| AUTH-03 | Phase 12 | Pending |
-| AUTH-04 | Phase 12 | Pending |
+| AUTH-01 | Phase 12 | Complete |
+| AUTH-02 | Phase 12 | Complete |
+| AUTH-03 | Phase 12 | Complete |
+| AUTH-04 | Phase 12 | Complete |
 | AUTH-05 | Phase 12 | Pending |
 | AUTH-06 | Phase 12 | Pending |
 | AUTH-07 | Phase 12 | Pending |
