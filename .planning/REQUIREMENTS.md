@@ -112,59 +112,59 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | — | Pending |
-| AUTH-02 | — | Pending |
-| AUTH-03 | — | Pending |
-| AUTH-04 | — | Pending |
-| AUTH-05 | — | Pending |
-| AUTH-06 | — | Pending |
-| AUTH-07 | — | Pending |
-| RBAC-01 | — | Pending |
-| RBAC-02 | — | Pending |
-| RBAC-03 | — | Pending |
-| RBAC-04 | — | Pending |
-| RBAC-05 | — | Pending |
-| RBAC-06 | — | Pending |
-| RBAC-07 | — | Pending |
-| ISOL-01 | — | Pending |
-| ISOL-02 | — | Pending |
-| ISOL-03 | — | Pending |
-| ISOL-04 | — | Pending |
-| ISOL-05 | — | Pending |
-| ISOL-06 | — | Pending |
-| ADMIN-01 | — | Pending |
-| ADMIN-02 | — | Pending |
-| ADMIN-03 | — | Pending |
-| ADMIN-04 | — | Pending |
-| ADMIN-05 | — | Pending |
-| ADMIN-06 | — | Pending |
-| ADMIN-07 | — | Pending |
-| ONBD-01 | — | Pending |
-| ONBD-02 | — | Pending |
-| ONBD-03 | — | Pending |
-| INVT-01 | — | Pending |
-| INVT-02 | — | Pending |
-| INVT-03 | — | Pending |
-| INVT-04 | — | Pending |
-| INVT-05 | — | Pending |
-| INVT-06 | — | Pending |
-| ORGW-01 | — | Pending |
-| ORGW-02 | — | Pending |
-| ORGW-03 | — | Pending |
-| ORGW-04 | — | Pending |
-| SUSP-01 | — | Pending |
-| SUSP-02 | — | Pending |
-| SUSP-03 | — | Pending |
-| SUSP-04 | — | Pending |
-| STNG-01 | — | Pending |
-| STNG-02 | — | Pending |
-| STNG-03 | — | Pending |
+| AUTH-01 | Phase 12 | Pending |
+| AUTH-02 | Phase 12 | Pending |
+| AUTH-03 | Phase 12 | Pending |
+| AUTH-04 | Phase 12 | Pending |
+| AUTH-05 | Phase 12 | Pending |
+| AUTH-06 | Phase 12 | Pending |
+| AUTH-07 | Phase 12 | Pending |
+| RBAC-01 | Phase 13 | Pending |
+| RBAC-02 | Phase 13 | Pending |
+| RBAC-03 | Phase 13 | Pending |
+| RBAC-04 | Phase 13 | Pending |
+| RBAC-05 | Phase 13 | Pending |
+| RBAC-06 | Phase 13 | Pending |
+| RBAC-07 | Phase 13 | Pending |
+| ISOL-01 | Phase 14 | Pending |
+| ISOL-02 | Phase 14 | Pending |
+| ISOL-03 | Phase 14 | Pending |
+| ISOL-04 | Phase 14 | Pending |
+| ISOL-05 | Phase 14 | Pending |
+| ISOL-06 | Phase 14 | Pending |
+| ADMIN-01 | Phase 15 | Pending |
+| ADMIN-02 | Phase 15 | Pending |
+| ADMIN-03 | Phase 15 | Pending |
+| ADMIN-04 | Phase 15 | Pending |
+| ADMIN-05 | Phase 15 | Pending |
+| ADMIN-06 | Phase 15 | Pending |
+| ADMIN-07 | Phase 15 | Pending |
+| ONBD-01 | Phase 15 | Pending |
+| ONBD-02 | Phase 16 | Pending |
+| ONBD-03 | Phase 16 | Pending |
+| INVT-01 | Phase 16 | Pending |
+| INVT-02 | Phase 16 | Pending |
+| INVT-03 | Phase 16 | Pending |
+| INVT-04 | Phase 16 | Pending |
+| INVT-05 | Phase 16 | Pending |
+| INVT-06 | Phase 16 | Pending |
+| ORGW-01 | Phase 17 | Pending |
+| ORGW-02 | Phase 17 | Pending |
+| ORGW-03 | Phase 17 | Pending |
+| ORGW-04 | Phase 17 | Pending |
+| SUSP-01 | Phase 15 | Pending |
+| SUSP-02 | Phase 15 | Pending |
+| SUSP-03 | Phase 15 | Pending |
+| SUSP-04 | Phase 15 | Pending |
+| STNG-01 | Phase 17 | Pending |
+| STNG-02 | Phase 17 | Pending |
+| STNG-03 | Phase 17 | Pending |
 
 **Coverage:**
 - v3.0 requirements: 43 total
-- Mapped to phases: 0
-- Unmapped: 43 (pending roadmap creation)
+- Mapped to phases: 43
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-31*
-*Last updated: 2026-03-31 after initial definition*
+*Last updated: 2026-03-31 — traceability mapped after roadmap creation*
