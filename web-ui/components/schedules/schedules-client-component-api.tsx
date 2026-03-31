@@ -27,6 +27,8 @@ import {
   RefreshCw,
   Loader2,
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { SchedulesTable } from "@/components/schedules/schedules-table";
 import { SchedulesGrid } from "@/components/schedules/schedules-grid";
@@ -63,6 +65,7 @@ export default function SchedulesClientAPI({
   const [schedules, setSchedules] = useState<UISchedule[]>(initialSchedules);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
 
   // UI state
   const [searchTerm, setSearchTerm] = useState("");
@@ -73,46 +76,37 @@ export default function SchedulesClientAPI({
   const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+
   const { toast } = useToast();
 
   // Refresh schedules from API
-  const loadSchedules = async () => {
+  const loadSchedules = async (page = currentPage, pageLimit = limit) => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Build query parameters based on current filters
-      let url = '/api/schedules';
+
       const params = new URLSearchParams();
-      
-      if (statusFilter !== "all") {
-        params.append('active', statusFilter === "active" ? 'true' : 'false');
-      }
-      
-      if (searchTerm) {
-        params.append('search', searchTerm);
-      }
-      
-      if (params.toString()) {
-        url += `?${params.toString()}`;
-      }
-      
+      if (statusFilter !== "all") params.append('status', statusFilter);
+      if (resourceFilter !== "all") params.append('resource', resourceFilter);
+      if (searchTerm) params.append('search', searchTerm);
+      params.append('page', String(page));
+      params.append('limit', String(pageLimit));
+
+      const url = `/api/schedules?${params.toString()}`;
       const response = await fetch(url);
       const result = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to load schedules');
-      }
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to load schedules');
-      }
-      
+
+      if (!response.ok) throw new Error(result.error || 'Failed to load schedules');
+      if (!result.success) throw new Error(result.error || 'Failed to load schedules');
+
       setSchedules(result.data);
+      setTotalItems(result.meta?.total ?? result.data.length);
     } catch (err) {
       console.error("Error loading schedules:", err);
       setError(err instanceof Error ? err.message : "Failed to load schedules");
-      
       toast({
         title: "Error",
         description: err instanceof Error ? err.message : "Failed to load schedules",
@@ -123,29 +117,8 @@ export default function SchedulesClientAPI({
     }
   };
 
-  // Filter schedules based on search and filters
-  const filteredSchedules = schedules.filter((schedule) => {
-    const matchesSearch =
-      schedule.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (schedule.description &&
-        schedule.description
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase())) ||
-      (schedule.createdBy &&
-        schedule.createdBy.toLowerCase().includes(searchTerm.toLowerCase()));
-
-    const matchesStatus =
-      statusFilter === "all" ||
-      (statusFilter === "active" && schedule.active) ||
-      (statusFilter === "inactive" && !schedule.active);
-
-    const matchesResource =
-      resourceFilter === "all" ||
-      (schedule.resourceTypes &&
-        schedule.resourceTypes.includes(resourceFilter));
-
-    return matchesSearch && matchesStatus && matchesResource;
-  });
+  // Server-side filtering — schedules already filtered by API
+  const filteredSchedules = schedules;
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -230,10 +203,10 @@ export default function SchedulesClientAPI({
     }
   };
 
-  // Load schedules when filters change
+  // Load schedules when filters or pagination change
   useEffect(() => {
-    loadSchedules();
-  }, [statusFilter, searchTerm]);
+    loadSchedules(currentPage, limit);
+  }, [statusFilter, searchTerm, resourceFilter, currentPage, limit]);
 
   return (
     <div className="space-y-6">
@@ -394,6 +367,57 @@ export default function SchedulesClientAPI({
       {loading && (
         <div className="flex justify-center items-center h-64">
           <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      )}
+
+      {/* Pagination */}
+      {!loading && totalItems > 0 && (
+        <div className="grid grid-cols-3 items-center rounded-lg border bg-card px-4 py-3">
+          <span className="whitespace-nowrap text-sm text-muted-foreground">
+            Showing {(currentPage - 1) * limit + 1}–{Math.min(currentPage * limit, totalItems)} of {totalItems} schedules
+          </span>
+          <div className="flex items-center justify-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1"
+              onClick={() => setCurrentPage(p => p - 1)}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </Button>
+            <span className="px-2 text-sm font-medium tabular-nums">
+              Page {currentPage} of {Math.ceil(totalItems / limit)}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1"
+              onClick={() => setCurrentPage(p => p + 1)}
+              disabled={currentPage * limit >= totalItems}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <span className="whitespace-nowrap text-sm text-muted-foreground">Rows per page</span>
+            <Select
+              value={String(limit)}
+              onValueChange={(val) => { setLimit(Number(val)); setCurrentPage(1); }}
+            >
+              <SelectTrigger className="h-8 w-[70px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="25">25</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
 
