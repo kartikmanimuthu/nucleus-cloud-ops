@@ -162,6 +162,45 @@ export async function getAccounts(tenantId: string = DEFAULT_TENANT_ID): Promise
 }
 
 /**
+ * Get execution history for a schedule from PostgreSQL.
+ * Replaces DynamoDB pk=EXEC#tenantId#scheduleId query.
+ */
+export async function getExecutionHistory(
+    scheduleId: string,
+    tenantId: string = DEFAULT_TENANT_ID,
+    limit: number = 50
+): Promise<import('../types/index.js').ExecutionRecord[]> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        const result = await client.query(
+            `SELECT "executionId", "scheduleId", "tenantId", "accountId",
+                    status, "executionTime" as "startTime", duration,
+                    "resourcesStarted", "resourcesStopped", "resourcesFailed",
+                    "errorMessage", "scheduleMetadata"
+             FROM schedule_executions
+             WHERE "tenantId" = $1
+               AND "scheduleId" = $2
+             ORDER BY "executionTime" DESC
+             LIMIT $3`,
+            [tenantId, scheduleId, limit]
+        );
+        return result.rows.map((row) => ({
+            ...row,
+            startTime: row.startTime?.toISOString?.() ?? row.startTime,
+            schedule_metadata: row.scheduleMetadata ?? undefined,
+            triggeredBy: 'system' as const,
+            scheduleName: '',
+            ttl: 0,
+        }));
+    } catch (error) {
+        logger.error('[pg-service] Error fetching execution history from PostgreSQL', error);
+        return [];
+    } finally {
+        client.release();
+    }
+}
+
+/**
  * Close the connection pool — should be called at Lambda shutdown.
  */
 export async function closePool(): Promise<void> {

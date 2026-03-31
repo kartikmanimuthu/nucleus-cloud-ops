@@ -8,6 +8,7 @@ import {
     UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { getDynamoDBClient, APP_TABLE_NAME, DEFAULT_TENANT_ID } from './dynamodb-service.js';
+import { getExecutionHistory as getExecutionHistoryPg } from './pg-service.js';
 import { logger } from '../utils/logger.js';
 import { calculateTTL } from '../utils/time-utils.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -16,6 +17,8 @@ import type {
     ExecutionStatus,
     ScheduleExecutionMetadata,
 } from '../types/index.js';
+
+const USE_PG_SCHEDULES = process.env.USE_PG_SCHEDULES === 'true';
 
 // TTL in days for execution history
 const EXECUTION_TTL_DAYS = 30;
@@ -49,7 +52,6 @@ export interface UpdateExecutionParams {
  * Create a new execution record when a schedule starts processing
  */
 export async function createExecutionRecord(params: CreateExecutionParams): Promise<ExecutionRecord> {
-    const client = getDynamoDBClient();
     const executionId = uuidv4();
     const startTime = new Date().toISOString();
     const tenantId = params.tenantId || DEFAULT_TENANT_ID;
@@ -70,6 +72,12 @@ export async function createExecutionRecord(params: CreateExecutionParams): Prom
         ttl: calculateTTL(EXECUTION_TTL_DAYS),
     };
 
+    // When PG is the source of truth, skip DynamoDB write — PG write already happened
+    if (USE_PG_SCHEDULES) {
+        return record;
+    }
+
+    const client = getDynamoDBClient();
     const item = {
         pk: buildExecutionPK(tenantId, params.scheduleId),
         sk: buildExecutionSK(startTime, executionId),
@@ -102,6 +110,11 @@ export async function updateExecutionRecord(
     record: ExecutionRecord,
     updates: UpdateExecutionParams
 ): Promise<void> {
+    // When PG is the source of truth, skip DynamoDB update — PG write already happened
+    if (USE_PG_SCHEDULES) {
+        return;
+    }
+
     const client = getDynamoDBClient();
     const endTime = new Date().toISOString();
     const duration = new Date(endTime).getTime() - new Date(record.startTime).getTime();
@@ -175,6 +188,10 @@ export async function getExecutionHistory(
     tenantId = DEFAULT_TENANT_ID,
     limit = 50
 ): Promise<ExecutionRecord[]> {
+    if (USE_PG_SCHEDULES) {
+        return getExecutionHistoryPg(scheduleId, tenantId, limit);
+    }
+
     const client = getDynamoDBClient();
 
     try {
