@@ -1,7 +1,5 @@
-import { PureAbility } from '@casl/ability';
-
 // =============================================================================
-// NEW MODULE-BASED TYPES (Phase 13 custom RBAC)
+// MODULE-BASED TYPES (Phase 13 custom RBAC)
 // =============================================================================
 
 /** The 5 top-level modules in the permission matrix */
@@ -55,50 +53,13 @@ export const ACTION_MAP: Record<string, Action | Action[]> = {
 };
 
 // =============================================================================
-// LEGACY CASL TYPES — kept for backward compatibility during migration
-// Remove after all API routes are migrated in Plan 02
+// PERSISTENCE TYPES — used by repository layer and role-service
 // =============================================================================
 
-/** @deprecated Use Module instead. Will be removed after Plan 02 migration. */
-export type Subjects =
-    | 'Account'
-    | 'Schedule'
-    | 'Resource'
-    | 'User'
-    | 'Role'
-    | 'Tenant'
-    | 'AuditLog'
-    | 'Billing'
-    | 'Agent'
-    | 'KnowledgeBase'
-    | 'all';
-
-/** @deprecated Use Action instead. Will be removed after Plan 02 migration. */
-export type Actions =
-    | 'create'
-    | 'read'
-    | 'update'
-    | 'delete'
-    | 'execute'
-    | 'approve'
-    | 'export'
-    | 'validate'
-    | 'use'
-    | 'manage';
-
-/** @deprecated Use PredefinedRole instead. Will be removed after Plan 02 migration. */
-export type AppAbility = PureAbility<[Actions, Subjects]>;
-
-/** @deprecated Will be removed after Plan 02 migration. */
-export type SystemRole = 'SuperAdmins' | 'Support';
-
-/** @deprecated Use PredefinedRole instead. Will be removed after Plan 02 migration. */
+/** Role values stored in DynamoDB/PostgreSQL for tenant membership */
 export type TenantRole = 'SuperAdmin' | 'TenantAdmin' | 'TenantOperator' | 'TenantViewer';
 
-/** @deprecated Will be removed after Plan 02 migration. */
-export type Role = SystemRole | TenantRole;
-
-/** @deprecated Will be removed after Plan 02 migration. */
+/** Shape of a user-tenant-role record returned from the repository */
 export interface UserTenantRole {
     PK: string;
     SK: string;
@@ -110,39 +71,3 @@ export interface UserTenantRole {
     assignedAt: string;
     assignedBy: string;
 }
-
-/** @deprecated Will be removed after Plan 02 migration. */
-export interface RoleDefinition {
-    id: TenantRole;
-    name: string;
-    description: string;
-    permissions: string[];
-}
-
-/** @deprecated Will be removed after Plan 02 migration. */
-export const ROLE_DEFINITIONS: RoleDefinition[] = [
-    {
-        id: 'SuperAdmin',
-        name: 'Super Admin',
-        description: 'Full system access with all privileges across all tenants',
-        permissions: ['Manage Everything', 'Manage Tenants', 'Manage All Users', 'System Settings'],
-    },
-    {
-        id: 'TenantAdmin',
-        name: 'Tenant Admin',
-        description: 'Full access to manage accounts, schedules, users, and settings',
-        permissions: ['Manage Accounts', 'Manage Schedules', 'Manage Users', 'View Audit Logs', 'Use AI Agent'],
-    },
-    {
-        id: 'TenantOperator',
-        name: 'Tenant Operator',
-        description: 'Can manage schedules and execute operations on Schedule',
-        permissions: ['View Accounts', 'Manage Schedules', 'Execute Schedules', 'View Audit Logs'],
-    },
-    {
-        id: 'TenantViewer',
-        name: 'Tenant Viewer',
-        description: 'Read-only access to view resources and logs',
-        permissions: ['View Accounts', 'View Schedules', 'View Audit Logs'],
-    },
-];

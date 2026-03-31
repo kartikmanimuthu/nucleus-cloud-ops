@@ -1,18 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getServerAbility } from './server-ability';
 import { getAuthSession } from '@/lib/auth-session';
 import {
-    Actions,
-    Subjects,
     SUBJECT_TO_MODULE,
     ACTION_MAP,
     type Module,
     type Action,
     type PredefinedRole,
-    type PermissionSet,
 } from './types';
 import { hasPermission, hasCustomPermission } from './permissions';
-
 import { getCustomRolePermissions } from './custom-role-service';
 
 /** Predefined role names for runtime check */
@@ -24,9 +19,6 @@ export { getCustomRolePermissions };
  * Authorization helper for API routes.
  * Returns a NextResponse error if unauthorized, or null if authorized.
  *
- * When USE_NEW_RBAC=true: uses the new static ROLE_PERMISSIONS system.
- * Otherwise: falls back to CASL (existing behavior — zero risk rollout).
- *
  * Signature is backward-compatible — existing call sites work without changes.
  *
  * @example
@@ -34,33 +26,10 @@ export { getCustomRolePermissions };
  * if (authError) return authError;
  */
 export async function authorize(
-    action: Actions | Action,
-    subjectType: Subjects | Module,
-    subjectData?: Record<string, unknown>
+    action: string,
+    subjectType: string,
+    _subjectData?: Record<string, unknown>
 ): Promise<NextResponse | null> {
-    // Feature flag: when not set or not 'true', use CASL fallback
-    if (process.env.USE_NEW_RBAC !== 'true') {
-        const ability = await getServerAbility();
-        const { subject } = await import('@casl/ability');
-        const canPerform = subjectData
-            ? ability.can(action as Actions, subject(subjectType as Subjects, subjectData) as Subjects)
-            : ability.can(action as Actions, subjectType as Subjects);
-
-        if (!canPerform) {
-            return NextResponse.json(
-                {
-                    error: 'Forbidden',
-                    message: `You do not have permission to ${action} ${subjectType}`,
-                    action,
-                    subject: subjectType,
-                },
-                { status: 403 }
-            );
-        }
-        return null;
-    }
-
-    // New RBAC path
     const session = await getAuthSession();
 
     if (!session?.user) {
@@ -134,14 +103,9 @@ export async function authorize(
 
 /**
  * Check if the current user has admin privileges.
- * When USE_NEW_RBAC=true: checks for Owner or Admin predefined role.
+ * Checks for Owner or Admin predefined role, or SuperAdmin flag.
  */
 export async function isAdmin(): Promise<boolean> {
-    if (process.env.USE_NEW_RBAC !== 'true') {
-        const ability = await getServerAbility();
-        return ability.can('manage', 'all');
-    }
-
     const session = await getAuthSession();
     if (!session?.user) return false;
     if (session.user.isSuperAdmin === true) return true;
@@ -151,7 +115,7 @@ export async function isAdmin(): Promise<boolean> {
 /**
  * Check if the current user can perform an action on a subject.
  */
-export async function can(action: Actions | Action, subjectType: Subjects | Module): Promise<boolean> {
+export async function can(action: string, subjectType: string): Promise<boolean> {
     const result = await authorize(action, subjectType);
     return result === null;
 }
@@ -159,7 +123,7 @@ export async function can(action: Actions | Action, subjectType: Subjects | Modu
 /**
  * Check if the current user cannot perform an action on a subject.
  */
-export async function cannot(action: Actions | Action, subjectType: Subjects | Module): Promise<boolean> {
+export async function cannot(action: string, subjectType: string): Promise<boolean> {
     const result = await authorize(action, subjectType);
     return result !== null;
 }
