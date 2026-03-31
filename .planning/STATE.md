@@ -146,6 +146,7 @@ None yet.
 | 260330-qkm | Schedule module full test coverage — unit tests for ScheduleService, API routes, and E2E tests for CRUD, activate/deactivate, search, filter, pagination | 2026-03-30 | 3dc4981 | [260330-qkm-schedule-module-full-test-coverage-unit-](./quick/260330-qkm-schedule-module-full-test-coverage-unit-/) |
 | 260330-qkm | schedule module full test coverage — 67 unit tests for ScheduleService, ScheduleExecutionService, and all API routes | 2026-03-30 | a8b580d | [260330-qkm-schedule-module-full-test-coverage-unit-](./quick/260330-qkm-schedule-module-full-test-coverage-unit-/) |
 | 260331-00a | Fix 7 schedule bugs: duplicate React keys, resourceTypes dedup, day ordering, nextExecution computation, start/end time validation, stats cards filtering, E2E test fix | 2026-03-31 | 86884a1 | [260331-00a-fix-7-schedule-bugs-duplicate-react-keys](./quick/260331-00a-fix-7-schedule-bugs-duplicate-react-keys/) |
+| 260331-jd8 | Add pagination support for accounts and schedules modules — total records, page size selector, next/previous navigation, PostgreSQL server-side pagination | 2026-03-31 | e6a3924 | [260331-jd8-add-pagination-support-for-the-account-m](./quick/260331-jd8-add-pagination-support-for-the-account-m/) |
 
 ## Session Continuity
 
