@@ -94,20 +94,45 @@ def main():
         if not args.app_table:
             print("ERROR: --app-table is required for account scanning.")
             sys.exit(1)
-        
-        print(f"Fetching accounts from {args.app_table}...")
-        all_accounts = get_active_accounts(dynamodb, args.app_table)
-        
+
+        # When USE_PG_INVENTORY=true, read accounts from PostgreSQL (source of truth post-migration)
+        pg_enabled = os.environ.get('USE_PG_INVENTORY', 'false').lower() == 'true'
+        database_url = os.environ.get('DATABASE_URL')
+
+        if pg_enabled and database_url:
+            print("Fetching accounts from PostgreSQL...")
+            import psycopg2
+            conn = psycopg2.connect(database_url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        'SELECT "accountId", name, "roleArn", "externalId", regions FROM accounts WHERE active = true'
+                    )
+                    rows = cur.fetchall()
+            finally:
+                conn.close()
+            all_accounts = [
+                {
+                    'accountId': r[0],
+                    'accountName': r[1],
+                    'roleArn': r[2],
+                    'externalId': r[3],
+                    'regions': r[4] or ['ap-south-1'],
+                }
+                for r in rows
+            ]
+        else:
+            print(f"Fetching accounts from {args.app_table}...")
+            all_accounts = get_active_accounts(dynamodb, args.app_table)
+
         if args.account_id:
             accounts_to_scan = [a for a in all_accounts if a['accountId'] == args.account_id]
             if not accounts_to_scan:
-                print(f"Account {args.account_id} not found in DynamoDB or not active.")
-                # Fallback: create ad-hoc account object if not found but requested?
-                # For partial testing, maybe we want this. But safer to exit.
+                print(f"Account {args.account_id} not found or not active.")
                 sys.exit(1)
         else:
             accounts_to_scan = all_accounts
-            
+
         print(f"Found {len(accounts_to_scan)} account(s) to scan.")
         
     else:
