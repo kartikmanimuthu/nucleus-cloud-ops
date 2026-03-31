@@ -25,6 +25,7 @@ import type {
     InventoryFilters,
     InventoryPage,
     ResourceCount,
+    VectorSearchResult,
 } from './interface';
 
 const INVENTORY_TABLE_NAME =
@@ -372,5 +373,15 @@ export class InventoryDynamoRepository implements IInventoryRepository {
             console.error('[InventoryDynamoRepository] Error in deleteResourcesByAccount:', error);
             throw new Error(`Failed to delete resources: ${msg}`);
         }
+    }
+
+    // DynamoDB has no vector search capability — stub returns empty array
+    async searchByVector(
+        _tenantId: string,
+        _embedding: number[],
+        _topK?: number,
+        _filters?: { accountId?: string; region?: string }
+    ): Promise<VectorSearchResult[]> {
+        return [];
     }
 }

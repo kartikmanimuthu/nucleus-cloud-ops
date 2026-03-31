@@ -261,6 +261,9 @@ model InventoryResource {
   discoveredAt DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  embedding    Unsupported("vector(1024)")?
+  contentHash  String?
+
   @@unique([tenantId, accountId, resourceType, resourceId])
   @@index([tenantId, resourceType])
   @@index([tenantId, accountId])

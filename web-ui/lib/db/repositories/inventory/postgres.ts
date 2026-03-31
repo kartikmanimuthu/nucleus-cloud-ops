@@ -16,6 +16,7 @@ import type {
     InventoryFilters,
     InventoryPage,
     ResourceCount,
+    VectorSearchResult,
 } from './interface';
 
 function transformRow(row: {
@@ -243,6 +244,69 @@ export class InventoryPostgresRepository implements IInventoryRepository {
             const msg = error instanceof Error ? error.message : String(error);
             console.error('[InventoryPostgresRepository] Error in deleteResourcesByAccount:', error);
             throw new Error(`Failed to delete resources: ${msg}`);
+        }
+    }
+
+    async searchByVector(
+        tenantId: string,
+        embedding: number[],
+        topK: number = 50,
+        filters?: { accountId?: string; region?: string }
+    ): Promise<VectorSearchResult[]> {
+        try {
+            // Build parameterized query with cosine distance operator <=>
+            const params: unknown[] = [`[${embedding.join(',')}]`, tenantId];
+            let whereClause = 'WHERE tenant_id = $2 AND embedding IS NOT NULL';
+
+            if (filters?.accountId) {
+                params.push(filters.accountId);
+                whereClause += ` AND account_id = $${params.length}`;
+            }
+            if (filters?.region) {
+                params.push(filters.region);
+                whereClause += ` AND region = $${params.length}`;
+            }
+            params.push(topK);
+            const limitParam = `$${params.length}`;
+
+            const sql = `
+                SELECT id, "tenantId" AS "tenantId", "accountId" AS "accountId",
+                       region, "resourceType" AS "resourceType", "resourceId" AS "resourceId",
+                       name, status, tags, metadata, "discoveredAt" AS "discoveredAt",
+                       "updatedAt" AS "updatedAt",
+                       embedding <=> $1::vector AS distance
+                FROM inventory_resources
+                ${whereClause}
+                ORDER BY embedding <=> $1::vector
+                LIMIT ${limitParam}
+            `;
+
+            const rows = await getPrismaClient().$queryRawUnsafe<
+                Array<{
+                    id: string;
+                    tenantId: string;
+                    accountId: string;
+                    region: string;
+                    resourceType: string;
+                    resourceId: string;
+                    name: string | null;
+                    status: string | null;
+                    tags: unknown;
+                    metadata: unknown;
+                    discoveredAt: Date;
+                    updatedAt: Date;
+                    distance: number;
+                }>
+            >(sql, ...params);
+
+            return rows.map((row) => ({
+                resource: transformRow(row),
+                distance: Number(row.distance),
+            }));
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.error('[InventoryPostgresRepository] Error in searchByVector:', error);
+            throw new Error(`Failed to search by vector: ${msg}`);
         }
     }
 }
