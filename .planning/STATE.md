@@ -1,34 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: executing
-stopped_at: Completed quick task 260331-ocp migrate ask-ai from S3 Vectors + DynamoDB to PostgreSQL pgvector
-last_updated: "2026-03-31T12:20:23.520Z"
+milestone: v3.0
+milestone_name: Multi-Tenancy
+status: defining-requirements
+stopped_at: null
+last_updated: "2026-03-31"
 last_activity: 2026-03-31
 progress:
-  total_phases: 5
+  total_phases: 0
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-  percent: 20
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-29)
+See: .planning/PROJECT.md (updated 2026-03-31)
 
-**Core value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack
-**Current focus:** Phase 11 — cutover-cdk-removal
+**Core value:** Standard SaaS multi-tenancy with custom per-module RBAC, tenant lifecycle management, and dual auth
+**Current focus:** Defining requirements for v3.0
 
 ## Current Position
 
-Phase: 05 (langgraph-migration-validation) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-03-31
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-31 — Milestone v3.0 started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,84 +52,26 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
-| Phase 06-scaffold P01 | 8 | 2 tasks | 11 files |
-| Phase 06-scaffold P02 | 25 | 2 tasks | 3 files |
-| Phase 07-networking P01 | 3 | 2 tasks | 4 files |
-| Phase 07-networking P02 | 25 | 1 tasks | 1 files |
-| Phase 07-networking P03 | 8 | 1 tasks | 0 files |
-| Phase 07-networking P03 | 8 | 1 tasks | 0 files |
-| Phase 08-data-layer P01 | 3 | 2 tasks | 1 files |
-| Phase 08-data-layer P02 | 6 | 2 tasks | 2 files |
-| Phase 08-data-layer P03 | 10 | 2 tasks | 1 files |
-| Phase 09-lambda-eventbridge P09-01 | 8 | 2 tasks | 5 files |
-| Phase 09-lambda-eventbridge P09-02 | 3 | 2 tasks | 1 files |
-| Phase 09-lambda-eventbridge P09-03 | 11 | 2 tasks | 1 files |
-| Phase 10-ecs-alb-cloudfront P01 | 18 | 2 tasks | 4 files |
-| Phase 10-ecs-alb-cloudfront P02 | 12 | 2 tasks | 1 files |
-| Phase 10-ecs-alb-cloudfront P03 | 31 | 1 tasks | 2 files |
-| Phase 11-cutover-cdk-removal P01 | 2 | 1 tasks | 1 files |
-| Phase 11-cutover-cdk-removal P02 | 12 | 2 tasks | 3 files |
-| Phase 11-cutover-cdk-removal P03 | 3 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
 ### Decisions
 
-Key decisions from research (2026-03-29):
+Key decisions from milestone setup (2026-03-31):
 
-- S3 backend (no DynamoDB lock table) — Pulumi uses S3 conditional writes for locking; DynamoDB lock table is a Terraform pattern, not Pulumi
-- KMS secrets provider (`awskms://alias/pulumi-secrets`) — replaces passphrase; required for CI/team use; passphrase loss locks state permanently
-- Two separate Pulumi projects (`infra/networking/`, `infra/compute/`) — mirrors CDK stack split; connected via StackReference
-- `infra/` subdirectory (not repo root) — CDK tsconfig uses `"module": "commonjs"`, Pulumi uses `"module": "ESNext"`; co-location causes conflicts
-- `@pulumi/aws` primitives only — no `@pulumi/awsx` or `@pulumi/cdk`; CDK parity is easier to verify with 1:1 resource mapping
-- Explicit physical names on every resource — Pulumi auto-naming appends 7-char suffix; any rename triggers delete+create
-- `retainOnDelete: true` on all DynamoDB tables and S3 buckets — protection against accidental `pulumi destroy`
-- `forceNewDeployment: true` on ECS service — ECS does not redeploy on task definition update without this
-- Blue/green cutover — Pulumi deploys new resources alongside CDK; CDK stays live until Pulumi smoke-tested
-- S3 Vectors + S3 Tables deferred to Phase 11 — no native `@pulumi/aws` support; wrap in `aws.cloudformation.Stack`
-- [Phase 06-scaffold]: getOutput() used in compute StackReference (not requireOutput()) — networking has placeholder values during scaffold; Phase 8+ switches to requireOutput()
-- [Phase 06-scaffold]: infra/ subdirectory isolation: Pulumi tsconfig commonjs module prevents conflict with root CDK tsconfig
-- [Phase 06-scaffold]: KMS URI needs ?region=us-east-1 suffix — profile default region (ap-south-1) does not match bucket/key region (us-east-1)
-- [Phase 06-scaffold]: StackReference for S3 backend requires literal 'organization' prefix: organization/nucleus-networking/prod
-- [Phase 07-networking]: awsx.ec2.Vpc component used for networking (not raw aws.ec2.* primitives) — matches CDK ec2.Vpc abstraction level
-- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds filtered from vpc.subnets by Name tag — vpc.isolatedSubnetIds merges all Isolated tiers making them indistinguishable
-- [Phase 07-networking]: awsx subnet naming confirmed as nucleus-vpc-<spec-name>-<index> — Name tag filter in index.ts is correct
-- [Phase 07-networking]: No repo file changes on pulumi up — Pulumi state is in S3; task commit skipped (nothing to stage)
-- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds Name tag filters confirmed correct at deploy time — each returned exactly 2 IDs
-- [Phase 07-networking]: compute requireOutput() resolves to vpc-0cd6e5fd607d1a494 — StackReference wiring is live and enforced
-- [Phase 07-networking]: No repo file changes on pulumi up — Pulumi state is in S3; task commit skipped (nothing to stage)
-- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds Name tag filters confirmed correct at deploy time — each returned exactly 2 IDs
-- [Phase 07-networking]: compute requireOutput() resolves to vpc-0cd6e5fd607d1a494 — StackReference wiring is live and enforced
-- [Phase 08-data-layer]: Deprecated hashKey/rangeKey in globalSecondaryIndexes are warnings only — preview exits 0; no migration to key_schema needed for this phase
-- [Phase 08-data-layer]: Used aws.getCallerIdentityOutput() instead of top-level await — tsconfig commonjs module incompatible with top-level await
-- [Phase 08-data-layer]: cognitoUserPoolClientSecret exported as pulumi.secret() — encrypted in Pulumi state, shows [secret] in stack output
-- [Phase 09-lambda-eventbridge]: npm ci required before esbuild for scheduler Lambda (uuid, dayjs, pg are non-AWS-SDK deps not in Lambda runtime)
-- [Phase 09-lambda-eventbridge]: vector_processor esbuild runs from project root — no package.json, needs root node_modules for @aws-sdk/client-s3vectors and @prisma/client
-- [Phase 09-lambda-eventbridge]: lambda.zip files added to .gitignore — build artifacts produced by infra/build-lambdas.sh, not committed to source
-- [Phase 09-lambda-eventbridge]: aws.lambda.Function uses name not functionName — Pulumi API difference from CDK NodejsFunction
-- [Phase 09-lambda-eventbridge]: VECTOR_BUCKET_ARN and KB_VECTOR_BUCKET_NAME are intentional placeholders — Phase 11 wires real S3 Vectors bucket
-- [Phase 09-lambda-eventbridge]: Discovery ECS task definition created without cluster ARN — Phase 10 adds EventBridge Scheduler target when cluster exists
-- [Phase 10-ecs-alb-cloudfront]: webUiImageUri stored in Pulumi config — executor sets after running build-images.sh
-- [Phase 10-ecs-alb-cloudfront]: nextauthSecret uses config.requireSecret() — KMS-encrypted in Pulumi state, not plaintext
-- [Phase 10-ecs-alb-cloudfront]: Discovery task def corrected 256/512 -> 1024/2048 CPU/MiB to match CDK (Phase 9 deployed wrong values)
-- [Phase 10-ecs-alb-cloudfront]: ALB inbound restricted to CloudFront managed prefix list — not open to internet
-- [Phase 10-ecs-alb-cloudfront]: ECS service desiredCount=0 at deploy — scale up after smoke testing
-- [Phase 10-ecs-alb-cloudfront]: dependsOn: [httpListener] on ECS service ensures listener exists before target registration
-- [Phase 10-ecs-alb-cloudfront]: random.RandomString for CloudFront origin verify secret — stable value prevents CloudFront replacement on every pulumi preview
-- [Phase 10-ecs-alb-cloudfront]: AWS EC2 security group descriptions must use ASCII only — em dash causes 400 InvalidParameterValue error
-- [Phase 10-ecs-alb-cloudfront]: Public ECR requires separate auth (aws ecr-public get-login-password) before docker build — not covered by private ECR login
-- [Phase 11-cutover-cdk-removal]: generate-env.ts uses --show-secrets to resolve cognitoUserPoolClientSecret; writes to web-ui/.env.local; constructs COGNITO_DOMAIN from prefix
-- [Phase 11-cutover-cdk-removal]: S3 Vectors CFN template includes 21 resources: VectorBucket custom resource + 2 index custom resources with Lambda-backed providers and IAM roles
-- [Phase 11-cutover-cdk-removal]: cdk synth requires APP_NAME/AWS_ACCOUNT_ID/AWS_REGION env vars + AWS_PROFILE env var (not --profile flag which is a stack selector)
-- [Phase 11-cutover-cdk-removal]: templateBody read via fs.readFileSync inline (not S3-hosted) per CONTEXT.md locked decision; CAPABILITY_IAM required for vectors template IAM resources
-- [Phase 11-cutover-cdk-removal]: bin/webUIStack.ts omits schedulerLambdaArn — optional prop, can be wired via CDK context later if needed
-- [Phase 11-cutover-cdk-removal]: CDK package.json dependencies preserved — WebUIStack still requires aws-cdk-lib, constructs, etc.
+- Remove CASL (`@casl/ability`) entirely — replace with custom role/permission system using Prisma models
+- Dual auth: NextAuth with Cognito + Credentials providers; Prisma adapter for user persistence in PostgreSQL
+- Row-level isolation via tenant_id (not schema-per-tenant) — builds on existing v1.0 pattern
+- Super admin is platform-level only — not a member of any tenant
+- Admin panel at /admin route within existing Next.js app, behind super-admin auth guard
+- Custom roles with granular per-module permissions (Accounts, Schedules, AI Ops, Inventory)
+- Header dropdown switcher for org/tenant switching
+- User invitations via email link with accept/decline flow
+- Tenant suspension (read-only or fully locked) without data deletion
 
 ### Pending Todos
 
-- Phase 6 prerequisite: create S3 state bucket via `infra/bootstrap/bootstrap.sh` (one-time manual step)
-- Phase 11 prerequisite: run `cdk synth` to extract CFN templates for S3 Vectors + S3 Tables before wrapping in `aws.cloudformation.Stack`
-- Phase 10 prerequisite: verify container image build approach — CDK uses `ecs.ContainerImage.fromAsset`; Pulumi equivalent needs confirmation (may require separate ECR push step)
+None yet.
 
 ### Blockers/Concerns
 
@@ -139,17 +81,9 @@ None at start of milestone.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| 260328-udt | Set up local dev environment and verify PostgreSQL migration works end-to-end | 2026-03-28 | bff3e55 | [260328-udt-set-up-local-dev-environment-and-verify-](./quick/260328-udt-set-up-local-dev-environment-and-verify-/) |
-| 260330-nds | write all test cases for account module - add, edit, delete, activate, search, filter, pagination - unit and e2e tests, execute and validate, report bugs | 2026-03-30 | cdd518f | [260330-nds-write-all-test-cases-for-account-module-](./quick/260330-nds-write-all-test-cases-for-account-module-/) |
-| 260330-qkm | Schedule module full test coverage — unit tests for ScheduleService, API routes, and E2E tests for CRUD, activate/deactivate, search, filter, pagination | 2026-03-30 | 3dc4981 | [260330-qkm-schedule-module-full-test-coverage-unit-](./quick/260330-qkm-schedule-module-full-test-coverage-unit-/) |
-| 260330-qkm | schedule module full test coverage — 67 unit tests for ScheduleService, ScheduleExecutionService, and all API routes | 2026-03-30 | a8b580d | [260330-qkm-schedule-module-full-test-coverage-unit-](./quick/260330-qkm-schedule-module-full-test-coverage-unit-/) |
-| 260331-00a | Fix 7 schedule bugs: duplicate React keys, resourceTypes dedup, day ordering, nextExecution computation, start/end time validation, stats cards filtering, E2E test fix | 2026-03-31 | 86884a1 | [260331-00a-fix-7-schedule-bugs-duplicate-react-keys](./quick/260331-00a-fix-7-schedule-bugs-duplicate-react-keys/) |
-| 260331-jd8 | Add pagination support for accounts and schedules modules — total records, page size selector, next/previous navigation, PostgreSQL server-side pagination | 2026-03-31 | e6a3924 | [260331-jd8-add-pagination-support-for-the-account-m](./quick/260331-jd8-add-pagination-support-for-the-account-m/) |
-| 260331-m7t | Implement server-side pagination UI — reusable PaginationBar component applied to accounts, schedules, and inventory; inventory switched to offset-based pagination | 2026-03-31 | ce25d19 | [260331-m7t-implement-server-side-pagination-ui-and-](./quick/260331-m7t-implement-server-side-pagination-ui-and-/) |
-| 260331-ocp | Migrate Ask AI from S3 Vectors + DynamoDB to PostgreSQL pgvector | 2026-03-31 | 2fef9ab | [260331-ocp-migrate-ask-ai-from-s3-vectors-dynamodb-](./quick/260331-ocp-migrate-ask-ai-from-s3-vectors-dynamodb-/) |
 
 ## Session Continuity
 
-Last session: 2026-03-31T12:20:23.517Z
-Stopped at: Completed quick task 260331-ocp migrate ask-ai from S3 Vectors + DynamoDB to PostgreSQL pgvector
+Last session: 2026-03-31
+Stopped at: Milestone v3.0 setup — defining requirements
 Resume file: None
