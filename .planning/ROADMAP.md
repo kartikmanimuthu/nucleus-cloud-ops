@@ -26,7 +26,7 @@ See [archive](milestones/v2.0-ROADMAP.md) for full phase details.
 
 **Milestone Goal:** Transform Nucleus Cloud Ops into a standard SaaS product with full multi-tenant isolation, custom per-module RBAC, tenant lifecycle management, and dual auth (Cognito + Credentials).
 
-- [ ] **Phase 12: Auth Foundation** - Dual auth (Cognito + Credentials), Prisma adapter, session normalization with tenantId/role/isSuperAdmin
+- [x] **Phase 12: Auth Foundation** - Dual auth (Cognito + Credentials), Prisma adapter, session normalization with tenantId/role/isSuperAdmin (completed 2026-03-31)
 - [ ] **Phase 13: Custom RBAC** - Replace CASL with static role/permission map; migrate all API routes; remove @casl/ability
 - [ ] **Phase 14: Tenant Context Enforcement** - Scoped Prisma client factory; remove DEFAULT_TENANT_ID fallbacks; Lambda + LangGraph tenant isolation
 - [ ] **Phase 15: Super Admin + Onboarding + Suspension** - /admin panel, tenant CRUD, two-mode suspension with immediate session invalidation
@@ -48,8 +48,8 @@ See [archive](milestones/v2.0-ROADMAP.md) for full phase details.
 **Plans**: 3 plans
 Plans:
 - [x] 12-01-PLAN.md — Prisma adapter models + dual auth config + database sessions
-- [ ] 12-02-PLAN.md — Session helpers (getSessionTenantId, assertSuperAdmin) + middleware x-tenant-id injection
-- [ ] 12-03-PLAN.md — Tabbed login page UI (Credentials + SSO)
+- [x] 12-02-PLAN.md — Session helpers (getSessionTenantId, assertSuperAdmin) + middleware x-tenant-id injection
+- [x] 12-03-PLAN.md — Tabbed login page UI (Credentials + SSO)
 **UI hint**: yes
 
 ### Phase 13: Custom RBAC
@@ -121,7 +121,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 12. Auth Foundation | v3.0 | 1/3 | In Progress|  |
+| 12. Auth Foundation | v3.0 | 3/3 | Complete    | 2026-03-31 |
 | 13. Custom RBAC | v3.0 | 0/? | Not started | - |
 | 14. Tenant Context Enforcement | v3.0 | 0/? | Not started | - |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 0/? | Not started | - |
