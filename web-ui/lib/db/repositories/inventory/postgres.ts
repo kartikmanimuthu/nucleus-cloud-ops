@@ -256,11 +256,11 @@ export class InventoryPostgresRepository implements IInventoryRepository {
         try {
             // Build parameterized query with cosine distance operator <=>
             const params: unknown[] = [`[${embedding.join(',')}]`, tenantId];
-            let whereClause = 'WHERE tenant_id = $2 AND embedding IS NOT NULL';
+            let whereClause = 'WHERE "tenantId" = $2 AND embedding IS NOT NULL';
 
             if (filters?.accountId) {
                 params.push(filters.accountId);
-                whereClause += ` AND account_id = $${params.length}`;
+                whereClause += ` AND "accountId" = $${params.length}`;
             }
             if (filters?.region) {
                 params.push(filters.region);
