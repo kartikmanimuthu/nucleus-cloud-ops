@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Multi-Tenancy
 status: executing
-stopped_at: Completed 13-03-PLAN.md
-last_updated: "2026-03-31T20:53:14.188Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-03-31T21:11:23.525Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 7
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 13-custom-rbac P01 | 7 | 2 tasks | 4 files |
 | Phase 13-custom-rbac P03 | 12 | 2 tasks | 7 files |
 | Phase 13 P03 | 486 | 2 tasks | 7 files |
+| Phase 13-custom-rbac P02 | 12 | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 13-custom-rbac]: getCustomRolePermissions already imported from custom-role-service in authorize.ts (Plan 01 pre-wired it) — no stub to replace
 - [Phase 13-custom-rbac]: POST /api/settings/roles returns 409 for business rule violations (duplicate name, max limit, predefined name)
 - [Phase 13]: getCustomRolePermissions re-exported from authorize.ts for backward-compatible callers
+- [Phase 13-custom-rbac]: CASL fully removed — authorize() is now the sole permission path with no feature flag
+- [Phase 13-custom-rbac]: TenantRole/UserTenantRole kept in types.ts as persistence types for repository layer
 
 ### Pending Todos
 
@@ -85,6 +88,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-03-31T20:53:06.472Z
-Stopped at: Completed 13-03-PLAN.md
+Last session: 2026-03-31T21:11:23.522Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None
