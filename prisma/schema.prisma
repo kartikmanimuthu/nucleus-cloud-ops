@@ -450,3 +450,66 @@ model ChatMessage {
   @@index([expiresAt])
   @@map("chat_messages")
 }
+
+// === NextAuth Prisma Adapter Models ===
+// Per D-05: database sessions (not JWT) for suspension enforcement
+// @@map to auth_* tables to avoid collision with existing Account model
+
+model AuthUser {
+  id             String        @id @default(cuid())
+  email          String        @unique
+  emailVerified  DateTime?
+  name           String?
+  image          String?
+  passwordHash   String?       // null for Cognito-only users
+  isSuperAdmin   Boolean       @default(false)
+  failedAttempts Int           @default(0)
+  lockedUntil    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  accounts       AuthAccount[]
+  sessions       AuthSession[]
+
+  @@map("auth_users")
+}
+
+model AuthAccount {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("auth_accounts")
+}
+
+model AuthSession {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("auth_sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}

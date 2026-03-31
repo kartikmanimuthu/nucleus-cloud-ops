@@ -22,6 +22,7 @@
     "@ai-sdk/anthropic": "^2.0.56",
     "@ai-sdk/langchain": "^1.0.116",
     "@ai-sdk/react": "^2.0.116",
+    "@auth/prisma-adapter": "^2.11.1",
     "@aws-sdk/client-auto-scaling": "^3.948.0",
     "@aws-sdk/client-cloudwatch": "^3.953.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.975.0",
@@ -84,6 +85,7 @@
     "@types/mdx": "^2.0.13",
     "ai": "^5.0.115",
     "autoprefixer": "^10.4.20",
+    "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
@@ -131,6 +133,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22",
     "@types/pdf-parse": "^1.1.5",
