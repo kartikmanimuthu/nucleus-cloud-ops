@@ -464,43 +464,35 @@ export default function SchedulesClient({
       {/* Pagination */}
       {!loading && totalItems > 0 && (
         <div className="flex items-center justify-between gap-4 rounded-lg border bg-card px-4 py-3">
-          <span className="whitespace-nowrap text-sm text-muted-foreground">
+          <span className="flex-none whitespace-nowrap text-sm text-muted-foreground">
             Showing {(currentPage - 1) * limit + 1}–{Math.min(currentPage * limit, totalItems)} of {totalItems} schedules
           </span>
 
-          <Pagination className="mx-0 w-auto">
-            <PaginationContent className="gap-1">
-              <PaginationItem>
-                <PaginationPrevious
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setCurrentPage(p => p - 1);
-                  }}
-                  aria-disabled={currentPage === 1}
-                  className={currentPage === 1 ? "pointer-events-none opacity-40" : ""}
-                />
-              </PaginationItem>
-              <PaginationItem>
-                <span className="px-3 text-sm font-medium tabular-nums">
-                  Page {currentPage} of {Math.ceil(totalItems / limit)}
-                </span>
-              </PaginationItem>
-              <PaginationItem>
-                <PaginationNext
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setCurrentPage(p => p + 1);
-                  }}
-                  aria-disabled={currentPage * limit >= totalItems}
-                  className={currentPage * limit >= totalItems ? "pointer-events-none opacity-40" : ""}
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
+          <div className="flex flex-1 items-center justify-center gap-1">
+            <PaginationPrevious
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                if (currentPage > 1) setCurrentPage(p => p - 1);
+              }}
+              aria-disabled={currentPage === 1}
+              className={currentPage === 1 ? "pointer-events-none opacity-40" : ""}
+            />
+            <span className="px-3 text-sm font-medium tabular-nums">
+              Page {currentPage} of {Math.ceil(totalItems / limit)}
+            </span>
+            <PaginationNext
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                if (currentPage * limit < totalItems) setCurrentPage(p => p + 1);
+              }}
+              aria-disabled={currentPage * limit >= totalItems}
+              className={currentPage * limit >= totalItems ? "pointer-events-none opacity-40" : ""}
+            />
+          </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-none items-center gap-2">
             <span className="whitespace-nowrap text-sm text-muted-foreground">Rows per page</span>
             <Select value={String(limit)} onValueChange={handleLimitChange}>
               <SelectTrigger className="h-8 w-[70px]">
