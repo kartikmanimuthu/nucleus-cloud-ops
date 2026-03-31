@@ -5,7 +5,7 @@ milestone_name: milestone
 status: executing
 stopped_at: Completed quick task 260331-ocp migrate ask-ai from S3 Vectors + DynamoDB to PostgreSQL pgvector
 last_updated: "2026-03-31T12:20:23.520Z"
-last_activity: 2026-03-28
+last_activity: 2026-03-31
 progress:
   total_phases: 5
   completed_phases: 0
@@ -18,10 +18,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-26)
+See: .planning/PROJECT.md (updated 2026-03-29)
 
-**Core value:** Every DynamoDB table migrated to PostgreSQL with full test coverage and verified data migration scripts
-**Current focus:** Phase 05 — langgraph-migration-validation
+**Core value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack
+**Current focus:** Phase 11 — cutover-cdk-removal
 
 ## Current Position
 
@@ -30,7 +30,7 @@ Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-03-31
 
-Progress: [██░░░░░░░░] 20%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -52,90 +52,88 @@ Progress: [██░░░░░░░░] 20%
 - Trend: -
 
 *Updated after each plan completion*
-| Phase 01-foundation-tenant-config P01 | 5 | 2 tasks | 5 files |
-| Phase 01-foundation-tenant-config P05 | 525546min | 1 tasks | 1 files |
-| Phase 02-accounts-rbac P01 | 6min | 2 tasks | 4 files |
-| Phase 02-accounts-rbac P02 | 7 | 2 tasks | 6 files |
-| Phase 02-accounts-rbac P04 | 4min | 2 tasks | 4 files |
-| Phase 02-accounts-rbac P05 | 8min | 1 tasks | 1 files |
-| Phase 03-schedules-executions-audit P01 | 20 | 2 tasks | 2 files |
-| Phase 03-schedules-executions-audit P02 | 6min | 1 tasks | 9 files |
-| Phase 03-schedules-executions-audit P04 | 2min | 2 tasks | 3 files |
-| Phase 03-schedules-executions-audit P05 | 15min | 2 tasks | 1 files |
-| Phase 04-kb-inventory-agent-ops P01 | 12min | 2 tasks | 2 files |
-| Phase 04-kb-inventory-agent-ops P03 | 9 | 2 tasks | 9 files |
-| Phase 04-kb-inventory-agent-ops P02 | 6min | 2 tasks | 12 files |
-| Phase 04-kb-inventory-agent-ops P04 | 11min | 2 tasks | 18 files |
-| Phase 04-kb-inventory-agent-ops P05 | 8min | 2 tasks | 2 files |
-| Phase 04-kb-inventory-agent-ops P06 | 8min | 2 tasks | 3 files |
-| Phase 04-kb-inventory-agent-ops P07 | 12 | 2 tasks | 5 files |
-| Phase 05-langgraph-migration-validation P01 | 7min | 2 tasks | 5 files |
-| Phase 05-langgraph-migration-validation P03 | 5min | 2 tasks | 2 files |
-| Phase 05-langgraph-migration-validation P04 | 15min | 2 tasks | 2 files |
+| Phase 06-scaffold P01 | 8 | 2 tasks | 11 files |
+| Phase 06-scaffold P02 | 25 | 2 tasks | 3 files |
+| Phase 07-networking P01 | 3 | 2 tasks | 4 files |
+| Phase 07-networking P02 | 25 | 1 tasks | 1 files |
+| Phase 07-networking P03 | 8 | 1 tasks | 0 files |
+| Phase 07-networking P03 | 8 | 1 tasks | 0 files |
+| Phase 08-data-layer P01 | 3 | 2 tasks | 1 files |
+| Phase 08-data-layer P02 | 6 | 2 tasks | 2 files |
+| Phase 08-data-layer P03 | 10 | 2 tasks | 1 files |
+| Phase 09-lambda-eventbridge P09-01 | 8 | 2 tasks | 5 files |
+| Phase 09-lambda-eventbridge P09-02 | 3 | 2 tasks | 1 files |
+| Phase 09-lambda-eventbridge P09-03 | 11 | 2 tasks | 1 files |
+| Phase 10-ecs-alb-cloudfront P01 | 18 | 2 tasks | 4 files |
+| Phase 10-ecs-alb-cloudfront P02 | 12 | 2 tasks | 1 files |
+| Phase 10-ecs-alb-cloudfront P03 | 31 | 1 tasks | 2 files |
+| Phase 11-cutover-cdk-removal P01 | 2 | 1 tasks | 1 files |
+| Phase 11-cutover-cdk-removal P02 | 12 | 2 tasks | 3 files |
+| Phase 11-cutover-cdk-removal P03 | 3 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions logged in PROJECT.md Key Decisions table.
-Key decisions affecting Phase 1:
+Key decisions from research (2026-03-29):
 
-- ORM: Prisma (not Drizzle) — user prefers Prisma DX; accepted Lambda bundle size trade-off (~2-4MB)
-- Repository pattern with feature flags — zero-downtime, instant rollback per entity
-- Docker Compose for local dev — cloud DB (RDS/Aurora) deferred until migration validated
-- [Phase 01-foundation-tenant-config]: Prisma 5 over Prisma 7: v7 removed datasource url from schema files (breaking change), v5 matches plan schema format
-- [Phase 01-foundation-tenant-config]: Tenant FK safety: upsert parent tenants row before tenantConfig upsert to satisfy FK constraint; tenantId used as name placeholder
-- [Phase 02-accounts-rbac]: No FK relations from Account/UserTenantRole to Tenant: plain tenantId string for zero-downtime migration
-- [Phase 02-accounts-rbac]: Role CHECK constraint applied via ALTER TABLE post-migration: Prisma 5 does not emit CHECK constraints natively
-- [Phase 02-accounts-rbac]: AccountDynamoRepository preserves GSI1 + client-side filter: maintains identical DynamoDB path behaviour
-- [Phase 02-accounts-rbac]: RbacDynamoRepository uses getDynamoDBDocumentClient() singleton instead of per-instance DynamoDBClient
-- [Phase 02-accounts-rbac]: Root package.json extended with @aws-sdk/client-dynamodb and @aws-sdk/lib-dynamodb: migration scripts run from project root, these packages were only in web-ui/package.json
-- [Phase 02-accounts-rbac]: migrate-rbac.ts uses ScanCommand with EntityType filter (not QueryCommand): UsersTeamsTable has no GSI — full scan is the only option
-- [Phase 02-accounts-rbac]: postgres.test.ts created from scratch (not appended): Plan 02-03 was skipped; base tests + cross-tenant isolation tests created together
-- [Phase 02-accounts-rbac]: getAccount cross-tenant test uses findFirst (matches actual postgres.ts) not findUnique with compound key as plan template showed
-- [Phase 03-schedules-executions-audit]: expiresAt DateTime used for TTL replacement: enables WHERE expiresAt < NOW() queries without epoch conversion; matches Prisma type system
-- [Phase 03-schedules-executions-audit]: resources Json on Schedule duplicates TargetedResource data: avoids join in hot scheduler Lambda read path; TargetedResource table serves UI/admin queries
-- [Phase 03-schedules-executions-audit]: Manual migrate diff workflow required: prisma migrate dev requires interactive TTY; migrate diff + file creation + migrate deploy used instead
-- [Phase 03-schedules-executions-audit]: ScheduleDynamoRepository preserves GSI1 TYPE#SCHEDULE in-memory filter pattern for identical DynamoDB path behaviour
-- [Phase 03-schedules-executions-audit]: AuditLogPostgresRepository adds tenantId scoping on getAuditLogs — DynamoDB path has no tenant filter; PostgreSQL enforces multi-tenant safety
-- [Phase 03-schedules-executions-audit]: AuditLogPostgresRepository.createAuditLog falls back to org-default tenantId for backward compatibility until Plan 03-03 wires tenantId through service layer
-- [Phase 03-schedules-executions-audit]: migrate-schedules.ts migrates both TYPE#SCHEDULE and TYPE#EXECUTION in one script — cohesive same-source-table related entities
-- [Phase 03-schedules-executions-audit]: migrate-audit-logs.ts batched createMany(500) with skipDuplicates — efficient for large audit tables, idempotent ON CONFLICT DO NOTHING
-- [Phase 03-schedules-executions-audit]: cleanup-expired.ts DRY_RUN=true flag enables safe pre-flight counting before any deletes; replaces DynamoDB automatic TTL
-- [Phase 03-schedules-executions-audit]: Used /api/schedules/:id/history endpoint (not /executions) — matched actual route under [scheduleId]/history/route.ts
-- [Phase 03-schedules-executions-audit]: Audit API response uses data field (not logs) — confirmed from audit/route.ts returning { success, data: logs, nextPageToken, count }
-- [Phase 04-kb-inventory-agent-ops]: InventoryResource uses flat table with JSONB metadata/tags — avoids EAV complexity, enables JSONB operators for filtering
-- [Phase 04-kb-inventory-agent-ops]: AgentOpsEvent FK references composite (tenantId, runId) on AgentOpsRun — tenant-safe cascade delete without cross-tenant leakage
-- [Phase 04-kb-inventory-agent-ops]: ScheduledTaskLock has no tenantId — lock is per-task execution slot; taskId already encodes tenant scope
-- [Phase 04-kb-inventory-agent-ops]: InventoryDynamoRepository uses GSI1/GSI2/GSI3 query patterns from existing inventory table schema
-- [Phase 04-kb-inventory-agent-ops]: pg_writer.py uses camelCase column names matching Prisma schema without @map
-- [Phase 04-kb-inventory-agent-ops]: Dual-write is non-blocking: PostgreSQL failures caught and logged, DynamoDB remains primary
-- [Phase 04-kb-inventory-agent-ops]: DataSourceDynamoRepository ignores tenantId param — DynamoDB KB# PK already scopes to KB; tenantId accepted for interface compatibility
-- [Phase 04-kb-inventory-agent-ops]: USE_PG_KB flag controls both KnowledgeBase and DataSource repos — they're a unit to avoid inconsistent state
-- [Phase 04-kb-inventory-agent-ops]: AgentOpsRunPostgresRepository.findAwaitingApprovalRun uses single WHERE query instead of scanning 3 sources x 100 records (AOPS-06)
-- [Phase 04-kb-inventory-agent-ops]: ScheduledTaskPostgresRepository.tryAcquireExecutionLock uses ON CONFLICT (taskId, scheduledAt) DO NOTHING for atomic lock acquisition (AOPS-04)
-- [Phase 04-kb-inventory-agent-ops]: migrate-agent-ops.ts uses full table scan — AgentOpsTable has no GSI covering all item types
-- [Phase 04-kb-inventory-agent-ops]: E2E tests check for spinner disappearance before content assertions — avoids flaky races with async data fetching
-- [Phase 04-kb-inventory-agent-ops]: agent-ops-service.ts getRunEvents passes tenantId='default' for backward compat — DynamoDB event PK is RUN#<runId> with no tenant scope
-- [Phase 04-kb-inventory-agent-ops]: inventory route drops account name enrichment (BatchGetItem) — no DynamoDB imports allowed; enrichment deferred to IInventoryRepository interface
-- [Phase 04-kb-inventory-agent-ops]: InventoryVectorKey has no tenantId — accountId is the natural unique key for vector key tracking
-- [Phase 04-kb-inventory-agent-ops]: Lambda PrismaClient uses lazy singleton pattern to avoid cold-start connection overhead
-- [Phase 05-langgraph-migration-validation]: pgvector/pgvector:pg16 replaces postgres:16-alpine — same PG16 base, adds vector extension support
-- [Phase 05-langgraph-migration-validation]: AgentMemory uses Unsupported('vector(1024)') — Prisma 5 has no native pgvector type; raw SQL required for similarity queries
-- [Phase 05-langgraph-migration-validation]: AgentConversationsTable confirmed dead code via grep audit (zero app code refs) before CDK removal
-- [Phase 05-langgraph-migration-validation]: spawnSync with stdio: inherit chosen for migrate-all.ts — live child output visible to operator
-- [Phase 05-langgraph-migration-validation]: verify-migration.ts exits non-zero on connectivity errors as well as count mismatches — CI pipelines should not silently pass on unreachable databases
-- [Phase 05-langgraph-migration-validation]: data-testid attributes added to chat-interface.tsx to enable reliable E2E targeting without CSS selectors
-- [Phase 05-langgraph-migration-validation]: Thread persistence test waits for AI response before reload — ensures full PostgreSQL write before refresh assertion
+- S3 backend (no DynamoDB lock table) — Pulumi uses S3 conditional writes for locking; DynamoDB lock table is a Terraform pattern, not Pulumi
+- KMS secrets provider (`awskms://alias/pulumi-secrets`) — replaces passphrase; required for CI/team use; passphrase loss locks state permanently
+- Two separate Pulumi projects (`infra/networking/`, `infra/compute/`) — mirrors CDK stack split; connected via StackReference
+- `infra/` subdirectory (not repo root) — CDK tsconfig uses `"module": "commonjs"`, Pulumi uses `"module": "ESNext"`; co-location causes conflicts
+- `@pulumi/aws` primitives only — no `@pulumi/awsx` or `@pulumi/cdk`; CDK parity is easier to verify with 1:1 resource mapping
+- Explicit physical names on every resource — Pulumi auto-naming appends 7-char suffix; any rename triggers delete+create
+- `retainOnDelete: true` on all DynamoDB tables and S3 buckets — protection against accidental `pulumi destroy`
+- `forceNewDeployment: true` on ECS service — ECS does not redeploy on task definition update without this
+- Blue/green cutover — Pulumi deploys new resources alongside CDK; CDK stays live until Pulumi smoke-tested
+- S3 Vectors + S3 Tables deferred to Phase 11 — no native `@pulumi/aws` support; wrap in `aws.cloudformation.Stack`
+- [Phase 06-scaffold]: getOutput() used in compute StackReference (not requireOutput()) — networking has placeholder values during scaffold; Phase 8+ switches to requireOutput()
+- [Phase 06-scaffold]: infra/ subdirectory isolation: Pulumi tsconfig commonjs module prevents conflict with root CDK tsconfig
+- [Phase 06-scaffold]: KMS URI needs ?region=us-east-1 suffix — profile default region (ap-south-1) does not match bucket/key region (us-east-1)
+- [Phase 06-scaffold]: StackReference for S3 backend requires literal 'organization' prefix: organization/nucleus-networking/prod
+- [Phase 07-networking]: awsx.ec2.Vpc component used for networking (not raw aws.ec2.* primitives) — matches CDK ec2.Vpc abstraction level
+- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds filtered from vpc.subnets by Name tag — vpc.isolatedSubnetIds merges all Isolated tiers making them indistinguishable
+- [Phase 07-networking]: awsx subnet naming confirmed as nucleus-vpc-<spec-name>-<index> — Name tag filter in index.ts is correct
+- [Phase 07-networking]: No repo file changes on pulumi up — Pulumi state is in S3; task commit skipped (nothing to stage)
+- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds Name tag filters confirmed correct at deploy time — each returned exactly 2 IDs
+- [Phase 07-networking]: compute requireOutput() resolves to vpc-0cd6e5fd607d1a494 — StackReference wiring is live and enforced
+- [Phase 07-networking]: No repo file changes on pulumi up — Pulumi state is in S3; task commit skipped (nothing to stage)
+- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds Name tag filters confirmed correct at deploy time — each returned exactly 2 IDs
+- [Phase 07-networking]: compute requireOutput() resolves to vpc-0cd6e5fd607d1a494 — StackReference wiring is live and enforced
+- [Phase 08-data-layer]: Deprecated hashKey/rangeKey in globalSecondaryIndexes are warnings only — preview exits 0; no migration to key_schema needed for this phase
+- [Phase 08-data-layer]: Used aws.getCallerIdentityOutput() instead of top-level await — tsconfig commonjs module incompatible with top-level await
+- [Phase 08-data-layer]: cognitoUserPoolClientSecret exported as pulumi.secret() — encrypted in Pulumi state, shows [secret] in stack output
+- [Phase 09-lambda-eventbridge]: npm ci required before esbuild for scheduler Lambda (uuid, dayjs, pg are non-AWS-SDK deps not in Lambda runtime)
+- [Phase 09-lambda-eventbridge]: vector_processor esbuild runs from project root — no package.json, needs root node_modules for @aws-sdk/client-s3vectors and @prisma/client
+- [Phase 09-lambda-eventbridge]: lambda.zip files added to .gitignore — build artifacts produced by infra/build-lambdas.sh, not committed to source
+- [Phase 09-lambda-eventbridge]: aws.lambda.Function uses name not functionName — Pulumi API difference from CDK NodejsFunction
+- [Phase 09-lambda-eventbridge]: VECTOR_BUCKET_ARN and KB_VECTOR_BUCKET_NAME are intentional placeholders — Phase 11 wires real S3 Vectors bucket
+- [Phase 09-lambda-eventbridge]: Discovery ECS task definition created without cluster ARN — Phase 10 adds EventBridge Scheduler target when cluster exists
+- [Phase 10-ecs-alb-cloudfront]: webUiImageUri stored in Pulumi config — executor sets after running build-images.sh
+- [Phase 10-ecs-alb-cloudfront]: nextauthSecret uses config.requireSecret() — KMS-encrypted in Pulumi state, not plaintext
+- [Phase 10-ecs-alb-cloudfront]: Discovery task def corrected 256/512 -> 1024/2048 CPU/MiB to match CDK (Phase 9 deployed wrong values)
+- [Phase 10-ecs-alb-cloudfront]: ALB inbound restricted to CloudFront managed prefix list — not open to internet
+- [Phase 10-ecs-alb-cloudfront]: ECS service desiredCount=0 at deploy — scale up after smoke testing
+- [Phase 10-ecs-alb-cloudfront]: dependsOn: [httpListener] on ECS service ensures listener exists before target registration
+- [Phase 10-ecs-alb-cloudfront]: random.RandomString for CloudFront origin verify secret — stable value prevents CloudFront replacement on every pulumi preview
+- [Phase 10-ecs-alb-cloudfront]: AWS EC2 security group descriptions must use ASCII only — em dash causes 400 InvalidParameterValue error
+- [Phase 10-ecs-alb-cloudfront]: Public ECR requires separate auth (aws ecr-public get-login-password) before docker build — not covered by private ECR login
+- [Phase 11-cutover-cdk-removal]: generate-env.ts uses --show-secrets to resolve cognitoUserPoolClientSecret; writes to web-ui/.env.local; constructs COGNITO_DOMAIN from prefix
+- [Phase 11-cutover-cdk-removal]: S3 Vectors CFN template includes 21 resources: VectorBucket custom resource + 2 index custom resources with Lambda-backed providers and IAM roles
+- [Phase 11-cutover-cdk-removal]: cdk synth requires APP_NAME/AWS_ACCOUNT_ID/AWS_REGION env vars + AWS_PROFILE env var (not --profile flag which is a stack selector)
+- [Phase 11-cutover-cdk-removal]: templateBody read via fs.readFileSync inline (not S3-hosted) per CONTEXT.md locked decision; CAPABILITY_IAM required for vectors template IAM resources
+- [Phase 11-cutover-cdk-removal]: bin/webUIStack.ts omits schedulerLambdaArn — optional prop, can be wired via CDK context later if needed
+- [Phase 11-cutover-cdk-removal]: CDK package.json dependencies preserved — WebUIStack still requires aws-cdk-lib, constructs, etc.
 
 ### Pending Todos
 
-None yet.
+- Phase 6 prerequisite: create S3 state bucket via `infra/bootstrap/bootstrap.sh` (one-time manual step)
+- Phase 11 prerequisite: run `cdk synth` to extract CFN templates for S3 Vectors + S3 Tables before wrapping in `aws.cloudformation.Stack`
+- Phase 10 prerequisite: verify container image build approach — CDK uses `ecs.ContainerImage.fromAsset`; Pulumi equivalent needs confirmation (may require separate ECR push step)
 
 ### Blockers/Concerns
 
-- Lambda bundle size: Prisma engine is ~2-4MB. Monitor cold start impact once Lambda phases begin (Phase 3+).
-- AgentConversationsTable: Usage unverified — must confirm dead code or live usage before Phase 5.
+None at start of milestone.
 
 ### Quick Tasks Completed
 

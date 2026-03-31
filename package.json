@@ -17,6 +17,7 @@
     "destroy:webui": "cdk destroy WebUIStack --app \"npx ts-node --prefer-ts-exts bin/cdkStack.ts\""
   },
   "devDependencies": {
+    "@aws-sdk/client-s3vectors": "^3.1019.0",
     "@playwright/test": "^1.58.2",
     "@types/aws-lambda": "^8.10.160",
     "@types/jest": "^29.5.12",
@@ -36,7 +37,6 @@
     "@aws-sdk/client-bedrock-runtime": "^3.991.0",
     "@aws-sdk/client-dynamodb": "^3.821.0",
     "@aws-sdk/client-s3": "^3.991.0",
-    "@aws-sdk/client-s3vectors": "^3.992.0",
     "@aws-sdk/lib-dynamodb": "^3.821.0",
     "@prisma/client": "^5.22.0",
     "aws-cdk-lib": "^2.236.0",
