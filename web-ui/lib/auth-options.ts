@@ -105,6 +105,20 @@ export const authOptions: NextAuthOptions = {
         error: "/login",
     },
     callbacks: {
+        async jwt({ token, user }) {
+            // On initial sign-in, enrich token with tenant info for middleware
+            // (middleware reads JWT, not database session — even with database strategy)
+            if (user) {
+                const utr = await prisma.userTenantRole.findFirst({
+                    where: { userId: user.id },
+                });
+                token.tenantId = utr?.tenantId ?? null;
+                token.role = utr?.role ?? null;
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                token.isSuperAdmin = (user as any).isSuperAdmin ?? false;
+            }
+            return token;
+        },
         async session({ session, user }) {
             // Database strategy provides `user` (not `token`)
             // Look up the user's tenant role for session normalization
