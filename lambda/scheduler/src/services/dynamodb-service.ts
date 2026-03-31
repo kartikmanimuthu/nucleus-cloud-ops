@@ -10,6 +10,7 @@ import {
     type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { logger } from '../utils/logger.js';
+import { createAuditLog as createAuditLogPg } from './pg-service.js';
 import type {
     Schedule,
     Account,
@@ -190,8 +191,9 @@ export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
         logger.warn('AUDIT_TABLE_NAME not configured, skipping audit log');
         return;
     }
-    // When PG is the source of truth, skip DynamoDB audit log writes
+    // When PG is the source of truth, write audit log to PostgreSQL instead
     if (process.env.USE_PG_SCHEDULES === 'true') {
+        await createAuditLogPg(entry);
         return;
     }
 

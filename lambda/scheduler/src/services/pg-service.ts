@@ -162,6 +162,59 @@ export async function getAccounts(tenantId: string = DEFAULT_TENANT_ID): Promise
 }
 
 /**
+ * Write an audit log entry to PostgreSQL.
+ * Replaces DynamoDB NucleusAuditTable write.
+ */
+export async function createAuditLog(entry: {
+    tenantId?: string;
+    eventType: string;
+    action: string;
+    user: string;
+    userType: string;
+    resourceType: string;
+    resourceId: string;
+    status: string;
+    severity: string;
+    details: string;
+    accountId?: string;
+    region?: string;
+    metadata?: Record<string, unknown>;
+}): Promise<void> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        const id = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const logId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const tenantId = entry.tenantId ?? DEFAULT_TENANT_ID;
+        // 30-day TTL for audit logs
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        await client.query(
+            `INSERT INTO audit_logs
+               (id, "tenantId", "logId", timestamp, "eventType", action,
+                "user", "userType", "resourceType", "resourceId",
+                status, severity, details, metadata, "accountId", region, "expiresAt")
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+             ON CONFLICT DO NOTHING`,
+            [
+                id, tenantId, logId, new Date(),
+                entry.eventType, entry.action,
+                entry.user, entry.userType,
+                entry.resourceType, entry.resourceId,
+                entry.status, entry.severity, entry.details,
+                entry.metadata ? JSON.stringify(entry.metadata) : null,
+                entry.accountId ?? null, entry.region ?? null, expiresAt,
+            ]
+        );
+        logger.debug(`[pg-service] Audit log written: ${entry.eventType} / ${entry.action}`);
+    } catch (error) {
+        logger.error('[pg-service] Error writing audit log to PostgreSQL', error);
+        // Non-fatal — don't throw
+    } finally {
+        client.release();
+    }
+}
+
+/**
  * Get execution history for a schedule from PostgreSQL.
  * Replaces DynamoDB pk=EXEC#tenantId#scheduleId query.
  */
