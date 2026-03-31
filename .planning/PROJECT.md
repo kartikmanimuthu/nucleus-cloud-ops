@@ -57,7 +57,7 @@ A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managi
 
 ## Context
 
-- **Auth**: Currently NextAuth with Cognito provider. v3.0 adds Credentials provider alongside Cognito, with Prisma adapter for user persistence in PostgreSQL.
+- **Auth**: NextAuth with dual providers (Cognito + Credentials), Prisma adapter for user persistence, database sessions with 24h TTL, normalized session shape `{ id, email, tenantId, role, isSuperAdmin }`. Phase 12 complete.
 - **RBAC**: Currently CASL-based (`@casl/ability`). v3.0 removes CASL entirely and builds custom role/permission system with Prisma models.
 - **Tenant isolation**: `tenant_id` column already exists on most PostgreSQL tables from v1.0 migration. v3.0 enforces it consistently across all queries and UI.
 - **Super admin**: Platform-level only — not a member of any tenant. Manages all tenants from `/admin` route.
@@ -85,7 +85,7 @@ A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managi
 | `retainOnDelete: true` on tables/buckets | Protection against accidental destroy | ✓ Shipped v2.0 |
 | Blue/green cutover | CDK stays live until Pulumi smoke-tested | ✓ Shipped v2.0 |
 | Remove CASL, build custom RBAC | Need per-module granular permissions with custom roles per tenant | — Pending v3.0 |
-| Dual auth (Cognito + Credentials) | Enterprise SSO via Cognito + direct-managed users via Credentials | — Pending v3.0 |
+| Dual auth (Cognito + Credentials) | Enterprise SSO via Cognito + direct-managed users via Credentials | ✓ Phase 12 |
 | Row-level isolation (not schema-per-tenant) | Builds on existing tenant_id pattern, less operational complexity | — Pending v3.0 |
 | Super admin is platform-level only | Clean separation between platform management and tenant operations | — Pending v3.0 |
 | Admin panel at /admin route | Same app, simpler deployment, auth guard sufficient | — Pending v3.0 |
@@ -108,4 +108,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-31 — v3.0 milestone started (Multi-Tenancy)*
+*Last updated: 2026-03-31 — Phase 12 (Auth Foundation) complete*
