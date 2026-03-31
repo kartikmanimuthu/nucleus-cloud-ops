@@ -490,13 +490,13 @@ export default function AccountsClient({
 
       {/* Pagination */}
       {!loading && totalItems > 0 && (
-        <div className="flex items-center justify-between mt-4">
-          <span className="text-sm text-muted-foreground">
-            Showing {(currentPage - 1) * limit + 1}–{Math.min(currentPage * limit, totalItems)} of {totalItems} records
+        <div className="flex items-center justify-between gap-4 rounded-lg border bg-card px-4 py-3">
+          <span className="whitespace-nowrap text-sm text-muted-foreground">
+            Showing {(currentPage - 1) * limit + 1}–{Math.min(currentPage * limit, totalItems)} of {totalItems} accounts
           </span>
 
-          <Pagination>
-            <PaginationContent>
+          <Pagination className="mx-0 w-auto">
+            <PaginationContent className="gap-1">
               <PaginationItem>
                 <PaginationPrevious
                   href="#"
@@ -505,11 +505,11 @@ export default function AccountsClient({
                     if (currentPage > 1) setCurrentPage(currentPage - 1);
                   }}
                   aria-disabled={currentPage === 1}
-                  className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                  className={currentPage === 1 ? "pointer-events-none opacity-40" : ""}
                 />
               </PaginationItem>
               <PaginationItem>
-                <span className="px-4 text-sm text-muted-foreground">
+                <span className="px-3 text-sm font-medium tabular-nums">
                   Page {currentPage} of {Math.ceil(totalItems / limit)}
                 </span>
               </PaginationItem>
@@ -521,29 +521,32 @@ export default function AccountsClient({
                     if (currentPage < Math.ceil(totalItems / limit)) setCurrentPage(currentPage + 1);
                   }}
                   aria-disabled={currentPage >= Math.ceil(totalItems / limit)}
-                  className={currentPage >= Math.ceil(totalItems / limit) ? "pointer-events-none opacity-50" : ""}
+                  className={currentPage >= Math.ceil(totalItems / limit) ? "pointer-events-none opacity-40" : ""}
                 />
               </PaginationItem>
             </PaginationContent>
           </Pagination>
 
-          <Select
-            value={String(limit)}
-            onValueChange={(val) => {
-              setLimit(Number(val));
-              setCurrentPage(1);
-            }}
-          >
-            <SelectTrigger className="w-[110px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">10 / page</SelectItem>
-              <SelectItem value="25">25 / page</SelectItem>
-              <SelectItem value="50">50 / page</SelectItem>
-              <SelectItem value="100">100 / page</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-sm text-muted-foreground">Rows per page</span>
+            <Select
+              value={String(limit)}
+              onValueChange={(val) => {
+                setLimit(Number(val));
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="h-8 w-[70px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="25">25</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
 
