@@ -1,31 +1,11 @@
 {
   "cookies": [
     {
-      "name": "next-auth.csrf-token",
-      "value": "217f1b2d74de5195391a81172c50a2fbe6e6f54f95f06a2b0895d0f5cd8b8be1%7C0d4052ea2a9f4bb5ec749fd4b05c7e952bcc3f870f28338ce9e019e384921d32",
-      "domain": "localhost",
-      "path": "/",
-      "expires": -1,
-      "httpOnly": true,
-      "secure": false,
-      "sameSite": "Lax"
-    },
-    {
-      "name": "next-auth.callback-url",
-      "value": "http%3A%2F%2Flocalhost%3A3000",
-      "domain": "localhost",
-      "path": "/",
-      "expires": -1,
-      "httpOnly": true,
-      "secure": false,
-      "sameSite": "Lax"
-    },
-    {
       "name": "next-auth.session-token",
-      "value": "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..wyURegj4UdK_zITn.A04RmPUzA06jpsX_TVGKpc2Rd6JbbIGu3wfWe_u30xYwnT6DIdPTnwlmc4gYzkpIrBKbsS9aba2CNLqTV6s1ng116QcWkJbWnQ3BXcUIYqDoaNsVVqh5cSDxuJa4yN4qV0ZPGbkd6Iv5OqJWgSB5gfBSccxFWv3p3zt-f7nZVGiFUoDb7_vfmaOYY5pbAspBVQDpUjH-yDba7mzm0XwAAB6O_XaaHOfMoz8JAqBnagRvHibCe9jhd42wgMcKZg.GSZ0MRnnxKOHKWeysqStkw",
+      "value": "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..MofDmbgTAh-mEV8H.L71i29AiyhFlpq7QDndV6uVYFerSKxT9eZdfSlvuZD5Z385SCUQQOKBJ6ujRAMGOHFNkXUupr_zcmP59trMBl3c08wfP7U33gNnBcxPoHmbRmWpucv_o0-K3jicUFHXS3AA0hwQhekhYyBG8AdgLMhY-V-B2xaYEvMJvvcezIHyrjTX090U9bycNE4LsQ11a2jFceXxyn9WgqkdHPBBpktB2EaOfPoTFz1oZE42fcsklAWpuK7YfroV850aAUA.NEJnZ0A_NXU6E8Z9RLgXsQ",
       "domain": "localhost",
       "path": "/",
-      "expires": 1777487009.304332,
+      "expires": 1774985377,
       "httpOnly": true,
       "secure": false,
       "sameSite": "Lax"

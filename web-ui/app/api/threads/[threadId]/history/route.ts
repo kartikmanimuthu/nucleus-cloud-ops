@@ -28,6 +28,32 @@ const PHASE_MARKERS = [
     'FINAL_PHASE_START\n',
 ];
 
+function convertPlainMessage(msg: { role: string; content: string; metadata?: Record<string, unknown> }, index: number): HistoryMessage | null {
+    const { role, content, metadata } = msg;
+    if (!content && role !== 'ai') return null;
+
+    if (role === 'human') {
+        return { id: `history-${index}`, role: 'user', content, parts: [{ type: 'text', text: content }] };
+    }
+    if (role === 'ai') {
+        const hasPhaseMarker = PHASE_MARKERS.some(m => content.startsWith(m));
+        const parts: HistoryMessage['parts'] = content
+            ? [{ type: hasPhaseMarker ? 'reasoning' : 'text', text: content }]
+            : [];
+        const toolCalls = metadata?.tool_calls as Array<{ id?: string; name: string; args: Record<string, unknown> }> | undefined;
+        for (const tc of toolCalls ?? []) {
+            parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args, state: 'call' });
+        }
+        if (parts.length === 0) return null;
+        return { id: `history-${index}`, role: 'assistant', content, parts };
+    }
+    if (role === 'tool') {
+        const toolCallId = metadata?.tool_call_id as string | undefined;
+        return { id: `history-${index}`, role: 'tool', content, parts: [{ type: 'tool-invocation', toolCallId, result: content, state: 'result' }] };
+    }
+    return null;
+}
+
 function convertMessage(msg: BaseMessage, index: number): HistoryMessage | null {
     const msgType = msg._getType();
     const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
@@ -108,7 +134,7 @@ export async function GET(
                 const chatHistory = await getChatHistory();
                 const msgs = await chatHistory.getMessages(userId, threadId);
                 if (msgs.length > 0) {
-                    const converted = msgs.map((m, i) => convertMessage(m, i)).filter(Boolean) as HistoryMessage[];
+                    const converted = msgs.map((m, i) => convertPlainMessage(m, i)).filter(Boolean) as HistoryMessage[];
                     return NextResponse.json({ messages: mergeToolResults(converted) });
                 }
             } catch (err) {

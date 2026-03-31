@@ -311,7 +311,21 @@ export async function POST(req: Request) {
                         const sessionTitle = firstHuman
                             ? (typeof firstHuman.content === 'string' ? firstHuman.content.slice(0, 60) : 'New Chat')
                             : 'New Chat';
-                        await chatHistory.addMessages(resolvedUserId, threadId, newMessages, sessionTitle);
+                        const mapped = newMessages.map(m => {
+                            const role = m._getType();
+                            const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+                            const metadata: Record<string, unknown> = {};
+                            if (role === 'ai') {
+                                const ai = m as AIMessage;
+                                if (ai.tool_calls?.length) metadata.tool_calls = ai.tool_calls;
+                            }
+                            if (role === 'tool') {
+                                const tm = m as ToolMessage;
+                                if (tm.tool_call_id) metadata.tool_call_id = tm.tool_call_id;
+                            }
+                            return { role, content, metadata: Object.keys(metadata).length ? metadata : undefined };
+                        });
+                        await chatHistory.addMessages(resolvedUserId, threadId, mapped, sessionTitle);
                     }
                 } catch (err) {
                     console.error('[Chat API] Failed to persist message history (non-stream):', err);
@@ -679,7 +693,21 @@ function processStream(
                             const sessionTitle = firstHuman
                                 ? (typeof firstHuman.content === 'string' ? firstHuman.content.slice(0, 60) : 'New Chat')
                                 : 'New Chat';
-                            await chatHistory.addMessages(resolvedUserId, threadId, newMessages, sessionTitle);
+                            const mapped = newMessages.map(m => {
+                                const role = m._getType();
+                                const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+                                const metadata: Record<string, unknown> = {};
+                                if (role === 'ai') {
+                                    const ai = m as AIMessage;
+                                    if (ai.tool_calls?.length) metadata.tool_calls = ai.tool_calls;
+                                }
+                                if (role === 'tool') {
+                                    const tm = m as ToolMessage;
+                                    if (tm.tool_call_id) metadata.tool_call_id = tm.tool_call_id;
+                                }
+                                return { role, content, metadata: Object.keys(metadata).length ? metadata : undefined };
+                            });
+                            await chatHistory.addMessages(resolvedUserId, threadId, mapped, sessionTitle);
                             console.log(`[Chat API] Persisted ${newMessages.length} new messages for thread ${threadId} (userId=${resolvedUserId})`);
                         }
                     } catch (err) {

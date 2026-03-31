@@ -50,8 +50,8 @@ const getStateBadge = (state: string) => {
         active: "bg-green-500/10 text-green-500 border-green-500/20",
     };
     return (
-        <Badge variant="outline" className={stateColors[state.toLowerCase()] || "bg-gray-500/10"}>
-            {state}
+        <Badge variant="outline" className={(state && stateColors[state.toLowerCase()]) || "bg-gray-500/10"}>
+            {state ?? "Unknown"}
         </Badge>
     );
 };

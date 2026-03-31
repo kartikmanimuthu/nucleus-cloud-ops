@@ -30,8 +30,8 @@ import { getPrismaClient } from "@/lib/db/pg-config";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface ChatHistoryInterface {
-    addMessages(userId: string, threadId: string, messages: Array<{ role: string; content: string }>, sessionToken?: string): Promise<void>;
-    getMessages(userId: string, threadId: string): Promise<Array<{ role: string; content: string; createdAt?: Date }>>;
+    addMessages(userId: string, threadId: string, messages: Array<{ role: string; content: string; metadata?: Record<string, unknown> }>, sessionToken?: string): Promise<void>;
+    getMessages(userId: string, threadId: string): Promise<Array<{ role: string; content: string; metadata?: Record<string, unknown>; createdAt?: Date }>>;
     clearMessages(userId: string, threadId: string): Promise<void>;
 }
 
@@ -42,7 +42,7 @@ interface MemoryStoreInterface {
 interface PersistenceInstances {
     checkpointer: DynamoDBSaver | PostgresSaver;
     store: DynamoDBStore | PostgresMemoryStore;
-    chatHistory: DynamoDBChatMessageHistory | PostgresChatHistory;
+    chatHistory: ChatHistoryInterface;
 }
 
 const g = globalThis as unknown as {
@@ -56,7 +56,7 @@ class PostgresChatHistory implements ChatHistoryInterface {
     async addMessages(
         userId: string,
         threadId: string,
-        messages: Array<{ role: string; content: string }>,
+        messages: Array<{ role: string; content: string; metadata?: Record<string, unknown> }>,
         _sessionToken?: string
     ): Promise<void> {
         const prisma = getPrismaClient();
@@ -67,6 +67,7 @@ class PostgresChatHistory implements ChatHistoryInterface {
                 sessionId: threadId,
                 role: m.role,
                 content: m.content,
+                metadata: m.metadata ?? undefined,
                 expiresAt,
             })),
             skipDuplicates: true,
@@ -76,13 +77,13 @@ class PostgresChatHistory implements ChatHistoryInterface {
     async getMessages(
         userId: string,
         threadId: string
-    ): Promise<Array<{ role: string; content: string; createdAt?: Date }>> {
+    ): Promise<Array<{ role: string; content: string; metadata?: Record<string, unknown>; createdAt?: Date }>> {
         const prisma = getPrismaClient();
         const rows = await prisma.chatMessage.findMany({
             where: { tenantId: userId, sessionId: threadId },
             orderBy: { createdAt: "asc" },
         });
-        return rows.map((r) => ({ role: r.role, content: r.content, createdAt: r.createdAt }));
+        return rows.map((r) => ({ role: r.role, content: r.content, metadata: (r.metadata as Record<string, unknown>) ?? undefined, createdAt: r.createdAt }));
     }
 
     async clearMessages(userId: string, threadId: string): Promise<void> {
@@ -238,10 +239,16 @@ async function initPersistence(): Promise<PersistenceInstances> {
     });
 
     // Note: ttlDays intentionally omitted — library uses 'ttl' reserved keyword without escaping
-    const chatHistory = new DynamoDBChatMessageHistory({
+    const dynamoHistory = new DynamoDBChatMessageHistory({
         tableName: chatHistoryTableName,
         clientConfig,
     });
+    // Wrap in ChatHistoryInterface adapter (metadata not supported by DynamoDB backend)
+    const chatHistory: ChatHistoryInterface = {
+        addMessages: (userId, threadId, messages) => dynamoHistory.addMessages(userId, threadId, messages),
+        getMessages: (userId, threadId) => dynamoHistory.getMessages(userId, threadId),
+        clearMessages: (userId, threadId) => dynamoHistory.clearMessages(userId, threadId),
+    };
 
     console.log("[Persistence] Initialized DynamoDBSaver, DynamoDBStore, DynamoDBChatMessageHistory");
     return { checkpointer, store, chatHistory };
@@ -274,7 +281,7 @@ export async function getMemoryStore(): Promise<DynamoDBStore | PostgresMemorySt
     return (await getPersistence()).store;
 }
 
-export async function getChatHistory(): Promise<DynamoDBChatMessageHistory | PostgresChatHistory> {
+export async function getChatHistory(): Promise<ChatHistoryInterface> {
     return (await getPersistence()).chatHistory;
 }
 
