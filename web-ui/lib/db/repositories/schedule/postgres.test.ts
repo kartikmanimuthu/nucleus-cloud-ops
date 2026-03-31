@@ -131,6 +131,42 @@ describe('SchedulePostgresRepository', () => {
             expect(callArg.skip).toBe(10); // (3-1) * 5
             expect(callArg.take).toBe(5);
         });
+
+        it('defaults to page 1 and limit 20 when not provided', async () => {
+            mockPrisma.schedule.count.mockResolvedValue(5);
+            mockPrisma.schedule.findMany.mockResolvedValue([]);
+
+            const repo = new SchedulePostgresRepository();
+            await repo.getSchedules({ tenantId: 'tenant-1' });
+
+            expect(mockPrisma.schedule.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({ skip: 0, take: 20 })
+            );
+        });
+
+        it('uses custom limit of 25', async () => {
+            mockPrisma.schedule.count.mockResolvedValue(80);
+            mockPrisma.schedule.findMany.mockResolvedValue([]);
+
+            const repo = new SchedulePostgresRepository();
+            await repo.getSchedules({ tenantId: 'tenant-1', page: 1, limit: 25 });
+
+            expect(mockPrisma.schedule.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({ skip: 0, take: 25 })
+            );
+        });
+
+        it('uses custom limit of 50 on page 2', async () => {
+            mockPrisma.schedule.count.mockResolvedValue(200);
+            mockPrisma.schedule.findMany.mockResolvedValue([]);
+
+            const repo = new SchedulePostgresRepository();
+            await repo.getSchedules({ tenantId: 'tenant-1', page: 2, limit: 50 });
+
+            expect(mockPrisma.schedule.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({ skip: 50, take: 50 })
+            );
+        });
     });
 
     describe('getSchedule', () => {

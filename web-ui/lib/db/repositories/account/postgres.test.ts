@@ -131,6 +131,42 @@ describe('AccountPostgresRepository', () => {
             expect(callArg.skip).toBe(10); // (3-1) * 5
             expect(callArg.take).toBe(5);
         });
+
+        it('uses custom limit of 25', async () => {
+            mockPrisma.account.count.mockResolvedValue(60);
+            mockPrisma.account.findMany.mockResolvedValue([]);
+
+            const repo = new AccountPostgresRepository();
+            await repo.getAccounts({ tenantId: 'tenant-1', page: 1, limit: 25 });
+
+            expect(mockPrisma.account.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({ skip: 0, take: 25 })
+            );
+        });
+
+        it('uses custom limit of 50', async () => {
+            mockPrisma.account.count.mockResolvedValue(120);
+            mockPrisma.account.findMany.mockResolvedValue([]);
+
+            const repo = new AccountPostgresRepository();
+            await repo.getAccounts({ tenantId: 'tenant-1', page: 2, limit: 50 });
+
+            expect(mockPrisma.account.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({ skip: 50, take: 50 })
+            );
+        });
+
+        it('defaults to page 1 and limit 10 when not provided', async () => {
+            mockPrisma.account.count.mockResolvedValue(5);
+            mockPrisma.account.findMany.mockResolvedValue([]);
+
+            const repo = new AccountPostgresRepository();
+            await repo.getAccounts({ tenantId: 'tenant-1' });
+
+            expect(mockPrisma.account.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({ skip: 0, take: 10 })
+            );
+        });
     });
 
     describe('getAccount', () => {
