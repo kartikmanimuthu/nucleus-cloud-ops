@@ -31,3 +31,11 @@ declare module "next-auth/adapters" {
         lockedUntil: Date | null;
     }
 }
+
+declare module "next-auth/jwt" {
+    interface JWT {
+        tenantId?: string | null;
+        role?: string | null;
+        isSuperAdmin?: boolean;
+    }
+}
