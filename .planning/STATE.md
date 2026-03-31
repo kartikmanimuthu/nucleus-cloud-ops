@@ -147,9 +147,10 @@ None at start of milestone.
 | 260331-jd8 | Add pagination support for accounts and schedules modules — total records, page size selector, next/previous navigation, PostgreSQL server-side pagination | 2026-03-31 | e6a3924 | [260331-jd8-add-pagination-support-for-the-account-m](./quick/260331-jd8-add-pagination-support-for-the-account-m/) |
 | 260331-m7t | Implement server-side pagination UI — reusable PaginationBar component applied to accounts, schedules, and inventory; inventory switched to offset-based pagination | 2026-03-31 | ce25d19 | [260331-m7t-implement-server-side-pagination-ui-and-](./quick/260331-m7t-implement-server-side-pagination-ui-and-/) |
 | 260331-ocp | Migrate Ask AI from S3 Vectors + DynamoDB to PostgreSQL pgvector | 2026-03-31 | 2fef9ab | [260331-ocp-migrate-ask-ai-from-s3-vectors-dynamodb-](./quick/260331-ocp-migrate-ask-ai-from-s3-vectors-dynamodb-/) |
-| 260331-rpk | Create PostgreSQL RDS database in Pulumi and wire DATABASE_URL to all dependent services | 2026-03-31 | a18d5b8 | [260331-rpk-create-postgresql-rds-database-in-pulumi](./quick/260331-rpk-create-postgresql-rds-database-in-pulumi/) |
+| 260331-rpk | Create PostgreSQL RDS database in Pulumi and wire DATABASE_URL to all dependent services | 2026-03-31 | f09d2d3 | [260331-rpk-create-postgresql-rds-database-in-pulumi](./quick/260331-rpk-create-postgresql-rds-database-in-pulumi/) |
+| 260331-vh0 | Disable DynamoDB and enable PostgreSQL via feature flag environment variable, deploy via Pulumi | 2026-03-31 | a749767 | [260331-vh0-disable-dynamodb-and-enable-postgresql-v](./quick/260331-vh0-disable-dynamodb-and-enable-postgresql-v/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-31 - Completed quick task 260331-rpk: Create PostgreSQL RDS database in Pulumi and wire DATABASE_URL to all dependent services
+Last activity: 2026-03-31 - Completed quick task 260331-vh0: Disable DynamoDB and enable PostgreSQL via feature flag environment variable, deploy via Pulumi
 Resume file: None
