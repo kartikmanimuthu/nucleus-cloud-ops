@@ -22,7 +22,7 @@
 - [x] **RBAC-03**: New `authorize(action, module)` function with default-deny baseline replaces CASL `authorize()` in all API routes
 - [ ] **RBAC-04**: All existing API routes migrated from CASL to new RBAC system with parallel-run feature flag during transition
 - [ ] **RBAC-05**: `@casl/ability` and `@casl/react` packages removed from package.json after full migration
-- [ ] **RBAC-06**: Tenant admins can create custom roles with explicit per-module permission sets scoped to their tenant
+- [x] **RBAC-06**: Tenant admins can create custom roles with explicit per-module permission sets scoped to their tenant
 - [x] **RBAC-07**: Role assignment limited by inviter's own role level — no privilege escalation via invitation or role change
 
 ### Tenant Isolation
@@ -124,7 +124,7 @@
 | RBAC-03 | Phase 13 | Complete |
 | RBAC-04 | Phase 13 | Pending |
 | RBAC-05 | Phase 13 | Pending |
-| RBAC-06 | Phase 13 | Pending |
+| RBAC-06 | Phase 13 | Complete |
 | RBAC-07 | Phase 13 | Complete |
 | ISOL-01 | Phase 14 | Pending |
 | ISOL-02 | Phase 14 | Pending |

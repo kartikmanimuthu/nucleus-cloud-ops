@@ -66,7 +66,7 @@ Plans:
 Plans:
 - [x] 13-01-PLAN.md — Permission system core (types, static map, authorize rewrite, hierarchy)
 - [ ] 13-02-PLAN.md — Migrate all API routes to new RBAC + remove CASL
-- [ ] 13-03-PLAN.md — Custom roles backend (Prisma model, service, API routes)
+- [x] 13-03-PLAN.md — Custom roles backend (Prisma model, service, API routes)
 - [ ] 13-04-PLAN.md — Custom roles UI (settings page, permission matrix, dialogs)
 **UI hint**: yes
 
@@ -127,7 +127,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 12. Auth Foundation | v3.0 | 3/3 | Complete    | 2026-03-31 |
-| 13. Custom RBAC | v3.0 | 1/4 | In Progress|  |
+| 13. Custom RBAC | v3.0 | 2/4 | In Progress|  |
 | 14. Tenant Context Enforcement | v3.0 | 0/? | Not started | - |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 0/? | Not started | - |
 | 16. User Invitations + Onboarding Completion | v3.0 | 0/? | Not started | - |
