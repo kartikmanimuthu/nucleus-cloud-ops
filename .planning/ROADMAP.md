@@ -79,7 +79,12 @@ Plans:
   2. Service layer rejects requests with a missing tenantId as a hard error — no DEFAULT_TENANT_ID fallback exists
   3. Scheduler Lambda only processes schedules belonging to the correct tenant and skips suspended tenants
   4. LangGraph agent threads are namespaced as `tenantId:userId:uuid`; loading another tenant's thread returns 403
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 14-01-PLAN.md — Scoped Prisma client factory + DEFAULT_TENANT_ID removal from services/routes
+- [ ] 14-02-PLAN.md — LangGraph thread isolation (namespaced IDs, tenant validation, persistence bug fix)
+- [ ] 14-03-PLAN.md — Lambda tenant isolation (scheduler iteration + discovery tagging)
+- [ ] 14-04-PLAN.md — Two-tenant isolation integration test
 
 ### Phase 15: Super Admin + Onboarding + Suspension
 **Goal**: Super admin can create, manage, and suspend tenants; suspension is enforced immediately across all active sessions
@@ -128,7 +133,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 |-------|-----------|----------------|--------|-----------|
 | 12. Auth Foundation | v3.0 | 3/3 | Complete    | 2026-03-31 |
 | 13. Custom RBAC | v3.0 | 4/4 | Complete    | 2026-03-31 |
-| 14. Tenant Context Enforcement | v3.0 | 0/? | Not started | - |
+| 14. Tenant Context Enforcement | v3.0 | 0/4 | Planned | - |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 0/? | Not started | - |
 | 16. User Invitations + Onboarding Completion | v3.0 | 0/? | Not started | - |
 | 17. Org Switcher + Tenant Settings | v3.0 | 0/? | Not started | - |
