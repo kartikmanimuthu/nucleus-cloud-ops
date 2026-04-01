@@ -12,7 +12,7 @@ A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managi
 
 **Goal:** Transform Nucleus Cloud Ops into a standard SaaS product with full multi-tenant isolation, custom per-module RBAC, tenant lifecycle management, and dual auth (Cognito + Credentials).
 
-**Phase 14 complete (2026-04-01):** Tenant context enforcement live — scoped Prisma client factory (`getTenantClient`), DEFAULT_TENANT_ID removed everywhere, LangGraph thread isolation, Lambda tenant iteration, two-tenant isolation test passing.
+**Phase 15 complete (2026-04-01):** Self-service signup + org creation live — /signup page (email/password + Cognito SSO), /create-org page (name + slug with availability check), middleware no-tenant redirect, Tenant slug column added.
 
 **Target features:**
 - Dual Auth (Cognito + Credentials) — NextAuth with both providers, Prisma adapter for user persistence
