@@ -122,9 +122,25 @@ export const authOptions: NextAuthOptions = {
         async session({ session, user }) {
             // Database strategy provides `user` (not `token`)
             // Look up the user's tenant role for session normalization
-            const utr = await prisma.userTenantRole.findFirst({
+            let utr = await prisma.userTenantRole.findFirst({
                 where: { userId: user.id },
             });
+
+            // D-14: If user has no tenant role, check for pending invitations and accept them.
+            // This handles first login after receiving a Cognito invitation email.
+            if (!utr) {
+                try {
+                    const { InvitationService } = await import("@/lib/invitation-service");
+                    await InvitationService.acceptPendingInvitation(user.id, user.email ?? "");
+                    // Re-query after acceptance
+                    utr = await prisma.userTenantRole.findFirst({
+                        where: { userId: user.id },
+                    });
+                } catch (err) {
+                    // Invitation acceptance failure must not break login
+                    console.error("session callback: acceptPendingInvitation failed:", err);
+                }
+            }
 
             session.user = {
                 id: user.id,
