@@ -16,9 +16,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { OrgSwitcher } from "@/components/settings/org-switcher"
 import {
   LayoutDashboard,
-  Calendar,
   Server,
   Activity,
   Settings,
@@ -35,6 +35,7 @@ import {
   BookOpen,
   Globe,
   FileText,
+  Calendar,
 } from "lucide-react"
 
 const navigation = [
@@ -77,16 +78,9 @@ export function Sidebar() {
         collapsed ? "w-16" : "w-64",
       )}
     >
-      {/* Header */}
+      {/* Header — Org Switcher */}
       <div className="flex items-center justify-between p-4 border-b border-border">
-        {!collapsed && (
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <Calendar className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <span className="font-semibold text-base text-foreground">Nucleus Cloud Ops</span>
-          </div>
-        )}
+        <OrgSwitcher collapsed={collapsed} />
         <div className="flex items-center space-x-1">
           {!collapsed && <ThemeToggle />}
           <Button
