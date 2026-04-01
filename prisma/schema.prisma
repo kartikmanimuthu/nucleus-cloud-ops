@@ -473,6 +473,26 @@ model CustomRole {
   @@map("custom_roles")
 }
 
+// Invitation — tracks user invitations sent via Cognito AdminCreateUser (Phase 16)
+// status: pending|accepted|revoked|expired — enforced via CHECK constraint in migration SQL
+// Tenant-scoped: every query must include tenantId (enforced by getTenantClient middleware)
+model Invitation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String
+  role      String
+  invitedBy String
+  status    String   @default("pending") // pending|accepted|revoked|expired
+  createdAt DateTime @default(now())
+  expiresAt DateTime // 7 days from creation (Cognito TemporaryPasswordValidityDays)
+
+  @@unique([tenantId, email, status]) // prevent duplicate pending invites
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([email])
+  @@map("invitations")
+}
+
 // === NextAuth Prisma Adapter Models ===
 // Per D-05: database sessions (not JWT) for suspension enforcement
 // @@map to auth_* tables to avoid collision with existing Account model

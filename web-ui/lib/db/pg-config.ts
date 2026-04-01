@@ -76,6 +76,7 @@ export const TENANT_SCOPED_MODELS = new Set([
     'CustomRole',
     'UserTenantRole',
     'TenantConfig',
+    'Invitation',
 ]);
 
 /**
