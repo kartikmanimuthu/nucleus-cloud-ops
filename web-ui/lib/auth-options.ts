@@ -106,31 +106,33 @@ export const authOptions: NextAuthOptions = {
         error: "/login",
     },
     callbacks: {
-        async jwt({ token, user }) {
-            // On initial sign-in (user is present), enrich token with tenant info.
-            // With JWT strategy this runs on every request but DB queries are guarded by `if (user)`.
-            if (user) {
+        async jwt({ token, user, trigger }) {
+            // On initial sign-in (user is present) OR session update (e.g. after org creation),
+            // re-query tenant info from DB.
+            if (user || trigger === "update") {
+                const userId = user?.id ?? (token.sub as string);
                 // Per D-07: Prefer activeTenantId if set, otherwise fall back to findFirst
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const activeTenantId = (user as any).activeTenantId;
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const activeTenantId = (user as any)?.activeTenantId ?? null;
                 let utr;
                 if (activeTenantId) {
                     utr = await prisma.userTenantRole.findFirst({
-                        where: { userId: user.id, tenantId: activeTenantId },
+                        where: { userId, tenantId: activeTenantId },
                     });
                 }
                 if (!utr) {
                     utr = await prisma.userTenantRole.findFirst({
-                        where: { userId: user.id },
+                        where: { userId },
                     });
                 }
-                // D-14: Accept pending invitations on first login with no tenant
-                if (!utr) {
+                // D-14: Accept pending invitations on first login with no tenant (sign-in only)
+                if (!utr && user) {
                     try {
                         const { InvitationService } = await import("@/lib/invitation-service");
-                        await InvitationService.acceptPendingInvitation(user.id, user.email ?? "");
+                        await InvitationService.acceptPendingInvitation(userId, user.email ?? "");
                         utr = await prisma.userTenantRole.findFirst({
-                            where: { userId: user.id },
+                            where: { userId },
                         });
                     } catch (err) {
                         console.error("jwt callback: acceptPendingInvitation failed:", err);
@@ -138,9 +140,11 @@ export const authOptions: NextAuthOptions = {
                 }
                 token.tenantId = utr?.tenantId ?? null;
                 token.role = utr?.role ?? null;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                token.isSuperAdmin = (user as any).isSuperAdmin ?? false;
-                token.email = user.email;
+                if (user) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    token.isSuperAdmin = (user as any).isSuperAdmin ?? false;
+                    token.email = user.email;
+                }
             }
             return token;
         },
