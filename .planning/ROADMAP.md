@@ -29,7 +29,7 @@ See [archive](milestones/v2.0-ROADMAP.md) for full phase details.
 - [x] **Phase 12: Auth Foundation** - Dual auth (Cognito + Credentials), Prisma adapter, session normalization with tenantId/role/isSuperAdmin (completed 2026-03-31)
 - [x] **Phase 13: Custom RBAC** - Replace CASL with static role/permission map; migrate all API routes; remove @casl/ability (completed 2026-03-31)
 - [x] **Phase 14: Tenant Context Enforcement** - Scoped Prisma client factory; remove DEFAULT_TENANT_ID fallbacks; Lambda + LangGraph tenant isolation (completed 2026-04-01)
-- [ ] **Phase 15: Super Admin + Onboarding + Suspension** - Self-service signup + org creation (ADMIN/SUSP deferred to future phase)
+- [x] **Phase 15: Super Admin + Onboarding + Suspension** - Self-service signup + org creation (ADMIN/SUSP deferred to future phase) (completed 2026-04-01)
 - [ ] **Phase 16: User Invitations + Onboarding Completion** - Email invitations via Resend, accept/decline flow, multi-org membership
 - [ ] **Phase 17: Org Switcher + Tenant Settings** - Header org dropdown, session-based tenant switch, settings form + logo upload
 
@@ -100,7 +100,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 15-01-PLAN.md — Schema migration (Tenant slug) + backend APIs (signup, slug check, org creation)
-- [ ] 15-02-PLAN.md — Middleware no-tenant redirect + UI pages (signup, create-org, login footer)
+- [x] 15-02-PLAN.md — Middleware no-tenant redirect + UI pages (signup, create-org, login footer)
 **UI hint**: yes
 
 ### Phase 16: User Invitations + Onboarding Completion
@@ -138,6 +138,6 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | 12. Auth Foundation | v3.0 | 3/3 | Complete    | 2026-03-31 |
 | 13. Custom RBAC | v3.0 | 4/4 | Complete    | 2026-03-31 |
 | 14. Tenant Context Enforcement | v3.0 | 4/4 | Complete    | 2026-04-01 |
-| 15. Super Admin + Onboarding + Suspension | v3.0 | 1/2 | In Progress|  |
+| 15. Super Admin + Onboarding + Suspension | v3.0 | 2/2 | Complete   | 2026-04-01 |
 | 16. User Invitations + Onboarding Completion | v3.0 | 0/? | Not started | - |
 | 17. Org Switcher + Tenant Settings | v3.0 | 0/? | Not started | - |
