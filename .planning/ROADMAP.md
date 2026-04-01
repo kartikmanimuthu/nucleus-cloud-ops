@@ -28,7 +28,7 @@ See [archive](milestones/v2.0-ROADMAP.md) for full phase details.
 
 - [x] **Phase 12: Auth Foundation** - Dual auth (Cognito + Credentials), Prisma adapter, session normalization with tenantId/role/isSuperAdmin (completed 2026-03-31)
 - [x] **Phase 13: Custom RBAC** - Replace CASL with static role/permission map; migrate all API routes; remove @casl/ability (completed 2026-03-31)
-- [ ] **Phase 14: Tenant Context Enforcement** - Scoped Prisma client factory; remove DEFAULT_TENANT_ID fallbacks; Lambda + LangGraph tenant isolation
+- [x] **Phase 14: Tenant Context Enforcement** - Scoped Prisma client factory; remove DEFAULT_TENANT_ID fallbacks; Lambda + LangGraph tenant isolation (completed 2026-04-01)
 - [ ] **Phase 15: Super Admin + Onboarding + Suspension** - /admin panel, tenant CRUD, two-mode suspension with immediate session invalidation
 - [ ] **Phase 16: User Invitations + Onboarding Completion** - Email invitations via Resend, accept/decline flow, multi-org membership
 - [ ] **Phase 17: Org Switcher + Tenant Settings** - Header org dropdown, session-based tenant switch, settings form + logo upload
@@ -84,7 +84,7 @@ Plans:
 - [x] 14-01-PLAN.md — Scoped Prisma client factory + DEFAULT_TENANT_ID removal from services/routes
 - [x] 14-02-PLAN.md — LangGraph thread isolation (namespaced IDs, tenant validation, persistence bug fix)
 - [x] 14-03-PLAN.md — Lambda tenant isolation (scheduler iteration + discovery tagging)
-- [ ] 14-04-PLAN.md — Two-tenant isolation integration test
+- [x] 14-04-PLAN.md — Two-tenant isolation integration test
 
 ### Phase 15: Super Admin + Onboarding + Suspension
 **Goal**: Super admin can create, manage, and suspend tenants; suspension is enforced immediately across all active sessions
@@ -133,7 +133,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 |-------|-----------|----------------|--------|-----------|
 | 12. Auth Foundation | v3.0 | 3/3 | Complete    | 2026-03-31 |
 | 13. Custom RBAC | v3.0 | 4/4 | Complete    | 2026-03-31 |
-| 14. Tenant Context Enforcement | v3.0 | 3/4 | In Progress|  |
+| 14. Tenant Context Enforcement | v3.0 | 4/4 | Complete   | 2026-04-01 |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 0/? | Not started | - |
 | 16. User Invitations + Onboarding Completion | v3.0 | 0/? | Not started | - |
 | 17. Org Switcher + Tenant Settings | v3.0 | 0/? | Not started | - |

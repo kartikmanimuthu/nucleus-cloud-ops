@@ -32,7 +32,7 @@
 - [x] **ISOL-03**: Scheduler Lambda includes `tenant_id` filter in all queries and skips schedules for suspended tenants
 - [x] **ISOL-04**: Discovery Lambda includes `tenant_id` in all inventory writes and SQS message attributes
 - [x] **ISOL-05**: LangGraph thread IDs namespaced as `tenantId:userId:uuid`; thread load validates embedded tenantId matches session
-- [ ] **ISOL-06**: Two-tenant isolation test verifies that Tenant A cannot read/write Tenant B's data across all modules
+- [x] **ISOL-06**: Two-tenant isolation test verifies that Tenant A cannot read/write Tenant B's data across all modules
 
 ### Super Admin Panel
 
@@ -131,7 +131,7 @@
 | ISOL-03 | Phase 14 | Complete |
 | ISOL-04 | Phase 14 | Complete |
 | ISOL-05 | Phase 14 | Complete |
-| ISOL-06 | Phase 14 | Pending |
+| ISOL-06 | Phase 14 | Complete |
 | ADMIN-01 | Phase 15 | Pending |
 | ADMIN-02 | Phase 15 | Pending |
 | ADMIN-03 | Phase 15 | Pending |
