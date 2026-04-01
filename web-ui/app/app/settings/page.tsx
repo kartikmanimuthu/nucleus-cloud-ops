@@ -44,6 +44,14 @@ export default function SettingsPage() {
             <Users className="mr-2 h-4 w-4" />
             Roles
           </TabsTrigger>
+          <TabsTrigger
+            value="members"
+            className="data-[state=active]:bg-background"
+            onClick={() => router.push("/app/settings/members")}
+          >
+            <Users className="mr-2 h-4 w-4" />
+            Members
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="appearance" className="space-y-4">
