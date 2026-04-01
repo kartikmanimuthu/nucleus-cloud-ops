@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Multi-Tenancy
 status: executing
-stopped_at: Completed 14-02-PLAN.md
-last_updated: "2026-04-01T09:02:59.482Z"
+stopped_at: Completed 14-03-PLAN.md
+last_updated: "2026-04-01T09:50:07.304Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 ## Current Position
 
 Phase: 14 (tenant-context-enforcement) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 13 P04 | 8 | 3 tasks | 5 files |
 | Phase 14-tenant-context-enforcement P01 | 2449 | 2 tasks | 21 files |
 | Phase 14 P02 | 1199 | 2 tasks | 6 files |
+| Phase 14 P03 | 18 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 14-tenant-context-enforcement]: Tenant.status uses plain String with CHECK constraint in migration SQL — consistent with existing pattern
 - [Phase 14]: Thread ID format tenantId:userId:timestamp embeds tenant for O(1) validation without DB lookup
 - [Phase 14]: Legacy bare threads (no colon) allowed for owning user only — backward compatible with existing DynamoDB data
+- [Phase 14]: tenantId guard in processSchedule skips schedules without tenantId (returns 0/0/0) rather than throwing
+- [Phase 14]: Discovery Lambda skips entire account if tenant_id unresolvable (fail loudly, no silent default)
+- [Phase 14]: DynamoDB fallback path in runFullScan preserved for USE_PG_SCHEDULES=false (backward compat)
 
 ### Pending Todos
 
@@ -97,6 +101,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-04-01T09:02:59.479Z
-Stopped at: Completed 14-02-PLAN.md
+Last session: 2026-04-01T09:50:07.301Z
+Stopped at: Completed 14-03-PLAN.md
 Resume file: None

@@ -29,8 +29,8 @@
 
 - [x] **ISOL-01**: Scoped Prisma client factory (`getTenantClient(tenantId)`) using Prisma Client Extensions enforces `tenant_id` on every query
 - [x] **ISOL-02**: All `DEFAULT_TENANT_ID` fallbacks removed from service layer; missing tenant_id is a hard error
-- [ ] **ISOL-03**: Scheduler Lambda includes `tenant_id` filter in all queries and skips schedules for suspended tenants
-- [ ] **ISOL-04**: Discovery Lambda includes `tenant_id` in all inventory writes and SQS message attributes
+- [x] **ISOL-03**: Scheduler Lambda includes `tenant_id` filter in all queries and skips schedules for suspended tenants
+- [x] **ISOL-04**: Discovery Lambda includes `tenant_id` in all inventory writes and SQS message attributes
 - [x] **ISOL-05**: LangGraph thread IDs namespaced as `tenantId:userId:uuid`; thread load validates embedded tenantId matches session
 - [ ] **ISOL-06**: Two-tenant isolation test verifies that Tenant A cannot read/write Tenant B's data across all modules
 
@@ -128,8 +128,8 @@
 | RBAC-07 | Phase 13 | Complete |
 | ISOL-01 | Phase 14 | Complete |
 | ISOL-02 | Phase 14 | Complete |
-| ISOL-03 | Phase 14 | Pending |
-| ISOL-04 | Phase 14 | Pending |
+| ISOL-03 | Phase 14 | Complete |
+| ISOL-04 | Phase 14 | Complete |
 | ISOL-05 | Phase 14 | Complete |
 | ISOL-06 | Phase 14 | Pending |
 | ADMIN-01 | Phase 15 | Pending |
