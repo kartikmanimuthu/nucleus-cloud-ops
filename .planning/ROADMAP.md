@@ -29,7 +29,7 @@ See [archive](milestones/v2.0-ROADMAP.md) for full phase details.
 - [x] **Phase 12: Auth Foundation** - Dual auth (Cognito + Credentials), Prisma adapter, session normalization with tenantId/role/isSuperAdmin (completed 2026-03-31)
 - [x] **Phase 13: Custom RBAC** - Replace CASL with static role/permission map; migrate all API routes; remove @casl/ability (completed 2026-03-31)
 - [x] **Phase 14: Tenant Context Enforcement** - Scoped Prisma client factory; remove DEFAULT_TENANT_ID fallbacks; Lambda + LangGraph tenant isolation (completed 2026-04-01)
-- [ ] **Phase 15: Super Admin + Onboarding + Suspension** - /admin panel, tenant CRUD, two-mode suspension with immediate session invalidation
+- [ ] **Phase 15: Super Admin + Onboarding + Suspension** - Self-service signup + org creation (ADMIN/SUSP deferred to future phase)
 - [ ] **Phase 16: User Invitations + Onboarding Completion** - Email invitations via Resend, accept/decline flow, multi-org membership
 - [ ] **Phase 17: Org Switcher + Tenant Settings** - Header org dropdown, session-based tenant switch, settings form + logo upload
 
@@ -87,16 +87,20 @@ Plans:
 - [x] 14-04-PLAN.md — Two-tenant isolation integration test
 
 ### Phase 15: Super Admin + Onboarding + Suspension
-**Goal**: Super admin can create, manage, and suspend tenants; suspension is enforced immediately across all active sessions
+**Goal**: Users can self-service sign up and create their own organization; authenticated users without a tenant are redirected to org creation
 **Depends on**: Phase 14
 **Requirements**: ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04, ADMIN-05, ADMIN-06, ADMIN-07, ONBD-01, SUSP-01, SUSP-02, SUSP-03, SUSP-04
+**Scope note**: User decided self-service onboarding replaces admin-initiated onboarding. ADMIN-01–07 and SUSP-01–04 deferred to a future phase per CONTEXT.md. This phase implements ONBD-01 only.
 **Success Criteria** (what must be TRUE):
-  1. Super admin can create a new tenant (name, slug, timezone) and see it in the tenant list with status and user count
-  2. Super admin can suspend a tenant in read-only mode; tenant users see a suspension banner and all write/delete API calls return 423
-  3. Super admin can suspend a tenant in locked mode; tenant users cannot log in and all API calls return 423
-  4. On suspension, all active database sessions for the tenant's users are deleted immediately (no grace period)
-  5. All admin actions (create, suspend, unsuspend) appear in the audit log with actor, action, timestamp, and target tenant
-**Plans**: TBD
+  1. New user can sign up via email/password or Cognito SSO on /signup
+  2. After login, user without a tenant is redirected to /create-org by middleware
+  3. User can create an org (name + slug) and be assigned Owner role automatically
+  4. Slug uniqueness is enforced with real-time availability check
+  5. Login page links to signup; signup page links back to login
+**Plans**: 2 plans
+Plans:
+- [ ] 15-01-PLAN.md — Schema migration (Tenant slug) + backend APIs (signup, slug check, org creation)
+- [ ] 15-02-PLAN.md — Middleware no-tenant redirect + UI pages (signup, create-org, login footer)
 **UI hint**: yes
 
 ### Phase 16: User Invitations + Onboarding Completion
@@ -134,6 +138,6 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | 12. Auth Foundation | v3.0 | 3/3 | Complete    | 2026-03-31 |
 | 13. Custom RBAC | v3.0 | 4/4 | Complete    | 2026-03-31 |
 | 14. Tenant Context Enforcement | v3.0 | 4/4 | Complete    | 2026-04-01 |
-| 15. Super Admin + Onboarding + Suspension | v3.0 | 0/? | Not started | - |
+| 15. Super Admin + Onboarding + Suspension | v3.0 | 0/2 | Not started | - |
 | 16. User Invitations + Onboarding Completion | v3.0 | 0/? | Not started | - |
 | 17. Org Switcher + Tenant Settings | v3.0 | 0/? | Not started | - |
