@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSessionUserId } from '@/lib/auth-session';
+import { getSessionUserId, getSessionTenantId } from '@/lib/auth-session';
 
 interface NormalizedThread {
     id: string;
@@ -12,10 +12,16 @@ interface NormalizedThread {
 
 export async function GET() {
     try {
+        let tenantId: string;
+        let userId: string;
+        try {
+            tenantId = await getSessionTenantId();
+            userId = await getSessionUserId();
+        } catch {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
         if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
-            try { await getSessionUserId(); } catch {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-            }
             // Scan all users' session metadata to enable shared history across users
             const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb');
             const { DynamoDBDocument } = await import('@aws-sdk/lib-dynamodb');
@@ -41,6 +47,14 @@ export async function GET() {
 
             const normalized: NormalizedThread[] = allItems
                 .filter((item) => item.sessionId && item.userId)
+                .filter((item) => {
+                    // Tenant-scoped threads: sessionId starts with tenantId:
+                    if (item.sessionId.includes(':')) {
+                        return item.sessionId.startsWith(tenantId + ':');
+                    }
+                    // Legacy threads (no tenant prefix): only show to the owning user
+                    return item.userId === userId;
+                })
                 .map((item) => ({
                     id: item.sessionId,
                     title: item.title ?? 'Untitled',
@@ -65,11 +79,24 @@ export async function POST(req: Request) {
         const { id, title, model } = await req.json();
         if (!id) return NextResponse.json({ error: 'Thread ID is required' }, { status: 400 });
 
-        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
-            let userId: string;
-            try { userId = await getSessionUserId(); } catch {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        let tenantId: string;
+        let userId: string;
+        try {
+            tenantId = await getSessionTenantId();
+            userId = await getSessionUserId();
+        } catch {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        // Validate tenant ownership if thread ID is namespaced
+        if (id.includes(':')) {
+            const [embeddedTenantId] = id.split(':');
+            if (embeddedTenantId !== tenantId) {
+                return NextResponse.json({ error: 'Forbidden: thread belongs to another tenant' }, { status: 403 });
             }
+        }
+
+        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
             // Seed metadata only — no empty HumanMessage
             const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb');
             const { DynamoDBDocument } = await import('@aws-sdk/lib-dynamodb');
