@@ -12,14 +12,17 @@ datasource db {
 
 // Tenants — parent entity for all multi-tenant data
 // Mirrors the TENANT#<tenantId> PK namespace from DynamoDB
+// status: active|suspended — enforced via CHECK constraint in migration SQL
 model Tenant {
   id        String   @id @default(cuid())
   name      String
+  status    String   @default("active") // active|suspended
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   configs TenantConfig[]
 
+  @@index([status])
   @@map("tenants")
 }
 
