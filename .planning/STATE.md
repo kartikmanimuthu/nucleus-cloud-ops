@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Multi-Tenancy
 status: executing
-stopped_at: Completed 17-01-PLAN.md
-last_updated: "2026-04-01T18:22:05.087Z"
+stopped_at: Completed 17-02-PLAN.md
+last_updated: "2026-04-01T18:22:22.791Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 15 P02 | 4 | 3 tasks | 4 files |
 | Phase 16 P01 | 4 | 2 tasks | 10 files |
 | Phase 17-org-switcher-tenant-settings P01 | 18 | 2 tasks | 6 files |
+| Phase 17-org-switcher-tenant-settings P02 | 3 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 17-org-switcher-tenant-settings]: activeTenantId stored on AuthUser (not session table) — persists across sessions, survives logout
 - [Phase 17-org-switcher-tenant-settings]: Switch API validates UserTenantRole membership before setting activeTenantId — prevents tenant hopping
 - [Phase 17-org-switcher-tenant-settings]: Session callback falls through to generic findFirst if activeTenantId is stale (user removed from org)
+- [Phase 17-org-switcher-tenant-settings]: Tenant.name updated directly on Tenant model; timezone+notifications stored in TenantConfig org_settings JSON
+- [Phase 17-org-switcher-tenant-settings]: Logo S3 key pattern: logos/{tenantId}/{timestamp}.{ext} — tenant-scoped prefix prevents cross-tenant access
 
 ### Pending Todos
 
@@ -118,6 +121,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-04-01T18:21:48.524Z
-Stopped at: Completed 17-01-PLAN.md
+Last session: 2026-04-01T18:22:22.788Z
+Stopped at: Completed 17-02-PLAN.md
 Resume file: None

@@ -75,9 +75,9 @@
 
 ### Tenant Settings
 
-- [ ] **STNG-01**: Tenant admin can update org display name, default timezone, and notification preferences from settings page
-- [ ] **STNG-02**: Tenant admin can upload org logo displayed in the header/sidebar
-- [ ] **STNG-03**: Settings stored as JSON field on Tenant model; scoped to tenant-admin role
+- [x] **STNG-01**: Tenant admin can update org display name, default timezone, and notification preferences from settings page
+- [x] **STNG-02**: Tenant admin can upload org logo displayed in the header/sidebar
+- [x] **STNG-03**: Settings stored as JSON field on Tenant model; scoped to tenant-admin role
 
 ## v3.x Requirements (Future)
 
@@ -156,9 +156,9 @@
 | SUSP-02 | Phase 15 | Pending |
 | SUSP-03 | Phase 15 | Pending |
 | SUSP-04 | Phase 15 | Pending |
-| STNG-01 | Phase 17 | Pending |
-| STNG-02 | Phase 17 | Pending |
-| STNG-03 | Phase 17 | Pending |
+| STNG-01 | Phase 17 | Complete |
+| STNG-02 | Phase 17 | Complete |
+| STNG-03 | Phase 17 | Complete |
 
 **Coverage:**
 - v3.0 requirements: 43 total
