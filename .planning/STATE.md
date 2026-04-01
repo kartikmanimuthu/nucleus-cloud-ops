@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** Standard SaaS multi-tenancy with custom per-module RBAC, tenant lifecycle management, and dual auth
-**Current focus:** Phase 14 — tenant-context-enforcement
+**Current focus:** Phase 15 — super-admin-onboarding-suspension
 
 ## Current Position
 
