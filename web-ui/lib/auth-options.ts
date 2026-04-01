@@ -22,7 +22,7 @@ export const authOptions: NextAuthOptions = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     adapter: PrismaAdapter(prismaForAuth as any),
     session: {
-        strategy: "database",
+        strategy: "jwt",
         maxAge: 24 * 60 * 60, // 24 hours per D-06
     },
     providers: [
@@ -43,9 +43,10 @@ export const authOptions: NextAuthOptions = {
 
                 const user = await prisma.authUser.findUnique({ where: { email } });
 
-                // User not found or Cognito-only user (no password hash)
-                if (!user || !user.passwordHash) {
-                    return null;
+                if (!user) return null;
+                // Cognito-only user (no password hash) — surface a helpful message
+                if (!user.passwordHash) {
+                    throw new Error("This account uses SSO. Please sign in with the SSO tab.");
                 }
 
                 // Check account lockout (D-11: 15 min lockout after 5 failed attempts)
@@ -106,10 +107,11 @@ export const authOptions: NextAuthOptions = {
     },
     callbacks: {
         async jwt({ token, user }) {
-            // On initial sign-in, enrich token with tenant info for middleware
-            // (middleware reads JWT, not database session — even with database strategy)
+            // On initial sign-in (user is present), enrich token with tenant info.
+            // With JWT strategy this runs on every request but DB queries are guarded by `if (user)`.
             if (user) {
                 // Per D-07: Prefer activeTenantId if set, otherwise fall back to findFirst
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const activeTenantId = (user as any).activeTenantId;
                 let utr;
                 if (activeTenantId) {
@@ -122,56 +124,35 @@ export const authOptions: NextAuthOptions = {
                         where: { userId: user.id },
                     });
                 }
+                // D-14: Accept pending invitations on first login with no tenant
+                if (!utr) {
+                    try {
+                        const { InvitationService } = await import("@/lib/invitation-service");
+                        await InvitationService.acceptPendingInvitation(user.id, user.email ?? "");
+                        utr = await prisma.userTenantRole.findFirst({
+                            where: { userId: user.id },
+                        });
+                    } catch (err) {
+                        console.error("jwt callback: acceptPendingInvitation failed:", err);
+                    }
+                }
                 token.tenantId = utr?.tenantId ?? null;
                 token.role = utr?.role ?? null;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 token.isSuperAdmin = (user as any).isSuperAdmin ?? false;
+                token.email = user.email;
             }
             return token;
         },
-        async session({ session, user }) {
-            // Database strategy provides `user` (not `token`)
-            // Per D-07: Prefer activeTenantId if set, otherwise fall back to findFirst
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const activeTenantId = (user as any).activeTenantId;
-            let utr;
-            if (activeTenantId) {
-                utr = await prisma.userTenantRole.findFirst({
-                    where: { userId: user.id, tenantId: activeTenantId },
-                });
-            }
-            // Fallback: first tenant role (original behavior)
-            if (!utr) {
-                utr = await prisma.userTenantRole.findFirst({
-                    where: { userId: user.id },
-                });
-            }
-
-            // D-14: If user has no tenant role, check for pending invitations and accept them.
-            // This handles first login after receiving a Cognito invitation email.
-            if (!utr) {
-                try {
-                    const { InvitationService } = await import("@/lib/invitation-service");
-                    await InvitationService.acceptPendingInvitation(user.id, user.email ?? "");
-                    // Re-query after acceptance
-                    utr = await prisma.userTenantRole.findFirst({
-                        where: { userId: user.id },
-                    });
-                } catch (err) {
-                    // Invitation acceptance failure must not break login
-                    console.error("session callback: acceptPendingInvitation failed:", err);
-                }
-            }
-
+        async session({ session, token }) {
+            // JWT strategy provides `token` (not `user`)
             session.user = {
-                id: user.id,
-                email: user.email ?? "",
-                tenantId: utr?.tenantId ?? null,
-                role: utr?.role ?? null,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                isSuperAdmin: (user as any).isSuperAdmin ?? false,
+                id: token.sub as string,
+                email: (token.email as string) ?? "",
+                tenantId: (token.tenantId as string | null) ?? null,
+                role: (token.role as string | null) ?? null,
+                isSuperAdmin: (token.isSuperAdmin as boolean) ?? false,
             };
-
             return session;
         },
         async redirect({ url, baseUrl }) {
