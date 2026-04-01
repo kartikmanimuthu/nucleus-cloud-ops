@@ -99,7 +99,7 @@ Plans:
   5. Login page links to signup; signup page links back to login
 **Plans**: 2 plans
 Plans:
-- [ ] 15-01-PLAN.md — Schema migration (Tenant slug) + backend APIs (signup, slug check, org creation)
+- [x] 15-01-PLAN.md — Schema migration (Tenant slug) + backend APIs (signup, slug check, org creation)
 - [ ] 15-02-PLAN.md — Middleware no-tenant redirect + UI pages (signup, create-org, login footer)
 **UI hint**: yes
 
@@ -138,6 +138,6 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | 12. Auth Foundation | v3.0 | 3/3 | Complete    | 2026-03-31 |
 | 13. Custom RBAC | v3.0 | 4/4 | Complete    | 2026-03-31 |
 | 14. Tenant Context Enforcement | v3.0 | 4/4 | Complete    | 2026-04-01 |
-| 15. Super Admin + Onboarding + Suspension | v3.0 | 0/2 | Not started | - |
+| 15. Super Admin + Onboarding + Suspension | v3.0 | 1/2 | In Progress|  |
 | 16. User Invitations + Onboarding Completion | v3.0 | 0/? | Not started | - |
 | 17. Org Switcher + Tenant Settings | v3.0 | 0/? | Not started | - |

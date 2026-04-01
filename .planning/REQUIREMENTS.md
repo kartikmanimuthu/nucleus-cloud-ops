@@ -46,7 +46,7 @@
 
 ### Tenant Onboarding
 
-- [ ] **ONBD-01**: Tenant creation generates a Tenant record (status=active) with slug, display name, and default settings
+- [x] **ONBD-01**: Tenant creation generates a Tenant record (status=active) with slug, display name, and default settings
 - [ ] **ONBD-02**: Root user receives an invitation email with a signed token (48h expiry) to set up their account
 - [ ] **ONBD-03**: Root user can accept invite via Credentials (set password) or Cognito (SSO) — assigned Owner role automatically
 
@@ -139,7 +139,7 @@
 | ADMIN-05 | Phase 15 | Pending |
 | ADMIN-06 | Phase 15 | Pending |
 | ADMIN-07 | Phase 15 | Pending |
-| ONBD-01 | Phase 15 | Pending |
+| ONBD-01 | Phase 15 | Complete |
 | ONBD-02 | Phase 16 | Pending |
 | ONBD-03 | Phase 16 | Pending |
 | INVT-01 | Phase 16 | Pending |

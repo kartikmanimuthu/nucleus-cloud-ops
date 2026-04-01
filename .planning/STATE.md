@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Multi-Tenancy
-status: verifying
-stopped_at: Phase 15 context gathered
-last_updated: "2026-04-01T13:55:10.001Z"
+status: executing
+stopped_at: Completed 15-01-PLAN.md
+last_updated: "2026-04-01T15:23:41.233Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 13
+  completed_plans: 12
   percent: 0
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 ## Current Position
 
 Phase: 15
-Plan: Not started
-Status: Phase complete — ready for verification
+Plan: 1 of 2
+Status: Executing
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0%
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 14 P02 | 1199 | 2 tasks | 6 files |
 | Phase 14 P03 | 18 | 2 tasks | 7 files |
 | Phase 14-tenant-context-enforcement P04 | 902 | 1 tasks | 1 files |
+| Phase 15 P01 | 21 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 14]: Discovery Lambda skips entire account if tenant_id unresolvable (fail loudly, no silent default)
 - [Phase 14]: DynamoDB fallback path in runFullScan preserved for USE_PG_SCHEDULES=false (backward compat)
 - [Phase 14-tenant-context-enforcement]: Integration tests run against real PostgreSQL — structural proof of tenant isolation, not mocked unit logic
+- [Phase 15]: slug is String? (nullable) — existing tenants from Phase 14 don't have slugs; new tenants always will
+- [Phase 15]: Signup and tenant creation use getPrismaClient() (unscoped) — user has no tenant yet at registration time
+- [Phase 15]: Slug uniqueness re-checked inside $transaction — prevents TOCTOU race condition between check-slug and create
 
 ### Pending Todos
 
@@ -103,6 +107,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-04-01T13:55:09.997Z
-Stopped at: Phase 15 context gathered
-Resume file: .planning/phases/15-super-admin-onboarding-suspension/15-CONTEXT.md
+Last session: 2026-04-01T15:23:41.229Z
+Stopped at: Completed 15-01-PLAN.md
+Resume file: None
