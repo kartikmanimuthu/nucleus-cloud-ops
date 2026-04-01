@@ -5,9 +5,8 @@ vi.mock('@/lib/db/repository-factory', () => ({
     getScheduleExecutionRepository: vi.fn(),
 }));
 
-// Mock aws-config for DEFAULT_TENANT_ID
+// Mock aws-config (DEFAULT_TENANT_ID removed — tenantId is now always explicit)
 vi.mock('@/lib/aws-config', () => ({
-    DEFAULT_TENANT_ID: 'org-default',
     getDynamoDBDocumentClient: vi.fn(),
     APP_TABLE_NAME: 'test-table',
     AUDIT_TABLE_NAME: 'test-audit-table',
@@ -71,10 +70,10 @@ describe('ScheduleExecutionService', () => {
             mockRepo.getExecutionHistory.mockResolvedValue([makeExecution()]);
 
             const result = await ScheduleExecutionService.getExecutionsForSchedule(
-                'sched-1', 'acc-1', { limit: 10 }
+                'sched-1', 'acc-1', { limit: 10 }, 'test-tenant'
             );
 
-            expect(mockRepo.getExecutionHistory).toHaveBeenCalledWith('sched-1', 'org-default', 10);
+            expect(mockRepo.getExecutionHistory).toHaveBeenCalledWith('sched-1', 'test-tenant', 10);
             expect(result).toHaveLength(1);
         });
 
@@ -94,11 +93,11 @@ describe('ScheduleExecutionService', () => {
                 makeExecution({ executionId: 'exec-2' }),
             ]);
 
-            const result = await ScheduleExecutionService.getExecutionById('sched-1', 'exec-2');
+            const result = await ScheduleExecutionService.getExecutionById('sched-1', 'exec-2', 'test-tenant');
 
             expect(result).not.toBeNull();
             expect(result!.executionId).toBe('exec-2');
-            expect(mockRepo.getExecutionHistory).toHaveBeenCalledWith('sched-1', 'org-default', 200);
+            expect(mockRepo.getExecutionHistory).toHaveBeenCalledWith('sched-1', 'test-tenant', 200);
         });
 
         it('returns null when executionId not found', async () => {
@@ -122,9 +121,9 @@ describe('ScheduleExecutionService', () => {
         it('delegates to repo.getRecentExecutions', async () => {
             mockRepo.getRecentExecutions.mockResolvedValue([makeExecution()]);
 
-            const result = await ScheduleExecutionService.getRecentExecutions({ limit: 5 });
+            const result = await ScheduleExecutionService.getRecentExecutions({ limit: 5, tenantId: 'test-tenant' });
 
-            expect(mockRepo.getRecentExecutions).toHaveBeenCalledWith('org-default', 5);
+            expect(mockRepo.getRecentExecutions).toHaveBeenCalledWith('test-tenant', 5);
             expect(result).toHaveLength(1);
         });
 

@@ -12,9 +12,8 @@ vi.mock('@/lib/audit-service', () => ({
     },
 }));
 
-// Mock aws-config for DEFAULT_TENANT_ID
+// Mock aws-config (DEFAULT_TENANT_ID removed — tenantId is now always explicit)
 vi.mock('@/lib/aws-config', () => ({
-    DEFAULT_TENANT_ID: 'org-default',
     getDynamoDBDocumentClient: vi.fn(),
     APP_TABLE_NAME: 'test-table',
     AUDIT_TABLE_NAME: 'test-audit-table',
@@ -76,17 +75,18 @@ describe('ScheduleService', () => {
     });
 
     describe('getSchedules', () => {
-        it('delegates filters to repo.getSchedules with DEFAULT_TENANT_ID', async () => {
+        it('delegates filters to repo.getSchedules with explicit tenantId', async () => {
             mockRepo.getSchedules.mockResolvedValue({ schedules: [makeSchedule()], total: 1 });
 
             const result = await ScheduleService.getSchedules({
                 statusFilter: 'active',
                 searchTerm: 'test',
+                tenantId: 'test-tenant',
             });
 
             expect(mockRepo.getSchedules).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    tenantId: 'org-default',
+                    tenantId: 'test-tenant',
                     statusFilter: 'active',
                     searchTerm: 'test',
                 })
@@ -164,7 +164,7 @@ describe('ScheduleService', () => {
 
             expect(result).not.toBeNull();
             expect(result!.name).toBe('Found');
-            expect(mockRepo.getSchedule).toHaveBeenCalledWith('sched-1', undefined, 'org-default');
+            expect(mockRepo.getSchedule).toHaveBeenCalledWith('sched-1', undefined, undefined);
         });
 
         it('returns null when not found', async () => {
@@ -190,16 +190,16 @@ describe('ScheduleService', () => {
             mockRepo.createSchedule.mockResolvedValue(created);
 
             const input = makeSchedule({ id: undefined });
-            const result = await ScheduleService.createSchedule(input as any);
+            const result = await ScheduleService.createSchedule(input as any, 'test-tenant');
 
-            expect(mockRepo.createSchedule).toHaveBeenCalledWith(input, 'org-default');
+            expect(mockRepo.createSchedule).toHaveBeenCalledWith(input, 'test-tenant');
             expect(result.id).toBe('sched-new');
         });
 
         it('calls AuditService.logUserAction on success with correct metadata', async () => {
             mockRepo.createSchedule.mockResolvedValue(makeSchedule());
 
-            await ScheduleService.createSchedule(makeSchedule() as any);
+            await ScheduleService.createSchedule(makeSchedule() as any, 'test-tenant');
 
             expect(AuditService.logUserAction).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -207,7 +207,7 @@ describe('ScheduleService', () => {
                     resourceType: 'schedule',
                     status: 'success',
                     metadata: expect.objectContaining({
-                        tenantId: 'org-default',
+                        tenantId: 'test-tenant',
                         accountId: 'acc-1',
                         scheduleName: 'Test Schedule',
                     }),
@@ -243,7 +243,7 @@ describe('ScheduleService', () => {
 
             const result = await ScheduleService.updateSchedule('sched-1', { active: false });
 
-            expect(mockRepo.updateSchedule).toHaveBeenCalledWith('sched-1', { active: false }, 'org-default', undefined);
+            expect(mockRepo.updateSchedule).toHaveBeenCalledWith('sched-1', { active: false }, undefined, undefined);
             expect(result.name).toBe('Updated');
         });
 
@@ -275,8 +275,8 @@ describe('ScheduleService', () => {
 
             await ScheduleService.deleteSchedule('sched-1');
 
-            expect(mockRepo.getSchedule).toHaveBeenCalledWith('sched-1', undefined, 'org-default');
-            expect(mockRepo.deleteSchedule).toHaveBeenCalledWith('sched-1', 'org-default', undefined);
+            expect(mockRepo.getSchedule).toHaveBeenCalledWith('sched-1', undefined, undefined);
+            expect(mockRepo.deleteSchedule).toHaveBeenCalledWith('sched-1', undefined, undefined);
         });
 
         it('calls AuditService.logUserAction on success', async () => {
@@ -321,7 +321,7 @@ describe('ScheduleService', () => {
             expect(mockRepo.updateSchedule).toHaveBeenCalledWith(
                 'sched-1',
                 expect.objectContaining({ active: false }),
-                'org-default',
+                undefined,
                 'acc-1'
             );
         });
@@ -335,7 +335,7 @@ describe('ScheduleService', () => {
             expect(mockRepo.updateSchedule).toHaveBeenCalledWith(
                 'sched-1',
                 expect.objectContaining({ active: true }),
-                'org-default',
+                undefined,
                 'acc-1'
             );
         });
