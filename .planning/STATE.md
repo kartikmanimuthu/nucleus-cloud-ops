@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Multi-Tenancy
 status: executing
-stopped_at: Phase 14 planned — 4 plans in 3 waves
-last_updated: "2026-04-01T07:14:28.760Z"
-last_activity: 2026-03-31
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-04-01T08:37:47.625Z"
+last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 11
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** Standard SaaS multi-tenancy with custom per-module RBAC, tenant lifecycle management, and dual auth
-**Current focus:** Phase 12 — auth-foundation
+**Current focus:** Phase 14 — tenant-context-enforcement
 
 ## Current Position
 
-Phase: 14
-Plan: Not started
+Phase: 14 (tenant-context-enforcement) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-03-31
+Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 13 P03 | 486 | 2 tasks | 7 files |
 | Phase 13-custom-rbac P02 | 12 | 2 tasks | 12 files |
 | Phase 13 P04 | 8 | 3 tasks | 5 files |
+| Phase 14-tenant-context-enforcement P01 | 2449 | 2 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 13-custom-rbac]: CASL fully removed — authorize() is now the sole permission path with no feature flag
 - [Phase 13-custom-rbac]: TenantRole/UserTenantRole kept in types.ts as persistence types for repository layer
 - [Phase 13]: Roles tab navigates to /app/settings/roles sub-page rather than inline TabsContent
+- [Phase 14-tenant-context-enforcement]: getTenantClient uses $extends wrapping getPrismaClient() singleton — created per-request, not cached (D-01/D-03)
+- [Phase 14-tenant-context-enforcement]: Raw SQL ($executeRaw, $queryRawUnsafe) NOT intercepted by tenant hook — callers must manually scope (D-02)
+- [Phase 14-tenant-context-enforcement]: Tenant.status uses plain String with CHECK constraint in migration SQL — consistent with existing pattern
 
 ### Pending Todos
 
@@ -90,6 +94,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-04-01T07:14:28.757Z
-Stopped at: Phase 14 planned — 4 plans in 3 waves
-Resume file: .planning/phases/14-tenant-context-enforcement/14-01-PLAN.md
+Last session: 2026-04-01T08:37:47.622Z
+Stopped at: Completed 14-01-PLAN.md
+Resume file: None
