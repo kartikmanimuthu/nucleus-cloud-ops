@@ -25,7 +25,7 @@ import { createMemoryTools } from "./model-factory";
 
 // --- DEEP GRAPH (Deep Agent Mode) ---
 export async function createDeepGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds } = config;
+    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId, userId } = config as any;
     const checkpointer = await getCheckpointer();
     const store = await getStore();
 
@@ -116,7 +116,7 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
         // webSearchTool,
         getAwsCredentialsTool,
         listAwsAccountsTool,
-        ...(store && config.userId ? createMemoryTools(config.userId) : []),
+        ...(store && tenantId && userId ? createMemoryTools(tenantId, userId) : []),
         ...mcpTools,
     ];
 

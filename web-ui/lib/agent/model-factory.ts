@@ -72,14 +72,14 @@ export interface AssembleToolsOptions {
 }
 
 /**
- * Creates save_memory and search_memory tools bound to a specific userId.
+ * Creates save_memory and search_memory tools bound to a specific tenantId + userId.
  * Exported for agents that manually assemble their tool lists (e.g. deep-agent).
  */
-export function createMemoryTools(userId: string) {
+export function createMemoryTools(tenantId: string, userId: string) {
     return [
         tool(
             async (input: { namespace: string[]; key: string; value: Record<string, unknown> }) => {
-                await saveMemory(userId, input.namespace, input.key, input.value);
+                await saveMemory(tenantId, userId, input.namespace, input.key, input.value);
                 return `Memory saved: ${input.namespace.join('/')}/${input.key}`;
             },
             {
@@ -94,7 +94,7 @@ export function createMemoryTools(userId: string) {
         ),
         tool(
             async (input: { namespacePrefix: string[]; query: string; limit?: number }) => {
-                const results = await searchMemory(userId, input.namespacePrefix, input.query, input.limit ?? 5);
+                const results = await searchMemory(tenantId, userId, input.namespacePrefix, input.query, input.limit ?? 5);
                 if (!results || (results as unknown[]).length === 0) return 'No memories found.';
                 return JSON.stringify(results, null, 2);
             },
@@ -118,7 +118,7 @@ export function createMemoryTools(userId: string) {
 export async function assembleTools(options: AssembleToolsOptions = {}) {
     const { includeS3Tools = false, includeMemoryTools = false, userId, mcpServerIds, tenantId, accounts } = options;
 
-    const memoryTools = (includeMemoryTools && userId) ? createMemoryTools(userId) : [];
+    const memoryTools = (includeMemoryTools && tenantId && userId) ? createMemoryTools(tenantId, userId) : [];
 
     const customTools = [
         executeCommandTool,
