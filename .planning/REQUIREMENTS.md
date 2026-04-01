@@ -31,7 +31,7 @@
 - [x] **ISOL-02**: All `DEFAULT_TENANT_ID` fallbacks removed from service layer; missing tenant_id is a hard error
 - [ ] **ISOL-03**: Scheduler Lambda includes `tenant_id` filter in all queries and skips schedules for suspended tenants
 - [ ] **ISOL-04**: Discovery Lambda includes `tenant_id` in all inventory writes and SQS message attributes
-- [ ] **ISOL-05**: LangGraph thread IDs namespaced as `tenantId:userId:uuid`; thread load validates embedded tenantId matches session
+- [x] **ISOL-05**: LangGraph thread IDs namespaced as `tenantId:userId:uuid`; thread load validates embedded tenantId matches session
 - [ ] **ISOL-06**: Two-tenant isolation test verifies that Tenant A cannot read/write Tenant B's data across all modules
 
 ### Super Admin Panel
@@ -130,7 +130,7 @@
 | ISOL-02 | Phase 14 | Complete |
 | ISOL-03 | Phase 14 | Pending |
 | ISOL-04 | Phase 14 | Pending |
-| ISOL-05 | Phase 14 | Pending |
+| ISOL-05 | Phase 14 | Complete |
 | ISOL-06 | Phase 14 | Pending |
 | ADMIN-01 | Phase 15 | Pending |
 | ADMIN-02 | Phase 15 | Pending |
