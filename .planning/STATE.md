@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 Phase: 17 (final)
 Plan: All complete
 Status: Milestone v3.0 shipped and archived
-Last activity: 2026-04-02
+Last activity: 2026-04-01 - Completed quick task 260402-1et: fix post-login redirect loop cognito and credentials login not navigating to app
 
 Progress: [██████████] 100%
 
@@ -64,6 +64,12 @@ See PROJECT.md Key Decisions table for full log.
 ### Blockers/Concerns
 
 None.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260402-1et | fix post-login redirect loop cognito and credentials login not navigating to app | 2026-04-01 | 8e914bf | [260402-1et-fix-post-login-redirect-loop-cognito-and](.planning/quick/260402-1et-fix-post-login-redirect-loop-cognito-and/) |
 
 ## Session Continuity
 
