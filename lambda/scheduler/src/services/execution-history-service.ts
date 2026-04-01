@@ -7,7 +7,7 @@ import {
     QueryCommand,
     UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { getDynamoDBClient, APP_TABLE_NAME, DEFAULT_TENANT_ID } from './dynamodb-service.js';
+import { getDynamoDBClient, APP_TABLE_NAME } from './dynamodb-service.js';
 import { getExecutionHistory as getExecutionHistoryPg } from './pg-service.js';
 import { logger } from '../utils/logger.js';
 import { calculateTTL } from '../utils/time-utils.js';
@@ -33,7 +33,7 @@ const buildExecutionSK = (timestamp: string, executionId: string) =>
 export interface CreateExecutionParams {
     scheduleId: string;
     scheduleName: string;
-    tenantId?: string;
+    tenantId: string;
     accountId?: string;
     triggeredBy: 'system' | 'web-ui';
 }
@@ -54,7 +54,7 @@ export interface UpdateExecutionParams {
 export async function createExecutionRecord(params: CreateExecutionParams): Promise<ExecutionRecord> {
     const executionId = uuidv4();
     const startTime = new Date().toISOString();
-    const tenantId = params.tenantId || DEFAULT_TENANT_ID;
+    const tenantId = params.tenantId;
     const accountId = params.accountId || 'unknown';
 
     const record: ExecutionRecord = {
@@ -185,7 +185,7 @@ export async function updateExecutionRecord(
  */
 export async function getExecutionHistory(
     scheduleId: string,
-    tenantId = DEFAULT_TENANT_ID,
+    tenantId: string,
     limit = 50
 ): Promise<ExecutionRecord[]> {
     if (USE_PG_SCHEDULES) {
@@ -244,13 +244,13 @@ export async function getRecentExecutions(limit = 100): Promise<ExecutionRecord[
  * 
  * @param scheduleId - The schedule ID to search history for
  * @param serviceArn - The ECS service ARN to find state for
- * @param tenantId - Tenant ID (default: DEFAULT_TENANT_ID)
+ * @param tenantId - Tenant ID for the schedule owner
  * @returns The last desiredCount, or null if not found
  */
 export async function getLastECSServiceState(
     scheduleId: string,
     serviceArn: string,
-    tenantId = DEFAULT_TENANT_ID
+    tenantId: string
 ): Promise<{ desiredCount: number; asg_state?: any } | null> {
     try {
         // Get recent execution history for this schedule
@@ -307,13 +307,13 @@ export async function getLastECSServiceState(
  * 
  * @param scheduleId - The schedule ID to search history for
  * @param instanceArn - The EC2 instance ARN to find state for
- * @param tenantId - Tenant ID (default: DEFAULT_TENANT_ID)
+ * @param tenantId - Tenant ID for the schedule owner
  * @returns The last instance state, or null if not found
  */
 export async function getLastEC2InstanceState(
     scheduleId: string,
     instanceArn: string,
-    tenantId = DEFAULT_TENANT_ID
+    tenantId: string
 ): Promise<{ instanceState: string; instanceType?: string } | null> {
     try {
         // Get recent execution history for this schedule
@@ -349,13 +349,13 @@ export async function getLastEC2InstanceState(
  * 
  * @param scheduleId - The schedule ID to search history for
  * @param instanceArn - The RDS instance ARN to find state for
- * @param tenantId - Tenant ID (default: DEFAULT_TENANT_ID)
+ * @param tenantId - Tenant ID for the schedule owner
  * @returns The last instance state, or null if not found
  */
 export async function getLastRDSInstanceState(
     scheduleId: string,
     instanceArn: string,
-    tenantId = DEFAULT_TENANT_ID
+    tenantId: string
 ): Promise<{ dbInstanceStatus: string; dbInstanceClass?: string } | null> {
     try {
         // Get recent execution history for this schedule
@@ -391,13 +391,13 @@ export async function getLastRDSInstanceState(
  * 
  * @param scheduleId - The schedule ID to search history for
  * @param asgArn - The Auto Scaling Group ARN to find state for
- * @param tenantId - Tenant ID (default: DEFAULT_TENANT_ID)
+ * @param tenantId - Tenant ID for the schedule owner
  * @returns The last ASG capacity values, or null if not found
  */
 export async function getLastASGState(
     scheduleId: string,
     asgArn: string,
-    tenantId = DEFAULT_TENANT_ID
+    tenantId: string
 ): Promise<{ minSize: number; maxSize: number; desiredCapacity: number } | null> {
     try {
         // Get recent execution history for this schedule
