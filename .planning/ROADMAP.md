@@ -31,7 +31,7 @@ See [archive](milestones/v2.0-ROADMAP.md) for full phase details.
 - [x] **Phase 14: Tenant Context Enforcement** - Scoped Prisma client factory; remove DEFAULT_TENANT_ID fallbacks; Lambda + LangGraph tenant isolation (completed 2026-04-01)
 - [x] **Phase 15: Super Admin + Onboarding + Suspension** - Self-service signup + org creation (ADMIN/SUSP deferred to future phase) (completed 2026-04-01)
 - [x] **Phase 16: User Invitations + Onboarding Completion** - Email invitations via Resend, accept/decline flow, multi-org membership (completed 2026-04-01)
-- [ ] **Phase 17: Org Switcher + Tenant Settings** - Header org dropdown, session-based tenant switch, settings form + logo upload
+- [x] **Phase 17: Org Switcher + Tenant Settings** - Header org dropdown, session-based tenant switch, settings form + logo upload (completed 2026-04-01)
 
 ## Phase Details
 
@@ -132,7 +132,7 @@ Plans:
 Plans:
 - [x] 17-01-PLAN.md — Prisma migration (activeTenantId) + session callback + switch API + my-orgs API
 - [x] 17-02-PLAN.md — TenantSettingsService + settings API (GET/PUT) + logo API (presigned URL)
-- [ ] 17-03-PLAN.md — Org switcher sidebar component + Organization settings tab + form + logo upload
+- [x] 17-03-PLAN.md — Org switcher sidebar component + Organization settings tab + form + logo upload
 **UI hint**: yes
 
 ## Progress
@@ -147,4 +147,4 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | 14. Tenant Context Enforcement | v3.0 | 4/4 | Complete    | 2026-04-01 |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 2/2 | Complete    | 2026-04-01 |
 | 16. User Invitations + Onboarding Completion | v3.0 | 2/2 | Complete   | 2026-04-01 |
-| 17. Org Switcher + Tenant Settings | v3.0 | 2/3 | In Progress|  |
+| 17. Org Switcher + Tenant Settings | v3.0 | 3/3 | Complete   | 2026-04-01 |

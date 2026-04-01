@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Multi-Tenancy
-status: executing
-stopped_at: Completed 17-02-PLAN.md
-last_updated: "2026-04-01T18:22:22.791Z"
+status: verifying
+stopped_at: Completed 17-03-PLAN.md
+last_updated: "2026-04-01T18:33:31.324Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 
 Phase: 17 (org-switcher-tenant-settings) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0%
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 16 P01 | 4 | 2 tasks | 10 files |
 | Phase 17-org-switcher-tenant-settings P01 | 18 | 2 tasks | 6 files |
 | Phase 17-org-switcher-tenant-settings P02 | 3 | 2 tasks | 3 files |
+| Phase 17-org-switcher-tenant-settings P03 | 4 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 17-org-switcher-tenant-settings]: Session callback falls through to generic findFirst if activeTenantId is stale (user removed from org)
 - [Phase 17-org-switcher-tenant-settings]: Tenant.name updated directly on Tenant model; timezone+notifications stored in TenantConfig org_settings JSON
 - [Phase 17-org-switcher-tenant-settings]: Logo S3 key pattern: logos/{tenantId}/{timestamp}.{ext} — tenant-scoped prefix prevents cross-tenant access
+- [Phase 17-org-switcher-tenant-settings]: OrgSwitcher replaces static sidebar branding; single-org static display, multi-org DropdownMenu with Check on current org
+- [Phase 17-org-switcher-tenant-settings]: Timezone list uses Intl.supportedValuesOf('timeZone') — no hardcoded list
 
 ### Pending Todos
 
@@ -121,6 +124,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-04-01T18:22:22.788Z
-Stopped at: Completed 17-02-PLAN.md
+Last session: 2026-04-01T18:33:31.321Z
+Stopped at: Completed 17-03-PLAN.md
 Resume file: None
