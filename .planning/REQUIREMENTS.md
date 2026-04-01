@@ -47,17 +47,17 @@
 ### Tenant Onboarding
 
 - [x] **ONBD-01**: Tenant creation generates a Tenant record (status=active) with slug, display name, and default settings
-- [ ] **ONBD-02**: Root user receives an invitation email with a signed token (48h expiry) to set up their account
-- [ ] **ONBD-03**: Root user can accept invite via Credentials (set password) or Cognito (SSO) — assigned Owner role automatically
+- [x] **ONBD-02**: Root user receives an invitation email with a signed token (48h expiry) to set up their account
+- [x] **ONBD-03**: Root user can accept invite via Credentials (set password) or Cognito (SSO) — assigned Owner role automatically
 
 ### User Invitations
 
-- [ ] **INVT-01**: Tenant admin can invite users by email with a pre-assigned role from the tenant settings/members page
-- [ ] **INVT-02**: Invitation generates a cryptographically secure token with 48h expiry stored in Invitation table
-- [ ] **INVT-03**: Invitation email sent via Resend with accept link pointing to `/auth/accept-invite?token=<token>`
-- [ ] **INVT-04**: New user accepting an invite sets password (Credentials) or signs in via Cognito; account created and joined to tenant with pre-assigned role
-- [ ] **INVT-05**: Existing user accepting an invite is added to the tenant with pre-assigned role (multi-org membership)
-- [ ] **INVT-06**: Tenant admin can view pending invitations, resend (resets expiry), or revoke from settings
+- [x] **INVT-01**: Tenant admin can invite users by email with a pre-assigned role from the tenant settings/members page
+- [x] **INVT-02**: Invitation generates a cryptographically secure token with 48h expiry stored in Invitation table
+- [x] **INVT-03**: Invitation email sent via Resend with accept link pointing to `/auth/accept-invite?token=<token>`
+- [x] **INVT-04**: New user accepting an invite sets password (Credentials) or signs in via Cognito; account created and joined to tenant with pre-assigned role
+- [x] **INVT-05**: Existing user accepting an invite is added to the tenant with pre-assigned role (multi-org membership)
+- [x] **INVT-06**: Tenant admin can view pending invitations, resend (resets expiry), or revoke from settings
 
 ### Org Switcher
 
@@ -140,14 +140,14 @@
 | ADMIN-06 | Phase 15 | Pending |
 | ADMIN-07 | Phase 15 | Pending |
 | ONBD-01 | Phase 15 | Complete |
-| ONBD-02 | Phase 16 | Pending |
-| ONBD-03 | Phase 16 | Pending |
-| INVT-01 | Phase 16 | Pending |
-| INVT-02 | Phase 16 | Pending |
-| INVT-03 | Phase 16 | Pending |
-| INVT-04 | Phase 16 | Pending |
-| INVT-05 | Phase 16 | Pending |
-| INVT-06 | Phase 16 | Pending |
+| ONBD-02 | Phase 16 | Complete |
+| ONBD-03 | Phase 16 | Complete |
+| INVT-01 | Phase 16 | Complete |
+| INVT-02 | Phase 16 | Complete |
+| INVT-03 | Phase 16 | Complete |
+| INVT-04 | Phase 16 | Complete |
+| INVT-05 | Phase 16 | Complete |
+| INVT-06 | Phase 16 | Complete |
 | ORGW-01 | Phase 17 | Pending |
 | ORGW-02 | Phase 17 | Pending |
 | ORGW-03 | Phase 17 | Pending |

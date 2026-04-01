@@ -115,7 +115,7 @@ Plans:
   5. Tenant admin can view pending invitations and revoke or resend them from the members page
 **Plans**: 2 plans
 Plans:
-- [ ] 16-01-PLAN.md — Prisma Invitation model + Cognito client + InvitationService + API routes + auth callback
+- [x] 16-01-PLAN.md — Prisma Invitation model + Cognito client + InvitationService + API routes + auth callback
 - [ ] 16-02-PLAN.md — Settings Members tab + members page UI + invite dialog + resend/revoke actions
 **UI hint**: yes
 
@@ -142,5 +142,5 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | 13. Custom RBAC | v3.0 | 4/4 | Complete    | 2026-03-31 |
 | 14. Tenant Context Enforcement | v3.0 | 4/4 | Complete    | 2026-04-01 |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 2/2 | Complete    | 2026-04-01 |
-| 16. User Invitations + Onboarding Completion | v3.0 | 0/2 | Not started | - |
+| 16. User Invitations + Onboarding Completion | v3.0 | 1/2 | In Progress|  |
 | 17. Org Switcher + Tenant Settings | v3.0 | 0/? | Not started | - |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Multi-Tenancy
 status: executing
-stopped_at: Phase 16 context gathered
-last_updated: "2026-04-01T15:59:58.237Z"
+stopped_at: Completed 16-01-PLAN.md
+last_updated: "2026-04-01T17:06:43.269Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 15
+  completed_plans: 14
   percent: 0
 ---
 
@@ -21,12 +21,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** Standard SaaS multi-tenancy with custom per-module RBAC, tenant lifecycle management, and dual auth
-**Current focus:** Phase 15 — super-admin-onboarding-suspension
+**Current focus:** Phase 16 — user-invitations-onboarding-completion
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
+Phase: 16 (user-invitations-onboarding-completion) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 14-tenant-context-enforcement P04 | 902 | 1 tasks | 1 files |
 | Phase 15 P01 | 21 | 2 tasks | 5 files |
 | Phase 15 P02 | 4 | 3 tasks | 4 files |
+| Phase 16 P01 | 4 | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,8 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 15]: /signup excluded from middleware matcher (like /login) — fully public
 - [Phase 15]: Auto-sign-in after registration via signIn('credentials') — middleware redirects to /create-org
 - [Phase 15]: Session update() after org creation refreshes JWT tenantId before dashboard redirect
+- [Phase 16]: Dynamic import() for InvitationService in session callback avoids circular dependency
+- [Phase 16]: acceptPendingInvitation wrapped in try/catch so invitation failures never break login
 
 ### Pending Todos
 
@@ -111,6 +114,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-04-01T15:59:58.233Z
-Stopped at: Phase 16 context gathered
-Resume file: .planning/phases/16-user-invitations-onboarding-completion/16-CONTEXT.md
+Last session: 2026-04-01T17:06:43.265Z
+Stopped at: Completed 16-01-PLAN.md
+Resume file: None
