@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Multi-Tenancy
 status: executing
-stopped_at: Phase 17 plans verified
-last_updated: "2026-04-01T18:14:07.073Z"
+stopped_at: Completed 17-01-PLAN.md
+last_updated: "2026-04-01T18:22:05.087Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 18
-  completed_plans: 15
+  completed_plans: 17
   percent: 0
 ---
 
@@ -21,12 +21,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** Standard SaaS multi-tenancy with custom per-module RBAC, tenant lifecycle management, and dual auth
-**Current focus:** Phase 16 — user-invitations-onboarding-completion
+**Current focus:** Phase 17 — org-switcher-tenant-settings
 
 ## Current Position
 
-Phase: 16 (user-invitations-onboarding-completion) — EXECUTING
-Plan: 2 of 2
+Phase: 17 (org-switcher-tenant-settings) — EXECUTING
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-01
 
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 15 P01 | 21 | 2 tasks | 5 files |
 | Phase 15 P02 | 4 | 3 tasks | 4 files |
 | Phase 16 P01 | 4 | 2 tasks | 10 files |
+| Phase 17-org-switcher-tenant-settings P01 | 18 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 15]: Session update() after org creation refreshes JWT tenantId before dashboard redirect
 - [Phase 16]: Dynamic import() for InvitationService in session callback avoids circular dependency
 - [Phase 16]: acceptPendingInvitation wrapped in try/catch so invitation failures never break login
+- [Phase 17-org-switcher-tenant-settings]: activeTenantId stored on AuthUser (not session table) — persists across sessions, survives logout
+- [Phase 17-org-switcher-tenant-settings]: Switch API validates UserTenantRole membership before setting activeTenantId — prevents tenant hopping
+- [Phase 17-org-switcher-tenant-settings]: Session callback falls through to generic findFirst if activeTenantId is stale (user removed from org)
 
 ### Pending Todos
 
@@ -114,6 +118,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-04-01T18:14:07.069Z
-Stopped at: Phase 17 plans verified
-Resume file: .planning/phases/17-org-switcher-tenant-settings/17-01-PLAN.md
+Last session: 2026-04-01T18:21:48.524Z
+Stopped at: Completed 17-01-PLAN.md
+Resume file: None

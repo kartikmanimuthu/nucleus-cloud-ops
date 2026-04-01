@@ -61,10 +61,10 @@
 
 ### Org Switcher
 
-- [ ] **ORGW-01**: Header dropdown displays current org name and list of other orgs the user belongs to
-- [ ] **ORGW-02**: Selecting a different org updates session tenantId via NextAuth `update()` trigger without full page reload
-- [ ] **ORGW-03**: All data reloads scoped to the newly selected tenant after org switch
-- [ ] **ORGW-04**: If user belongs to only one org, the switcher is hidden
+- [x] **ORGW-01**: Header dropdown displays current org name and list of other orgs the user belongs to
+- [x] **ORGW-02**: Selecting a different org updates session tenantId via NextAuth `update()` trigger without full page reload
+- [x] **ORGW-03**: All data reloads scoped to the newly selected tenant after org switch
+- [x] **ORGW-04**: If user belongs to only one org, the switcher is hidden
 
 ### Tenant Suspension
 
@@ -148,10 +148,10 @@
 | INVT-04 | Phase 16 | Complete |
 | INVT-05 | Phase 16 | Complete |
 | INVT-06 | Phase 16 | Complete |
-| ORGW-01 | Phase 17 | Pending |
-| ORGW-02 | Phase 17 | Pending |
-| ORGW-03 | Phase 17 | Pending |
-| ORGW-04 | Phase 17 | Pending |
+| ORGW-01 | Phase 17 | Complete |
+| ORGW-02 | Phase 17 | Complete |
+| ORGW-03 | Phase 17 | Complete |
+| ORGW-04 | Phase 17 | Complete |
 | SUSP-01 | Phase 15 | Pending |
 | SUSP-02 | Phase 15 | Pending |
 | SUSP-03 | Phase 15 | Pending |
