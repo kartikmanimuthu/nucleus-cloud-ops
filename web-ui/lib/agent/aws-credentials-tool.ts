@@ -2,7 +2,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
-import { getDynamoDBDocumentClient, APP_TABLE_NAME, DEFAULT_TENANT_ID } from '../aws-config';
+import { getDynamoDBDocumentClient, APP_TABLE_NAME } from '../aws-config';
 import { createSessionProfile } from './session-manager';
 
 /**
@@ -32,7 +32,7 @@ interface AWSCredentials {
 /**
  * Fetch account details from DynamoDB
  */
-export async function getAccountFromDynamoDB(accountId: string, tenantId: string = DEFAULT_TENANT_ID) {
+export async function getAccountFromDynamoDB(accountId: string, tenantId: string) {
     const command = new GetCommand({
         TableName: APP_TABLE_NAME,
         Key: {

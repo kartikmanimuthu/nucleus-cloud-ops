@@ -1,6 +1,5 @@
 // Schedule execution service — delegates to the repository layer via feature flags
 // Use USE_PG_SCHEDULES=true to switch to PostgreSQL backend
-import { DEFAULT_TENANT_ID } from './aws-config';
 import { getScheduleExecutionRepository } from '@/lib/db/repository-factory';
 
 export interface ScheduleExecution {
@@ -53,7 +52,7 @@ export class ScheduleExecutionService {
             startDate?: string;
             endDate?: string;
         },
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId?: string
     ): Promise<UIScheduleExecution[]> {
         try {
             const repo = getScheduleExecutionRepository();
@@ -71,7 +70,7 @@ export class ScheduleExecutionService {
     static async getExecutionById(
         scheduleId: string,
         executionId: string,
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId?: string
     ): Promise<UIScheduleExecution | null> {
         try {
             const repo = getScheduleExecutionRepository();
@@ -93,7 +92,7 @@ export class ScheduleExecutionService {
         tenantId?: string;
     }): Promise<UIScheduleExecution[]> {
         try {
-            const tenantId = options?.tenantId || DEFAULT_TENANT_ID;
+            const tenantId = options?.tenantId;
             const repo = getScheduleExecutionRepository();
             const executions = await repo.getRecentExecutions(tenantId, options?.limit);
 

@@ -7,7 +7,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { streamText } from 'ai';
 import { getEmbedding } from '@/lib/knowledge-base/embedder';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
-import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // ============================================================================
 // AWS Clients
@@ -84,7 +84,8 @@ export async function POST(req: NextRequest) {
 
     // Validate knowledgeBaseId ownership if provided
     if (knowledgeBaseId) {
-      const kb = await KnowledgeBaseService.getKnowledgeBase(knowledgeBaseId, DEFAULT_TENANT_ID);
+      const tenantId = await getSessionTenantId();
+      const kb = await KnowledgeBaseService.getKnowledgeBase(knowledgeBaseId, tenantId);
       if (!kb) {
         return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
       }

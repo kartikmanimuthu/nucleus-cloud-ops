@@ -10,9 +10,6 @@ export const AUDIT_TABLE_NAME = process.env.AUDIT_TABLE_NAME || process.env.NEXT
 // Legacy support
 export const DYNAMODB_TABLE_NAME = APP_TABLE_NAME;
 
-// Default Tenant ID for multi-tenant schema (can be overridden via environment or context)
-export const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || 'org-default';
-
 // Check if we're running in AWS Lambda environment
 const isLambdaEnvironment = () => {
     const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;

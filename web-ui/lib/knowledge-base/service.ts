@@ -13,7 +13,7 @@ import {
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { getDynamoDBDocumentClient, APP_TABLE_NAME, DEFAULT_TENANT_ID } from '../aws-config';
+import { getDynamoDBDocumentClient, APP_TABLE_NAME } from '../aws-config';
 import type {
   KnowledgeBase,
   DataSource,
@@ -37,7 +37,7 @@ const dsSK = (dsId: string) => `DATASOURCE#${dsId}`;
 export class KnowledgeBaseService {
   // ---- List all KBs for a tenant ----------------------------------------
   static async listKnowledgeBases(
-    tenantId: string = DEFAULT_TENANT_ID,
+    tenantId: string,
   ): Promise<KnowledgeBase[]> {
     try {
       const command = new QueryCommand({
@@ -60,7 +60,7 @@ export class KnowledgeBaseService {
   // ---- Get a single KB ---------------------------------------------------
   static async getKnowledgeBase(
     kbId: string,
-    tenantId: string = DEFAULT_TENANT_ID,
+    tenantId: string,
   ): Promise<KnowledgeBase | null> {
     try {
       const command = new GetCommand({
@@ -80,7 +80,7 @@ export class KnowledgeBaseService {
   // ---- Create KB ---------------------------------------------------------
   static async createKnowledgeBase(
     data: CreateKBInput,
-    tenantId: string = DEFAULT_TENANT_ID,
+    tenantId: string,
     createdBy?: string,
   ): Promise<KnowledgeBase> {
     try {
@@ -121,7 +121,7 @@ export class KnowledgeBaseService {
   static async updateKnowledgeBase(
     kbId: string,
     data: Partial<CreateKBInput>,
-    tenantId: string = DEFAULT_TENANT_ID,
+    tenantId: string,
   ): Promise<void> {
     try {
       const expressionParts: string[] = ['#updatedAt = :updatedAt'];
@@ -169,7 +169,7 @@ export class KnowledgeBaseService {
    */
   static async deleteKnowledgeBase(
     kbId: string,
-    tenantId: string = DEFAULT_TENANT_ID,
+    tenantId: string,
   ): Promise<void> {
     try {
       await getDynamoDBDocumentClient().send(
@@ -190,7 +190,7 @@ export class KnowledgeBaseService {
   static async updateDataSourceCount(
     kbId: string,
     delta: number,
-    tenantId: string = DEFAULT_TENANT_ID,
+    tenantId: string,
   ): Promise<void> {
     try {
       await getDynamoDBDocumentClient().send(
@@ -217,7 +217,7 @@ export class KnowledgeBaseService {
   static async updateVectorCount(
     kbId: string,
     delta: number,
-    tenantId: string = DEFAULT_TENANT_ID,
+    tenantId: string,
   ): Promise<void> {
     try {
       await getDynamoDBDocumentClient().send(

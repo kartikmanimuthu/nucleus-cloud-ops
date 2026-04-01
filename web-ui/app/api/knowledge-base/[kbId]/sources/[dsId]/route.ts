@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { deleteVectors } from '@/lib/knowledge-base/embedder';
-import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getSessionTenantId } from '@/lib/auth-session';
 import type { DataSource } from '@/lib/knowledge-base/types';
 
 function sanitize(ds: DataSource): DataSource {
@@ -65,9 +65,10 @@ export async function DELETE(
 
   if (ds.vectorKeys.length > 0) await deleteVectors(ds.vectorKeys);
   await KnowledgeBaseService.deleteDataSource(kbId, dsId);
+  const tenantId = await getSessionTenantId();
   await Promise.all([
-    KnowledgeBaseService.updateDataSourceCount(kbId, -1, DEFAULT_TENANT_ID),
-    KnowledgeBaseService.updateVectorCount(kbId, -ds.vectorCount, DEFAULT_TENANT_ID),
+    KnowledgeBaseService.updateDataSourceCount(kbId, -1, tenantId),
+    KnowledgeBaseService.updateVectorCount(kbId, -ds.vectorCount, tenantId),
   ]);
 
   return NextResponse.json({ success: true });

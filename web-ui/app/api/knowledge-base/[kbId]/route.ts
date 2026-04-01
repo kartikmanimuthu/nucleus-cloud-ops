@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { deleteVectors } from '@/lib/knowledge-base/embedder';
-import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getSessionTenantId } from '@/lib/auth-session';
 import type { DataSource } from '@/lib/knowledge-base/types';
 
 function sanitizeDataSource(ds: DataSource): DataSource {
@@ -28,8 +28,9 @@ export async function GET(
 
   try {
     const { kbId } = await params;
+    const tenantId = await getSessionTenantId();
     const [knowledgeBase, dataSources] = await Promise.all([
-      KnowledgeBaseService.getKnowledgeBase(kbId, DEFAULT_TENANT_ID),
+      KnowledgeBaseService.getKnowledgeBase(kbId, tenantId),
       KnowledgeBaseService.listDataSources(kbId),
     ]);
 
@@ -59,15 +60,16 @@ export async function PUT(
 
   try {
     const { kbId } = await params;
+    const tenantId = await getSessionTenantId();
     const body = await request.json();
     const { name, description } = body as { name?: string; description?: string };
 
-    const existing = await KnowledgeBaseService.getKnowledgeBase(kbId, DEFAULT_TENANT_ID);
+    const existing = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
     if (!existing) {
       return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
     }
 
-    await KnowledgeBaseService.updateKnowledgeBase(kbId, { name, description }, DEFAULT_TENANT_ID);
+    await KnowledgeBaseService.updateKnowledgeBase(kbId, { name, description }, tenantId);
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -91,6 +93,7 @@ export async function DELETE(
 
   try {
     const { kbId } = await params;
+    const tenantId = await getSessionTenantId();
 
     // 1. Get all data sources
     const dataSources = await KnowledgeBaseService.listDataSources(kbId);
@@ -104,7 +107,7 @@ export async function DELETE(
     }
 
     // 3. Delete the knowledge base itself
-    await KnowledgeBaseService.deleteKnowledgeBase(kbId, DEFAULT_TENANT_ID);
+    await KnowledgeBaseService.deleteKnowledgeBase(kbId, tenantId);
 
     return NextResponse.json({ success: true });
   } catch (error) {

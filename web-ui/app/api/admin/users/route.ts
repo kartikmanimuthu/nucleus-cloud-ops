@@ -1,16 +1,15 @@
 import { NextResponse } from 'next/server';
 import { CognitoIdentityProviderClient, ListUsersCommand } from '@aws-sdk/client-cognito-identity-provider';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-options';
 import { authorize } from '@/lib/rbac/authorize';
 import { getTenantUsers } from '@/lib/rbac/role-service';
+import { getSessionTenantId } from '@/lib/auth-session';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth-options';
 
 // Initialize Cognito client
 const cognito = new CognitoIdentityProviderClient({
     region: process.env.AWS_REGION || process.env.COGNITO_REGION
 });
-
-const DEFAULT_TENANT_ID = 'default';
 
 export async function GET(request: Request) {
     // Check authorization - must be able to read users
@@ -18,9 +17,8 @@ export async function GET(request: Request) {
     if (authError) return authError;
 
     try {
-        // Get current session for tenant context
+        const tenantId = await getSessionTenantId();
         const session = await getServerSession(authOptions);
-        const tenantId = (session?.user as any)?.activeTenantId || DEFAULT_TENANT_ID;
 
         // Fetch users from Cognito
         const command = new ListUsersCommand({

@@ -10,7 +10,6 @@
  * All callers use this static class — no changes needed at call sites.
  */
 
-import { DEFAULT_TENANT_ID } from './aws-config';
 import { getTenantConfigRepository } from './db/repository-factory';
 
 export class TenantConfigService {
@@ -20,7 +19,7 @@ export class TenantConfigService {
      */
     static async getConfig<T = unknown>(
         configKey: string,
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId: string
     ): Promise<T | null> {
         return getTenantConfigRepository().getConfig<T>(configKey, tenantId);
     }
@@ -31,7 +30,7 @@ export class TenantConfigService {
     static async saveConfig<T = unknown>(
         configKey: string,
         data: T,
-        tenantId: string = DEFAULT_TENANT_ID,
+        tenantId: string,
         updatedBy = 'system'
     ): Promise<void> {
         return getTenantConfigRepository().saveConfig<T>(configKey, data, tenantId, updatedBy);
@@ -42,7 +41,7 @@ export class TenantConfigService {
      */
     static async deleteConfig(
         configKey: string,
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId: string
     ): Promise<void> {
         return getTenantConfigRepository().deleteConfig(configKey, tenantId);
     }
@@ -51,7 +50,7 @@ export class TenantConfigService {
      * List all config keys for a tenant.
      */
     static async listConfigs(
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId: string
     ): Promise<Array<{ configKey: string; updatedAt: string }>> {
         return getTenantConfigRepository().listConfigs(tenantId);
     }

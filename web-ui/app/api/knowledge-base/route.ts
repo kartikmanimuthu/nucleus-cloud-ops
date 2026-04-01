@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
-import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // GET /api/knowledge-base
 export async function GET() {
@@ -12,7 +12,8 @@ export async function GET() {
   }
 
   try {
-    const knowledgeBases = await KnowledgeBaseService.listKnowledgeBases(DEFAULT_TENANT_ID);
+    const tenantId = await getSessionTenantId();
+    const knowledgeBases = await KnowledgeBaseService.listKnowledgeBases(tenantId);
     return NextResponse.json({ knowledgeBases });
   } catch (error) {
     console.error('[KB API] Error listing knowledge bases:', error);
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const tenantId = await getSessionTenantId();
     const body = await request.json();
     const { name, description } = body as { name?: string; description?: string };
 
@@ -40,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     const knowledgeBase = await KnowledgeBaseService.createKnowledgeBase(
       { name: name.trim(), description },
-      DEFAULT_TENANT_ID,
+      tenantId,
       session.user?.email ?? undefined,
     );
 

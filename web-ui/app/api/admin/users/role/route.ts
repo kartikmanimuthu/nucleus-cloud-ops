@@ -2,11 +2,10 @@ import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
 import { canAssignRole } from '@/lib/rbac/permissions';
 import { assignUserRole } from '@/lib/rbac/role-service';
-import { getAuthSession } from '@/lib/auth-session';
+import { getAuthSession, getSessionTenantId } from '@/lib/auth-session';
 import type { PredefinedRole } from '@/lib/rbac/types';
 
 const VALID_ROLES: PredefinedRole[] = ['Owner', 'Admin', 'Member', 'Viewer'];
-const DEFAULT_TENANT_ID = 'default';
 
 export async function POST(request: Request) {
     // Check authorization - must be able to update users
@@ -18,7 +17,7 @@ export async function POST(request: Request) {
         const adminEmail = session?.user?.email || 'system';
 
         const body = await request.json();
-        const { userId, email, role, tenantId } = body;
+        const { userId, email, role, tenantId: bodyTenantId } = body;
 
         // Validate required fields
         if (!userId || !email || !role) {
@@ -45,8 +44,8 @@ export async function POST(request: Request) {
             );
         }
 
-        // Use provided tenantId or default
-        const effectiveTenantId = tenantId || DEFAULT_TENANT_ID;
+        // Use provided tenantId from body or fall back to session tenant
+        const effectiveTenantId = bodyTenantId || await getSessionTenantId();
 
         // Assign the role
         await assignUserRole(
