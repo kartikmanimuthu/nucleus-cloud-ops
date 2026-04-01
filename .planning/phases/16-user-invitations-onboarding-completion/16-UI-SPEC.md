@@ -50,12 +50,12 @@ All sizes use the existing Tailwind scale already in use across settings pages.
 
 | Role | Size | Weight | Line Height | Tailwind Class |
 |------|------|--------|-------------|----------------|
-| Page heading | 30px | 700 (bold) | 1.2 | text-3xl font-bold tracking-tight |
+| Page heading | 30px | 600 (semibold) | 1.2 | text-3xl font-semibold tracking-tight |
 | Section heading | 20px | 600 (semibold) | 1.3 | text-xl font-semibold |
 | Body | 16px | 400 (regular) | 1.5 | text-base |
 | Label / small | 14px | 400 (regular) | 1.4 | text-sm |
 
-Note: Only 2 weights in use — 400 (regular) and 600/700 (semibold/bold). text-muted-foreground applied to secondary descriptive text at any size.
+Note: Only 2 weights in use — 400 (regular) and 600 (semibold). text-muted-foreground applied to secondary descriptive text at any size.
 
 ---
 
@@ -117,13 +117,15 @@ TabsTrigger value="members" onClick={() => router.push("/app/settings/members")}
 
 Layout mirrors roles/page.tsx exactly:
 
+**Focal point:** "Invite Member" button (top-right header, --primary accent). Eye enters at page heading, moves to CTA.
+
 ```
 div.flex-1.space-y-6.p-4.md:p-8.pt-6.bg-background
   div.flex.items-center.justify-between          ← header row
     div.space-y-1
       div.flex.items-center.space-x-2
         Users icon h-6 w-6
-        h2.text-3xl.font-bold.tracking-tight     ← "Members"
+        h2.text-3xl.font-semibold.tracking-tight     ← "Members"
       p.text-muted-foreground                    ← subtitle
     Button (primary) "Invite Member"             ← top-right, disabled if not admin/owner
 
@@ -165,7 +167,7 @@ Dialog
           SelectItem for each role at or below current user's level
         FormMessage (zod error)
   DialogFooter
-    Button variant="outline" onClick=close: "Cancel"
+    Button variant="outline" onClick=close: "Don't invite"
     Button type="submit" (primary): "Send Invitation"
       loading state: "Sending..." with spinner, button disabled
 ```
@@ -242,6 +244,7 @@ Copy: "Could not send invitation. [error message from API]."
 | Invite dialog description | "They'll receive an email with instructions to join your organization." |
 | Send button (idle) | "Send Invitation" |
 | Send button (loading) | "Sending..." |
+| Invite dialog dismiss | "Don't invite" |
 | Members table empty heading | "No other members yet" |
 | Members table empty body | "Invite your team to start collaborating. They'll receive an email to set up their account." |
 | Invitations table empty heading | "No pending invitations" |
