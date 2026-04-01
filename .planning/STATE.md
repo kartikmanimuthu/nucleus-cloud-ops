@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Multi-Tenancy
 status: executing
-stopped_at: Completed 15-01-PLAN.md
-last_updated: "2026-04-01T15:23:41.233Z"
+stopped_at: Completed 15-02-PLAN.md
+last_updated: "2026-04-01T15:32:42.708Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 ## Current Position
 
 Phase: 15
-Plan: 1 of 2
-Status: Executing
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-04-01
 
 Progress: [░░░░░░░░░░] 0%
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 14 P03 | 18 | 2 tasks | 7 files |
 | Phase 14-tenant-context-enforcement P04 | 902 | 1 tasks | 1 files |
 | Phase 15 P01 | 21 | 2 tasks | 5 files |
+| Phase 15 P02 | 4 | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 15]: slug is String? (nullable) — existing tenants from Phase 14 don't have slugs; new tenants always will
 - [Phase 15]: Signup and tenant creation use getPrismaClient() (unscoped) — user has no tenant yet at registration time
 - [Phase 15]: Slug uniqueness re-checked inside $transaction — prevents TOCTOU race condition between check-slug and create
+- [Phase 15]: /signup excluded from middleware matcher (like /login) — fully public
+- [Phase 15]: Auto-sign-in after registration via signIn('credentials') — middleware redirects to /create-org
+- [Phase 15]: Session update() after org creation refreshes JWT tenantId before dashboard redirect
 
 ### Pending Todos
 
@@ -107,6 +111,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-04-01T15:23:41.229Z
-Stopped at: Completed 15-01-PLAN.md
+Last session: 2026-04-01T15:32:42.705Z
+Stopped at: Completed 15-02-PLAN.md
 Resume file: None

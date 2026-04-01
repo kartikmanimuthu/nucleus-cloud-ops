@@ -16,6 +16,21 @@ export default withAuth(
             }
         }
 
+        // No-tenant redirect — authenticated users without tenantId must create org (per D-05)
+        // Skip for: /create-org itself, /api routes, /login, /signup, public routes
+        const skipNoTenantRedirect =
+            pathname === "/create-org" ||
+            pathname.startsWith("/api/") ||
+            pathname === "/login" ||
+            pathname === "/signup" ||
+            pathname === "/" ||
+            pathname.startsWith("/docs");
+
+        if (!skipNoTenantRedirect && token && !token.tenantId) {
+            const createOrgUrl = new URL("/create-org", req.url);
+            return NextResponse.redirect(createOrgUrl);
+        }
+
         // Inject x-tenant-id header for downstream API routes (per AUTH-07)
         const requestHeaders = new Headers(req.headers);
         if (token?.tenantId) {
@@ -33,6 +48,7 @@ export default withAuth(
                 // Public routes — no auth required
                 if (
                     pathname === "/login" ||
+                    pathname === "/signup" ||
                     pathname === "/" ||
                     pathname.startsWith("/docs")
                 ) {
@@ -46,6 +62,6 @@ export default withAuth(
 
 export const config = {
     matcher: [
-        "/((?!api/auth|api/health|api/v1/trigger|_next/static|_next/image|favicon.ico|placeholder.*|smc-global-securities-logo.jpg|login).*)",
+        "/((?!api/auth|api/health|api/v1/trigger|_next/static|_next/image|favicon.ico|placeholder.*|smc-global-securities-logo.jpg|login|signup).*)",
     ],
 };
