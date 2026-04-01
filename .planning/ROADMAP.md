@@ -128,7 +128,11 @@ Plans:
   2. User belonging to only one org does not see the org switcher
   3. Tenant admin can update org display name, default timezone, and notification preferences
   4. Tenant admin can upload an org logo that appears in the header/sidebar
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 17-01-PLAN.md — Prisma migration (activeTenantId) + session callback + switch API + my-orgs API
+- [ ] 17-02-PLAN.md — TenantSettingsService + settings API (GET/PUT) + logo API (presigned URL)
+- [ ] 17-03-PLAN.md — Org switcher sidebar component + Organization settings tab + form + logo upload
 **UI hint**: yes
 
 ## Progress
@@ -143,4 +147,4 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | 14. Tenant Context Enforcement | v3.0 | 4/4 | Complete    | 2026-04-01 |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 2/2 | Complete    | 2026-04-01 |
 | 16. User Invitations + Onboarding Completion | v3.0 | 2/2 | Complete   | 2026-04-01 |
-| 17. Org Switcher + Tenant Settings | v3.0 | 0/? | Not started | - |
+| 17. Org Switcher + Tenant Settings | v3.0 | 0/3 | Planning    | - |
