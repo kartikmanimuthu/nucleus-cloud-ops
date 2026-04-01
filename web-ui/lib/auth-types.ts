@@ -18,6 +18,7 @@ declare module "next-auth" {
         isSuperAdmin: boolean;
         failedAttempts: number;
         lockedUntil: Date | null;
+        activeTenantId?: string | null;
     }
 }
 
@@ -29,6 +30,7 @@ declare module "next-auth/adapters" {
         isSuperAdmin: boolean;
         failedAttempts: number;
         lockedUntil: Date | null;
+        activeTenantId?: string | null;
     }
 }
 

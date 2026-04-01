@@ -505,10 +505,11 @@ model AuthUser {
   image          String?
   passwordHash   String?       // null for Cognito-only users
   isSuperAdmin   Boolean       @default(false)
-  failedAttempts Int           @default(0)
-  lockedUntil    DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  failedAttempts  Int           @default(0)
+  lockedUntil     DateTime?
+  activeTenantId  String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   accounts       AuthAccount[]
   sessions       AuthSession[]

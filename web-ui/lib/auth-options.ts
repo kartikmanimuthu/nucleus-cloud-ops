@@ -109,9 +109,19 @@ export const authOptions: NextAuthOptions = {
             // On initial sign-in, enrich token with tenant info for middleware
             // (middleware reads JWT, not database session — even with database strategy)
             if (user) {
-                const utr = await prisma.userTenantRole.findFirst({
-                    where: { userId: user.id },
-                });
+                // Per D-07: Prefer activeTenantId if set, otherwise fall back to findFirst
+                const activeTenantId = (user as any).activeTenantId;
+                let utr;
+                if (activeTenantId) {
+                    utr = await prisma.userTenantRole.findFirst({
+                        where: { userId: user.id, tenantId: activeTenantId },
+                    });
+                }
+                if (!utr) {
+                    utr = await prisma.userTenantRole.findFirst({
+                        where: { userId: user.id },
+                    });
+                }
                 token.tenantId = utr?.tenantId ?? null;
                 token.role = utr?.role ?? null;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,10 +131,21 @@ export const authOptions: NextAuthOptions = {
         },
         async session({ session, user }) {
             // Database strategy provides `user` (not `token`)
-            // Look up the user's tenant role for session normalization
-            let utr = await prisma.userTenantRole.findFirst({
-                where: { userId: user.id },
-            });
+            // Per D-07: Prefer activeTenantId if set, otherwise fall back to findFirst
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const activeTenantId = (user as any).activeTenantId;
+            let utr;
+            if (activeTenantId) {
+                utr = await prisma.userTenantRole.findFirst({
+                    where: { userId: user.id, tenantId: activeTenantId },
+                });
+            }
+            // Fallback: first tenant role (original behavior)
+            if (!utr) {
+                utr = await prisma.userTenantRole.findFirst({
+                    where: { userId: user.id },
+                });
+            }
 
             // D-14: If user has no tenant role, check for pending invitations and accept them.
             // This handles first login after receiving a Cognito invitation email.
