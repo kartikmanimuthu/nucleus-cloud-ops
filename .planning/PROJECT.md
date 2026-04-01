@@ -2,28 +2,15 @@
 
 ## What This Is
 
-AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops agent powered by AWS Bedrock. v1.0 completed a full DynamoDB → PostgreSQL migration (Prisma ORM, repository pattern, feature flags, pgvector). v2.0 replaced AWS CDK with Pulumi TypeScript for the core infrastructure stacks (NetworkingStack + ComputeStack), using an S3 backend for state.
+AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops agent powered by AWS Bedrock. Now a multi-tenant SaaS product with dual auth (Cognito + Credentials), custom per-module RBAC, row-level tenant isolation, email invitations, org switching, and tenant branding.
 
 ## Core Value
 
-A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managing all core AWS infrastructure (VPC, ECS Fargate, ALB, CloudFront, Lambda, DynamoDB, SQS, EventBridge, Cognito) — CDK removed for migrated stacks, WebUIStack stays in CDK.
+A fully operational multi-tenant cloud ops SaaS: every user authenticates via Cognito or email/password, every query is tenant-scoped, every action is role-checked, and tenants can self-service onboard, invite members, switch orgs, and configure branding.
 
-## Current Milestone: v3.0 Multi-Tenancy
+## Current State
 
-**Goal:** Transform Nucleus Cloud Ops into a standard SaaS product with full multi-tenant isolation, custom per-module RBAC, tenant lifecycle management, and dual auth (Cognito + Credentials).
-
-**Phase 17 complete (2026-04-01):** All v3.0 phases shipped (12–17). Org switcher in sidebar, tenant settings (name/timezone/notifications), logo upload via S3 presigned URLs. Multi-tenancy milestone feature-complete.
-
-**Target features:**
-- Dual Auth (Cognito + Credentials) — NextAuth with both providers, Prisma adapter for user persistence
-- Org/Tenant Switching — Header dropdown switcher, data reloads scoped to selected tenant
-- Row-Level Data Isolation — Enforce tenant_id on all queries across every module
-- Custom RBAC Per Module — Replace CASL with new custom role/permission system; granular per-module permissions (Accounts, Schedules, AI Ops, Inventory); actions: create, read, update, delete
-- Super Admin Panel (/admin) — Platform-level admin; onboard tenants, manage root users, suspend/unsuspend, view all orgs
-- Tenant Onboarding — Create org, set up root user, configure initial settings
-- User Invitations — Invite users to org via email link, accept/decline flow
-- Tenant Suspension — Freeze tenant (read-only or fully locked) without deleting data
-- Tenant-Level Settings — Custom branding, default timezone, notification preferences per org
+**v3.0 Multi-Tenancy shipped 2026-04-01.** All 6 phases (12–17), 18 plans complete.
 
 ## Requirements
 
@@ -44,26 +31,42 @@ A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managi
 - ✓ ECS + ALB + CloudFront: Fargate service, circuit breaker, auto scaling — PULUMI-12 through PULUMI-15
 - ✓ Cutover: generate-env.ts, CDK source deleted, S3 Vectors/Tables wrapped — PULUMI-16 through PULUMI-18
 
-### Active — v3.0
+### Validated — v3.0
 
-(Defined in REQUIREMENTS.md)
+- ✓ Dual auth (Cognito + Credentials) with Prisma adapter and database sessions — AUTH-01 through AUTH-07
+- ✓ Custom RBAC replacing CASL — per-module permissions with custom roles per tenant — RBAC-01 through RBAC-07
+- ✓ Row-level tenant isolation via scoped Prisma client factory — ISOL-01 through ISOL-06
+- ✓ Self-service signup + org creation with slug uniqueness — ONBD-01
+- ✓ Email invitations via Resend with accept/decline flow and multi-org membership — INVT-01 through INVT-06, ONBD-02, ONBD-03
+- ✓ Org switcher + tenant settings (display name, timezone, logo upload) — ORGW-01 through ORGW-04, STNG-01 through STNG-03
+
+### Active — v4.0
+
+(To be defined via `/gsd:new-milestone`)
 
 ### Out of Scope
 
 - Rewriting discovery Lambda from Python to TypeScript
 - Performance benchmarking CDK vs Pulumi deploy times
 - WebUIStack migration to Pulumi (deferred from v2.0)
-- Subscription/plan tiers with billing integration — deferred to v4.0
-- SSO/SAML per tenant — deferred to v4.0
-- Usage quotas/rate limits per tenant — deferred to v4.0
+- Schema-per-tenant isolation — row-level with tenant_id is correct at this scale
+- SSO/SAML per tenant — Cognito covers enterprise SSO at platform level; defer to v4.0+
+- Billing/subscription tiers — significant complexity (Stripe); defer to v4.0+
+- Usage quotas/rate limits per tenant — defer to v4.0+
+- Permission inheritance chains — explicit permission sets are more auditable
+- Impersonation (login as tenant) — security/audit risk
+- Real-time permission sync (WebSocket) — re-validate on each API request is sufficient
 
 ## Context
 
-- **Auth**: NextAuth with dual providers (Cognito + Credentials), Prisma adapter for user persistence, database sessions with 24h TTL, normalized session shape `{ id, email, tenantId, role, isSuperAdmin }`. Phase 12 complete.
-- **RBAC**: Currently CASL-based (`@casl/ability`). v3.0 removes CASL entirely and builds custom role/permission system with Prisma models.
-- **Tenant isolation**: `tenant_id` column already exists on most PostgreSQL tables from v1.0 migration. v3.0 enforces it consistently across all queries and UI.
-- **Super admin**: Platform-level only — not a member of any tenant. Manages all tenants from `/admin` route.
-- **Admin panel**: Built into existing Next.js app at `/admin` route, behind super-admin auth guard.
+- **Auth**: NextAuth with dual providers (Cognito + Credentials), Prisma adapter, database sessions with 24h TTL, normalized session shape `{ id, email, tenantId, role, isSuperAdmin }`.
+- **RBAC**: Custom role/permission system with static ROLE_PERMISSIONS map + custom roles per tenant. CASL fully removed.
+- **Tenant isolation**: Scoped Prisma client factory (`getTenantClient`) using `$extends` enforces `tenant_id` on every query. LangGraph threads namespaced as `tenantId:userId:timestamp`. Lambda functions filter by tenant.
+- **Onboarding**: Self-service signup → create org → auto-assigned Owner role. Email invitations via Resend with 48h expiry tokens.
+- **Org switching**: `activeTenantId` on AuthUser persists across sessions. Sidebar dropdown for multi-org users.
+- **Settings**: Tenant admins can configure display name, timezone, notification preferences, and upload org logo via S3 presigned URLs.
+- **Super admin**: Platform-level only — not yet implemented (deferred ADMIN-01–07 to v4.0).
+- **Suspension**: Not yet implemented (deferred SUSP-01–04 to v4.0).
 
 ## Constraints
 
@@ -71,8 +74,9 @@ A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managi
 - **Zero downtime**: Feature flags per entity enable instant rollback; DynamoDB tables never deleted
 - **Lambda cold starts**: Prisma engine ~2-4MB — monitor cold start impact in production
 - **Python Lambda**: Discovery Lambda stays Python with psycopg2
-- **Multi-tenant safety**: Every PostgreSQL query includes `WHERE tenant_id = $1`
-- **CASL removal**: All `@casl/ability` imports and RBAC middleware must be replaced before new RBAC goes live
+- **Multi-tenant safety**: Every PostgreSQL query includes `WHERE tenant_id = $1` via scoped Prisma client
+- **Raw SQL caveat**: `$executeRaw` / `$queryRawUnsafe` NOT intercepted by tenant hook — callers must manually scope
+- **Thread migration**: Legacy bare UUID threads need migration to `tenantId:userId:uuid` format before production launch
 
 ## Key Decisions
 
@@ -86,11 +90,16 @@ A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managi
 | Explicit physical names | Pulumi auto-naming causes delete+create on rename | ✓ Shipped v2.0 |
 | `retainOnDelete: true` on tables/buckets | Protection against accidental destroy | ✓ Shipped v2.0 |
 | Blue/green cutover | CDK stays live until Pulumi smoke-tested | ✓ Shipped v2.0 |
-| Remove CASL, build custom RBAC | Need per-module granular permissions with custom roles per tenant | — Pending v3.0 |
-| Dual auth (Cognito + Credentials) | Enterprise SSO via Cognito + direct-managed users via Credentials | ✓ Phase 12 |
-| Row-level isolation (not schema-per-tenant) | Builds on existing tenant_id pattern, less operational complexity | — Pending v3.0 |
-| Super admin is platform-level only | Clean separation between platform management and tenant operations | — Pending v3.0 |
-| Admin panel at /admin route | Same app, simpler deployment, auth guard sufficient | — Pending v3.0 |
+| Dual auth (Cognito + Credentials) | Enterprise SSO via Cognito + direct-managed users via Credentials | ✓ Shipped v3.0 |
+| Database sessions (not JWT) | Required for suspension enforcement — adds DB lookup per request | ✓ Shipped v3.0 |
+| Prisma adapter proxy pattern | AuthUser/AuthAccount/AuthSession @@map to auth_* tables avoids Account collision | ✓ Shipped v3.0 |
+| Remove CASL, build custom RBAC | Need per-module granular permissions with custom roles per tenant | ✓ Shipped v3.0 |
+| Row-level isolation (not schema-per-tenant) | Builds on existing tenant_id pattern, less operational complexity | ✓ Shipped v3.0 |
+| getTenantClient via $extends | Per-request scoped client, not cached — simple and safe | ✓ Shipped v3.0 |
+| Thread ID format tenantId:userId:timestamp | O(1) tenant validation without DB lookup | ✓ Shipped v3.0 |
+| activeTenantId on AuthUser (not session) | Persists across sessions, survives logout | ✓ Shipped v3.0 |
+| Self-service onboarding (not admin-initiated) | User decided self-service replaces admin flow | ✓ Shipped v3.0 |
+| ADMIN/SUSP deferred to v4.0 | Core multi-tenancy shipped without admin panel or suspension | ✓ Accepted |
 
 ## Evolution
 
@@ -110,4 +119,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-01 — Phase 14 (Tenant Context Enforcement) complete*
+*Last updated: 2026-04-02 after v3.0 milestone*
