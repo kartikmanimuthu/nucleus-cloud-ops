@@ -30,7 +30,7 @@ See [archive](milestones/v2.0-ROADMAP.md) for full phase details.
 - [x] **Phase 13: Custom RBAC** - Replace CASL with static role/permission map; migrate all API routes; remove @casl/ability (completed 2026-03-31)
 - [x] **Phase 14: Tenant Context Enforcement** - Scoped Prisma client factory; remove DEFAULT_TENANT_ID fallbacks; Lambda + LangGraph tenant isolation (completed 2026-04-01)
 - [x] **Phase 15: Super Admin + Onboarding + Suspension** - Self-service signup + org creation (ADMIN/SUSP deferred to future phase) (completed 2026-04-01)
-- [ ] **Phase 16: User Invitations + Onboarding Completion** - Email invitations via Resend, accept/decline flow, multi-org membership
+- [x] **Phase 16: User Invitations + Onboarding Completion** - Email invitations via Resend, accept/decline flow, multi-org membership (completed 2026-04-01)
 - [ ] **Phase 17: Org Switcher + Tenant Settings** - Header org dropdown, session-based tenant switch, settings form + logo upload
 
 ## Phase Details
@@ -116,7 +116,7 @@ Plans:
 **Plans**: 2 plans
 Plans:
 - [x] 16-01-PLAN.md — Prisma Invitation model + Cognito client + InvitationService + API routes + auth callback
-- [ ] 16-02-PLAN.md — Settings Members tab + members page UI + invite dialog + resend/revoke actions
+- [x] 16-02-PLAN.md — Settings Members tab + members page UI + invite dialog + resend/revoke actions
 **UI hint**: yes
 
 ### Phase 17: Org Switcher + Tenant Settings
@@ -142,5 +142,5 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16 → 17
 | 13. Custom RBAC | v3.0 | 4/4 | Complete    | 2026-03-31 |
 | 14. Tenant Context Enforcement | v3.0 | 4/4 | Complete    | 2026-04-01 |
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 2/2 | Complete    | 2026-04-01 |
-| 16. User Invitations + Onboarding Completion | v3.0 | 1/2 | In Progress|  |
+| 16. User Invitations + Onboarding Completion | v3.0 | 2/2 | Complete   | 2026-04-01 |
 | 17. Org Switcher + Tenant Settings | v3.0 | 0/? | Not started | - |
