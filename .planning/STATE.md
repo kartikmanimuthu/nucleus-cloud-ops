@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
-status: in_progress
-stopped_at: Phase 18 complete — ready for Phase 19
-last_updated: "2026-04-03"
+status: verifying
+stopped_at: Completed 19-01-PLAN.md
+last_updated: "2026-04-03T19:31:59.030Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 25
+  total_plans: 4
+  completed_plans: 3
+  percent: 0
 ---
 
 # Project State
@@ -51,6 +51,7 @@ Progress: [░░░░░░░░░░] 0%
 | 17. Org Switcher + Settings | 3 | 2026-04-01 |
 | Phase 18 P01 | 5 | 2 tasks | 2 files |
 | Phase 18 P02 | 8 | 2 tasks | 8 files |
+| Phase 19-inventory-agent-ops-isolation P01 | 10 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -62,6 +63,7 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 18]: Pre-flight ownership check in API route layer returns 403 before any cross-tenant mutation attempt
 - [Phase 18]: getTenantClient(tenantId) in SchedulePostgresRepository and ScheduleExecutionPostgresRepository — all 9 methods now tenant-scoped
 - [Phase 18]: Pre-flight ownership checks on schedule PUT/DELETE/toggle return 403 before any cross-tenant mutation
+- [Phase 19-inventory-agent-ops-isolation]: getPrismaClient() retained only for cross-entity account→tenantId lookup in upsertResource/upsertBatch
 
 ### Pending Todos
 
@@ -86,6 +88,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03T18:35:07.297Z
-Stopped at: Completed 18-02-PLAN.md
+Last session: 2026-04-03T19:31:59.025Z
+Stopped at: Completed 19-01-PLAN.md
 Resume file: None

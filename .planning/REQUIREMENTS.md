@@ -24,9 +24,9 @@
 
 ### Inventory Discovery
 
-- [ ] **INVT-01**: User can list inventory resources scoped to their tenant
-- [ ] **INVT-02**: User can filter/search inventory resources within their tenant only
-- [ ] **INVT-03**: User can view resource details only within their tenant
+- [x] **INVT-01**: User can list inventory resources scoped to their tenant
+- [x] **INVT-02**: User can filter/search inventory resources within their tenant only
+- [x] **INVT-03**: User can view resource details only within their tenant
 
 ### AI Ops / Agent Ops
 
@@ -110,9 +110,9 @@
 | SCHED-04 | Phase 18 | Complete |
 | SCHED-05 | Phase 18 | Complete |
 | SCHED-06 | Phase 18 | Complete |
-| INVT-01 | Phase 19 | Pending |
-| INVT-02 | Phase 19 | Pending |
-| INVT-03 | Phase 19 | Pending |
+| INVT-01 | Phase 19 | Complete |
+| INVT-02 | Phase 19 | Complete |
+| INVT-03 | Phase 19 | Complete |
 | AIOP-01 | Phase 19 | Pending |
 | AIOP-02 | Phase 19 | Pending |
 | AIOP-03 | Phase 19 | Pending |

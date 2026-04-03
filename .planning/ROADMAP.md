@@ -64,9 +64,9 @@ Plans:
   3. Agent ops run list shows only the active tenant's runs
   4. Agent ops events for a run are scoped — another tenant's run ID returns empty or 404
   5. Scheduled tasks list and management operations are scoped to the active tenant
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
-- [ ] 19-01-PLAN.md — Harden Inventory Discovery with tenant isolation (repo migration + API route scoping)
+- [x] 19-01-PLAN.md — Harden Inventory Discovery with tenant isolation (repo migration + API route scoping)
 - [ ] 19-02-PLAN.md — Harden Agent Ops and Scheduled Tasks with tenant isolation (3 repos + 11 API routes + pre-flight 403)
 
 ### Phase 20: Knowledge Base & Channels Isolation
@@ -104,6 +104,6 @@ Plans:
 | 16. User Invitations + Onboarding Completion | v3.0 | 2/2 | Complete | 2026-04-01 |
 | 17. Org Switcher + Tenant Settings | v3.0 | 3/3 | Complete | 2026-04-01 |
 | 18. Accounts & Scheduler Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
-| 19. Inventory & Agent Ops Isolation | v4.0 | 0/2 | Not started | - |
+| 19. Inventory & Agent Ops Isolation | v4.0 | 1/2 | In Progress|  |
 | 20. Knowledge Base & Channels Isolation | v4.0 | 0/? | Not started | - |
 | 21. Audit, Settings & Regression Tests | v4.0 | 0/? | Not started | - |
