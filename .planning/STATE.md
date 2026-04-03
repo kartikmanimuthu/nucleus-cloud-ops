@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 Phase: 17 (final)
 Plan: All complete
 Status: Milestone v3.0 shipped and archived
-Last activity: 2026-04-03 - Completed quick task 260403-u2f: fix missing tenantId in validateAccount updateAccount call
+Last activity: 2026-04-03 - Completed quick task 260403-u7l: fix role ID gap, seed default roles, multi-org membership, auto-migrate on startup
 
 Progress: [██████████] 100%
 
