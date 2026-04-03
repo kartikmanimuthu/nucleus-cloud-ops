@@ -94,11 +94,11 @@ Plans:
   3. Tenant settings read and update are scoped — a tenant cannot read or modify another tenant's settings
   4. Vitest unit tests assert tenantId is present in all repository WHERE clauses for every module
   5. Cross-tenant isolation tests confirm tenant A cannot access tenant B data via any API route
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 - [x] 21-01-PLAN.md — Migrate audit log repo to getTenantClient, fix audit route scoping, sweep all audit call sites
 - [ ] 21-02-PLAN.md — Add tenant isolation assertions to all 10 migrated Postgres repository test files
-- [ ] 21-03-PLAN.md — Create cross-tenant API isolation tests for 6 high-risk modules
+- [x] 21-03-PLAN.md — Create cross-tenant API isolation tests for 6 high-risk modules
 
 ## Progress
 
@@ -113,4 +113,4 @@ Plans:
 | 18. Accounts & Scheduler Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
 | 19. Inventory & Agent Ops Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
 | 20. Knowledge Base & Channels Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
-| 21. Audit, Settings & Regression Tests | v4.0 | 1/3 | In Progress|  |
+| 21. Audit, Settings & Regression Tests | v4.0 | 2/3 | In Progress|  |

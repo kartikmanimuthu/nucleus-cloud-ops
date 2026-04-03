@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
 status: verifying
-stopped_at: Completed 21-01-PLAN.md
-last_updated: "2026-04-03T21:05:58.537Z"
+stopped_at: Completed 21-03-PLAN.md
+last_updated: "2026-04-03T21:11:27.816Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 20-knowledge-base-channels-isolation P02 | 5 | 1 tasks | 2 files |
 | Phase 20-knowledge-base-channels-isolation P01 | 15 | 2 tasks | 8 files |
 | Phase 21-audit-settings-regression-tests P01 | 10 | 2 tasks | 6 files |
+| Phase 21-audit-settings-regression-tests P03 | 8 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,8 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 20-knowledge-base-channels-isolation]: Query route: tenantId extracted unconditionally; no-kbId path filters to tenant KB IDs to prevent cross-tenant vector leakage
 - [Phase 21-audit-settings-regression-tests]: AuditLogPostgresRepository uses getTenantClient(tenantId) for both createAuditLog and getAuditLogs — consistent with Phase 18/19/20 pattern
 - [Phase 21-audit-settings-regression-tests]: tenantId promoted from metadata-only to top-level property in all logUserAction/logResourceAction calls so repository layer can extract it
+- [Phase 21-audit-settings-regression-tests]: Mock at service layer for static-class routes; mock at repo/service-object layer for direct-call routes
+- [Phase 21-audit-settings-regression-tests]: audit-logs.test.ts: session-error path returns 500 with AuditService never called — proves no unscoped data path
 
 ### Pending Todos
 
@@ -100,6 +103,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03T21:05:58.534Z
-Stopped at: Completed 21-01-PLAN.md
+Last session: 2026-04-03T21:11:27.812Z
+Stopped at: Completed 21-03-PLAN.md
 Resume file: None
