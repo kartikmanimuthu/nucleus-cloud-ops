@@ -153,7 +153,11 @@ export function OrganizationSettingsForm() {
             }
             const { url, key } = await presignRes.json();
             // 2. Upload to S3
-            await fetch(url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+            const s3Res = await fetch(url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+            if (!s3Res.ok) {
+                setLogoError("Logo upload failed. Check your storage configuration.");
+                return;
+            }
             // 3. Save key
             const saveRes = await fetch("/api/tenants/logo", {
                 method: "PUT",

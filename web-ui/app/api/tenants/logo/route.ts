@@ -26,6 +26,12 @@ const saveLogoSchema = z.object({
  * Per D-12: client uploads directly to S3 via presigned URL.
  */
 export async function POST(req: NextRequest) {
+    if (!process.env.ASSETS_BUCKET_NAME) {
+        return NextResponse.json(
+            { error: "Logo storage not configured (ASSETS_BUCKET_NAME missing)" },
+            { status: 500 }
+        );
+    }
     try {
         const authError = await authorize("update", "Settings");
         if (authError) return authError;
