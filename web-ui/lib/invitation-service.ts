@@ -60,12 +60,16 @@ export class InvitationService {
 
         if (existingUser) {
             // D-08: existing user — auto-join path
+            const customRole = await globalPrisma.customRole.findFirst({
+                where: { tenantId, name: role },
+            });
             await globalPrisma.userTenantRole.create({
                 data: {
                     userId: existingUser.id,
                     tenantId,
                     email,
                     role,
+                    roleId: customRole?.id ?? null,
                     assignedAt: new Date(),
                     assignedBy: invitedBy,
                 },
@@ -293,12 +297,16 @@ export class InvitationService {
                 });
 
                 if (!existingRole) {
+                    const customRole = await globalPrisma.customRole.findFirst({
+                        where: { tenantId: invitation.tenantId, name: invitation.role },
+                    });
                     await globalPrisma.userTenantRole.create({
                         data: {
                             userId,
                             tenantId: invitation.tenantId,
                             email,
                             role: invitation.role,
+                            roleId: customRole?.id ?? null,
                             assignedAt: new Date(),
                             assignedBy: invitation.invitedBy,
                         },
