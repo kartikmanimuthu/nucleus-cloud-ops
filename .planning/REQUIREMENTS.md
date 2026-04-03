@@ -30,10 +30,10 @@
 
 ### AI Ops / Agent Ops
 
-- [ ] **AIOP-01**: User can list agent ops runs scoped to their tenant
-- [ ] **AIOP-02**: User can create agent ops runs scoped to their tenant
-- [ ] **AIOP-03**: User can view agent ops events scoped to their tenant
-- [ ] **AIOP-04**: User can list and manage scheduled tasks scoped to their tenant
+- [x] **AIOP-01**: User can list agent ops runs scoped to their tenant
+- [x] **AIOP-02**: User can create agent ops runs scoped to their tenant
+- [x] **AIOP-03**: User can view agent ops events scoped to their tenant
+- [x] **AIOP-04**: User can list and manage scheduled tasks scoped to their tenant
 
 ### Knowledge Base
 
@@ -45,10 +45,10 @@
 
 ### Channels
 
-- [ ] **CHAN-01**: User can list channels scoped to their tenant
-- [ ] **CHAN-02**: User can create a channel scoped to their tenant
-- [ ] **CHAN-03**: User can update a channel only within their tenant
-- [ ] **CHAN-04**: User can delete a channel only within their tenant
+- [x] **CHAN-01**: User can list channels scoped to their tenant
+- [x] **CHAN-02**: User can create a channel scoped to their tenant
+- [x] **CHAN-03**: User can update a channel only within their tenant
+- [x] **CHAN-04**: User can delete a channel only within their tenant
 
 ### Audit Logs
 
@@ -113,19 +113,19 @@
 | INVT-01 | Phase 19 | Complete |
 | INVT-02 | Phase 19 | Complete |
 | INVT-03 | Phase 19 | Complete |
-| AIOP-01 | Phase 19 | Pending |
-| AIOP-02 | Phase 19 | Pending |
-| AIOP-03 | Phase 19 | Pending |
-| AIOP-04 | Phase 19 | Pending |
+| AIOP-01 | Phase 19 | Complete |
+| AIOP-02 | Phase 19 | Complete |
+| AIOP-03 | Phase 19 | Complete |
+| AIOP-04 | Phase 19 | Complete |
 | KB-01 | Phase 20 | Pending |
 | KB-02 | Phase 20 | Pending |
 | KB-03 | Phase 20 | Pending |
 | KB-04 | Phase 20 | Pending |
 | KB-05 | Phase 20 | Pending |
-| CHAN-01 | Phase 20 | Pending |
-| CHAN-02 | Phase 20 | Pending |
-| CHAN-03 | Phase 20 | Pending |
-| CHAN-04 | Phase 20 | Pending |
+| CHAN-01 | Phase 20 | Complete |
+| CHAN-02 | Phase 20 | Complete |
+| CHAN-03 | Phase 20 | Complete |
+| CHAN-04 | Phase 20 | Complete |
 | AUDT-01 | Phase 21 | Pending |
 | AUDT-02 | Phase 21 | Pending |
 | STNG-04 | Phase 21 | Pending |

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
-status: in_progress
-stopped_at: Phase 19 complete — ready for Phase 20
-last_updated: "2026-04-03"
+status: verifying
+stopped_at: Completed 20-02-PLAN.md
+last_updated: "2026-04-03T20:18:03.068Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
-  percent: 50
+  total_plans: 6
+  completed_plans: 5
+  percent: 0
 ---
 
 # Project State
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 18 P02 | 8 | 2 tasks | 8 files |
 | Phase 19-inventory-agent-ops-isolation P01 | 10 | 2 tasks | 4 files |
 | Phase 19-inventory-agent-ops-isolation P02 | 15 | 2 tasks | 15 files |
+| Phase 20-knowledge-base-channels-isolation P02 | 5 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,7 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 19-inventory-agent-ops-isolation]: getPrismaClient() retained only for cross-entity account→tenantId lookup in upsertResource/upsertBatch
 - [Phase 19-inventory-agent-ops-isolation]: getTenantClient(tenantId) in all 3 agent-ops repositories; cross-tenant webhook methods kept on getPrismaClient with explicit comments
 - [Phase 19-inventory-agent-ops-isolation]: All 11 agent-ops API routes derive tenantId from getSessionTenantId(); pre-flight 403 on approve/cancel/resume (D-06) and all scheduled-task mutations (D-08)
+- [Phase 20-knowledge-base-channels-isolation]: TenantConfigService already accepted tenantId — no service changes needed, only route-layer fix
 
 ### Pending Todos
 
@@ -91,6 +93,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03T19:33:36.125Z
-Stopped at: Completed 19-02-PLAN.md
+Last session: 2026-04-03T20:18:03.065Z
+Stopped at: Completed 20-02-PLAN.md
 Resume file: None

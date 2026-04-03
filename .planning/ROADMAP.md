@@ -79,10 +79,10 @@ Plans:
   3. Updating or deleting a knowledge base belonging to a different tenant returns 403
   4. Channel list shows only the active tenant's channels
   5. Creating, updating, or deleting a channel is correctly scoped — cross-tenant mutations return 403
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 20-01-PLAN.md — Harden KB and DataSource repos + all KB API routes with tenant isolation (repo migration + pre-flight 403)
-- [ ] 20-02-PLAN.md — Harden Slack and Jira channel settings routes with tenant isolation
+- [x] 20-02-PLAN.md — Harden Slack and Jira channel settings routes with tenant isolation
 
 ### Phase 21: Audit, Settings & Regression Tests
 **Goal**: Audit logs and settings are tenant-scoped, and regression tests lock in isolation guarantees across all modules
@@ -108,5 +108,5 @@ Plans:
 | 17. Org Switcher + Tenant Settings | v3.0 | 3/3 | Complete | 2026-04-01 |
 | 18. Accounts & Scheduler Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
 | 19. Inventory & Agent Ops Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
-| 20. Knowledge Base & Channels Isolation | v4.0 | 0/2 | Planned | - |
+| 20. Knowledge Base & Channels Isolation | v4.0 | 1/2 | In Progress|  |
 | 21. Audit, Settings & Regression Tests | v4.0 | 0/? | Not started | - |
