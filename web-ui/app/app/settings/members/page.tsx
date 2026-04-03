@@ -47,6 +47,8 @@ export default function MembersPage() {
     const [invitationsLoading, setInvitationsLoading] = useState(true);
     const [invitationsError, setInvitationsError] = useState<string | null>(null);
 
+    const [customRoles, setCustomRoles] = useState<{ name: string; level: number }[]>([]);
+
     const [dialogOpen, setDialogOpen] = useState(false);
 
     const fetchMembers = useCallback(async () => {
@@ -85,10 +87,23 @@ export default function MembersPage() {
         }
     }, []);
 
+    const fetchRoles = useCallback(async () => {
+        try {
+            const res = await fetch("/api/settings/roles");
+            const json = await res.json();
+            if (!res.ok || !json.success) return;
+            const custom = (json.data?.custom ?? []) as { name: string; level: number }[];
+            setCustomRoles(custom.map((r) => ({ name: r.name, level: r.level })));
+        } catch {
+            // Non-blocking — predefined roles still work
+        }
+    }, []);
+
     useEffect(() => {
         fetchMembers();
         fetchInvitations();
-    }, [fetchMembers, fetchInvitations]);
+        fetchRoles();
+    }, [fetchMembers, fetchInvitations, fetchRoles]);
 
     const handleInvite = async (email: string, role: string) => {
         const res = await fetch("/api/invitations", {
@@ -131,7 +146,9 @@ export default function MembersPage() {
     // Derive available roles based on current user's role level
     const sessionRole = (session?.user as { role?: string } | undefined)?.role ?? "Viewer";
     const userLevel = ROLE_HIERARCHY[sessionRole] ?? 1;
-    const availableRoles = ALL_ROLES.filter((r) => (ROLE_HIERARCHY[r] ?? 0) <= userLevel);
+    const predefinedFiltered = ALL_ROLES.filter((r) => (ROLE_HIERARCHY[r] ?? 0) <= userLevel);
+    const customFiltered = customRoles.filter((r) => r.level <= userLevel).map((r) => r.name);
+    const availableRoles = [...predefinedFiltered, ...customFiltered];
 
     return (
         <div className="flex-1 space-y-6 p-4 md:p-8 pt-6 bg-background">
