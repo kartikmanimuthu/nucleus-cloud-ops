@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
-status: in_progress
-stopped_at: Roadmap created — ready for Phase 18
-last_updated: "2026-04-03"
-last_activity: 2026-04-03
+status: executing
+stopped_at: v4.0 roadmap created — 4 phases (18–21), 33 requirements mapped
+last_updated: "2026-04-03T18:18:41.491Z"
+last_activity: 2026-04-03 -- Phase 18 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-03)
 
 **Core value:** Multi-tenant SaaS cloud ops platform with dual auth, custom RBAC, tenant isolation, invitations, org switching, and branding
-**Current focus:** v4.0 Tenant Isolation Hardening — audit and fix tenantId scoping across all PostgreSQL CRUD operations
+**Current focus:** Phase 18 — Accounts & Scheduler Isolation
 
 ## Current Position
 
-Phase: 18 — Accounts & Scheduler Isolation (not started)
-Plan: —
-Status: Roadmap created, ready to plan Phase 18
-Last activity: 2026-04-03 — v4.0 roadmap created (4 phases, 33 requirements)
+Phase: 18 (Accounts & Scheduler Isolation) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 18
+Last activity: 2026-04-03 -- Phase 18 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -75,6 +75,7 @@ None.
 | 260403-seb | fix custom roles not appearing in invite dropdown + logo upload silent failure | 2026-04-03 | e994405 | [260403-seb-fix-custom-roles-not-appearing-in-invite](.planning/quick/260403-seb-fix-custom-roles-not-appearing-in-invite/) |
 | 260403-t3i | fix scheduler account dropdown to show tenant-scoped accounts and scope schedule creation to tenant | 2026-04-03 | — | [260403-t3i-fix-scheduler-account-dropdown-to-show-t](.planning/quick/260403-t3i-fix-scheduler-account-dropdown-to-show-t/) |
 | 260403-u7l | fix role ID gap, seed default roles, multi-org membership | 2026-04-03 | 10f5497 | [260403-u7l-fix-role-id-gap-seed-default-roles-multi](.planning/quick/260403-u7l-fix-role-id-gap-seed-default-roles-multi/) |
+| 260403-wqs | add preset/custom type segregation to custom_roles table and UI | 2026-04-03 | 41bda37 | [260403-wqs-add-preset-custom-type-segregation-to-cu](.planning/quick/260403-wqs-add-preset-custom-type-segregation-to-cu/) |
 
 ## Session Continuity
 
