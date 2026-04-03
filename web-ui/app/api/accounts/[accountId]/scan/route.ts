@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AccountService } from '@/lib/account-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function GET(
     request: NextRequest,
@@ -9,7 +10,8 @@ export async function GET(
         const accountId = (await params).accountId;
         console.log(`API - Scanning resources for account ${accountId}`);
 
-        const resources = await AccountService.scanResources(accountId);
+        const tenantId = await getSessionTenantId();
+        const resources = await AccountService.scanResources(accountId, tenantId);
 
         return NextResponse.json({
             success: true,
