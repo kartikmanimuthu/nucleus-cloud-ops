@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
             userType: 'user',
             status: 'success',
             details: `Created schedule "${schedule.name}"`,
+            metadata: { tenantId },
         });
 
         return NextResponse.json({
@@ -167,6 +168,7 @@ export async function POST(request: NextRequest) {
                 userType: 'user',
                 status: 'error',
                 details: `Failed to create schedule: ${error.message}`,
+                metadata: { tenantId },
             });
         }
 

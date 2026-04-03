@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ScheduleService } from '@/lib/schedule-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // GET /api/schedules/[scheduleId] - Get a specific schedule by ID
 export async function GET(
@@ -42,8 +43,15 @@ export async function PUT(
 ) {
     try {
         const { scheduleId } = await params;
+        const tenantId = await getSessionTenantId();
         const session = await getServerSession(authOptions);
         const updatedBy = session?.user?.email || 'api-user';
+
+        // Pre-flight ownership check (D-03)
+        const existing = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
+        if (!existing) {
+            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+        }
 
         const body = await request.json();
 
@@ -51,7 +59,7 @@ export async function PUT(
         const updateData = { ...body, id: scheduleId, updatedBy };
 
         // ... update logic ...
-        const updatedSchedule = await ScheduleService.updateSchedule(scheduleId, updateData);
+        const updatedSchedule = await ScheduleService.updateSchedule(scheduleId, updateData, undefined, tenantId);
 
         return NextResponse.json(updatedSchedule);
     } catch (error) {
@@ -70,10 +78,17 @@ export async function DELETE(
 ) {
     try {
         const { scheduleId } = await params;
+        const tenantId = await getSessionTenantId();
         const session = await getServerSession(authOptions);
         const deletedBy = session?.user?.email || 'api-user';
 
-        await ScheduleService.deleteSchedule(scheduleId, undefined, deletedBy);
+        // Pre-flight ownership check (D-03)
+        const existing = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
+        if (!existing) {
+            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+        }
+
+        await ScheduleService.deleteSchedule(scheduleId, undefined, deletedBy, tenantId);
 
         return NextResponse.json({ success: true });
     } catch (error) {

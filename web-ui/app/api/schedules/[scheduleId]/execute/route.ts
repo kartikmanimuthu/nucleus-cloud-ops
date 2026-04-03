@@ -6,6 +6,7 @@ import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
 import { authorize } from "@/lib/rbac/authorize";
+import { getSessionTenantId } from "@/lib/auth-session";
 
 // Lambda ARN from environment
 const SCHEDULER_LAMBDA_ARN = process.env.SCHEDULER_LAMBDA_ARN || "";
@@ -24,6 +25,7 @@ export async function POST(
 
     try {
         const { scheduleId } = await params;
+        const tenantId = await getSessionTenantId();
         console.log(`[API] Execute Now triggered for schedule ${scheduleId}`);
 
         if (!scheduleId) {
@@ -96,7 +98,7 @@ export async function POST(
             try {
                 const errorMessage = lambdaError instanceof Error ? lambdaError.message : String(lambdaError);
                 await ScheduleExecutionService.logExecution({
-                    tenantId: 'default',
+                    tenantId: tenantId,
                     accountId: (schedule.accounts && schedule.accounts[0]) || 'unknown',
                     scheduleId: schedule.id,
                     executionTime,
