@@ -99,6 +99,7 @@ export const authOptions: NextAuthOptions = {
             clientId: process.env.COGNITO_APP_CLIENT_ID as string,
             clientSecret: process.env.COGNITO_APP_CLIENT_SECRET as string,
             issuer: process.env.COGNITO_ISSUER as string,
+            allowDangerousEmailAccountLinking: true,
         }),
     ],
     pages: {
@@ -112,9 +113,15 @@ export const authOptions: NextAuthOptions = {
             if (user || trigger === "update") {
                 const userId = user?.id ?? (token.sub as string);
                 // Per D-07: Prefer activeTenantId if set, otherwise fall back to findFirst
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const activeTenantId = (user as any)?.activeTenantId ?? null;
+                // On trigger==="update", user is undefined — re-fetch activeTenantId from DB
+                let activeTenantId = (user as any)?.activeTenantId ?? null;
+                if (!activeTenantId && trigger === "update") {
+                    const dbUser = await prisma.authUser.findUnique({
+                        where: { id: userId },
+                        select: { activeTenantId: true },
+                    });
+                    activeTenantId = dbUser?.activeTenantId ?? null;
+                }
                 let utr;
                 if (activeTenantId) {
                     utr = await prisma.userTenantRole.findFirst({
