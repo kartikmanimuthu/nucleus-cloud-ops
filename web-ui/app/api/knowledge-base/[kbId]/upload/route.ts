@@ -32,6 +32,10 @@ export async function POST(
 
   const { kbId } = await params;
 
+  const tenantId = await getSessionTenantId();
+  const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+  if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -55,7 +59,6 @@ export async function POST(
     config: { fileName: file.name, fileSize: file.size, mimeType: file.type, s3Key: stagingKey, chunkCount: 0 },
   });
   await KnowledgeBaseService.updateDataSource(kbId, ds.id, { status: 'syncing' });
-  const tenantId = await getSessionTenantId();
   await KnowledgeBaseService.updateDataSourceCount(kbId, 1, tenantId);
 
   // Enqueue background job

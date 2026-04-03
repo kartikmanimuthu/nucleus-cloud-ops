@@ -66,7 +66,7 @@ export async function PUT(
 
     const existing = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
     if (!existing) {
-      return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 
     await KnowledgeBaseService.updateKnowledgeBase(kbId, { name, description }, tenantId);
@@ -94,6 +94,12 @@ export async function DELETE(
   try {
     const { kbId } = await params;
     const tenantId = await getSessionTenantId();
+
+    // Pre-flight ownership check
+    const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+    if (!kb) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
 
     // 1. Get all data sources
     const dataSources = await KnowledgeBaseService.listDataSources(kbId);

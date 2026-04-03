@@ -27,6 +27,11 @@ export async function GET(
 
   try {
     const { kbId } = await params;
+    const tenantId = await getSessionTenantId();
+    const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+    if (!kb) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
     const dataSources = await KnowledgeBaseService.listDataSources(kbId);
     return NextResponse.json({ dataSources: dataSources.map(sanitizeDataSource) });
   } catch (error) {
@@ -60,13 +65,18 @@ export async function POST(
       return NextResponse.json({ error: 'sourceType is required' }, { status: 400 });
     }
 
+    const tenantId = await getSessionTenantId();
+    const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+    if (!kb) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
+
     const dataSource = await KnowledgeBaseService.createDataSource(kbId, {
       name: input.name.trim(),
       sourceType: input.sourceType,
       config: input.config,
     });
 
-    const tenantId = await getSessionTenantId();
     await KnowledgeBaseService.updateDataSourceCount(kbId, 1, tenantId);
 
     return NextResponse.json({ dataSource: sanitizeDataSource(dataSource) }, { status: 201 });
