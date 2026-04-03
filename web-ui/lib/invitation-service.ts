@@ -49,14 +49,19 @@ export class InvitationService {
             throw new Error("This user is already a member of your organization");
         }
 
-        // Check if user exists in AuthUser table (D-08 auto-join detection)
+        // D-08 auto-join: only if user has an existing tenant membership (i.e. they've actually
+        // logged in before). A bare AuthUser row from a previous failed invite attempt should
+        // still go through the D-04 path so a new email is sent.
         const existingUser = await globalPrisma.authUser.findUnique({
             where: { email },
         });
+        const hasActiveMembership = existingUser
+            ? !!(await globalPrisma.userTenantRole.findFirst({ where: { userId: existingUser.id } }))
+            : false;
 
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-        if (existingUser) {
+        if (existingUser && hasActiveMembership) {
             // D-08: existing user — auto-join path
             const customRole = await globalPrisma.customRole.findFirst({
                 where: { tenantId, name: role },
