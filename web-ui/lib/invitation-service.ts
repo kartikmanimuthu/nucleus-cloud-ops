@@ -14,8 +14,6 @@ import {
     AdminCreateUserCommand,
     AdminDeleteUserCommand,
     AdminDisableUserCommand,
-    AdminSetUserPasswordCommand,
-    MessageActionType,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { getPrismaClient, getTenantClient } from "@/lib/db/pg-config";
 
@@ -207,11 +205,13 @@ export class InvitationService {
     }
 
     /**
-     * Resend invitation. Per D-11: calls AdminCreateUser with RESEND MessageAction.
-     * Resets expiresAt to 7 days from now.
+     * Resend invitation. Generates a fresh temp password, updates AuthUser hash,
+     * deletes+recreates the Cognito user so the email contains the exact same password.
+     * (RESEND MessageAction resends Cognito's original auto-generated password, not ours.)
      */
     static async resendInvitation(invitationId: string, tenantId: string) {
         const prisma = getTenantClient(tenantId);
+        const globalPrisma = getPrismaClient();
 
         const invitation = await prisma.invitation.findFirst({
             where: { id: invitationId, status: "pending" },
@@ -220,11 +220,39 @@ export class InvitationService {
             throw new Error("Invitation not found or not in pending status");
         }
 
-        await getCognitoClient().send(
+        // Generate a fresh temp password and update the AuthUser hash
+        const base = crypto.randomBytes(9).toString("base64url");
+        const tempPassword = base + "A1!";
+        const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+        await globalPrisma.authUser.upsert({
+            where: { email: invitation.email },
+            update: { passwordHash },
+            create: { email: invitation.email, passwordHash },
+        });
+
+        // Delete + recreate Cognito user so the email contains our exact tempPassword
+        const cognitoClient = getCognitoClient();
+        try {
+            await cognitoClient.send(
+                new AdminDeleteUserCommand({
+                    UserPoolId: COGNITO_USER_POOL_ID,
+                    Username: invitation.email,
+                })
+            );
+        } catch {
+            // User may not exist in Cognito — continue to create
+        }
+        await cognitoClient.send(
             new AdminCreateUserCommand({
                 UserPoolId: COGNITO_USER_POOL_ID,
                 Username: invitation.email,
-                MessageAction: MessageActionType.RESEND,
+                TemporaryPassword: tempPassword,
+                UserAttributes: [
+                    { Name: "email", Value: invitation.email },
+                    { Name: "email_verified", Value: "true" },
+                ],
+                DesiredDeliveryMediums: ["EMAIL"],
             })
         );
 
