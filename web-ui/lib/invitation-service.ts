@@ -13,6 +13,8 @@ import { getCognitoClient, COGNITO_USER_POOL_ID } from "@/lib/cognito-client";
 import {
     AdminCreateUserCommand,
     AdminDisableUserCommand,
+    AdminEnableUserCommand,
+    AdminSetUserPasswordCommand,
     MessageActionType,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { getPrismaClient, getTenantClient } from "@/lib/db/pg-config";
@@ -84,30 +86,74 @@ export class InvitationService {
 
         // D-04: new user — create AuthUser with hashed temp password, then call Cognito.
         // AuthUser must exist before Cognito call so CredentialsProvider can find the user on login.
-        // Temp password is passed to AdminCreateUser so Cognito sends the same password in the email.
-        const tempPassword = crypto.randomBytes(9).toString("base64url"); // ~12 URL-safe chars
+        // Temp password satisfies Cognito default policy: upper + lower + digit + special.
+        const base = crypto.randomBytes(9).toString("base64url"); // ~12 URL-safe chars
+        const tempPassword = base + "A1!"; // guarantee uppercase, digit, special char
         const passwordHash = await bcrypt.hash(tempPassword, 12);
 
-        await globalPrisma.authUser.create({
-            data: { email, passwordHash },
-        });
+        // Upsert AuthUser — may already exist if a previous invite attempt partially succeeded
+        const existingAuthUser = await globalPrisma.authUser.findUnique({ where: { email } });
+        if (existingAuthUser) {
+            await globalPrisma.authUser.update({
+                where: { email },
+                data: { passwordHash },
+            });
+        } else {
+            await globalPrisma.authUser.create({
+                data: { email, passwordHash },
+            });
+        }
 
         try {
-            await getCognitoClient().send(
-                new AdminCreateUserCommand({
-                    UserPoolId: COGNITO_USER_POOL_ID,
-                    Username: email,
-                    TemporaryPassword: tempPassword,
-                    UserAttributes: [
-                        { Name: "email", Value: email },
-                        { Name: "email_verified", Value: "true" },
-                    ],
-                    DesiredDeliveryMediums: ["EMAIL"],
-                })
-            );
+            const cognitoClient = getCognitoClient();
+            try {
+                await cognitoClient.send(
+                    new AdminCreateUserCommand({
+                        UserPoolId: COGNITO_USER_POOL_ID,
+                        Username: email,
+                        TemporaryPassword: tempPassword,
+                        UserAttributes: [
+                            { Name: "email", Value: email },
+                            { Name: "email_verified", Value: "true" },
+                        ],
+                        DesiredDeliveryMediums: ["EMAIL"],
+                    })
+                );
+            } catch (cognitoErr: unknown) {
+                // User already exists in Cognito (e.g. from a previous revoked invite).
+                // Re-enable, set new temp password, and resend the welcome email.
+                const errType = (cognitoErr as { __type?: string }).__type;
+                if (errType === "UsernameExistsException") {
+                    await cognitoClient.send(
+                        new AdminEnableUserCommand({
+                            UserPoolId: COGNITO_USER_POOL_ID,
+                            Username: email,
+                        })
+                    );
+                    await cognitoClient.send(
+                        new AdminSetUserPasswordCommand({
+                            UserPoolId: COGNITO_USER_POOL_ID,
+                            Username: email,
+                            Password: tempPassword,
+                            Permanent: false,
+                        })
+                    );
+                    await cognitoClient.send(
+                        new AdminCreateUserCommand({
+                            UserPoolId: COGNITO_USER_POOL_ID,
+                            Username: email,
+                            MessageAction: MessageActionType.RESEND,
+                        })
+                    );
+                } else {
+                    throw cognitoErr;
+                }
+            }
         } catch (err) {
-            // Roll back AuthUser creation if Cognito call fails
-            await globalPrisma.authUser.delete({ where: { email } }).catch(() => {});
+            // Roll back AuthUser changes if Cognito call fails unrecoverably
+            if (!existingAuthUser) {
+                await globalPrisma.authUser.delete({ where: { email } }).catch(() => {});
+            }
             throw err;
         }
 
