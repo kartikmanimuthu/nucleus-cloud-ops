@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ScheduleService } from '@/lib/schedule-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // GET /api/accounts/[accountId]/schedules - Fetch schedules for a specific account
 export async function GET(
@@ -16,9 +17,12 @@ export async function GET(
             );
         }
 
+        const tenantId = await getSessionTenantId();
+
         // Use ScheduleService to fetch schedules filtered by accountId
         const { schedules, total } = await ScheduleService.getSchedules({
             accountId: decodeURIComponent(accountId),
+            tenantId,
         });
 
         return NextResponse.json({

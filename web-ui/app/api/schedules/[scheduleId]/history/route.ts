@@ -9,7 +9,6 @@ export async function GET(
 ) {
     try {
         const { scheduleId } = await params;
-        const tenantId = await getSessionTenantId();
 
         if (!scheduleId) {
             return NextResponse.json(
@@ -18,7 +17,9 @@ export async function GET(
             );
         }
 
-        // Verify schedule exists within tenant scope
+        const tenantId = await getSessionTenantId();
+
+        // Verify schedule exists
         const schedule = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
         if (!schedule) {
             return NextResponse.json(
@@ -31,7 +32,8 @@ export async function GET(
         const searchParams = request.nextUrl.searchParams;
         const limit = parseInt(searchParams.get("limit") || "50", 10);
 
-        // Fetch execution history scoped to tenant
+
+        // Fetch execution history
         const executions = await ScheduleExecutionService.getExecutionsForSchedule(
             scheduleId,
             (schedule.accounts && schedule.accounts[0]) || "unknown",

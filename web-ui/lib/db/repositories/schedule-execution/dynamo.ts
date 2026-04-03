@@ -11,7 +11,9 @@
  *   GSI3: gsi3pk = STATUS#<status> (filter by status)
  */
 import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import { getDynamoDBDocumentClient, APP_TABLE_NAME, DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getDynamoDBDocumentClient, APP_TABLE_NAME } from '@/lib/aws-config';
+
+const DEFAULT_TENANT_ID = 'default';
 import type { ScheduleExecution, UIScheduleExecution } from '@/lib/schedule-execution-service';
 import type { IScheduleExecutionRepository } from './interface';
 

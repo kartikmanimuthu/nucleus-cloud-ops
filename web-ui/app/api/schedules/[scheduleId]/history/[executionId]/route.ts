@@ -9,7 +9,6 @@ export async function GET(
 ) {
     try {
         const { scheduleId, executionId } = await params;
-        const tenantId = await getSessionTenantId();
 
         if (!scheduleId || !executionId) {
             return NextResponse.json(
@@ -18,7 +17,9 @@ export async function GET(
             );
         }
 
-        // Verify schedule exists within tenant scope
+        const tenantId = await getSessionTenantId();
+
+        // Verify schedule exists
         const schedule = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
         if (!schedule) {
             return NextResponse.json(
@@ -27,7 +28,7 @@ export async function GET(
             );
         }
 
-        // Fetch single execution scoped to tenant
+        // Fetch single execution
         const execution = await ScheduleExecutionService.getExecutionById(
             scheduleId,
             executionId,

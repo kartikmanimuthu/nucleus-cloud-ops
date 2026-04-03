@@ -346,6 +346,9 @@ export async function POST(req: Request) {
                             return { role, content, metadata: Object.keys(metadata).length ? metadata : undefined };
                         });
                         await chatHistory.addMessages(resolvedTenantId, resolvedUserId, threadId, mapped, sessionTitle);
+                    }
+                } catch (historyErr) {
+                    console.warn('[API] Failed to persist chat history (non-fatal):', historyErr);
                 }
             }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ScheduleService } from '@/lib/schedule-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // GET /api/accounts/[accountId]/resources - Get aggregated resources from all schedules for this account
 export async function GET(
@@ -16,9 +17,12 @@ export async function GET(
             );
         }
 
+        const tenantId = await getSessionTenantId();
+
         // Fetch all schedules for this account
         const { schedules } = await ScheduleService.getSchedules({
             accountId: decodeURIComponent(accountId),
+            tenantId,
         });
 
         // Aggregate unique resources from all schedules

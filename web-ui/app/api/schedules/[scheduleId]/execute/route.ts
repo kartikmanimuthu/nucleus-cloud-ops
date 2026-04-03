@@ -35,8 +35,10 @@ export async function POST(
             );
         }
 
+        const tenantId = await getSessionTenantId();
+
         // 1. Fetch schedule to verify existence
-        const schedule = await ScheduleService.getSchedule(scheduleId);
+        const schedule = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
         if (!schedule) {
             console.log(`[API] Schedule ${scheduleId} not found`);
             return NextResponse.json(
@@ -119,7 +121,7 @@ export async function POST(
             lastExecution: executionTime,
             executionCount: (schedule.executionCount || 0) + 1,
             active: true
-        }, (schedule.accounts && schedule.accounts[0]) || 'unknown');
+        }, (schedule.accounts && schedule.accounts[0]) || 'unknown', tenantId);
 
         // 4. Log Audit
         await AuditService.logResourceAction({
@@ -130,7 +132,8 @@ export async function POST(
             status: executionStatus === 'failed' ? 'error' : 'success',
             details: `Manual execution triggered via Dashboard. Status: ${executionStatus}`,
             user: userEmail || "unknown-web-user",
-            source: "web-ui"
+            source: "web-ui",
+            metadata: { tenantId },
         });
 
         return NextResponse.json({

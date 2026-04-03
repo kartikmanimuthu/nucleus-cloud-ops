@@ -13,15 +13,9 @@ export async function POST(
         const { scheduleId } = await params;
         console.log('API Route - Toggling schedule status:', scheduleId);
 
-        const tenantId = await getSessionTenantId();
         const session = await getServerSession(authOptions);
         const updatedBy = session?.user?.email || 'api-user';
-
-        // Pre-flight ownership check (D-03)
-        const existing = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
-        if (!existing) {
-            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
-        }
+        const tenantId = await getSessionTenantId();
 
         const updatedSchedule = await ScheduleService.toggleScheduleStatus(scheduleId, undefined, updatedBy, tenantId);
 
