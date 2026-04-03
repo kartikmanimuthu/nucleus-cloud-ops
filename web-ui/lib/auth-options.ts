@@ -131,6 +131,7 @@ export const authOptions: NextAuthOptions = {
                 if (!utr) {
                     utr = await prisma.userTenantRole.findFirst({
                         where: { userId },
+                        orderBy: { assignedAt: 'desc' }, // most recent tenant membership
                     });
                 }
                 // D-14: Accept pending invitations on first login with no tenant (sign-in only)
