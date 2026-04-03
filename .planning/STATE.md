@@ -1,34 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v3.0
-milestone_name: Multi-Tenancy
-status: complete
-stopped_at: Milestone v3.0 archived
+milestone: v4.0
+milestone_name: Tenant Isolation Hardening
+status: in_progress
+stopped_at: Defining requirements
 last_updated: "2026-04-03"
 last_activity: 2026-04-03
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 18
-  completed_plans: 18
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-02)
+See: .planning/PROJECT.md (updated 2026-04-03)
 
 **Core value:** Multi-tenant SaaS cloud ops platform with dual auth, custom RBAC, tenant isolation, invitations, org switching, and branding
-**Current focus:** Planning next milestone
+**Current focus:** Defining requirements for v4.0 Tenant Isolation Hardening
 
 ## Current Position
 
-Phase: 17 (final)
-Plan: All complete
-Status: Milestone v3.0 shipped and archived
-Last activity: 2026-04-03 - Completed quick task 260403-u7l: fix role ID gap, seed default roles, multi-org membership, auto-migrate on startup
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-03 — Milestone v4.0 started
 
 Progress: [██████████] 100%
 

@@ -8,6 +8,18 @@ AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops age
 
 A fully operational multi-tenant cloud ops SaaS: every user authenticates via Cognito or email/password, every query is tenant-scoped, every action is role-checked, and tenants can self-service onboard, invite members, switch orgs, and configure branding.
 
+## Current Milestone: v4.0 Tenant Isolation Hardening
+
+**Goal:** Audit and fix tenant ID integration across all PostgreSQL CRUD operations so every module correctly scopes Create, Read, Update, Delete, Search, and Filter by the active tenant.
+
+**Target features:**
+- Audit all API routes and repository methods for missing/incorrect tenantId scoping
+- Fix Create operations that omit tenantId on insert
+- Fix Update/Delete operations that lack tenant WHERE clause (cross-tenant mutation risk)
+- Fix List/Search/Filter queries missing tenant scope
+- Validate getTenantClient() usage is consistent across all modules
+- Add regression tests to prevent future regressions
+
 ## Current State
 
 **v3.0 Multi-Tenancy shipped 2026-04-01.** All 6 phases (12–17), 18 plans complete.
@@ -42,7 +54,12 @@ A fully operational multi-tenant cloud ops SaaS: every user authenticates via Co
 
 ### Active — v4.0
 
-(To be defined via `/gsd:new-milestone`)
+- [ ] Audit all API routes and repositories for missing tenantId scoping
+- [ ] Fix Create operations that omit tenantId on insert
+- [ ] Fix Update/Delete operations lacking tenant WHERE clause
+- [ ] Fix List/Search/Filter queries missing tenant scope
+- [ ] Validate getTenantClient() usage across all modules
+- [ ] Add regression tests to prevent future regressions
 
 ### Out of Scope
 
