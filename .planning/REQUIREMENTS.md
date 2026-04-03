@@ -62,7 +62,7 @@
 
 ### Regression Tests
 
-- [ ] **TEST-01**: Vitest unit tests assert tenantId is present in all repository WHERE clauses for each module
+- [x] **TEST-01**: Vitest unit tests assert tenantId is present in all repository WHERE clauses for each module
 - [x] **TEST-02**: Cross-tenant isolation tests confirm tenant A cannot access tenant B data
 
 ## Future Requirements (v4.1+)
@@ -130,7 +130,7 @@
 | AUDT-02 | Phase 21 | Complete |
 | STNG-04 | Phase 21 | Complete |
 | STNG-05 | Phase 21 | Complete |
-| TEST-01 | Phase 21 | Pending |
+| TEST-01 | Phase 21 | Complete |
 | TEST-02 | Phase 21 | Complete |
 
 **Coverage:**

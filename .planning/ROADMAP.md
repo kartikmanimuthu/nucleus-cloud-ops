@@ -35,7 +35,7 @@ See [archive](milestones/v3.0-ROADMAP.md) for full phase details.
 - [x] **Phase 18: Accounts & Scheduler Isolation** - Fix tenant scoping for AWS Accounts and Cost Scheduler CRUD (completed 2026-04-03)
 - [x] **Phase 19: Inventory & Agent Ops Isolation** - Fix tenant scoping for Inventory Discovery and AI Ops modules (completed 2026-04-03)
 - [x] **Phase 20: Knowledge Base & Channels Isolation** - Fix tenant scoping for Knowledge Base and Channels CRUD (completed 2026-04-03)
-- [ ] **Phase 21: Audit, Settings & Regression Tests** - Fix audit log scoping, settings isolation, and add regression test coverage
+- [x] **Phase 21: Audit, Settings & Regression Tests** - Fix audit log scoping, settings isolation, and add regression test coverage (completed 2026-04-03)
 
 ## Phase Details
 
@@ -94,10 +94,10 @@ Plans:
   3. Tenant settings read and update are scoped — a tenant cannot read or modify another tenant's settings
   4. Vitest unit tests assert tenantId is present in all repository WHERE clauses for every module
   5. Cross-tenant isolation tests confirm tenant A cannot access tenant B data via any API route
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [x] 21-01-PLAN.md — Migrate audit log repo to getTenantClient, fix audit route scoping, sweep all audit call sites
-- [ ] 21-02-PLAN.md — Add tenant isolation assertions to all 10 migrated Postgres repository test files
+- [x] 21-02-PLAN.md — Add tenant isolation assertions to all 10 migrated Postgres repository test files
 - [x] 21-03-PLAN.md — Create cross-tenant API isolation tests for 6 high-risk modules
 
 ## Progress
@@ -113,4 +113,4 @@ Plans:
 | 18. Accounts & Scheduler Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
 | 19. Inventory & Agent Ops Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
 | 20. Knowledge Base & Channels Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
-| 21. Audit, Settings & Regression Tests | v4.0 | 2/3 | In Progress|  |
+| 21. Audit, Settings & Regression Tests | v4.0 | 3/3 | Complete   | 2026-04-03 |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
 status: verifying
-stopped_at: Completed 21-03-PLAN.md
-last_updated: "2026-04-03T21:11:27.816Z"
+stopped_at: Completed 21-02-PLAN.md
+last_updated: "2026-04-03T21:22:04.476Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 20-knowledge-base-channels-isolation P01 | 15 | 2 tasks | 8 files |
 | Phase 21-audit-settings-regression-tests P01 | 10 | 2 tasks | 6 files |
 | Phase 21-audit-settings-regression-tests P03 | 8 | 2 tasks | 6 files |
+| Phase 21-audit-settings-regression-tests P02 | 18 | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,7 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 21-audit-settings-regression-tests]: tenantId promoted from metadata-only to top-level property in all logUserAction/logResourceAction calls so repository layer can extract it
 - [Phase 21-audit-settings-regression-tests]: Mock at service layer for static-class routes; mock at repo/service-object layer for direct-call routes
 - [Phase 21-audit-settings-regression-tests]: audit-logs.test.ts: session-error path returns 500 with AuditService never called — proves no unscoped data path
+- [Phase 21-audit-settings-regression-tests]: Repos with cross-tenant methods mock both getTenantClient and getPrismaClient; isolation assertions only cover tenant-scoped methods
 
 ### Pending Todos
 
@@ -103,6 +105,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03T21:11:27.812Z
-Stopped at: Completed 21-03-PLAN.md
+Last session: 2026-04-03T21:22:04.473Z
+Stopped at: Completed 21-02-PLAN.md
 Resume file: None
