@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
-import { createCustomRole, getCustomRoles } from '@/lib/rbac/custom-role-service';
-import { ROLE_PERMISSIONS, ROLE_LEVELS } from '@/lib/rbac/permissions';
-import type { PermissionSet, PredefinedRole } from '@/lib/rbac/types';
+import { createCustomRole, getCustomRoles, getPresetRoles } from '@/lib/rbac/custom-role-service';
+import type { PermissionSet } from '@/lib/rbac/types';
 
 export async function GET(_request: NextRequest) {
     console.log('API - GET /api/settings/roles - Fetching roles');
@@ -12,21 +11,14 @@ export async function GET(_request: NextRequest) {
 
     try {
         const tenantId = await getSessionTenantId();
-        const customRoles = await getCustomRoles(tenantId);
-
-        const predefined = (Object.entries(ROLE_PERMISSIONS) as [PredefinedRole, PermissionSet][]).map(
-            ([name, permissions]) => ({
-                id: name.toLowerCase(),
-                name,
-                permissions,
-                level: ROLE_LEVELS[name],
-                predefined: true,
-            })
-        );
+        const [customRoles, presetRoles] = await Promise.all([
+            getCustomRoles(tenantId),
+            getPresetRoles(),
+        ]);
 
         return NextResponse.json({
             success: true,
-            data: { predefined, custom: customRoles },
+            data: { predefined: presetRoles, custom: customRoles },
         });
     } catch (error) {
         console.error('API - Error fetching roles:', error);

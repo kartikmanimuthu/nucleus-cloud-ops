@@ -23,7 +23,7 @@ export interface CustomRoleOutput {
 
 function castRole(raw: {
     id: string;
-    tenantId: string;
+    tenantId: string | null;
     name: string;
     permissions: unknown;
     level: number;
@@ -31,7 +31,7 @@ function castRole(raw: {
     updatedAt: Date;
     createdBy: string;
 }): CustomRoleOutput {
-    return { ...raw, permissions: raw.permissions as PermissionSet };
+    return { ...raw, tenantId: raw.tenantId ?? '', permissions: raw.permissions as PermissionSet };
 }
 
 function validateInput(input: CustomRoleInput): void {
@@ -52,7 +52,8 @@ export async function createCustomRole(
     validateInput(input);
 
     const prisma = getPrismaClient();
-    const count = await prisma.customRole.count({ where: { tenantId } });
+    // Only count tenant-scoped custom roles (not global presets)
+    const count = await prisma.customRole.count({ where: { tenantId, type: 'custom' } });
     if (count >= MAX_CUSTOM_ROLES) {
         throw new Error(`Maximum of ${MAX_CUSTOM_ROLES} custom roles per tenant reached`);
     }
@@ -63,6 +64,7 @@ export async function createCustomRole(
         const role = await prisma.customRole.create({
             data: {
                 tenantId,
+                type: 'custom',
                 name: input.name,
                 permissions: input.permissions as object,
                 level,
@@ -81,8 +83,17 @@ export async function createCustomRole(
 export async function getCustomRoles(tenantId: string): Promise<CustomRoleOutput[]> {
     const prisma = getPrismaClient();
     const roles = await prisma.customRole.findMany({
-        where: { tenantId },
+        where: { tenantId, type: 'custom' },
         orderBy: { name: 'asc' },
+    });
+    return roles.map(castRole);
+}
+
+export async function getPresetRoles(): Promise<CustomRoleOutput[]> {
+    const prisma = getPrismaClient();
+    const roles = await prisma.customRole.findMany({
+        where: { type: 'preset' },
+        orderBy: { level: 'desc' },
     });
     return roles.map(castRole);
 }
@@ -130,6 +141,15 @@ export async function getCustomRolePermissions(
     tenantId: string
 ): Promise<PermissionSet | null> {
     const prisma = getPrismaClient();
-    const role = await prisma.customRole.findFirst({ where: { tenantId, name: roleName } });
+    // Try tenant-scoped custom role first, fall back to global preset
+    const role = await prisma.customRole.findFirst({
+        where: {
+            OR: [
+                { tenantId, name: roleName, type: 'custom' },
+                { type: 'preset', name: roleName },
+            ],
+        },
+        orderBy: { type: 'asc' }, // 'custom' < 'preset' — prefer tenant custom if both exist
+    });
     return role ? (role.permissions as PermissionSet) : null;
 }

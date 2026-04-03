@@ -34,8 +34,6 @@ const ROLE_HIERARCHY: Record<string, number> = {
     Viewer: 1,
 };
 
-const ALL_ROLES = ["Owner", "Admin", "Member", "Viewer"];
-
 export default function MembersPage() {
     const { data: session } = useSession();
 
@@ -47,6 +45,7 @@ export default function MembersPage() {
     const [invitationsLoading, setInvitationsLoading] = useState(true);
     const [invitationsError, setInvitationsError] = useState<string | null>(null);
 
+    const [predefinedRoles, setPredefinedRoles] = useState<{ name: string; level: number }[]>([]);
     const [customRoles, setCustomRoles] = useState<{ name: string; level: number }[]>([]);
 
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -92,8 +91,10 @@ export default function MembersPage() {
             const res = await fetch("/api/settings/roles");
             const json = await res.json();
             if (!res.ok || !json.success) return;
+            const predefined = (json.data?.predefined ?? []) as { name: string; level: number }[];
             const custom = (json.data?.custom ?? []) as { name: string; level: number }[];
-            setCustomRoles(custom.map((r) => ({ name: r.name, level: r.level })));
+            setPredefinedRoles(predefined);
+            setCustomRoles(custom);
         } catch {
             // Non-blocking — predefined roles still work
         }
@@ -146,7 +147,7 @@ export default function MembersPage() {
     // Derive available roles based on current user's role level
     const sessionRole = (session?.user as { role?: string } | undefined)?.role ?? "Viewer";
     const userLevel = ROLE_HIERARCHY[sessionRole] ?? 1;
-    const predefinedFiltered = ALL_ROLES.filter((r) => (ROLE_HIERARCHY[r] ?? 0) <= userLevel);
+    const predefinedFiltered = predefinedRoles.filter((r) => r.level <= userLevel).map((r) => r.name);
     const customFiltered = customRoles.filter((r) => r.level <= userLevel).map((r) => r.name);
     const availableRoles = [...predefinedFiltered, ...customFiltered];
 

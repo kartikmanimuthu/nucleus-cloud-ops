@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth-session";
 import { getPrismaClient } from "@/lib/db/pg-config";
-import { ROLE_PERMISSIONS } from "@/lib/rbac/permissions";
 import { z } from "zod";
 
 const createTenantSchema = z.object({
@@ -47,27 +46,9 @@ export async function POST(req: NextRequest) {
                 },
             });
 
-            // Seed the 4 default roles into custom_roles for this tenant
-            const defaultRoles = [
-                { name: "Owner", level: 4, permissions: ROLE_PERMISSIONS.Owner },
-                { name: "Admin", level: 3, permissions: ROLE_PERMISSIONS.Admin },
-                { name: "Member", level: 2, permissions: ROLE_PERMISSIONS.Member },
-                { name: "Viewer", level: 1, permissions: ROLE_PERMISSIONS.Viewer },
-            ];
-            await tx.customRole.createMany({
-                data: defaultRoles.map((r) => ({
-                    tenantId: tenant.id,
-                    name: r.name,
-                    permissions: r.permissions,
-                    level: r.level,
-                    createdBy: session.user.id,
-                })),
-                skipDuplicates: true,
-            });
-
-            // Assign the creating user as Owner — look up the seeded Owner role for roleId
+            // Look up the global preset Owner role (seeded once globally, tenantId=null)
             const ownerRole = await tx.customRole.findFirst({
-                where: { tenantId: tenant.id, name: "Owner" },
+                where: { type: "preset", name: "Owner" },
             });
             await tx.userTenantRole.create({
                 data: {

@@ -1,19 +1,39 @@
 /**
- * Prisma seed script — documents default role structure.
+ * Prisma seed script — upserts 4 global preset roles (tenantId=null, type=preset).
  *
- * Default roles (Owner/Admin/Member/Viewer) are seeded per-tenant at creation time
- * via the POST /api/tenants route. This script is a no-op placeholder that can be
- * extended for test fixtures or future reference data.
- *
- * Run: cd web-ui && npm run db:seed
+ * Preset roles are global singletons. Tenant creation no longer duplicates them per-tenant.
+ * Run: cd /Users/kartik/.superset/worktrees/nucleus-cloud-ops/multitenancy && npx prisma db seed
  */
-import { PrismaClient } from '@prisma/client';
+// Import from the generated output path (schema output = "../web-ui/node_modules/.prisma/client")
+import { PrismaClient } from '../web-ui/node_modules/.prisma/client';
+import { ROLE_PERMISSIONS, ROLE_LEVELS } from '../web-ui/lib/rbac/permissions';
 
 const prisma = new PrismaClient();
 
 async function main() {
-    console.log('Seed: default roles are seeded per-tenant on creation via POST /api/tenants.');
-    console.log('Seed complete.');
+    const presets = [
+        { name: 'Owner' as const, level: ROLE_LEVELS.Owner },
+        { name: 'Admin' as const, level: ROLE_LEVELS.Admin },
+        { name: 'Member' as const, level: ROLE_LEVELS.Member },
+        { name: 'Viewer' as const, level: ROLE_LEVELS.Viewer },
+    ];
+
+    for (const p of presets) {
+        await prisma.customRole.upsert({
+            where: { id: `preset-${p.name.toLowerCase()}` },
+            update: { permissions: ROLE_PERMISSIONS[p.name] as object, level: p.level },
+            create: {
+                id: `preset-${p.name.toLowerCase()}`,
+                tenantId: null,
+                type: 'preset',
+                name: p.name,
+                permissions: ROLE_PERMISSIONS[p.name] as object,
+                level: p.level,
+                createdBy: 'system',
+            },
+        });
+    }
+    console.log('Seed: 4 preset roles upserted (tenantId=null, type=preset).');
 }
 
 main().catch(console.error).finally(() => prisma.$disconnect());
