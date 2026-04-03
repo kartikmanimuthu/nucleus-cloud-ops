@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
-status: executing
-stopped_at: Completed 18-01-PLAN.md
-last_updated: "2026-04-03T18:24:47.153Z"
+status: verifying
+stopped_at: Completed 18-02-PLAN.md
+last_updated: "2026-04-03T18:35:07.300Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-03)
 
 Phase: 18 (Accounts & Scheduler Isolation) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-03
 
 Progress: [░░░░░░░░░░] 0%
@@ -50,6 +50,7 @@ Progress: [░░░░░░░░░░] 0%
 | 16. User Invitations | 2 | 2026-04-01 |
 | 17. Org Switcher + Settings | 3 | 2026-04-01 |
 | Phase 18 P01 | 5 | 2 tasks | 2 files |
+| Phase 18 P02 | 8 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -59,6 +60,8 @@ See PROJECT.md Key Decisions table for full log.
 
 - [Phase 18]: getTenantClient(tenantId) in repository layer — Prisma middleware auto-injects tenantId on every query
 - [Phase 18]: Pre-flight ownership check in API route layer returns 403 before any cross-tenant mutation attempt
+- [Phase 18]: getTenantClient(tenantId) in SchedulePostgresRepository and ScheduleExecutionPostgresRepository — all 9 methods now tenant-scoped
+- [Phase 18]: Pre-flight ownership checks on schedule PUT/DELETE/toggle return 403 before any cross-tenant mutation
 
 ### Pending Todos
 
@@ -83,6 +86,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03T18:24:47.150Z
-Stopped at: Completed 18-01-PLAN.md
+Last session: 2026-04-03T18:35:07.297Z
+Stopped at: Completed 18-02-PLAN.md
 Resume file: None

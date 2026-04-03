@@ -15,12 +15,12 @@
 
 ### Cost Scheduler
 
-- [ ] **SCHED-01**: User can list only their tenant's schedules
-- [ ] **SCHED-02**: User can create a schedule scoped to their tenant
-- [ ] **SCHED-03**: User can update a schedule only within their tenant
-- [ ] **SCHED-04**: User can delete a schedule only within their tenant
-- [ ] **SCHED-05**: User can view execution history scoped to their tenant
-- [ ] **SCHED-06**: User can manage targeted resources scoped to their tenant
+- [x] **SCHED-01**: User can list only their tenant's schedules
+- [x] **SCHED-02**: User can create a schedule scoped to their tenant
+- [x] **SCHED-03**: User can update a schedule only within their tenant
+- [x] **SCHED-04**: User can delete a schedule only within their tenant
+- [x] **SCHED-05**: User can view execution history scoped to their tenant
+- [x] **SCHED-06**: User can manage targeted resources scoped to their tenant
 
 ### Inventory Discovery
 
@@ -104,12 +104,12 @@
 | ACCT-03 | Phase 18 | Complete |
 | ACCT-04 | Phase 18 | Complete |
 | ACCT-05 | Phase 18 | Complete |
-| SCHED-01 | Phase 18 | Pending |
-| SCHED-02 | Phase 18 | Pending |
-| SCHED-03 | Phase 18 | Pending |
-| SCHED-04 | Phase 18 | Pending |
-| SCHED-05 | Phase 18 | Pending |
-| SCHED-06 | Phase 18 | Pending |
+| SCHED-01 | Phase 18 | Complete |
+| SCHED-02 | Phase 18 | Complete |
+| SCHED-03 | Phase 18 | Complete |
+| SCHED-04 | Phase 18 | Complete |
+| SCHED-05 | Phase 18 | Complete |
+| SCHED-06 | Phase 18 | Complete |
 | INVT-01 | Phase 19 | Pending |
 | INVT-02 | Phase 19 | Pending |
 | INVT-03 | Phase 19 | Pending |

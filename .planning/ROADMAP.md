@@ -32,7 +32,7 @@ See [archive](milestones/v3.0-ROADMAP.md) for full phase details.
 
 ### v4.0 Tenant Isolation Hardening
 
-- [ ] **Phase 18: Accounts & Scheduler Isolation** - Fix tenant scoping for AWS Accounts and Cost Scheduler CRUD
+- [x] **Phase 18: Accounts & Scheduler Isolation** - Fix tenant scoping for AWS Accounts and Cost Scheduler CRUD (completed 2026-04-03)
 - [ ] **Phase 19: Inventory & Agent Ops Isolation** - Fix tenant scoping for Inventory Discovery and AI Ops modules
 - [ ] **Phase 20: Knowledge Base & Channels Isolation** - Fix tenant scoping for Knowledge Base and Channels CRUD
 - [ ] **Phase 21: Audit, Settings & Regression Tests** - Fix audit log scoping, settings isolation, and add regression test coverage
@@ -49,10 +49,10 @@ See [archive](milestones/v3.0-ROADMAP.md) for full phase details.
   3. Updating or deleting an account belonging to a different tenant returns 403
   4. Schedule list, execution history, and targeted resources return only the active tenant's data
   5. Creating a schedule stores the active tenantId on insert; search/filter queries include tenant scope
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [x] 18-01-PLAN.md — Harden AWS Account CRUD with tenant isolation (repo migration + ownership checks)
-- [ ] 18-02-PLAN.md — Harden Cost Scheduler CRUD and execution history with tenant isolation
+- [x] 18-02-PLAN.md — Harden Cost Scheduler CRUD and execution history with tenant isolation
 
 ### Phase 19: Inventory & Agent Ops Isolation
 **Goal**: Inventory resources and agent ops data are fully scoped to the active tenant
@@ -100,7 +100,7 @@ Plans:
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 2/2 | Complete | 2026-04-01 |
 | 16. User Invitations + Onboarding Completion | v3.0 | 2/2 | Complete | 2026-04-01 |
 | 17. Org Switcher + Tenant Settings | v3.0 | 3/3 | Complete | 2026-04-01 |
-| 18. Accounts & Scheduler Isolation | v4.0 | 1/2 | In Progress|  |
+| 18. Accounts & Scheduler Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
 | 19. Inventory & Agent Ops Isolation | v4.0 | 0/? | Not started | - |
 | 20. Knowledge Base & Channels Isolation | v4.0 | 0/? | Not started | - |
 | 21. Audit, Settings & Regression Tests | v4.0 | 0/? | Not started | - |
