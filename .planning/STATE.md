@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
-status: in_progress
-stopped_at: Phase 20 complete — ready for Phase 21
-last_updated: "2026-04-03"
+status: verifying
+stopped_at: Completed 21-01-PLAN.md
+last_updated: "2026-04-03T21:05:58.537Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
-  percent: 75
+  total_plans: 9
+  completed_plans: 7
+  percent: 0
 ---
 
 # Project State
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 19-inventory-agent-ops-isolation P02 | 15 | 2 tasks | 15 files |
 | Phase 20-knowledge-base-channels-isolation P02 | 5 | 1 tasks | 2 files |
 | Phase 20-knowledge-base-channels-isolation P01 | 15 | 2 tasks | 8 files |
+| Phase 21-audit-settings-regression-tests P01 | 10 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 20-knowledge-base-channels-isolation]: getTenantClient(tenantId) in KB and DataSource repos — consistent with Phase 18/19 pattern
 - [Phase 20-knowledge-base-channels-isolation]: Data source service methods called without tenantId — isolation via parent KB ownership pre-flight
 - [Phase 20-knowledge-base-channels-isolation]: Query route: tenantId extracted unconditionally; no-kbId path filters to tenant KB IDs to prevent cross-tenant vector leakage
+- [Phase 21-audit-settings-regression-tests]: AuditLogPostgresRepository uses getTenantClient(tenantId) for both createAuditLog and getAuditLogs — consistent with Phase 18/19/20 pattern
+- [Phase 21-audit-settings-regression-tests]: tenantId promoted from metadata-only to top-level property in all logUserAction/logResourceAction calls so repository layer can extract it
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03T20:23:16.139Z
-Stopped at: Completed 20-01-PLAN.md
+Last session: 2026-04-03T21:05:58.534Z
+Stopped at: Completed 21-01-PLAN.md
 Resume file: None

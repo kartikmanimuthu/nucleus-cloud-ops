@@ -52,13 +52,13 @@
 
 ### Audit Logs
 
-- [ ] **AUDT-01**: User can view audit logs scoped to their tenant only
-- [ ] **AUDT-02**: All audit log write operations include tenantId
+- [x] **AUDT-01**: User can view audit logs scoped to their tenant only
+- [x] **AUDT-02**: All audit log write operations include tenantId
 
 ### Settings
 
-- [ ] **STNG-04**: User can read tenant settings scoped to their tenant
-- [ ] **STNG-05**: User can update tenant settings only within their tenant
+- [x] **STNG-04**: User can read tenant settings scoped to their tenant
+- [x] **STNG-05**: User can update tenant settings only within their tenant
 
 ### Regression Tests
 
@@ -126,10 +126,10 @@
 | CHAN-02 | Phase 20 | Complete |
 | CHAN-03 | Phase 20 | Complete |
 | CHAN-04 | Phase 20 | Complete |
-| AUDT-01 | Phase 21 | Pending |
-| AUDT-02 | Phase 21 | Pending |
-| STNG-04 | Phase 21 | Pending |
-| STNG-05 | Phase 21 | Pending |
+| AUDT-01 | Phase 21 | Complete |
+| AUDT-02 | Phase 21 | Complete |
+| STNG-04 | Phase 21 | Complete |
+| STNG-05 | Phase 21 | Complete |
 | TEST-01 | Phase 21 | Pending |
 | TEST-02 | Phase 21 | Pending |
 
