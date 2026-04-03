@@ -71,7 +71,7 @@ None.
 |---|-------------|------|--------|-----------|
 | 260402-1et | fix post-login redirect loop cognito and credentials login not navigating to app | 2026-04-01 | 8e914bf | [260402-1et-fix-post-login-redirect-loop-cognito-and](.planning/quick/260402-1et-fix-post-login-redirect-loop-cognito-and/) |
 | 260403-j7b | logged in user should have provision to create his new tenant and switch the tenant and the whole application should render based on the switched tenant | 2026-04-03 | d9912b2 | [260403-j7b-logged-in-user-should-have-provision-to-](.planning/quick/260403-j7b-logged-in-user-should-have-provision-to-/) |
-| 260403-s0b | fix invitation login - invited users cannot login with temporary credentials | 2026-04-03 | TBD | [260403-s0b-fix-invitation-login-invited-users-canno](.planning/quick/260403-s0b-fix-invitation-login-invited-users-canno/) |
+| 260403-s0b | fix invitation login - invited users cannot login with temporary credentials | 2026-04-03 | bf1f57e | [260403-s0b-fix-invitation-login-invited-users-canno](.planning/quick/260403-s0b-fix-invitation-login-invited-users-canno/) |
 
 ## Session Continuity
 
