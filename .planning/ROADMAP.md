@@ -34,7 +34,7 @@ See [archive](milestones/v3.0-ROADMAP.md) for full phase details.
 
 - [x] **Phase 18: Accounts & Scheduler Isolation** - Fix tenant scoping for AWS Accounts and Cost Scheduler CRUD (completed 2026-04-03)
 - [x] **Phase 19: Inventory & Agent Ops Isolation** - Fix tenant scoping for Inventory Discovery and AI Ops modules (completed 2026-04-03)
-- [ ] **Phase 20: Knowledge Base & Channels Isolation** - Fix tenant scoping for Knowledge Base and Channels CRUD
+- [x] **Phase 20: Knowledge Base & Channels Isolation** - Fix tenant scoping for Knowledge Base and Channels CRUD (completed 2026-04-03)
 - [ ] **Phase 21: Audit, Settings & Regression Tests** - Fix audit log scoping, settings isolation, and add regression test coverage
 
 ## Phase Details
@@ -79,9 +79,9 @@ Plans:
   3. Updating or deleting a knowledge base belonging to a different tenant returns 403
   4. Channel list shows only the active tenant's channels
   5. Creating, updating, or deleting a channel is correctly scoped — cross-tenant mutations return 403
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
-- [ ] 20-01-PLAN.md — Harden KB and DataSource repos + all KB API routes with tenant isolation (repo migration + pre-flight 403)
+- [x] 20-01-PLAN.md — Harden KB and DataSource repos + all KB API routes with tenant isolation (repo migration + pre-flight 403)
 - [x] 20-02-PLAN.md — Harden Slack and Jira channel settings routes with tenant isolation
 
 ### Phase 21: Audit, Settings & Regression Tests
@@ -108,5 +108,5 @@ Plans:
 | 17. Org Switcher + Tenant Settings | v3.0 | 3/3 | Complete | 2026-04-01 |
 | 18. Accounts & Scheduler Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
 | 19. Inventory & Agent Ops Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
-| 20. Knowledge Base & Channels Isolation | v4.0 | 1/2 | In Progress|  |
+| 20. Knowledge Base & Channels Isolation | v4.0 | 2/2 | Complete   | 2026-04-03 |
 | 21. Audit, Settings & Regression Tests | v4.0 | 0/? | Not started | - |

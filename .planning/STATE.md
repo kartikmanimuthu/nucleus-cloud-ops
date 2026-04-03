@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
 status: verifying
-stopped_at: Completed 20-02-PLAN.md
-last_updated: "2026-04-03T20:18:03.068Z"
+stopped_at: Completed 20-01-PLAN.md
+last_updated: "2026-04-03T20:23:16.142Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -54,6 +54,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 19-inventory-agent-ops-isolation P01 | 10 | 2 tasks | 4 files |
 | Phase 19-inventory-agent-ops-isolation P02 | 15 | 2 tasks | 15 files |
 | Phase 20-knowledge-base-channels-isolation P02 | 5 | 1 tasks | 2 files |
+| Phase 20-knowledge-base-channels-isolation P01 | 15 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 19-inventory-agent-ops-isolation]: getTenantClient(tenantId) in all 3 agent-ops repositories; cross-tenant webhook methods kept on getPrismaClient with explicit comments
 - [Phase 19-inventory-agent-ops-isolation]: All 11 agent-ops API routes derive tenantId from getSessionTenantId(); pre-flight 403 on approve/cancel/resume (D-06) and all scheduled-task mutations (D-08)
 - [Phase 20-knowledge-base-channels-isolation]: TenantConfigService already accepted tenantId — no service changes needed, only route-layer fix
+- [Phase 20-knowledge-base-channels-isolation]: getTenantClient(tenantId) in KB and DataSource repos — consistent with Phase 18/19 pattern
+- [Phase 20-knowledge-base-channels-isolation]: Data source service methods called without tenantId — isolation via parent KB ownership pre-flight
+- [Phase 20-knowledge-base-channels-isolation]: Query route: tenantId extracted unconditionally; no-kbId path filters to tenant KB IDs to prevent cross-tenant vector leakage
 
 ### Pending Todos
 
@@ -93,6 +97,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03T20:18:03.065Z
-Stopped at: Completed 20-02-PLAN.md
+Last session: 2026-04-03T20:23:16.139Z
+Stopped at: Completed 20-01-PLAN.md
 Resume file: None

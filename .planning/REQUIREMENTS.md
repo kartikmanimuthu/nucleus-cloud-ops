@@ -37,11 +37,11 @@
 
 ### Knowledge Base
 
-- [ ] **KB-01**: User can list knowledge bases scoped to their tenant
-- [ ] **KB-02**: User can create a knowledge base scoped to their tenant
-- [ ] **KB-03**: User can update a knowledge base only within their tenant
-- [ ] **KB-04**: User can delete a knowledge base only within their tenant
-- [ ] **KB-05**: User can manage data sources scoped to their tenant
+- [x] **KB-01**: User can list knowledge bases scoped to their tenant
+- [x] **KB-02**: User can create a knowledge base scoped to their tenant
+- [x] **KB-03**: User can update a knowledge base only within their tenant
+- [x] **KB-04**: User can delete a knowledge base only within their tenant
+- [x] **KB-05**: User can manage data sources scoped to their tenant
 
 ### Channels
 
@@ -117,11 +117,11 @@
 | AIOP-02 | Phase 19 | Complete |
 | AIOP-03 | Phase 19 | Complete |
 | AIOP-04 | Phase 19 | Complete |
-| KB-01 | Phase 20 | Pending |
-| KB-02 | Phase 20 | Pending |
-| KB-03 | Phase 20 | Pending |
-| KB-04 | Phase 20 | Pending |
-| KB-05 | Phase 20 | Pending |
+| KB-01 | Phase 20 | Complete |
+| KB-02 | Phase 20 | Complete |
+| KB-03 | Phase 20 | Complete |
+| KB-04 | Phase 20 | Complete |
+| KB-05 | Phase 20 | Complete |
 | CHAN-01 | Phase 20 | Complete |
 | CHAN-02 | Phase 20 | Complete |
 | CHAN-03 | Phase 20 | Complete |
