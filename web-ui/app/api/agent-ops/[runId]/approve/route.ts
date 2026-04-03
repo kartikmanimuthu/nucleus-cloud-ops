@@ -2,7 +2,7 @@
  * Agent Ops — Approve / Reject API
  *
  * POST /api/agent-ops/[runId]/approve
- * Body: { tenantId: string, action: 'approve' | 'reject' }
+ * Body: { action: 'approve' | 'reject' }
  *
  * Source-agnostic: works for Slack, Jira, and API-triggered runs.
  * Resumes the LangGraph checkpoint on approve, cancels on reject.
@@ -14,6 +14,7 @@ import { resumeApprovedRun } from '@/lib/agent-ops/agent-executor';
 import { postResultToSlack, postErrorToSlack, updateApprovalMessageInSlack } from '@/lib/agent-ops/slack-notifier';
 import { postResultToJira, postErrorToJira } from '@/lib/agent-ops/jira-notifier';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 import type { AgentOpsRun, SlackTriggerMeta, JiraTriggerMeta, JiraIntegrationConfig } from '@/lib/agent-ops/types';
 
 export async function POST(
@@ -22,18 +23,18 @@ export async function POST(
 ) {
     try {
         const { runId } = await params;
+        const tenantId = await getSessionTenantId();
         const body = await req.json();
-        const tenantId: string = body.tenantId || 'default';
         const action: string = body.action; // 'approve' | 'reject'
 
         if (!action || !['approve', 'reject'].includes(action)) {
             return NextResponse.json({ error: 'action must be "approve" or "reject"' }, { status: 400 });
         }
 
-        // Fetch the run
+        // Pre-flight ownership check (D-06)
         const run = await agentOpsService.getRun(tenantId, runId);
         if (!run) {
-            return NextResponse.json({ error: 'Run not found' }, { status: 404 });
+            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
         }
         if (run.status !== 'awaiting_approval') {
             return NextResponse.json({

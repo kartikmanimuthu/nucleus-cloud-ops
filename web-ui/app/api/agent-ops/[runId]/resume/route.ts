@@ -6,12 +6,13 @@
  * Resumes a run that is currently in 'awaiting_input' status by re-triggering
  * execution with the original task enriched by the user's clarification reply.
  *
- * Body: { userInput: string, tenantId: string }
+ * Body: { userInput: string }
  */
 
 import { NextResponse } from 'next/server';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function POST(
     req: Request,
@@ -19,17 +20,18 @@ export async function POST(
 ) {
     try {
         const { runId } = await params;
-        const body = await req.json() as { userInput?: string; tenantId?: string };
-        const { userInput, tenantId = 'default' } = body;
+        const tenantId = await getSessionTenantId();
+        const body = await req.json() as { userInput?: string };
+        const { userInput } = body;
 
         if (!userInput?.trim()) {
             return NextResponse.json({ error: 'userInput is required' }, { status: 400 });
         }
 
-        // Fetch the existing run
+        // Pre-flight ownership check (D-06)
         const run = await agentOpsService.getRun(tenantId, runId);
         if (!run) {
-            return NextResponse.json({ error: 'Run not found' }, { status: 404 });
+            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
         }
 
         if (run.status !== 'awaiting_input') {

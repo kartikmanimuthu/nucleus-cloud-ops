@@ -6,10 +6,11 @@
 import { NextResponse } from 'next/server';
 import { listScheduledTasks, createScheduledTask } from '@/lib/agent-ops/scheduled-task-service';
 import { registerTask } from '@/lib/agent-ops/scheduler-engine';
+import { getSessionTenantId } from '@/lib/auth-session';
 
-export async function GET(req: Request) {
+export async function GET() {
     try {
-        const tenantId = new URL(req.url).searchParams.get('tenantId') || 'default';
+        const tenantId = await getSessionTenantId();
         const tasks = await listScheduledTasks(tenantId);
         return NextResponse.json({ tasks });
     } catch (err) {
@@ -19,9 +20,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
     try {
+        const tenantId = await getSessionTenantId();
         const body = await req.json();
         const task = await createScheduledTask({
-            tenantId: body.tenantId || 'default',
+            tenantId,
             name: body.name,
             description: body.description,
             cronExpression: body.cronExpression,
