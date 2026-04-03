@@ -88,7 +88,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
         }
 
         await agentOpsService.recordEvent({
-            runId, eventType: 'planning', node: '__start__',
+            runId, tenantId, eventType: 'planning', node: '__start__',
             content: `Agent run started. Task: ${taskDescription}`,
             metadata: { accountId, accountName },
         });
@@ -152,7 +152,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
         if (isAborted(runId)) {
             await agentOpsService.updateRunStatus(tenantId, runId, 'cancelled');
             await agentOpsService.recordEvent({
-                runId, eventType: 'final', node: '__cancelled__',
+                runId, tenantId, eventType: 'final', node: '__cancelled__',
                 content: 'Run was cancelled by user.',
                 metadata: { durationMs: Date.now() - startTime },
             });
@@ -176,7 +176,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 clarification: { question, missingInfo: missingInfo || 'Additional information' },
             });
             await agentOpsService.recordEvent({
-                runId, eventType: 'final', node: 'clarify',
+                runId, tenantId, eventType: 'final', node: 'clarify',
                 content: question, metadata: { missingInfo },
             });
 
@@ -211,7 +211,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 approvalRequest: { planSteps, approvalType: 'plan' as const },
             });
             await agentOpsService.recordEvent({
-                runId, eventType: 'planning', node: 'approval_gate',
+                runId, tenantId, eventType: 'planning', node: 'approval_gate',
                 content: `Awaiting plan approval:\n${planSteps.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')}`,
                 metadata: { planSteps },
             });
@@ -246,7 +246,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 },
             });
             await agentOpsService.recordEvent({
-                runId, eventType: 'execution', node: 'mutative_approval_gate',
+                runId, tenantId, eventType: 'execution', node: 'mutative_approval_gate',
                 content: `Awaiting approval for mutative tools: ${pendingTools.join(', ')}`,
                 metadata: { pendingTools },
             });
@@ -287,7 +287,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                     },
                 });
                 await agentOpsService.recordEvent({
-                    runId, eventType: 'final', node: 'interrupt',
+                    runId, tenantId, eventType: 'final', node: 'interrupt',
                     content: `Awaiting approval for: ${pendingTools.join(', ')}`,
                     metadata: { pendingTools },
                 });
@@ -306,7 +306,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
             { durationMs }
         );
         await agentOpsService.recordEvent({
-            runId, eventType: 'final', node: '__end__',
+            runId, tenantId, eventType: 'final', node: '__end__',
             content: resultSummary.slice(0, 5000),
             metadata: { durationMs, iterations: iterationCount, toolsUsed: Array.from(toolsUsed), totalInputTokens, totalOutputTokens },
         });
@@ -325,7 +325,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
             console.log(`[AgentExecutor] 🛑 Run ${runId} cancelled (abort caught)`);
             await agentOpsService.updateRunStatus(tenantId, runId, 'cancelled');
             await agentOpsService.recordEvent({
-                runId, eventType: 'final', node: '__cancelled__',
+                runId, tenantId, eventType: 'final', node: '__cancelled__',
                 content: 'Run was cancelled by user.',
                 metadata: { durationMs: Date.now() - startTime },
             });
@@ -333,7 +333,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
             console.error(`[AgentExecutor] ❌ Run ${runId} failed:`, errorMsg);
             await agentOpsService.updateRunStatus(tenantId, runId, 'failed', { error: errorMsg });
             await agentOpsService.recordEvent({
-                runId, eventType: 'error', node: 'executor',
+                runId, tenantId, eventType: 'error', node: 'executor',
                 content: errorMsg,
                 metadata: { stack: (error instanceof Error ? error.stack : '')?.slice(0, 2000) },
             });
@@ -374,7 +374,7 @@ async function processLangGraphEvent(
             }
             if (node === 'reflect' && event.data?.output?.reflection) {
                 await agentOpsService.recordEvent({
-                    runId, eventType: 'reflection', node,
+                    runId, tenantId, eventType: 'reflection', node,
                     content: String(event.data.output.reflection).slice(0, 5000),
                     metadata: { isComplete: event.data.output.isComplete, errors: event.data.output.errors },
                 });
@@ -382,7 +382,7 @@ async function processLangGraphEvent(
             if (node === 'planner' && Array.isArray(event.data?.output?.plan)) {
                 const planText = event.data.output.plan.map((s: any, i: number) => `${i + 1}. ${s.step}`).join('\n');
                 await agentOpsService.recordEvent({
-                    runId, eventType: 'planning', node,
+                    runId, tenantId, eventType: 'planning', node,
                     content: `Plan created:\n${planText}`,
                     metadata: { stepCount: event.data.output.plan.length, steps: event.data.output.plan },
                 });
@@ -390,7 +390,7 @@ async function processLangGraphEvent(
             if (node === 'evaluator' && event.data?.output?.evaluation) {
                 const eval_ = event.data.output.evaluation;
                 await agentOpsService.recordEvent({
-                    runId, eventType: 'planning', node,
+                    runId, tenantId, eventType: 'planning', node,
                     content: JSON.stringify(eval_, null, 2),
                     metadata: { mode: eval_.mode, skillId: eval_.skillId },
                 });
@@ -413,7 +413,7 @@ async function processLangGraphEvent(
             for (const tc of toolCalls) {
                 toolsUsed.add(tc.name);
                 await agentOpsService.recordEvent({
-                    runId, eventType: 'tool_call', node,
+                    runId, tenantId, eventType: 'tool_call', node,
                     toolName: tc.name,
                     toolArgs: tc.args || tc.input || {},
                     content: `Tool call: ${tc.name}(${JSON.stringify(tc.args || {}).slice(0, 1000)})`,
@@ -440,7 +440,7 @@ async function processLangGraphEvent(
                     result.finalContent = textContent;
                 }
                 await agentOpsService.recordEvent({
-                    runId, eventType: mapNodeToEventType(node), node,
+                    runId, tenantId, eventType: mapNodeToEventType(node), node,
                     content: textContent.slice(0, 10000),
                     metadata: {
                         inputTokens: result.inputTokens,
@@ -462,7 +462,7 @@ async function processLangGraphEvent(
             else outputStr = JSON.stringify(output ?? '');
 
             await agentOpsService.recordEvent({
-                runId, eventType: 'tool_result', node: node || toolName,
+                runId, tenantId, eventType: 'tool_result', node: node || toolName,
                 toolName,
                 toolOutput: outputStr.slice(0, 10000),
                 content: `Tool result from ${toolName}: ${outputStr.slice(0, 500)}`,
@@ -505,7 +505,7 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
     try {
         await agentOpsService.updateRunStatus(tenantId, runId, 'in_progress');
         await agentOpsService.recordEvent({
-            runId, eventType: 'planning', node: 'approval_gate',
+            runId, tenantId, eventType: 'planning', node: 'approval_gate',
             content: 'Plan approved by user — resuming execution.',
         });
 
@@ -608,7 +608,7 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
                 },
             });
             await agentOpsService.recordEvent({
-                runId, eventType: 'execution', node: 'mutative_approval_gate',
+                runId, tenantId, eventType: 'execution', node: 'mutative_approval_gate',
                 content: `Awaiting approval for mutative tools: ${allPending.join(', ')}`,
                 metadata: { pendingTools: allPending },
             });
@@ -637,7 +637,7 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
                     },
                 });
                 await agentOpsService.recordEvent({
-                    runId, eventType: 'final', node: 'interrupt',
+                    runId, tenantId, eventType: 'final', node: 'interrupt',
                     content: `Awaiting tool approval for: ${pendingTools.join(', ')}`,
                     metadata: { pendingTools },
                 });
@@ -657,7 +657,7 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
             { durationMs }
         );
         await agentOpsService.recordEvent({
-            runId, eventType: 'final', node: '__end__',
+            runId, tenantId, eventType: 'final', node: '__end__',
             content: (typeof resultSummary === 'string' ? resultSummary : JSON.stringify(resultSummary)).slice(0, 5000),
             metadata: { durationMs, iterations: iterationCount, toolsUsed: Array.from(toolsUsed), totalInputTokens, totalOutputTokens },
         });
@@ -676,7 +676,7 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
             console.error(`[AgentExecutor] ❌ Resumed run ${runId} failed:`, errorMsg);
             await agentOpsService.updateRunStatus(tenantId, runId, 'failed', { error: errorMsg });
             await agentOpsService.recordEvent({
-                runId, eventType: 'error', node: 'executor',
+                runId, tenantId, eventType: 'error', node: 'executor',
                 content: errorMsg,
                 metadata: { stack: (error instanceof Error ? error.stack : '')?.slice(0, 2000) },
             });

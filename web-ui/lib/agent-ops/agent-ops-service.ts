@@ -109,6 +109,7 @@ export async function listRunsBySource(
  */
 export async function recordEvent(params: {
     runId: string;
+    tenantId: string;
     eventType: AgentEventType;
     node: string;
     content?: string;

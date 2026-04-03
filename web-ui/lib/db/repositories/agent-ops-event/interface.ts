@@ -9,6 +9,7 @@ import type { AgentOpsEvent, AgentEventType } from '@/lib/agent-ops/types';
 
 export interface RecordEventParams {
     runId: string;
+    tenantId: string;
     eventType: AgentEventType;
     node: string;
     content?: string;
