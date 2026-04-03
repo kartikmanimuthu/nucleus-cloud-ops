@@ -12,8 +12,8 @@ import bcrypt from "bcryptjs";
 import { getCognitoClient, COGNITO_USER_POOL_ID } from "@/lib/cognito-client";
 import {
     AdminCreateUserCommand,
+    AdminDeleteUserCommand,
     AdminDisableUserCommand,
-    AdminEnableUserCommand,
     AdminSetUserPasswordCommand,
     MessageActionType,
 } from "@aws-sdk/client-cognito-identity-provider";
@@ -125,28 +125,26 @@ export class InvitationService {
                 );
             } catch (cognitoErr: unknown) {
                 // User already exists in Cognito (e.g. from a previous revoked invite).
-                // Re-enable, set new temp password, and resend the welcome email.
+                // Delete and re-create so Cognito sends the email with our exact tempPassword.
+                // (RESEND MessageAction resends the original Cognito-generated password, not ours.)
                 const errType = (cognitoErr as { __type?: string }).__type;
                 if (errType === "UsernameExistsException") {
                     await cognitoClient.send(
-                        new AdminEnableUserCommand({
+                        new AdminDeleteUserCommand({
                             UserPoolId: COGNITO_USER_POOL_ID,
                             Username: email,
-                        })
-                    );
-                    await cognitoClient.send(
-                        new AdminSetUserPasswordCommand({
-                            UserPoolId: COGNITO_USER_POOL_ID,
-                            Username: email,
-                            Password: tempPassword,
-                            Permanent: false,
                         })
                     );
                     await cognitoClient.send(
                         new AdminCreateUserCommand({
                             UserPoolId: COGNITO_USER_POOL_ID,
                             Username: email,
-                            MessageAction: MessageActionType.RESEND,
+                            TemporaryPassword: tempPassword,
+                            UserAttributes: [
+                                { Name: "email", Value: email },
+                                { Name: "email_verified", Value: "true" },
+                            ],
+                            DesiredDeliveryMediums: ["EMAIL"],
                         })
                     );
                 } else {
