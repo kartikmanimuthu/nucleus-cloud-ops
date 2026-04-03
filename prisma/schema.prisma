@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../web-ui/node_modules/.prisma/client"
 }
 
 datasource db {
@@ -73,17 +74,22 @@ model Account {
 // UserTenantRole — migrated from DynamoDB UsersTeamsTable (PK=USER#<sub>, SK=TENANT#<id>)
 // role field uses a CHECK constraint in migration SQL (not Prisma-native) for value enforcement
 // tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
+// roleId is a nullable FK to custom_roles.id — null for predefined roles (Owner/Admin/Member/Viewer)
 model UserTenantRole {
-  id         String   @id @default(cuid())
+  id         String      @id @default(cuid())
   userId     String
   tenantId   String
   email      String
-  role       String
-  assignedAt DateTime @default(now())
+  role       String      // keep for backward compat (predefined role name OR custom role name)
+  roleId     String?     // FK to custom_roles.id — null for predefined roles
+  assignedAt DateTime    @default(now())
   assignedBy String
+
+  customRole CustomRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
   @@unique([userId, tenantId])
   @@index([tenantId])
+  @@index([roleId])
   @@map("user_tenant_roles")
 }
 
@@ -468,6 +474,8 @@ model CustomRole {
   updatedAt   DateTime @updatedAt
   createdBy   String
 
+  userRoles   UserTenantRole[]
+
   @@unique([tenantId, name])
   @@index([tenantId])
   @@map("custom_roles")
@@ -507,7 +515,7 @@ model AuthUser {
   isSuperAdmin   Boolean       @default(false)
   failedAttempts  Int           @default(0)
   lockedUntil     DateTime?
-  activeTenantId  String?
+  activeTenantId  String?   @map("active_tenant_id")
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
