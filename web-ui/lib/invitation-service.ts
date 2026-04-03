@@ -7,6 +7,8 @@
  * First login acceptance (D-14): acceptPendingInvitation called from session callback
  */
 
+import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { getCognitoClient, COGNITO_USER_POOL_ID } from "@/lib/cognito-client";
 import {
     AdminCreateUserCommand,
@@ -80,18 +82,34 @@ export class InvitationService {
             return { invitation, autoJoined: true };
         }
 
-        // D-04: new user — call Cognito AdminCreateUser
-        await getCognitoClient().send(
-            new AdminCreateUserCommand({
-                UserPoolId: COGNITO_USER_POOL_ID,
-                Username: email,
-                UserAttributes: [
-                    { Name: "email", Value: email },
-                    { Name: "email_verified", Value: "true" },
-                ],
-                DesiredDeliveryMediums: ["EMAIL"],
-            })
-        );
+        // D-04: new user — create AuthUser with hashed temp password, then call Cognito.
+        // AuthUser must exist before Cognito call so CredentialsProvider can find the user on login.
+        // Temp password is passed to AdminCreateUser so Cognito sends the same password in the email.
+        const tempPassword = crypto.randomBytes(9).toString("base64url"); // ~12 URL-safe chars
+        const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+        await globalPrisma.authUser.create({
+            data: { email, passwordHash },
+        });
+
+        try {
+            await getCognitoClient().send(
+                new AdminCreateUserCommand({
+                    UserPoolId: COGNITO_USER_POOL_ID,
+                    Username: email,
+                    TemporaryPassword: tempPassword,
+                    UserAttributes: [
+                        { Name: "email", Value: email },
+                        { Name: "email_verified", Value: "true" },
+                    ],
+                    DesiredDeliveryMediums: ["EMAIL"],
+                })
+            );
+        } catch (err) {
+            // Roll back AuthUser creation if Cognito call fails
+            await globalPrisma.authUser.delete({ where: { email } }).catch(() => {});
+            throw err;
+        }
 
         const invitation = await prisma.invitation.create({
             data: {
