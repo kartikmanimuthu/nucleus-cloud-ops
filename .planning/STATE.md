@@ -74,7 +74,7 @@ None.
 | 260403-s0b | fix invitation login - invited users cannot login with temporary credentials | 2026-04-03 | bf1f57e | [260403-s0b-fix-invitation-login-invited-users-canno](.planning/quick/260403-s0b-fix-invitation-login-invited-users-canno/) |
 | 260403-seb | fix custom roles not appearing in invite dropdown + logo upload silent failure | 2026-04-03 | e994405 | [260403-seb-fix-custom-roles-not-appearing-in-invite](.planning/quick/260403-seb-fix-custom-roles-not-appearing-in-invite/) |
 | 260403-t3i | fix scheduler account dropdown to show tenant-scoped accounts and scope schedule creation to tenant | 2026-04-03 | — | [260403-t3i-fix-scheduler-account-dropdown-to-show-t](.planning/quick/260403-t3i-fix-scheduler-account-dropdown-to-show-t/) |
-| 260403-u2f | fix missing tenantId in validateAccount updateAccount call | 2026-04-03 | — | [260403-u2f-fix-missing-tenantid-in-validateaccount-](.planning/quick/260403-u2f-fix-missing-tenantid-in-validateaccount-/) |
+| 260403-u7l | fix role ID gap, seed default roles, multi-org membership | 2026-04-03 | 10f5497 | [260403-u7l-fix-role-id-gap-seed-default-roles-multi](.planning/quick/260403-u7l-fix-role-id-gap-seed-default-roles-multi/) |
 
 ## Session Continuity
 
