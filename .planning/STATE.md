@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
 status: verifying
-stopped_at: Completed 19-01-PLAN.md
-last_updated: "2026-04-03T19:31:59.030Z"
+stopped_at: Completed 19-02-PLAN.md
+last_updated: "2026-04-03T19:33:36.129Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 18 P01 | 5 | 2 tasks | 2 files |
 | Phase 18 P02 | 8 | 2 tasks | 8 files |
 | Phase 19-inventory-agent-ops-isolation P01 | 10 | 2 tasks | 4 files |
+| Phase 19-inventory-agent-ops-isolation P02 | 15 | 2 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,8 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 18]: getTenantClient(tenantId) in SchedulePostgresRepository and ScheduleExecutionPostgresRepository — all 9 methods now tenant-scoped
 - [Phase 18]: Pre-flight ownership checks on schedule PUT/DELETE/toggle return 403 before any cross-tenant mutation
 - [Phase 19-inventory-agent-ops-isolation]: getPrismaClient() retained only for cross-entity account→tenantId lookup in upsertResource/upsertBatch
+- [Phase 19-inventory-agent-ops-isolation]: getTenantClient(tenantId) in all 3 agent-ops repositories; cross-tenant webhook methods kept on getPrismaClient with explicit comments
+- [Phase 19-inventory-agent-ops-isolation]: All 11 agent-ops API routes derive tenantId from getSessionTenantId(); pre-flight 403 on approve/cancel/resume (D-06) and all scheduled-task mutations (D-08)
 
 ### Pending Todos
 
@@ -88,6 +91,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03T19:31:59.025Z
-Stopped at: Completed 19-01-PLAN.md
+Last session: 2026-04-03T19:33:36.125Z
+Stopped at: Completed 19-02-PLAN.md
 Resume file: None
