@@ -3,6 +3,7 @@ import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
     getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
 vi.mock('uuid', () => ({ v4: vi.fn(() => 'mock-task-id') }));
@@ -14,7 +15,7 @@ vi.mock('croner', () => ({
     })),
 }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
 import { ScheduledTaskPostgresRepository } from './postgres';
 
 const makeTaskRow = (overrides: Record<string, unknown> = {}) => ({
@@ -72,6 +73,7 @@ describe('ScheduledTaskPostgresRepository', () => {
             $executeRaw: vi.fn(),
         };
         vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('createScheduledTask', () => {
@@ -201,5 +203,68 @@ describe('ScheduledTaskPostgresRepository', () => {
 
             expect(result).toBe(false);
         });
+    });
+});
+
+describe('ScheduledTaskPostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        scheduledTask: {
+            create: MockedFunction<any>;
+            findFirst: MockedFunction<any>;
+            findMany: MockedFunction<any>;
+            updateMany: MockedFunction<any>;
+        };
+        scheduledTaskLock: { findUnique: MockedFunction<any> };
+        $executeRaw: MockedFunction<any>;
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            scheduledTask: {
+                create: vi.fn(),
+                findFirst: vi.fn().mockResolvedValue(null),
+                findMany: vi.fn().mockResolvedValue([]),
+                updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+            scheduledTaskLock: { findUnique: vi.fn().mockResolvedValue(null) },
+            $executeRaw: vi.fn().mockResolvedValue(1),
+        };
+        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('createScheduledTask calls getTenantClient with correct tenantId', async () => {
+        mockPrisma.scheduledTask.create.mockResolvedValue(makeTaskRow({ taskId: 'mock-task-id' }));
+        const repo = new ScheduledTaskPostgresRepository();
+        await repo.createScheduledTask({
+            tenantId: 'tenant-test', name: 'Test', description: 'desc',
+            cronExpression: '0 2 * * *', timezone: 'UTC', mode: 'plan',
+            autoApprove: false, notification: { type: 'none' }, createdBy: 'user-1',
+        });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getScheduledTask calls getTenantClient with correct tenantId', async () => {
+        const repo = new ScheduledTaskPostgresRepository();
+        await repo.getScheduledTask('tenant-test', 'task-1');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('listScheduledTasks calls getTenantClient with correct tenantId', async () => {
+        const repo = new ScheduledTaskPostgresRepository();
+        await repo.listScheduledTasks('tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('updateScheduledTask calls getTenantClient with correct tenantId', async () => {
+        const repo = new ScheduledTaskPostgresRepository();
+        await repo.updateScheduledTask('tenant-test', 'task-1', { name: 'Updated' });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('deleteScheduledTask calls getTenantClient with correct tenantId', async () => {
+        const repo = new ScheduledTaskPostgresRepository();
+        await repo.deleteScheduledTask('tenant-test', 'task-1');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });

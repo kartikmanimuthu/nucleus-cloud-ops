@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
-    getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import { DataSourcePostgresRepository } from './postgres';
 
 const makeDSRow = (overrides: Record<string, unknown> = {}) => ({
@@ -46,7 +46,7 @@ describe('DataSourcePostgresRepository', () => {
                 deleteMany: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('listDataSources', () => {
@@ -181,5 +181,65 @@ describe('DataSourcePostgresRepository', () => {
                 })
             );
         });
+    });
+});
+
+describe('DataSourcePostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        dataSource: {
+            findMany: MockedFunction<any>;
+            findFirst: MockedFunction<any>;
+            create: MockedFunction<any>;
+            updateMany: MockedFunction<any>;
+            deleteMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            dataSource: {
+                findMany: vi.fn().mockResolvedValue([]),
+                findFirst: vi.fn().mockResolvedValue(null),
+                create: vi.fn(),
+                updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+                deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('listDataSources calls getTenantClient with correct tenantId', async () => {
+        const repo = new DataSourcePostgresRepository();
+        await repo.listDataSources('kb-1', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getDataSource calls getTenantClient with correct tenantId', async () => {
+        const repo = new DataSourcePostgresRepository();
+        await repo.getDataSource('kb-1', 'ds-1', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('createDataSource calls getTenantClient with correct tenantId', async () => {
+        mockPrisma.dataSource.create.mockResolvedValue(makeDSRow({ tenantId: 'tenant-test' }));
+        const repo = new DataSourcePostgresRepository();
+        await repo.createDataSource(
+            'kb-1',
+            { name: 'New DS', sourceType: 'file-upload', config: { fileName: 'f.pdf', fileSize: 1024, mimeType: 'application/pdf', s3Key: 'k', chunkCount: 1 } },
+            'tenant-test'
+        );
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('updateDataSource calls getTenantClient with correct tenantId', async () => {
+        const repo = new DataSourcePostgresRepository();
+        await repo.updateDataSource('kb-1', 'ds-1', { status: 'synced' }, 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('deleteDataSource calls getTenantClient with correct tenantId', async () => {
+        const repo = new DataSourcePostgresRepository();
+        await repo.deleteDataSource('kb-1', 'ds-1', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });

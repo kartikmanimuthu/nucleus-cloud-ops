@@ -3,11 +3,12 @@ import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
     getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
 vi.mock('uuid', () => ({ v4: vi.fn(() => 'mock-run-id') }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
 import { AgentOpsRunPostgresRepository } from './postgres';
 
 const makeRunRow = (overrides: Record<string, unknown> = {}) => ({
@@ -58,6 +59,7 @@ describe('AgentOpsRunPostgresRepository', () => {
             },
         };
         vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('createRun', () => {
@@ -122,7 +124,7 @@ describe('AgentOpsRunPostgresRepository', () => {
             mockPrisma.agentOpsRun.findMany.mockResolvedValue([makeRunRow()]);
 
             const repo = new AgentOpsRunPostgresRepository();
-            await repo.listRuns({ source: 'slack', limit: 10 });
+            await repo.listRuns({ tenantId: 't1', source: 'slack', limit: 10 });
 
             const callArg = mockPrisma.agentOpsRun.findMany.mock.calls[0][0];
             expect(callArg.where.source).toBe('slack');
@@ -133,7 +135,7 @@ describe('AgentOpsRunPostgresRepository', () => {
             mockPrisma.agentOpsRun.findMany.mockResolvedValue([]);
 
             const repo = new AgentOpsRunPostgresRepository();
-            await repo.listRuns({ status: 'completed', limit: 5 });
+            await repo.listRuns({ tenantId: 't1', status: 'completed', limit: 5 });
 
             const callArg = mockPrisma.agentOpsRun.findMany.mock.calls[0][0];
             expect(callArg.where.status).toBe('completed');
@@ -212,5 +214,60 @@ describe('AgentOpsRunPostgresRepository', () => {
             expect(callArg.data.completedAt).toBeDefined();
             expect(callArg.data.durationMs).toBeGreaterThan(0);
         });
+    });
+});
+
+describe('AgentOpsRunPostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        agentOpsRun: {
+            create: MockedFunction<any>;
+            findFirst: MockedFunction<any>;
+            findMany: MockedFunction<any>;
+            updateMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            agentOpsRun: {
+                create: vi.fn(),
+                findFirst: vi.fn().mockResolvedValue(null),
+                findMany: vi.fn().mockResolvedValue([]),
+                updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('createRun calls getTenantClient with correct tenantId', async () => {
+        mockPrisma.agentOpsRun.create.mockResolvedValue(makeRunRow({ runId: 'mock-run-id', threadId: 'agent-ops-mock-run-id' }));
+        const repo = new AgentOpsRunPostgresRepository();
+        await repo.createRun({
+            tenantId: 'tenant-test',
+            source: 'slack',
+            taskDescription: 'test',
+            mode: 'plan',
+            trigger: { userId: 'u1', channelId: 'C1', responseUrl: 'http://x' },
+        });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getRun calls getTenantClient with correct tenantId', async () => {
+        const repo = new AgentOpsRunPostgresRepository();
+        await repo.getRun('tenant-test', 'run-1');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('listRuns calls getTenantClient with correct tenantId', async () => {
+        const repo = new AgentOpsRunPostgresRepository();
+        await repo.listRuns({ tenantId: 'tenant-test', limit: 10 });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('updateRunStatus calls getTenantClient with correct tenantId', async () => {
+        const repo = new AgentOpsRunPostgresRepository();
+        await repo.updateRunStatus('tenant-test', 'run-1', 'completed');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });
