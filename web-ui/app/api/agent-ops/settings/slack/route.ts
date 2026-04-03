@@ -7,6 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 import type { SlackIntegrationConfig } from '@/lib/agent-ops/types';
 
 const CONFIG_KEY = 'agent-ops-slack';
@@ -19,7 +20,8 @@ function maskSecret(value: string | undefined): string {
 
 export async function GET() {
     try {
-        const config = await TenantConfigService.getConfig<SlackIntegrationConfig>(CONFIG_KEY);
+        const tenantId = await getSessionTenantId();
+        const config = await TenantConfigService.getConfig<SlackIntegrationConfig>(CONFIG_KEY, tenantId);
 
         if (!config) {
             return NextResponse.json({ configured: false, enabled: false });
@@ -42,6 +44,7 @@ export async function GET() {
 
 export async function PUT(req: Request) {
     try {
+        const tenantId = await getSessionTenantId();
         const body = await req.json() as Partial<SlackIntegrationConfig>;
 
         if (!body.signingSecret || body.signingSecret.trim() === '') {
@@ -57,7 +60,7 @@ export async function PUT(req: Request) {
             enabled: body.enabled !== false,
         };
 
-        await TenantConfigService.saveConfig(CONFIG_KEY, config);
+        await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);
 
         console.log('[API /agent-ops/settings/slack] Saved Slack config');
 
