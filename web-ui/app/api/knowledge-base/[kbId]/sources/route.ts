@@ -32,7 +32,7 @@ export async function GET(
     if (!kb) {
       return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
-    const dataSources = await KnowledgeBaseService.listDataSources(kbId);
+    const dataSources = await KnowledgeBaseService.listDataSources(kbId, tenantId);
     return NextResponse.json({ dataSources: dataSources.map(sanitizeDataSource) });
   } catch (error) {
     console.error('[KB Sources API] Error listing data sources:', error);
@@ -75,7 +75,7 @@ export async function POST(
       name: input.name.trim(),
       sourceType: input.sourceType,
       config: input.config,
-    });
+    }, tenantId);
 
     await KnowledgeBaseService.updateDataSourceCount(kbId, 1, tenantId);
 

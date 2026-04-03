@@ -26,7 +26,7 @@ export async function GET(
   const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
   if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 
-  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
   if (!ds) return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
 
   return NextResponse.json({ dataSource: sanitize(ds) });
@@ -45,7 +45,7 @@ export async function PUT(
   const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
   if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 
-  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
   if (!ds) return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
 
   const body = await request.json() as { name?: string; config?: Record<string, unknown> };
@@ -53,8 +53,8 @@ export async function PUT(
   if (body.name?.trim()) updates.name = body.name.trim();
   if (body.config) updates.config = { ...ds.config, ...body.config } as DataSource['config'];
 
-  await KnowledgeBaseService.updateDataSource(kbId, dsId, updates);
-  const updated = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  await KnowledgeBaseService.updateDataSource(kbId, dsId, updates, tenantId);
+  const updated = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
 
   return NextResponse.json({ dataSource: sanitize(updated!) });
 }
@@ -72,11 +72,11 @@ export async function DELETE(
   const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
   if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 
-  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
   if (!ds) return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
 
   if (ds.vectorKeys.length > 0) await deleteVectors(ds.vectorKeys);
-  await KnowledgeBaseService.deleteDataSource(kbId, dsId);
+  await KnowledgeBaseService.deleteDataSource(kbId, dsId, tenantId);
   await Promise.all([
     KnowledgeBaseService.updateDataSourceCount(kbId, -1, tenantId),
     KnowledgeBaseService.updateVectorCount(kbId, -ds.vectorCount, tenantId),

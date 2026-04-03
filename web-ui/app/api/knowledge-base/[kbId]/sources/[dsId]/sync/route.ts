@@ -27,7 +27,7 @@ export async function POST(
   const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
   if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 
-  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
   if (!ds) return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
   if (ds.sourceType === 'file-upload') return NextResponse.json({ error: 'Re-sync not supported for file uploads' }, { status: 400 });
 
@@ -35,7 +35,7 @@ export async function POST(
   if (!jobType) return NextResponse.json({ error: `Unsupported source type: ${ds.sourceType}` }, { status: 400 });
 
   // Mark as syncing immediately
-  await KnowledgeBaseService.updateDataSource(kbId, dsId, { status: 'syncing' });
+  await KnowledgeBaseService.updateDataSource(kbId, dsId, { status: 'syncing' }, tenantId);
 
   // Enqueue background job — pass old vector keys so Lambda can clean them up
   await sqs.send(new SendMessageCommand({

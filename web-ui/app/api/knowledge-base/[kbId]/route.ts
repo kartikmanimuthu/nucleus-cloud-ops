@@ -31,7 +31,7 @@ export async function GET(
     const tenantId = await getSessionTenantId();
     const [knowledgeBase, dataSources] = await Promise.all([
       KnowledgeBaseService.getKnowledgeBase(kbId, tenantId),
-      KnowledgeBaseService.listDataSources(kbId),
+      KnowledgeBaseService.listDataSources(kbId, tenantId),
     ]);
 
     if (!knowledgeBase) {
@@ -102,14 +102,14 @@ export async function DELETE(
     }
 
     // 1. Get all data sources
-    const dataSources = await KnowledgeBaseService.listDataSources(kbId);
+    const dataSources = await KnowledgeBaseService.listDataSources(kbId, tenantId);
 
     // 2. Cascade delete: vectors then data source records
     for (const ds of dataSources) {
       if (ds.vectorKeys.length > 0) {
         await deleteVectors(ds.vectorKeys);
       }
-      await KnowledgeBaseService.deleteDataSource(kbId, ds.id);
+      await KnowledgeBaseService.deleteDataSource(kbId, ds.id, tenantId);
     }
 
     // 3. Delete the knowledge base itself

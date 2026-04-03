@@ -57,8 +57,8 @@ export async function POST(
     name: file.name,
     sourceType: 'file-upload',
     config: { fileName: file.name, fileSize: file.size, mimeType: file.type, s3Key: stagingKey, chunkCount: 0 },
-  });
-  await KnowledgeBaseService.updateDataSource(kbId, ds.id, { status: 'syncing' });
+  }, tenantId);
+  await KnowledgeBaseService.updateDataSource(kbId, ds.id, { status: 'syncing' }, tenantId);
   await KnowledgeBaseService.updateDataSourceCount(kbId, 1, tenantId);
 
   // Enqueue background job
