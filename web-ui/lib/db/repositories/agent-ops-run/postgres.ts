@@ -11,7 +11,7 @@
  * Multi-tenant safety: every query scoped by tenantId.
  */
 import { v4 as uuidv4 } from 'uuid';
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
 import type { AgentOpsRun, AgentOpsStatus, TriggerMetadata, TriggerSource } from '@/lib/agent-ops/types';
 import type {
     IAgentOpsRunRepository,
@@ -85,7 +85,7 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         const threadId = `agent-ops-${runId}`;
         const expiresAt = new Date(Date.now() + TTL_30_DAYS_MS);
 
-        const record = await getPrismaClient().agentOpsRun.create({
+        const record = await getTenantClient(params.tenantId).agentOpsRun.create({
             data: {
                 tenantId: params.tenantId,
                 runId,
@@ -130,14 +130,14 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         if (extra?.clarification) updateData.clarification = extra.clarification as object;
         if (extra?.approvalRequest) updateData.approvalRequest = extra.approvalRequest as object;
 
-        await getPrismaClient().agentOpsRun.updateMany({
+        await getTenantClient(tenantId).agentOpsRun.updateMany({
             where: { tenantId, runId },
             data: updateData,
         });
     }
 
     async updateRunTrigger(tenantId: string, runId: string, trigger: TriggerMetadata): Promise<void> {
-        await getPrismaClient().agentOpsRun.updateMany({
+        await getTenantClient(tenantId).agentOpsRun.updateMany({
             where: { tenantId, runId },
             data: { trigger: trigger as object, updatedAt: new Date() },
         });
@@ -146,7 +146,7 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
     async updateApprovalMessageTs(tenantId: string, runId: string, slackMessageTs: string): Promise<void> {
         const run = await this.getRun(tenantId, runId);
         if (!run?.approvalRequest) return;
-        await getPrismaClient().agentOpsRun.updateMany({
+        await getTenantClient(tenantId).agentOpsRun.updateMany({
             where: { tenantId, runId },
             data: {
                 approvalRequest: { ...(run.approvalRequest as object), slackMessageTs },
@@ -156,7 +156,7 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
     }
 
     async getRun(tenantId: string, runId: string): Promise<AgentOpsRun | null> {
-        const record = await getPrismaClient().agentOpsRun.findFirst({
+        const record = await getTenantClient(tenantId).agentOpsRun.findFirst({
             where: { tenantId, runId },
         });
         return record ? toAgentOpsRun(record) : null;
@@ -164,15 +164,13 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
 
     async listRuns(query: RunListQuery): Promise<{ runs: AgentOpsRun[]; lastKey?: Record<string, unknown> }> {
         const limit = query.limit || 25;
-        const where: Record<string, unknown> = {};
+        if (!query.tenantId) throw new Error('listRuns: tenantId is required');
+        const where: Record<string, unknown> = { tenantId: query.tenantId };
 
-        if (query.tenantId && query.tenantId !== 'default' && query.tenantId !== 'all') {
-            where.tenantId = query.tenantId;
-        }
         if (query.source) where.source = query.source;
         if (query.status) where.status = query.status;
 
-        const records = await getPrismaClient().agentOpsRun.findMany({
+        const records = await getTenantClient(query.tenantId).agentOpsRun.findMany({
             where,
             orderBy: { createdAt: 'desc' },
             take: limit,
@@ -181,6 +179,7 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         return { runs: records.map(toAgentOpsRun) };
     }
 
+    // Cross-tenant: webhook handlers need to find runs across tenants
     async listRunsBySource(source: TriggerSource, limit = 25): Promise<AgentOpsRun[]> {
         const records = await getPrismaClient().agentOpsRun.findMany({
             where: { source },
@@ -190,7 +189,7 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         return records.map(toAgentOpsRun);
     }
 
-    // AOPS-06: single WHERE query instead of scanning 3 sources x 100 records
+    // Cross-tenant: AOPS-06 — Slack/Jira webhooks look up runs by runId without knowing tenantId
     async findAwaitingApprovalRun(runId: string): Promise<AgentOpsRun | null> {
         const record = await getPrismaClient().agentOpsRun.findFirst({
             where: { runId, status: 'awaiting_approval' },
@@ -198,6 +197,7 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         return record ? toAgentOpsRun(record) : null;
     }
 
+    // Cross-tenant: Jira webhook handler resolves run by issue key across all tenants
     async findAwaitingApprovalRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null> {
         const record = await getPrismaClient().agentOpsRun.findFirst({
             where: {
@@ -209,6 +209,7 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         return record ? toAgentOpsRun(record) : null;
     }
 
+    // Cross-tenant: Jira webhook handler resolves run by issue key across all tenants
     async findAwaitingRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null> {
         const record = await getPrismaClient().agentOpsRun.findFirst({
             where: {
@@ -220,6 +221,7 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         return record ? toAgentOpsRun(record) : null;
     }
 
+    // Cross-tenant: Slack webhook handler resolves run by channel+thread across all tenants
     async findAwaitingRunBySlackThread(channelId: string, threadTs: string): Promise<AgentOpsRun | null> {
         const record = await getPrismaClient().agentOpsRun.findFirst({
             where: {

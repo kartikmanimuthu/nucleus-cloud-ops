@@ -10,7 +10,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { Cron } from 'croner';
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
 import type { ScheduledTask, AgentOpsStatus } from '@/lib/agent-ops/types';
 import type {
     IScheduledTaskRepository,
@@ -89,7 +89,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
         const taskId = uuidv4();
         const nextRunAt = computeNextRunAt(params.cronExpression, params.timezone);
 
-        const record = await getPrismaClient().scheduledTask.create({
+        const record = await getTenantClient(params.tenantId).scheduledTask.create({
             data: {
                 tenantId: params.tenantId,
                 taskId,
@@ -115,20 +115,21 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
     }
 
     async getScheduledTask(tenantId: string, taskId: string): Promise<ScheduledTask | null> {
-        const record = await getPrismaClient().scheduledTask.findFirst({
+        const record = await getTenantClient(tenantId).scheduledTask.findFirst({
             where: { tenantId, taskId },
         });
         return record ? toScheduledTask(record) : null;
     }
 
     async listScheduledTasks(tenantId: string): Promise<ScheduledTask[]> {
-        const records = await getPrismaClient().scheduledTask.findMany({
+        const records = await getTenantClient(tenantId).scheduledTask.findMany({
             where: { tenantId, taskStatus: { not: 'deleted' } },
             orderBy: { createdAt: 'desc' },
         });
         return records.map(toScheduledTask);
     }
 
+    // Cross-tenant: scheduler engine scans all active tasks
     async listAllActiveTasks(): Promise<ScheduledTask[]> {
         const records = await getPrismaClient().scheduledTask.findMany({
             where: { taskStatus: 'active' },
@@ -157,7 +158,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
             updateData.notification = updates.notification as object;
         }
 
-        await getPrismaClient().scheduledTask.updateMany({
+        await getTenantClient(tenantId).scheduledTask.updateMany({
             where: { tenantId, taskId },
             data: updateData,
         });
@@ -165,7 +166,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
     }
 
     async pauseScheduledTask(tenantId: string, taskId: string): Promise<void> {
-        await getPrismaClient().scheduledTask.updateMany({
+        await getTenantClient(tenantId).scheduledTask.updateMany({
             where: { tenantId, taskId },
             data: { taskStatus: 'paused', nextRunAt: null },
         });
@@ -175,7 +176,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
         const task = await this.getScheduledTask(tenantId, taskId);
         if (!task) return null;
         const nextRunAt = computeNextRunAt(task.cronExpression, task.timezone);
-        await getPrismaClient().scheduledTask.updateMany({
+        await getTenantClient(tenantId).scheduledTask.updateMany({
             where: { tenantId, taskId },
             data: { taskStatus: 'active', nextRunAt: nextRunAt ?? null },
         });
@@ -183,7 +184,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
     }
 
     async deleteScheduledTask(tenantId: string, taskId: string): Promise<void> {
-        await getPrismaClient().scheduledTask.updateMany({
+        await getTenantClient(tenantId).scheduledTask.updateMany({
             where: { tenantId, taskId },
             data: { taskStatus: 'deleted', nextRunAt: null },
         });
@@ -198,7 +199,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
         const task = await this.getScheduledTask(tenantId, taskId);
         if (!task) return;
         const nextRunAt = computeNextRunAt(task.cronExpression, task.timezone);
-        await getPrismaClient().scheduledTask.updateMany({
+        await getTenantClient(tenantId).scheduledTask.updateMany({
             where: { tenantId, taskId },
             data: {
                 lastRunId: runId,
@@ -210,7 +211,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
         });
     }
 
-    // AOPS-04: ON CONFLICT (taskId, scheduledAt) DO NOTHING for atomic lock acquisition
+    // Platform-level: locks are not tenant-scoped
     async tryAcquireExecutionLock(taskId: string, scheduledAt: string): Promise<boolean> {
         const expiresAt = new Date(Date.now() + 3600 * 1000);
         try {
