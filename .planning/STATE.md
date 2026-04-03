@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
 status: in_progress
-stopped_at: Defining requirements
+stopped_at: Roadmap created — ready for Phase 18
 last_updated: "2026-04-03"
 last_activity: 2026-04-03
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-03)
 
 **Core value:** Multi-tenant SaaS cloud ops platform with dual auth, custom RBAC, tenant isolation, invitations, org switching, and branding
-**Current focus:** Defining requirements for v4.0 Tenant Isolation Hardening
+**Current focus:** v4.0 Tenant Isolation Hardening — audit and fix tenantId scoping across all PostgreSQL CRUD operations
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 18 — Accounts & Scheduler Isolation (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-04-03 — Milestone v4.0 started
+Status: Roadmap created, ready to plan Phase 18
+Last activity: 2026-04-03 — v4.0 roadmap created (4 phases, 33 requirements)
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -79,5 +79,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-04-03
-Stopped at: Quick task 260403-t3i complete
+Stopped at: v4.0 roadmap created — 4 phases (18–21), 33 requirements mapped
 Resume file: None

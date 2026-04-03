@@ -99,45 +99,45 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ACCT-01 | TBD | Pending |
-| ACCT-02 | TBD | Pending |
-| ACCT-03 | TBD | Pending |
-| ACCT-04 | TBD | Pending |
-| ACCT-05 | TBD | Pending |
-| SCHED-01 | TBD | Pending |
-| SCHED-02 | TBD | Pending |
-| SCHED-03 | TBD | Pending |
-| SCHED-04 | TBD | Pending |
-| SCHED-05 | TBD | Pending |
-| SCHED-06 | TBD | Pending |
-| INVT-01 | TBD | Pending |
-| INVT-02 | TBD | Pending |
-| INVT-03 | TBD | Pending |
-| AIOP-01 | TBD | Pending |
-| AIOP-02 | TBD | Pending |
-| AIOP-03 | TBD | Pending |
-| AIOP-04 | TBD | Pending |
-| KB-01 | TBD | Pending |
-| KB-02 | TBD | Pending |
-| KB-03 | TBD | Pending |
-| KB-04 | TBD | Pending |
-| KB-05 | TBD | Pending |
-| CHAN-01 | TBD | Pending |
-| CHAN-02 | TBD | Pending |
-| CHAN-03 | TBD | Pending |
-| CHAN-04 | TBD | Pending |
-| AUDT-01 | TBD | Pending |
-| AUDT-02 | TBD | Pending |
-| STNG-04 | TBD | Pending |
-| STNG-05 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| TEST-02 | TBD | Pending |
+| ACCT-01 | Phase 18 | Pending |
+| ACCT-02 | Phase 18 | Pending |
+| ACCT-03 | Phase 18 | Pending |
+| ACCT-04 | Phase 18 | Pending |
+| ACCT-05 | Phase 18 | Pending |
+| SCHED-01 | Phase 18 | Pending |
+| SCHED-02 | Phase 18 | Pending |
+| SCHED-03 | Phase 18 | Pending |
+| SCHED-04 | Phase 18 | Pending |
+| SCHED-05 | Phase 18 | Pending |
+| SCHED-06 | Phase 18 | Pending |
+| INVT-01 | Phase 19 | Pending |
+| INVT-02 | Phase 19 | Pending |
+| INVT-03 | Phase 19 | Pending |
+| AIOP-01 | Phase 19 | Pending |
+| AIOP-02 | Phase 19 | Pending |
+| AIOP-03 | Phase 19 | Pending |
+| AIOP-04 | Phase 19 | Pending |
+| KB-01 | Phase 20 | Pending |
+| KB-02 | Phase 20 | Pending |
+| KB-03 | Phase 20 | Pending |
+| KB-04 | Phase 20 | Pending |
+| KB-05 | Phase 20 | Pending |
+| CHAN-01 | Phase 20 | Pending |
+| CHAN-02 | Phase 20 | Pending |
+| CHAN-03 | Phase 20 | Pending |
+| CHAN-04 | Phase 20 | Pending |
+| AUDT-01 | Phase 21 | Pending |
+| AUDT-02 | Phase 21 | Pending |
+| STNG-04 | Phase 21 | Pending |
+| STNG-05 | Phase 21 | Pending |
+| TEST-01 | Phase 21 | Pending |
+| TEST-02 | Phase 21 | Pending |
 
 **Coverage:**
 - v4.0 requirements: 33 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 33 ⚠️
+- Mapped to phases: 33 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-03*
-*Last updated: 2026-04-03 after initial definition*
+*Last updated: 2026-04-03 — traceability filled after roadmap creation*
