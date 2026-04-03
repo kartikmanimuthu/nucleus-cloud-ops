@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v4.0
 milestone_name: Tenant Isolation Hardening
 status: executing
-stopped_at: v4.0 roadmap created — 4 phases (18–21), 33 requirements mapped
-last_updated: "2026-04-03T18:24:25.193Z"
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-04-03T18:24:47.153Z"
 last_activity: 2026-04-03
 progress:
   total_phases: 4
@@ -49,12 +49,16 @@ Progress: [░░░░░░░░░░] 0%
 | 15. Super Admin + Onboarding | 2 | 2026-04-01 |
 | 16. User Invitations | 2 | 2026-04-01 |
 | 17. Org Switcher + Settings | 3 | 2026-04-01 |
+| Phase 18 P01 | 5 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
 ### Decisions
 
 See PROJECT.md Key Decisions table for full log.
+
+- [Phase 18]: getTenantClient(tenantId) in repository layer — Prisma middleware auto-injects tenantId on every query
+- [Phase 18]: Pre-flight ownership check in API route layer returns 403 before any cross-tenant mutation attempt
 
 ### Pending Todos
 
@@ -79,6 +83,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-03
-Stopped at: v4.0 roadmap created — 4 phases (18–21), 33 requirements mapped
+Last session: 2026-04-03T18:24:47.150Z
+Stopped at: Completed 18-01-PLAN.md
 Resume file: None

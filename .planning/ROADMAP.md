@@ -49,9 +49,9 @@ See [archive](milestones/v3.0-ROADMAP.md) for full phase details.
   3. Updating or deleting an account belonging to a different tenant returns 403
   4. Schedule list, execution history, and targeted resources return only the active tenant's data
   5. Creating a schedule stores the active tenantId on insert; search/filter queries include tenant scope
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
-- [ ] 18-01-PLAN.md — Harden AWS Account CRUD with tenant isolation (repo migration + ownership checks)
+- [x] 18-01-PLAN.md — Harden AWS Account CRUD with tenant isolation (repo migration + ownership checks)
 - [ ] 18-02-PLAN.md — Harden Cost Scheduler CRUD and execution history with tenant isolation
 
 ### Phase 19: Inventory & Agent Ops Isolation
@@ -100,7 +100,7 @@ Plans:
 | 15. Super Admin + Onboarding + Suspension | v3.0 | 2/2 | Complete | 2026-04-01 |
 | 16. User Invitations + Onboarding Completion | v3.0 | 2/2 | Complete | 2026-04-01 |
 | 17. Org Switcher + Tenant Settings | v3.0 | 3/3 | Complete | 2026-04-01 |
-| 18. Accounts & Scheduler Isolation | v4.0 | 0/2 | Planned | - |
+| 18. Accounts & Scheduler Isolation | v4.0 | 1/2 | In Progress|  |
 | 19. Inventory & Agent Ops Isolation | v4.0 | 0/? | Not started | - |
 | 20. Knowledge Base & Channels Isolation | v4.0 | 0/? | Not started | - |
 | 21. Audit, Settings & Regression Tests | v4.0 | 0/? | Not started | - |

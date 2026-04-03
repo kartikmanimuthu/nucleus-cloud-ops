@@ -7,11 +7,11 @@
 
 ### AWS Accounts
 
-- [ ] **ACCT-01**: User can list only their tenant's AWS accounts
-- [ ] **ACCT-02**: User can create an AWS account scoped to their tenant
-- [ ] **ACCT-03**: User can update an AWS account only within their tenant
-- [ ] **ACCT-04**: User can delete an AWS account only within their tenant
-- [ ] **ACCT-05**: User can search/filter AWS accounts within their tenant only
+- [x] **ACCT-01**: User can list only their tenant's AWS accounts
+- [x] **ACCT-02**: User can create an AWS account scoped to their tenant
+- [x] **ACCT-03**: User can update an AWS account only within their tenant
+- [x] **ACCT-04**: User can delete an AWS account only within their tenant
+- [x] **ACCT-05**: User can search/filter AWS accounts within their tenant only
 
 ### Cost Scheduler
 
@@ -99,11 +99,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ACCT-01 | Phase 18 | Pending |
-| ACCT-02 | Phase 18 | Pending |
-| ACCT-03 | Phase 18 | Pending |
-| ACCT-04 | Phase 18 | Pending |
-| ACCT-05 | Phase 18 | Pending |
+| ACCT-01 | Phase 18 | Complete |
+| ACCT-02 | Phase 18 | Complete |
+| ACCT-03 | Phase 18 | Complete |
+| ACCT-04 | Phase 18 | Complete |
+| ACCT-05 | Phase 18 | Complete |
 | SCHED-01 | Phase 18 | Pending |
 | SCHED-02 | Phase 18 | Pending |
 | SCHED-03 | Phase 18 | Pending |
