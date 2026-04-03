@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
-    getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import { AccountPostgresRepository } from './postgres';
 
 const makeRow = (overrides: Record<string, unknown> = {}) => ({
@@ -50,7 +50,7 @@ describe('AccountPostgresRepository', () => {
                 deleteMany: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('getAccounts', () => {
@@ -250,7 +250,7 @@ describe('AccountPostgresRepository — updateAccount', () => {
                 update: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     it('calls update with tenantId_accountId composite key', async () => {
@@ -310,7 +310,7 @@ describe('AccountPostgresRepository — deleteAccount', () => {
                 deleteMany: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     it('calls deleteMany with tenantId and accountId in where clause', async () => {
@@ -354,7 +354,7 @@ describe('AccountPostgresRepository — getAccounts connectionFilter and default
                 count: vi.fn().mockResolvedValue(0),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     it('sets where.connectionStatus when connectionFilter is not "all"', async () => {
@@ -405,7 +405,7 @@ describe('AccountPostgresRepository — cross-tenant isolation', () => {
                 delete: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     it('getAccounts for tenant-A never returns tenant-B records', async () => {
@@ -452,7 +452,7 @@ describe('AccountPostgresRepository — cross-tenant isolation', () => {
                 findFirst: vi.fn().mockResolvedValue(null),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrismaWithFindFirst as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrismaWithFindFirst as any);
 
         const repo = new AccountPostgresRepository();
         const result = await repo.getAccount('acc-tenant-b', 'tenant-a');
@@ -463,5 +463,79 @@ describe('AccountPostgresRepository — cross-tenant isolation', () => {
             })
         );
         expect(result).toBeNull();
+    });
+});
+
+describe('AccountPostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        account: {
+            findMany: MockedFunction<any>;
+            count: MockedFunction<any>;
+            findFirst: MockedFunction<any>;
+            create: MockedFunction<any>;
+            update: MockedFunction<any>;
+            deleteMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            account: {
+                findMany: vi.fn().mockResolvedValue([]),
+                count: vi.fn().mockResolvedValue(0),
+                findFirst: vi.fn().mockResolvedValue(null),
+                create: vi.fn(),
+                update: vi.fn(),
+                deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+            },
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('getAccounts calls getTenantClient with correct tenantId', async () => {
+        const repo = new AccountPostgresRepository();
+        await repo.getAccounts({ tenantId: 'tenant-test' });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getAccount calls getTenantClient with correct tenantId', async () => {
+        const repo = new AccountPostgresRepository();
+        await repo.getAccount('acc-1', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('createAccount calls getTenantClient with correct tenantId', async () => {
+        mockPrisma.account.create.mockResolvedValue({
+            id: 'cuid-1', accountId: 'acc-new', name: 'New', active: true, regions: [],
+            roleArn: 'arn:aws:iam::111:role/R', tenantId: 'tenant-test', connectionStatus: 'unknown',
+            createdAt: new Date(), updatedAt: new Date(), createdBy: 'system', updatedBy: 'system',
+            externalId: null, description: null, connectionError: null,
+        });
+        const repo = new AccountPostgresRepository();
+        await repo.createAccount({
+            accountId: 'acc-new', name: 'New', roleArn: 'arn:aws:iam::111:role/R',
+            regions: [], active: true, connectionStatus: 'unknown', createdBy: 'system',
+            updatedBy: 'system', tags: [], description: '', lastValidated: '',
+            resourceCount: 0, schedulesCount: 0, monthlySavings: 0,
+        }, 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('updateAccount calls getTenantClient with correct tenantId', async () => {
+        mockPrisma.account.update.mockResolvedValue({
+            id: 'cuid-1', accountId: 'acc-1', name: 'Updated', active: true, regions: [],
+            roleArn: 'arn:aws:iam::111:role/R', tenantId: 'tenant-test', connectionStatus: 'unknown',
+            createdAt: new Date(), updatedAt: new Date(), createdBy: 'system', updatedBy: 'system',
+            externalId: null, description: null, connectionError: null,
+        });
+        const repo = new AccountPostgresRepository();
+        await repo.updateAccount('acc-1', { name: 'Updated' }, 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('deleteAccount calls getTenantClient with correct tenantId', async () => {
+        const repo = new AccountPostgresRepository();
+        await repo.deleteAccount('acc-1', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });

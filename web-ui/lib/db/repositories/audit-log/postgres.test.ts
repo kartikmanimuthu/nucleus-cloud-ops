@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
-    getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import { AuditLogPostgresRepository } from './postgres';
 
 const makeAuditRow = (overrides: Record<string, unknown> = {}) => ({
@@ -53,7 +53,7 @@ describe('AuditLogPostgresRepository', () => {
                 findMany: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('createAuditLog', () => {
@@ -176,5 +176,45 @@ describe('AuditLogPostgresRepository', () => {
             expect(callArg.where.tenantId).toBe('tenant-a');
             expect(callArg.where.tenantId).not.toBe('tenant-b');
         });
+    });
+});
+
+describe('AuditLogPostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        auditLog: {
+            create: MockedFunction<any>;
+            findMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            auditLog: {
+                create: vi.fn().mockResolvedValue({}),
+                findMany: vi.fn().mockResolvedValue([]),
+            },
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('createAuditLog calls getTenantClient with tenantId from auditData', async () => {
+        const repo = new AuditLogPostgresRepository();
+        await repo.createAuditLog({
+            eventType: 'account.create',
+            action: 'Create Account',
+            user: 'alice',
+            userType: 'user',
+            status: 'success',
+            severity: 'info',
+            source: 'web-ui',
+            ...({ tenantId: 'tenant-test' } as any),
+        } as any);
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getAuditLogs calls getTenantClient with correct tenantId', async () => {
+        const repo = new AuditLogPostgresRepository();
+        await repo.getAuditLogs('tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });

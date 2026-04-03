@@ -3,9 +3,10 @@ import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
     getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
 import { InventoryPostgresRepository } from './postgres';
 
 const makeRow = (overrides: Record<string, unknown> = {}) => ({
@@ -34,6 +35,9 @@ describe('InventoryPostgresRepository', () => {
             deleteMany: MockedFunction<any>;
             groupBy: MockedFunction<any>;
         };
+        account: {
+            findFirst: MockedFunction<any>;
+        };
         $transaction: MockedFunction<any>;
     };
 
@@ -47,9 +51,13 @@ describe('InventoryPostgresRepository', () => {
                 deleteMany: vi.fn(),
                 groupBy: vi.fn(),
             },
+            account: {
+                findFirst: vi.fn().mockResolvedValue({ tenantId: 'org-default' }),
+            },
             $transaction: vi.fn(),
         };
         vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('listResources', () => {
@@ -273,5 +281,74 @@ describe('InventoryPostgresRepository', () => {
             );
             expect(result).toBe(10);
         });
+    });
+});
+
+describe('InventoryPostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        inventoryResource: {
+            findMany: MockedFunction<any>;
+            count: MockedFunction<any>;
+            findUnique: MockedFunction<any>;
+            upsert: MockedFunction<any>;
+            deleteMany: MockedFunction<any>;
+            groupBy: MockedFunction<any>;
+        };
+        $transaction: MockedFunction<any>;
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            inventoryResource: {
+                findMany: vi.fn().mockResolvedValue([]),
+                count: vi.fn().mockResolvedValue(0),
+                findUnique: vi.fn().mockResolvedValue(null),
+                upsert: vi.fn(),
+                deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+                groupBy: vi.fn().mockResolvedValue([]),
+            },
+            $transaction: vi.fn().mockResolvedValue([]),
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('listResources calls getTenantClient with correct tenantId', async () => {
+        const repo = new InventoryPostgresRepository();
+        await repo.listResources({ tenantId: 'tenant-test' });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getResource calls getTenantClient with correct tenantId', async () => {
+        const repo = new InventoryPostgresRepository();
+        await repo.getResource('tenant-test', 'acc-1', 'ec2_instances', 'i-123');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('upsertResource calls getTenantClient with resolved tenantId', async () => {
+        mockPrisma.inventoryResource.upsert.mockResolvedValue({
+            id: 'cuid-1', tenantId: 'tenant-test', accountId: 'acc-1', region: 'us-east-1',
+            resourceType: 'ec2_instances', resourceId: 'i-123', name: null, status: null,
+            tags: {}, metadata: {}, discoveredAt: new Date(), updatedAt: new Date(),
+        });
+        const repo = new InventoryPostgresRepository();
+        await repo.upsertResource({
+            tenantId: 'tenant-test', accountId: 'acc-1', region: 'us-east-1',
+            resourceType: 'ec2_instances', resourceId: 'i-123',
+            tags: {}, metadata: {}, discoveredAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getResourceCounts calls getTenantClient with correct tenantId', async () => {
+        const repo = new InventoryPostgresRepository();
+        await repo.getResourceCounts('tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('deleteResourcesByAccount calls getTenantClient with correct tenantId', async () => {
+        const repo = new InventoryPostgresRepository();
+        await repo.deleteResourcesByAccount('tenant-test', 'acc-1');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });
