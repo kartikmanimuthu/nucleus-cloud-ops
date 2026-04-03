@@ -12,7 +12,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import type { AuditLog } from '@/lib/types';
 import type { AuditLogFilters, AuditLogResponse } from '@/lib/audit-service';
 import type { IAuditLogRepository } from './interface';
@@ -43,7 +43,7 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
             const tenantId = (auditData as Record<string, unknown>).tenantId as string | undefined
                 ?? 'org-default';
 
-            await getPrismaClient().auditLog.create({
+            await getTenantClient(tenantId).auditLog.create({
                 data: {
                     tenantId,
                     logId,
@@ -143,7 +143,7 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
                 ];
             }
 
-            const rows = await getPrismaClient().auditLog.findMany({
+            const rows = await getTenantClient(tenantId).auditLog.findMany({
                 where,
                 orderBy: { timestamp: 'desc' },
                 take: limit,
