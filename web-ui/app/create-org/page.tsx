@@ -47,15 +47,11 @@ export default function CreateOrgPage() {
         resolver: zodResolver(createOrgSchema),
     });
 
-    // Redirect if already has a tenant
     React.useEffect(() => {
         if (status === "unauthenticated") {
             router.push("/login");
         }
-        if (status === "authenticated" && session?.user?.tenantId) {
-            router.push("/app/dashboard");
-        }
-    }, [status, session, router]);
+    }, [status, router]);
 
     const checkSlugAvailability = useCallback(async (slug: string) => {
         if (!slug || slug.length < 3 || !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(slug)) {

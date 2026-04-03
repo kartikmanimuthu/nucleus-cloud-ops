@@ -12,7 +12,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Org {
@@ -86,22 +86,67 @@ export function OrgSwitcher({ collapsed }: OrgSwitcherProps) {
 
     if (!currentOrg) return null;
 
-    // Single-org users see org name, no dropdown
+    // Shared "Create new organization" menu item
+    const createOrgItem = (
+        <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+                onClick={() => router.push("/create-org")}
+                className="flex items-center gap-2 cursor-pointer"
+            >
+                <div className="h-6 w-6 rounded-md border border-dashed border-muted-foreground/50 flex items-center justify-center shrink-0">
+                    <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+                <span className="text-sm text-muted-foreground">Create new organization</span>
+            </DropdownMenuItem>
+        </>
+    );
+
+    // Single-org users get a dropdown with just their org + create option
     if (!isMultiOrg) {
         return (
-            <div className="flex items-center gap-2 px-2 py-1.5">
-                <Avatar className="h-8 w-8 rounded-md">
-                    <AvatarImage src={currentOrg.logoUrl ?? undefined} alt={currentOrg.name} />
-                    <AvatarFallback className="rounded-md bg-primary text-primary-foreground text-xs font-medium">
-                        {getOrgInitial(currentOrg.name)}
-                    </AvatarFallback>
-                </Avatar>
-                {!collapsed && (
-                    <span className="font-semibold text-sm truncate max-w-[140px]">
-                        {currentOrg.name}
-                    </span>
-                )}
-            </div>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <button
+                        className={cn(
+                            "flex items-center gap-2 px-2 py-1.5 rounded-md w-full",
+                            "hover:bg-accent transition-colors text-left"
+                        )}
+                    >
+                        <Avatar className="h-8 w-8 rounded-md shrink-0">
+                            <AvatarImage src={currentOrg.logoUrl ?? undefined} alt={currentOrg.name} />
+                            <AvatarFallback className="rounded-md bg-primary text-primary-foreground text-xs font-medium">
+                                {getOrgInitial(currentOrg.name)}
+                            </AvatarFallback>
+                        </Avatar>
+                        {!collapsed && (
+                            <>
+                                <span className="font-semibold text-sm truncate flex-1">
+                                    {currentOrg.name}
+                                </span>
+                                <ChevronsUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                            </>
+                        )}
+                    </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-60">
+                    <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+                        Organization
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="flex items-center gap-2">
+                        <Avatar className="h-6 w-6 rounded-md shrink-0">
+                            <AvatarImage src={currentOrg.logoUrl ?? undefined} alt={currentOrg.name} />
+                            <AvatarFallback className="rounded-md bg-muted text-muted-foreground text-xs">
+                                {getOrgInitial(currentOrg.name)}
+                            </AvatarFallback>
+                        </Avatar>
+                        <span className="truncate flex-1 text-sm">{currentOrg.name}</span>
+                        <Check className="h-4 w-4 text-primary shrink-0" />
+                    </DropdownMenuItem>
+                    {createOrgItem}
+                </DropdownMenuContent>
+            </DropdownMenu>
         );
     }
 
@@ -154,6 +199,7 @@ export function OrgSwitcher({ collapsed }: OrgSwitcherProps) {
                         )}
                     </DropdownMenuItem>
                 ))}
+                {createOrgItem}
             </DropdownMenuContent>
         </DropdownMenu>
     );

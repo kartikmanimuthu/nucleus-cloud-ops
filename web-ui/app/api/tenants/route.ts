@@ -18,14 +18,6 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
         }
 
-        // Block users who already belong to a tenant (multi-org is Phase 17 scope)
-        if (session.user.tenantId) {
-            return NextResponse.json(
-                { error: "You already belong to an organization" },
-                { status: 409 }
-            );
-        }
-
         const body = await req.json();
         const parsed = createTenantSchema.safeParse(body);
         if (!parsed.success) {
@@ -66,6 +58,12 @@ export async function POST(req: NextRequest) {
             });
 
             return tenant;
+        });
+
+        // Auto-switch the user to the newly created tenant
+        await prisma.authUser.update({
+            where: { id: session.user.id },
+            data: { activeTenantId: result.id },
         });
 
         console.log(`API - POST /api/tenants - Created tenant ${result.id} (slug: ${result.slug})`);
