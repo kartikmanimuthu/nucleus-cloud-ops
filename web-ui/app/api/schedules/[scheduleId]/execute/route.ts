@@ -35,8 +35,6 @@ export async function POST(
             );
         }
 
-        const tenantId = await getSessionTenantId();
-
         // 1. Fetch schedule to verify existence
         const schedule = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
         if (!schedule) {
@@ -133,6 +131,7 @@ export async function POST(
             details: `Manual execution triggered via Dashboard. Status: ${executionStatus}`,
             user: userEmail || "unknown-web-user",
             source: "web-ui",
+            tenantId,
             metadata: { tenantId },
         });
 

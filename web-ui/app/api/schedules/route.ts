@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
             userType: 'user',
             status: 'success',
             details: `Created schedule "${schedule.name}"`,
+            tenantId,
             metadata: { tenantId },
         });
 
@@ -168,6 +169,7 @@ export async function POST(request: NextRequest) {
                 userType: 'user',
                 status: 'error',
                 details: `Failed to create schedule: ${error.message}`,
+                tenantId,
                 metadata: { tenantId },
             });
         }

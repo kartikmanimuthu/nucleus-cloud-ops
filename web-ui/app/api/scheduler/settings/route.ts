@@ -3,6 +3,7 @@ import { EventBridgeClient, DescribeRuleCommand, PutRuleCommand } from '@aws-sdk
 import { AuditService } from '@/lib/audit-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // Get AWS configuration
 const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'ap-south-1';
@@ -88,6 +89,7 @@ export async function PUT(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         const updatedBy = session?.user?.email || 'api-user';
+        const tenantId = await getSessionTenantId();
 
         const body = await request.json();
         const { scheduleInterval } = body;
@@ -131,7 +133,8 @@ export async function PUT(request: NextRequest) {
             user: updatedBy,
             userType: 'user',
             status: 'success',
-            details: `Updated scheduler interval from ${parseIntervalFromCron(currentRule.ScheduleExpression || '')} to ${scheduleInterval} minutes`
+            details: `Updated scheduler interval from ${parseIntervalFromCron(currentRule.ScheduleExpression || '')} to ${scheduleInterval} minutes`,
+            tenantId,
         });
 
         return NextResponse.json({
@@ -158,7 +161,8 @@ export async function PUT(request: NextRequest) {
                 user: 'system',
                 userType: 'user',
                 status: 'error',
-                details: `Failed to update scheduler: ${error.message}`
+                details: `Failed to update scheduler: ${error.message}`,
+                tenantId,
             });
         } catch (auditError) {
             console.error('Failed to log audit entry:', auditError);
