@@ -17,6 +17,12 @@ export async function POST(
         const updatedBy = session?.user?.email || 'api-user';
         const tenantId = await getSessionTenantId();
 
+        // Pre-flight ownership check (D-03)
+        const existing = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
+        if (!existing) {
+            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+        }
+
         const updatedSchedule = await ScheduleService.toggleScheduleStatus(scheduleId, undefined, updatedBy, tenantId);
 
         return NextResponse.json({
