@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getInventoryRepository } from '@/lib/db/repository-factory';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 /**
  * GET /api/inventory/resources
@@ -9,7 +10,7 @@ import { getInventoryRepository } from '@/lib/db/repository-factory';
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
-        const tenantId = 'default'; // multi-tenant ready
+        const tenantId = await getSessionTenantId();
 
         // Normalize accountIds (comma-separated) → accountId (single)
         const accountIdsParam = searchParams.get('accountIds');

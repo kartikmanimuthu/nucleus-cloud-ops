@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { AuditService } from '@/lib/audit-service';
 import { randomUUID } from 'crypto';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 const eventBridgeClient = new EventBridgeClient({
     region: process.env.AWS_REGION || 'ap-south-1',
@@ -16,6 +17,7 @@ export async function POST(request: NextRequest) {
         const body = await request.json().catch(() => ({}));
         const accountId = body.accountId as string | undefined;
         const scanId = randomUUID();
+        const tenantId = await getSessionTenantId();
 
         // Log scan initiation
         await AuditService.logResourceAction({
@@ -24,6 +26,7 @@ export async function POST(request: NextRequest) {
             resourceId: scanId,
             resourceName: accountId ? `Scan ${accountId}` : 'Full Scan',
             status: 'success',
+            tenantId,
             details: accountId
                 ? `triggered manual discovery scan for account ${accountId}`
                 : 'triggered manual discovery scan for all accounts',
@@ -42,6 +45,7 @@ export async function POST(request: NextRequest) {
                     Detail: JSON.stringify({
                         scanId,
                         accountId,
+                        tenantId,
                     }),
                     EventBusName: 'default',
                 },
@@ -60,6 +64,7 @@ export async function POST(request: NextRequest) {
                 resourceId: scanId,
                 resourceName: accountId ? `Scan ${accountId}` : 'Full Scan',
                 status: 'error',
+                tenantId,
                 details: `Failed to trigger EventBridge event: ${failures}`,
                 source: 'web-ui',
                 metadata: {
