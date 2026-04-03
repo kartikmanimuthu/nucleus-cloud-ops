@@ -6,7 +6,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId.
  */
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import type { DataSource, CreateDataSourceInput } from '@/lib/knowledge-base/types';
 import type { IDataSourceRepository } from './interface';
 
@@ -44,7 +44,7 @@ function rowToDS(row: {
 export class DataSourcePostgresRepository implements IDataSourceRepository {
     async listDataSources(kbId: string, tenantId: string): Promise<DataSource[]> {
         try {
-            const rows = await getPrismaClient().dataSource.findMany({
+            const rows = await getTenantClient(tenantId).dataSource.findMany({
                 where: { knowledgeBaseId: kbId, tenantId },
                 orderBy: { createdAt: 'asc' },
             });
@@ -57,7 +57,7 @@ export class DataSourcePostgresRepository implements IDataSourceRepository {
 
     async getDataSource(kbId: string, dsId: string, tenantId: string): Promise<DataSource | null> {
         try {
-            const row = await getPrismaClient().dataSource.findFirst({
+            const row = await getTenantClient(tenantId).dataSource.findFirst({
                 where: { id: dsId, knowledgeBaseId: kbId, tenantId },
             });
             if (!row) return null;
@@ -70,7 +70,7 @@ export class DataSourcePostgresRepository implements IDataSourceRepository {
 
     async createDataSource(kbId: string, data: CreateDataSourceInput, tenantId: string): Promise<DataSource> {
         try {
-            const row = await getPrismaClient().dataSource.create({
+            const row = await getTenantClient(tenantId).dataSource.create({
                 data: {
                     tenantId,
                     knowledgeBaseId: kbId,
@@ -112,7 +112,7 @@ export class DataSourcePostgresRepository implements IDataSourceRepository {
                 }
             }
 
-            await getPrismaClient().dataSource.updateMany({
+            await getTenantClient(tenantId).dataSource.updateMany({
                 where: { id: dsId, knowledgeBaseId: kbId, tenantId },
                 data,
             });
@@ -124,7 +124,7 @@ export class DataSourcePostgresRepository implements IDataSourceRepository {
 
     async deleteDataSource(kbId: string, dsId: string, tenantId: string): Promise<void> {
         try {
-            await getPrismaClient().dataSource.deleteMany({
+            await getTenantClient(tenantId).dataSource.deleteMany({
                 where: { id: dsId, knowledgeBaseId: kbId, tenantId },
             });
         } catch (error: unknown) {

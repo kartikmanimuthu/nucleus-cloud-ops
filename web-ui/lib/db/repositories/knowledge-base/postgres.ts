@@ -7,7 +7,7 @@
  * Multi-tenant safety: every query is scoped by tenantId.
  * Atomic counter updates use Prisma increment/decrement (no read-modify-write).
  */
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import type { KnowledgeBase, CreateKBInput } from '@/lib/knowledge-base/types';
 import type { IKnowledgeBaseRepository } from './interface';
 
@@ -40,7 +40,7 @@ function rowToKB(row: {
 export class KnowledgeBasePostgresRepository implements IKnowledgeBaseRepository {
     async listKnowledgeBases(tenantId: string): Promise<KnowledgeBase[]> {
         try {
-            const rows = await getPrismaClient().knowledgeBase.findMany({
+            const rows = await getTenantClient(tenantId).knowledgeBase.findMany({
                 where: { tenantId },
                 orderBy: { createdAt: 'desc' },
             });
@@ -53,7 +53,7 @@ export class KnowledgeBasePostgresRepository implements IKnowledgeBaseRepository
 
     async getKnowledgeBase(kbId: string, tenantId: string): Promise<KnowledgeBase | null> {
         try {
-            const row = await getPrismaClient().knowledgeBase.findFirst({
+            const row = await getTenantClient(tenantId).knowledgeBase.findFirst({
                 where: { id: kbId, tenantId },
             });
             if (!row) return null;
@@ -66,7 +66,7 @@ export class KnowledgeBasePostgresRepository implements IKnowledgeBaseRepository
 
     async createKnowledgeBase(data: CreateKBInput, tenantId: string, createdBy?: string): Promise<KnowledgeBase> {
         try {
-            const row = await getPrismaClient().knowledgeBase.create({
+            const row = await getTenantClient(tenantId).knowledgeBase.create({
                 data: {
                     tenantId,
                     name: data.name,
@@ -86,7 +86,7 @@ export class KnowledgeBasePostgresRepository implements IKnowledgeBaseRepository
 
     async updateKnowledgeBase(kbId: string, data: Partial<CreateKBInput>, tenantId: string): Promise<void> {
         try {
-            await getPrismaClient().knowledgeBase.updateMany({
+            await getTenantClient(tenantId).knowledgeBase.updateMany({
                 where: { id: kbId, tenantId },
                 data: {
                     ...(data.name !== undefined && { name: data.name }),
@@ -101,7 +101,7 @@ export class KnowledgeBasePostgresRepository implements IKnowledgeBaseRepository
 
     async deleteKnowledgeBase(kbId: string, tenantId: string): Promise<void> {
         try {
-            await getPrismaClient().knowledgeBase.deleteMany({
+            await getTenantClient(tenantId).knowledgeBase.deleteMany({
                 where: { id: kbId, tenantId },
             });
         } catch (error: unknown) {
@@ -112,7 +112,7 @@ export class KnowledgeBasePostgresRepository implements IKnowledgeBaseRepository
 
     async updateDataSourceCount(kbId: string, delta: number, tenantId: string): Promise<void> {
         try {
-            await getPrismaClient().knowledgeBase.updateMany({
+            await getTenantClient(tenantId).knowledgeBase.updateMany({
                 where: { id: kbId, tenantId },
                 data: { dataSourceCount: { increment: delta } },
             });
@@ -124,7 +124,7 @@ export class KnowledgeBasePostgresRepository implements IKnowledgeBaseRepository
 
     async updateVectorCount(kbId: string, delta: number, tenantId: string): Promise<void> {
         try {
-            await getPrismaClient().knowledgeBase.updateMany({
+            await getTenantClient(tenantId).knowledgeBase.updateMany({
                 where: { id: kbId, tenantId },
                 data: { vectorCount: { increment: delta } },
             });
