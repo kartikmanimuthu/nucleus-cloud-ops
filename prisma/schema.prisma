@@ -461,13 +461,16 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
-// CustomRole — tenant-scoped custom roles with per-module permission sets (Phase 13 RBAC)
+// CustomRole — preset (global) and tenant-scoped custom roles with per-module permission sets (Phase 13 RBAC)
+// type: 'preset' = global (tenantId=null), 'custom' = tenant-scoped
 // permissions column stores PermissionSet shape: { Accounts: ['read','update'], ... }
 // level is auto-computed via getAutoLevel() — 1=Viewer, 2=Member, 3=Admin, 4=Owner
+// Partial unique indexes enforced via raw SQL in migration (Prisma can't express partial indexes)
 model CustomRole {
   id          String   @id @default(cuid())
-  tenantId    String
+  tenantId    String?
   name        String
+  type        String   @default("custom") // 'preset' | 'custom'
   permissions Json     // PermissionSet shape: { Accounts: ['read','update'], ... }
   level       Int      @default(1) // Auto-computed: 1=Viewer, 2=Member, 3=Admin, 4=Owner
   createdAt   DateTime @default(now())
@@ -476,8 +479,8 @@ model CustomRole {
 
   userRoles   UserTenantRole[]
 
-  @@unique([tenantId, name])
   @@index([tenantId])
+  @@index([type])
   @@map("custom_roles")
 }
 
