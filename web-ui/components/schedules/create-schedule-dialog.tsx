@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import {
   Dialog,
@@ -65,12 +65,6 @@ const resourceTypes = [
   { id: "ElastiCache", label: "ElastiCache Clusters" },
 ];
 
-const mockAccounts = [
-  { id: "acc-001", name: "Production Account", accountId: "123456789012" },
-  { id: "acc-002", name: "Development Account", accountId: "123456789013" },
-  { id: "acc-003", name: "Staging Account", accountId: "123456789014" },
-];
-
 export function CreateScheduleDialog({
   open,
   onOpenChange,
@@ -84,15 +78,40 @@ export function CreateScheduleDialog({
     endTime: "",
     timezone: "UTC",
     daysOfWeek: [] as string[],
-    accounts: [] as string[],
+    accountId: "",
     resourceTypes: [] as string[],
     active: true,
     resourceTags: "",
     excludeTags: "",
   });
 
+  const [accounts, setAccounts] = useState<
+    { id: string; name: string; accountId: string }[]
+  >([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const { toast } = useToast();
+
+  // Fetch tenant-scoped accounts when dialog opens
+  useEffect(() => {
+    if (!open) return;
+    setLoadingAccounts(true);
+    fetch("/api/accounts")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) {
+          setAccounts(
+            res.data.map((a: { accountId: string; name: string }) => ({
+              id: a.accountId,
+              name: a.name,
+              accountId: a.accountId,
+            }))
+          );
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingAccounts(false));
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +126,11 @@ export function CreateScheduleDialog({
       return;
     }
 
+    if (!formData.accountId) {
+      alert("Please select an AWS account");
+      return;
+    }
+
     try {
       setIsCreating(true);
       await ClientScheduleService.createSchedule({
@@ -117,8 +141,9 @@ export function CreateScheduleDialog({
         timezone: formData.timezone,
         days: formData.daysOfWeek,
         active: formData.active,
-        createdBy: session?.user?.email || "user", // Get from auth context
-        updatedBy: "user",
+        accountId: formData.accountId,
+        createdBy: session?.user?.email || "user",
+        updatedBy: session?.user?.email || "user",
       });
 
       toast({
@@ -136,7 +161,7 @@ export function CreateScheduleDialog({
         endTime: "",
         timezone: "UTC",
         daysOfWeek: [],
-        accounts: [],
+        accountId: "",
         resourceTypes: [],
         active: true,
         resourceTags: "",
@@ -167,15 +192,6 @@ export function CreateScheduleDialog({
       daysOfWeek: prev.daysOfWeek.includes(dayId)
         ? prev.daysOfWeek.filter((d) => d !== dayId)
         : [...prev.daysOfWeek, dayId],
-    }));
-  };
-
-  const handleAccountToggle = (accountId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      accounts: prev.accounts.includes(accountId)
-        ? prev.accounts.filter((a) => a !== accountId)
-        : [...prev.accounts, accountId],
     }));
   };
 
@@ -362,30 +378,43 @@ export function CreateScheduleDialog({
                   <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
                       <Server className="h-4 w-4" />
-                      <span>AWS Accounts</span>
+                      <span>AWS Account *</span>
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-2">
-                    {mockAccounts.map((account) => (
-                      <div
-                        key={account.id}
-                        className="flex items-center space-x-2"
-                      >
-                        <Checkbox
-                          id={account.id}
-                          checked={formData.accounts.includes(account.id)}
-                          onCheckedChange={() =>
-                            handleAccountToggle(account.id)
+                  <CardContent>
+                    <Select
+                      value={formData.accountId}
+                      onValueChange={(value) =>
+                        setFormData((prev) => ({ ...prev, accountId: value }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            loadingAccounts
+                              ? "Loading accounts..."
+                              : "Select an account"
                           }
                         />
-                        <Label htmlFor={account.id} className="flex-1">
-                          <div className="font-medium">{account.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {account.accountId}
-                          </div>
-                        </Label>
-                      </div>
-                    ))}
+                      </SelectTrigger>
+                      <SelectContent>
+                        {!loadingAccounts && accounts.length === 0 && (
+                          <SelectItem value="_none" disabled>
+                            No accounts found
+                          </SelectItem>
+                        )}
+                        {accounts.map((account) => (
+                          <SelectItem key={account.id} value={account.id}>
+                            <div>
+                              <div className="font-medium">{account.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {account.accountId}
+                              </div>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </CardContent>
                 </Card>
 

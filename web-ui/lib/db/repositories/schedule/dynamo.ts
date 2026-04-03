@@ -16,14 +16,15 @@
  * Audit logging is NOT included — that belongs in the service layer.
  */
 import {
-    ScanCommand,
     PutCommand,
     DeleteCommand,
     UpdateCommand,
     GetCommand,
     QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { getDynamoDBDocumentClient, APP_TABLE_NAME, DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getDynamoDBDocumentClient, APP_TABLE_NAME } from '@/lib/aws-config';
+
+const DEFAULT_TENANT_ID = 'default';
 import type { UISchedule } from '@/lib/types';
 import type { IScheduleRepository, ScheduleFilters, SchedulePage } from './interface';
 
@@ -58,7 +59,14 @@ export class ScheduleDynamoRepository implements IScheduleRepository {
             };
 
             const response = await dynamoDBDocumentClient.send(new QueryCommand(params));
-            let schedules = (response.Items || []).map((item) =>
+
+            // Filter by tenant on raw items before transforming — each item has a tenantId attribute
+            let rawItems = response.Items || [];
+            if (tenantId) {
+                rawItems = rawItems.filter((item) => item.tenantId === tenantId);
+            }
+
+            let schedules = rawItems.map((item) =>
                 this.transformToUISchedule(item as Record<string, unknown>)
             );
 

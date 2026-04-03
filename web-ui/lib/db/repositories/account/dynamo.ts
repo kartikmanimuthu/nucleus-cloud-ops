@@ -14,7 +14,9 @@
  * Audit logging is NOT included — that belongs in the service layer (account-service.ts).
  */
 import { PutCommand, DeleteCommand, UpdateCommand, QueryCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
-import { getDynamoDBDocumentClient, APP_TABLE_NAME, DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getDynamoDBDocumentClient, APP_TABLE_NAME } from '@/lib/aws-config';
+
+const DEFAULT_TENANT_ID = 'default';
 import type { UIAccount } from '@/lib/types';
 import type { IAccountRepository, AccountFilters, AccountPage } from './interface';
 
@@ -25,6 +27,7 @@ export class AccountDynamoRepository implements IAccountRepository {
     async getAccounts(filters: AccountFilters): Promise<AccountPage> {
         try {
             const {
+                tenantId,
                 searchTerm,
                 statusFilter,
                 connectionFilter,
@@ -34,8 +37,8 @@ export class AccountDynamoRepository implements IAccountRepository {
 
             console.log('[AccountDynamoRepository] Fetching accounts from DynamoDB', filters);
 
-            // Fetch ALL accounts using recursive GSI1 pagination
-            let allAccounts: UIAccount[] = [];
+            // Fetch ALL accounts using recursive GSI1 pagination (raw items)
+            let rawItems: Record<string, unknown>[] = [];
             let lastEvaluatedKey: Record<string, unknown> | undefined = undefined;
 
             do {
@@ -52,17 +55,19 @@ export class AccountDynamoRepository implements IAccountRepository {
                     Items?: Record<string, unknown>[];
                     LastEvaluatedKey?: Record<string, unknown>;
                 };
-                const pageAccounts = (fetchResponse.Items || []).map((item) =>
-                    this.transformToUIAccount(item)
-                );
-                allAccounts = allAccounts.concat(pageAccounts);
+                rawItems = rawItems.concat(fetchResponse.Items || []);
                 lastEvaluatedKey = fetchResponse.LastEvaluatedKey;
             } while (lastEvaluatedKey);
 
-            console.log('[AccountDynamoRepository] Fetched all accounts:', allAccounts.length);
+            // Filter by tenant before transforming — each item has a tenantId attribute
+            if (tenantId) {
+                rawItems = rawItems.filter((item) => item.tenantId === tenantId);
+            }
+
+            console.log('[AccountDynamoRepository] Fetched accounts for tenant:', rawItems.length);
 
             // Apply filters in memory (preserving existing DynamoDB path behaviour)
-            let filteredAccounts = allAccounts;
+            let filteredAccounts = rawItems.map((item) => this.transformToUIAccount(item));
 
             if (searchTerm && searchTerm.trim() !== '') {
                 const term = searchTerm.toLowerCase();

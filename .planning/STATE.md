@@ -4,8 +4,8 @@ milestone: v3.0
 milestone_name: Multi-Tenancy
 status: complete
 stopped_at: Milestone v3.0 archived
-last_updated: "2026-04-02"
-last_activity: 2026-04-02
+last_updated: "2026-04-03"
+last_activity: 2026-04-03
 progress:
   total_phases: 6
   completed_phases: 6
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-02)
 Phase: 17 (final)
 Plan: All complete
 Status: Milestone v3.0 shipped and archived
-Last activity: 2026-04-03 - Completed quick task 260403-seb: fix custom roles not appearing in invite dropdown + logo upload silent failure
+Last activity: 2026-04-03 - Completed quick task 260403-t3i: fix scheduler account dropdown to show tenant-scoped accounts
 
 Progress: [██████████] 100%
 
@@ -73,9 +73,10 @@ None.
 | 260403-j7b | logged in user should have provision to create his new tenant and switch the tenant and the whole application should render based on the switched tenant | 2026-04-03 | d9912b2 | [260403-j7b-logged-in-user-should-have-provision-to-](.planning/quick/260403-j7b-logged-in-user-should-have-provision-to-/) |
 | 260403-s0b | fix invitation login - invited users cannot login with temporary credentials | 2026-04-03 | bf1f57e | [260403-s0b-fix-invitation-login-invited-users-canno](.planning/quick/260403-s0b-fix-invitation-login-invited-users-canno/) |
 | 260403-seb | fix custom roles not appearing in invite dropdown + logo upload silent failure | 2026-04-03 | e994405 | [260403-seb-fix-custom-roles-not-appearing-in-invite](.planning/quick/260403-seb-fix-custom-roles-not-appearing-in-invite/) |
+| 260403-t3i | fix scheduler account dropdown to show tenant-scoped accounts and scope schedule creation to tenant | 2026-04-03 | — | [260403-t3i-fix-scheduler-account-dropdown-to-show-t](.planning/quick/260403-t3i-fix-scheduler-account-dropdown-to-show-t/) |
 
 ## Session Continuity
 
-Last session: 2026-04-02
-Stopped at: Milestone v3.0 archived
+Last session: 2026-04-03
+Stopped at: Quick task 260403-t3i complete
 Resume file: None
