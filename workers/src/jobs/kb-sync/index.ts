@@ -8,6 +8,9 @@ import { deleteOldVectors } from './lib/embedding.js';
 import type { KBSyncJob } from './types.js';
 
 export async function register(boss: PgBoss): Promise<void> {
+  // Create queue first (required in pg-boss v10 before work)
+  await boss.createQueue('kb-sync');
+
   // batchSize: 3 — max 3 concurrent KB jobs to avoid Bedrock rate limiting
   await boss.work<KBSyncJob>(
     'kb-sync',

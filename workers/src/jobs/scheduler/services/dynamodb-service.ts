@@ -190,7 +190,7 @@ export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
     }
     // When PG is the source of truth, write audit log to PostgreSQL instead
     if (process.env.USE_PG_SCHEDULES === 'true') {
-        await createAuditLogPg(entry);
+        await createAuditLogPg({ ...entry, tenantId: entry.tenantId || 'system' });
         return;
     }
 

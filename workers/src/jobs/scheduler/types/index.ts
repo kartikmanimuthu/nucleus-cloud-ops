@@ -168,6 +168,7 @@ export interface AuditLogEntry {
     status: 'success' | 'error' | 'warning' | 'info';
     details: string;
     severity: 'low' | 'medium' | 'high' | 'info';
+    tenantId?: string;
     accountId?: string;
     region?: string;
     metadata?: Record<string, unknown>;

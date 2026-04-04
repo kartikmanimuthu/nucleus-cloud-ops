@@ -3,6 +3,9 @@ import { runFullScan, runPartialScan } from './services/scheduler-service.js';
 import type { SchedulerEvent } from './types/index.js';
 
 export async function register(boss: PgBoss): Promise<void> {
+  // Create queue first (required in pg-boss v10 before schedule/work)
+  await boss.createQueue('scheduler-scan');
+
   // Register cron — every 30 minutes, enqueue a full scan job
   await boss.schedule('scheduler-scan', '*/30 * * * *', {}, {
     tz: 'UTC',
