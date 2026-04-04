@@ -1,6 +1,7 @@
 // API route for fetching correlated audit logs
 import { NextRequest, NextResponse } from 'next/server';
 import { AuditService } from '@/lib/audit-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function GET(
     request: NextRequest,
@@ -21,7 +22,8 @@ export async function GET(
 
         console.log('API - Fetching correlated audit logs for:', correlationId);
 
-        const auditLogs = await AuditService.getAuditLogsByCorrelation(correlationId);
+        const tenantId = await getSessionTenantId();
+        const auditLogs = await AuditService.getAuditLogsByCorrelation(correlationId, tenantId);
 
         return NextResponse.json({
             success: true,

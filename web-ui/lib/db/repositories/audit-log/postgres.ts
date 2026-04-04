@@ -38,10 +38,11 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
             const logId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const expiresAt = new Date(Date.now() + AUDIT_TTL_MS);
 
-            // tenantId is required for multi-tenant PostgreSQL; fall back to 'org-default'
-            // for backward compatibility with callers that don't pass tenantId
-            const tenantId = (auditData as Record<string, unknown>).tenantId as string | undefined
-                ?? 'org-default';
+            const tenantId = (auditData as Record<string, unknown>).tenantId as string | undefined;
+            if (!tenantId) {
+                console.error('[AuditLogPostgresRepository] createAuditLog called without tenantId — skipping');
+                return;
+            }
 
             await getTenantClient(tenantId).auditLog.create({
                 data: {

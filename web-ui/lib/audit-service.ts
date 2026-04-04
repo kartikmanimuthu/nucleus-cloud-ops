@@ -84,7 +84,8 @@ export class AuditService {
     ): Promise<AuditLogResponse> {
         try {
             console.log('AuditService - Fetching audit logs with filters:', filters);
-            const effectiveTenantId = tenantId || 'org-default';
+            if (!tenantId) throw new Error('getAuditLogs: tenantId is required');
+            const effectiveTenantId = tenantId;
             const repo = getAuditLogRepository();
             return await repo.getAuditLogs(effectiveTenantId, filters);
         } catch (error: unknown) {
@@ -96,9 +97,9 @@ export class AuditService {
     /**
      * Get audit logs by correlation ID.
      */
-    static async getAuditLogsByCorrelation(correlationId: string): Promise<AuditLog[]> {
+    static async getAuditLogsByCorrelation(correlationId: string, tenantId?: string): Promise<AuditLog[]> {
         try {
-            const result = await this.getAuditLogs({ correlationId, limit: 100 });
+            const result = await this.getAuditLogs({ correlationId, limit: 100 }, tenantId);
             return result.logs;
         } catch (error: unknown) {
             console.error('AuditService - Error fetching correlated audit logs:', error);
@@ -109,9 +110,9 @@ export class AuditService {
     /**
      * Get audit log stats — derived from recent logs.
      */
-    static async getAuditLogStats(filters?: AuditLogFilters): Promise<AuditLogStats> {
+    static async getAuditLogStats(filters?: AuditLogFilters, tenantId?: string): Promise<AuditLogStats> {
         try {
-            const { logs } = await this.getAuditLogs({ ...filters, limit: 500, nextPageToken: undefined });
+            const { logs } = await this.getAuditLogs({ ...filters, limit: 500, nextPageToken: undefined }, tenantId);
 
             return {
                 totalLogs: logs.length,

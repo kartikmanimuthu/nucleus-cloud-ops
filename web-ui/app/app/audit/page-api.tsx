@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import { cookies } from "next/headers";
 import { AuditService } from "@/lib/audit-service";
+import { getSessionTenantId } from "@/lib/auth-session";
 import AuditClientAPI from "@/components/audit/audit-client-component-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
@@ -26,16 +26,12 @@ function AuditLoading() {
  */
 export default async function AuditPageAPI() {
   try {
-    // Get cookies for authentication context
-    const cookieStore = await cookies();
-    const user = cookieStore.get("user")?.value || "system";
-    
-    console.log("AuditPage - Fetching initial data for user:", user);
-    
+    const tenantId = await getSessionTenantId();
+
     // Fetch initial data server-side
     const [logs, stats] = await Promise.all([
-      AuditService.getAuditLogs({ limit: 100 }),
-      AuditService.getAuditLogStats({}),
+      AuditService.getAuditLogs({ limit: 100 }, tenantId),
+      AuditService.getAuditLogStats({}, tenantId),
     ]);
     
     // Transform stats to match client expectations
@@ -46,7 +42,7 @@ export default async function AuditPageAPI() {
       successCount: stats.successCount,
     };
     
-    console.log("AuditPage - Initial data loaded:", logs.length, "logs");
+    console.log("AuditPage - Initial data loaded:", logs.logs.length, "logs");
     
     return (
       <div className="container py-8">

@@ -1,6 +1,7 @@
 // API route for fetching audit log statistics
 import { NextRequest, NextResponse } from 'next/server';
 import { AuditService, AuditLogFilters } from '@/lib/audit-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function GET(request: NextRequest) {
     try {
@@ -22,7 +23,8 @@ export async function GET(request: NextRequest) {
 
         console.log('API - Fetching audit log stats with filters:', filters);
 
-        const stats = await AuditService.getAuditLogStats(filters);
+        const tenantId = await getSessionTenantId();
+        const stats = await AuditService.getAuditLogStats(filters, tenantId);
 
         return NextResponse.json(
             { success: true, data: stats },
