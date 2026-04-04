@@ -7,6 +7,7 @@ const mockBoss = {
   work: mockWork,
   schedule: mockSchedule,
   send: vi.fn(),
+  createQueue: vi.fn().mockResolvedValue(undefined),
 } as any;
 
 // Mock the scheduler service

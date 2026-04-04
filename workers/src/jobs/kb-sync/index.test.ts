@@ -6,6 +6,7 @@ const mockBoss = {
   work: mockWork,
   send: vi.fn(),
   schedule: vi.fn(),
+  createQueue: vi.fn().mockResolvedValue(undefined),
 } as any;
 
 vi.mock('./handlers/file-upload.js', () => ({ handleFileUpload: vi.fn().mockResolvedValue(['key1']) }));
