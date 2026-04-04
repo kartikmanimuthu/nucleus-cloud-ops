@@ -1356,12 +1356,12 @@ const httpListener = new aws.lb.Listener("http-listener", {
 // ECS FARGATE SERVICE + AUTO SCALING
 // ============================================================================
 
-// ECS Fargate Service — forceNewDeployment, circuit breaker with rollback, desiredCount 0
+// ECS Fargate Service — forceNewDeployment, circuit breaker with rollback
 const webUiService = new aws.ecs.Service("web-ui-service", {
     name: "nucleus-cloud-ops-web-ui-service",
     cluster: ecsCluster.arn,
     taskDefinition: webUiTaskDef.arn,
-    desiredCount: 0,  // safe start — scale up after smoke testing
+    desiredCount: 1,
     launchType: "FARGATE",
     forceNewDeployment: true,
     deploymentCircuitBreaker: {
@@ -1863,7 +1863,7 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
         environment: [
             { name: "NODE_ENV", value: "production" },
             { name: "AWS_REGION", value: region },
-            { name: "DATABASE_URL", value: databaseUrlVal },
+            { name: "DATABASE_URL", value: databaseUrlVal.includes("?") ? `${databaseUrlVal}&sslmode=no-verify` : `${databaseUrlVal}?sslmode=no-verify` },
             { name: "APP_TABLE_NAME", value: appTableN },
             { name: "AUDIT_TABLE_NAME", value: auditTableN },
             { name: "SNS_TOPIC_ARN", value: snsTopicArn },
