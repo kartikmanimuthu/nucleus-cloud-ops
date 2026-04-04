@@ -8,9 +8,9 @@ AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops age
 | -------------- | ---------------------------------------------------------- |
 | Frontend       | Next.js 15, React 19, Tailwind CSS, Radix UI               |
 | AI Agent       | LangGraph, LangChain, AWS Bedrock (Claude 4.5 Sonnet), MCP |
-| Infrastructure | AWS CDK v2, ECS Fargate, CloudFront, DynamoDB              |
+| Infrastructure | Pulumi (networking + compute), ECS Fargate, CloudFront |
 | Auth           | NextAuth.js                                                |
-| Testing        | Vitest (web-ui), Jest (CDK)                                |
+| Testing        | Vitest (web-ui), Jest (root)                               |
 
 ## Key Commands
 
@@ -24,18 +24,18 @@ cd web-ui && npm run dev        # Next.js dev server → http://localhost:3000
 
 # Testing
 cd web-ui && npm run test       # Vitest (web-ui)
-npm test                        # Jest (CDK stacks)
+npm test                        # Jest (root)
 
 # Linting
 cd web-ui && npm run lint       # ESLint for web-ui
 
 # Build
 cd web-ui && npm run build      # Next.js production build
-npm run build                   # Compile CDK TypeScript
+npm run build                   # Compile TypeScript (root)
 
-# Deploy
-npx cdk deploy WebUIStack --profile <profile>   # Deploy web UI stack
-npx cdk deploy --all --profile <profile>        # Deploy all stacks
+# Deploy — Pulumi (networking + compute)
+cd infra/networking && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
+cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
 ```
 
 ## Environment Setup
@@ -69,14 +69,17 @@ nucleus-cloud-ops/
 │   │   │   └── agent-shared.ts     # Shared tools, prompts, state
 │   │   └── ...           # AWS clients, DynamoDB helpers, utilities
 │   └── hooks/            # Custom React hooks
-├── lib/                  # CDK stack definitions
-│   ├── computeStack.ts   # ECS, ALB, CloudFront
-│   ├── networkingStack.ts # VPC, subnets
-│   └── webUIStack.ts     # Web UI deployment
+├── lib/                  # Shared TypeScript utilities
+├── infra/                # Pulumi infrastructure
+│   ├── networking/       # VPC, subnets, subnet groups
+│   ├── compute/          # ECS, Lambda, RDS, DynamoDB, Cognito, CloudFront
+│   ├── bootstrap/        # One-time S3 state + KMS key setup
+│   ├── build-lambdas.sh  # Builds Lambda zip artifacts
+│   └── build-images.sh   # Builds and pushes WebUI Docker image
 ├── lambda/               # Lambda functions (scheduler, discovery, vector)
-├── bin/                  # CDK app entry point
+├── bin/                  # Entry points
 ├── docs/                 # Architecture, schema design, PRD
-└── test/                 # CDK Jest tests
+└── test/                 # Jest tests
 ```
 
 ## Coding Conventions
@@ -99,7 +102,7 @@ The AI agent lives in `web-ui/lib/agent/`. Key patterns:
 
 ## Constraints
 
-- **DO NOT** modify `lib/computeStack.ts` or `lib/networkingStack.ts` without running `cdk diff` first
+- **DO NOT** modify `infra/networking/index.ts` or `infra/compute/index.ts` without running `pulumi preview --stack prod` first
 - **DynamoDB single-table design** — consult `docs/schema-design.md` before adding entities
 - **Never hardcode AWS credentials** — all cross-account ops use STS AssumeRole
 - **Git**: main branch is `master`; active feature work on `agent-ops-implementation`
@@ -187,7 +190,7 @@ Four Lambda functions with different runtimes:
 ## Testing Conventions
 
 - **web-ui**: `cd web-ui && npm run test` — runs Vitest once (`vitest run`, not watch mode)
-- **CDK**: `npm test` at root — Jest with ts-jest
+- **root**: `npm test` at root — Jest with ts-jest
 - **Lambda scheduler**: `cd lambda/scheduler && npm run test` — own Vitest setup
 - Test files: `*.test.ts` colocated with source or in `tests/` subdirectory
 - Property-based tests use `fast-check` (see `web-ui/tests/agent-ops/`)
@@ -325,78 +328,63 @@ Do NOT write E2E tests for:
 
 ---
 
-## CDK Deployment Process
+## Deployment Process
 
-### Pre-Deploy Checklist
+All infrastructure is managed by **Pulumi** — no CDK.
 
-Before any `cdk deploy`:
+### Stack Overview
 
-1. Run `npx cdk diff --profile <profile>` — review all changes
-2. For `computeStack.ts` or `networkingStack.ts` changes — get a second review
-3. Verify `.env` has correct `AWS_ACCOUNT_ID` and `AWS_REGION`
-4. Confirm target AWS profile: `aws sts get-caller-identity --profile <profile>`
-5. Run `npm run build` at root to compile CDK TypeScript
+| Stack | Tool | Manages |
+|-------|------|---------|
+| `infra/networking` | Pulumi | VPC, subnets, subnet groups |
+| `infra/compute` | Pulumi | ECS, Lambda, RDS, DynamoDB, Cognito, CloudFront |
 
-### Stack Dependency Order
+Pulumi state: `s3://nucleus-pulumi-state` · Secrets: `awskms://alias/pulumi-secrets`
 
-Deploy in this order (dependencies flow top → bottom):
+Full deploy guide: `infra/DEPLOYMENT.md`
 
-```
-NetworkingStack   → VPC, subnets, security groups
-ComputeStack      → ECS cluster, ALB, CloudFront (depends on Networking)
-WebUIStack        → S3 + CloudFront for Next.js static assets
-```
-
-Lambda functions are bundled inside ComputeStack/WebUIStack — no separate deploy needed.
-
-### Deploy Commands
+### Deploy
 
 ```bash
-# Verify AWS identity first
-aws sts get-caller-identity --profile PLATFORM-ADMIN
+# Install deps (required after fresh clone)
+cd infra/networking && npm install && pulumi install
+cd infra/compute && npm install && pulumi install
 
-# Diff before deploy (always)
-npx cdk diff --profile PLATFORM-ADMIN
-npx cdk diff WebUIStack --profile PLATFORM-ADMIN
+# Deploy — always networking first, then compute
+# pulumi up auto-builds lambdas + Docker image when source changes
+cd infra/networking && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
+cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
 
-# Deploy single stack (most common — web UI changes)
-npx cdk deploy WebUIStack --profile PLATFORM-ADMIN
+# Preview before deploying
+cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi preview --stack prod
 
-# Deploy all stacks (infrastructure changes)
-npx cdk deploy --all --profile PLATFORM-ADMIN
-
-# Deploy with approval prompt disabled (CI only)
-npx cdk deploy --all --require-approval never --profile PLATFORM-ADMIN
-
-# Synthesize CloudFormation without deploying (validate)
-npx cdk synth --profile PLATFORM-ADMIN
+# View outputs
+cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi stack output --stack prod
 ```
+
+What `pulumi up` does automatically:
+- Lambda source changed → runs `build-lambdas.sh`, uploads new zip
+- `web-ui/` or `prisma/` changed → builds ARM64 Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out automatically
 
 ### Post-Deploy Verification
 
-After deploying:
-
-1. Check CloudFormation console — stack status should be `UPDATE_COMPLETE`
-2. For WebUIStack: verify CloudFront distribution URL returns 200
-3. For ComputeStack: check ECS service desired count matches running count
-4. Check CloudWatch for Lambda errors in the 5 minutes post-deploy
-5. Run a smoke test: `npx playwright test tests/e2e/ --project=chromium`
+1. CloudFront URL responds 200: `https://d11lr8aqp8vqde.cloudfront.net`
+2. ECS service desired count matches running count (ECS console)
+3. Check CloudWatch for Lambda errors in the 5 minutes post-deploy
+4. Run smoke test: `npx playwright test tests/e2e/ --project=chromium`
 
 ### Rollback
 
-CDK doesn't have a built-in rollback command. Options:
+```bash
+git revert HEAD
+cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod
+```
 
-- **CloudFormation rollback**: In AWS Console → CloudFormation → select stack → "Roll back"
-- **Code rollback**: `git revert` the change, then `cdk deploy` again
-- **Manual**: For WebUIStack, re-deploy the previous S3 asset version via CloudFront invalidation
+### Environment Notes
 
-### Environment-Specific Notes
-
-- **AWS_PROFILE**: `PLATFORM-ADMIN` for production deployments
-- **CDK context**: stored in `cdk.context.json` — commit this file, it caches VPC/AZ lookups
-- **cdk.out/**: generated CloudFormation templates — do not commit, already in `.gitignore`
-- **Lambda bundling**: esbuild bundles TypeScript lambdas at synth time — requires Node 20+
+- **AWS_PROFILE**: `PLATFORM-ADMIN` for all production operations
 - **Scheduler Lambda dayjs issue**: known pre-existing esbuild bundling warning — does not block deploy
+- **`npx pulumi` fails**: use the global `pulumi` CLI directly (`brew install pulumi`), not npx
 
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
@@ -422,7 +410,7 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 ## Technology Stack
 
 ## Languages
-- TypeScript ~5.6.2 (CDK infrastructure, root) / ^5.0.0 (web-ui, lambdas) - All application and infrastructure code
+- TypeScript ~5.6.2 (root, Pulumi infra) / ^5.0.0 (web-ui, lambdas) - All application and infrastructure code
 - TypeScript ^5.7.2 - `lambda/scheduler/` Lambda function
 - TypeScript ^5.0.0 - `lambda/kb_sync_processor/` Lambda function
 - Python 3.x - `lambda/discovery/` and `lambda/vector_processor/` Lambda functions
@@ -435,7 +423,7 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 ## Frameworks
 - Next.js 15.2.4 (`web-ui/`) - App router, standalone output mode, server-side rendering
 - React 19 (`web-ui/`) - UI rendering, functional components only
-- AWS CDK v2 (`aws-cdk-lib` ^2.236.0, `aws-cdk` ^2.1104.0) - Infrastructure as Code at root
+- Pulumi (`@pulumi/pulumi` ^3.228.0, `@pulumi/aws` ^7.23.0, `@pulumi/awsx` ^3.4.0, `@pulumi/command` ^1.2.1) - Infrastructure as Code (`infra/`)
 - LangGraph (`@langchain/langgraph` ^1.2.0) - Agent state machine workflows
 - LangChain (`langchain` ^1.2.28, `@langchain/core` ^1.1.29, `@langchain/aws` ^1.3.0) - Tool definitions, LLM integration
 - Vercel AI SDK (`ai` ^5.0.115, `@ai-sdk/react` ^2.0.116, `@ai-sdk/amazon-bedrock` ^3.0.71, `@ai-sdk/anthropic` ^2.0.56) - AI streaming hooks in web-ui
@@ -454,19 +442,17 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - mongodb ^7.1.0 - MongoDB client (deep agent checkpointing)
 - `@langchain/langgraph-checkpoint-mongodb` ^1.2.0 - LangGraph MongoDB checkpointer
 - Vitest ^4.0.18 (web-ui), Vitest ^2.1.8 (scheduler Lambda) - Unit tests
-- Jest ^29.7.0 + ts-jest ^29.2.5 (root) - CDK infrastructure tests
+- Jest ^29.7.0 + ts-jest ^29.2.5 (root) - Root-level tests
 - `@vitest/coverage-v8` ^4.0.18 - Coverage reporting
 - fast-check ^4.5.3 - Property-based testing
 - Playwright ^1.58.2 - E2E browser tests
 - esbuild ^0.27.3 (root) / ^0.24.2 (scheduler Lambda) - TypeScript Lambda bundling
 - tsc (kb_sync_processor Lambda) - TypeScript compilation
-- ts-node ^10.9.2 - CDK app execution
+- ts-node ^10.9.2 - TypeScript execution (scripts, local runners)
 - tsx ^4.19.2 - TypeScript execution for Lambda local runners
 - PostCSS ^8 + autoprefixer ^10.4.20 - CSS processing
 ## Key Dependencies
-- `aws-cdk-lib` ^2.236.0 - All AWS infrastructure provisioning
-- `@aws-cdk/aws-s3tables-alpha` ^2.236.0-alpha.0 - S3 Tables (Apache Iceberg)
-- `cdk-s3-vectors` ^0.3.2 - S3 Vectors index construct
+- `@pulumi/pulumi` ^3.228.0 + `@pulumi/aws` ^7.23.0 + `@pulumi/awsx` ^3.4.0 - All AWS infrastructure provisioning
 - `@aws-sdk/client-s3vectors` ^3.991.0 - S3 Vectors API client
 - `next-auth` ^4.24.11 - Authentication session management
 - `@casl/ability` ^6.8.0 - RBAC authorization
@@ -480,11 +466,11 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - `croner` ^10.0.1 + `cronstrue` ^3.13.0 - Cron schedule parsing/display
 - `uuid` ^13.0.0 - ID generation
 ## Configuration
-- Root: `.env.example` contains AWS account, CDK context, Langfuse vars
+- Root: `.env.example` contains AWS account, Pulumi config, Langfuse vars
 - Web-UI: `web-ui/.env.local.example` contains AWS region, Cognito IDs, DynamoDB table names, NextAuth, Jira, Slack, MongoDB, Langfuse vars
 - Scheduler Lambda: `lambda/scheduler/.env.example`
 - Key required vars: `AWS_REGION`, `APP_TABLE_NAME`, `AUDIT_TABLE_NAME`, `NEXTAUTH_SECRET`, `COGNITO_USER_POOL_ID`, `COGNITO_USER_POOL_CLIENT_ID`
-- Root CDK: `tsconfig.json` (ES2020, commonjs, strict mode), `cdk.json` (ts-node entry)
+- Root: `tsconfig.json` (ES2020, commonjs, strict mode)
 - Web-UI: `web-ui/tsconfig.json`, `web-ui/next.config.mjs` (standalone output, MDX via fumadocs)
 - Web-UI: `web-ui/tailwind.config.ts`, `web-ui/postcss.config.mjs`
 - Scheduler Lambda: `lambda/scheduler/tsconfig.json` (esbuild bundles to `dist/index.js`)
@@ -497,7 +483,7 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - AWS ECS Fargate (web-ui container, Node 20.9.0-slim + AWS Lambda Web Adapter 0.8.4)
 - AWS Lambda (scheduler, discovery, vector_processor, kb_sync_processor)
 - AWS CloudFront (CDN in front of ALB and S3)
-- Deployment: AWS CDK via `npx cdk deploy`
+- Deployment: Pulumi via `pulumi up --stack prod`
 <!-- GSD:stack-end -->
 
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
@@ -505,8 +491,7 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 
 ## Language & Style
 - `web-ui/tsconfig.json`: `"strict": true`, `"noEmit": true`, `"moduleResolution": "bundler"`, `"isolatedModules": true`
-- Root `tsconfig.json` (CDK): `"strict": true`, `"noImplicitAny": true`, `"strictNullChecks": true`, `"noImplicitReturns": true`
-- CDK tsconfig also sets `"noImplicitThis": true`, `"alwaysStrict": true`
+- Root `tsconfig.json`: `"strict": true`, `"noImplicitAny": true`, `"strictNullChecks": true`, `"noImplicitReturns": true`, `"noImplicitThis": true`, `"alwaysStrict": true`
 - `noUnusedLocals` and `noUnusedParameters` are both `false` (not enforced)
 - `web-ui/.eslintrc.json` extends `next/core-web-vitals` and `next/typescript` — no additional custom rules
 - ESLint run: `cd web-ui && npm run lint`
@@ -576,13 +561,13 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - AWS Lambda functions handle async/scheduled work (resource scheduling, discovery, vector processing, KB sync)
 - All persistent state lives in DynamoDB (single-table design) or S3; no relational database
 - Cross-account AWS operations use STS AssumeRole exclusively — no hardcoded credentials
-- CDK manages all AWS infrastructure: two stacks (`NetworkingStack` → `ComputeStack`)
+- Pulumi manages all AWS infrastructure: two stacks (`infra/networking` → `infra/compute`)
 ## Layers
 - Purpose: Defines and provisions all AWS resources
-- Location: `lib/`, `bin/`
+- Location: `infra/networking/`, `infra/compute/`
 - Contains: VPC/networking, ECS Fargate cluster, DynamoDB tables, Lambda functions, CloudFront, Cognito, S3 buckets, SQS queues, EventBridge rules
-- Depends on: AWS CDK v2 constructs, `lib/config.ts` for env-driven configuration
-- Key stacks: `lib/networkingStack.ts` → `lib/computeStack.ts` (dependency order must be preserved)
+- Depends on: Pulumi (`@pulumi/aws`, `@pulumi/pulumi`, `@pulumi/awsx`, `@pulumi/command`)
+- Key stacks: `infra/networking` → `infra/compute` (dependency order must be preserved)
 - Purpose: Serves the React UI and handles all HTTP API requests
 - Location: `web-ui/app/`
 - Contains: Page components under `web-ui/app/app/`, REST API route handlers under `web-ui/app/api/`
@@ -632,9 +617,9 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - Location: `lambda/discovery/src/main.py`
 - Triggers: ECS task or scheduled invocation
 - Responsibilities: Multi-account parallel resource scan, DynamoDB inventory writes, S3 normalized output
-- Location: `bin/cdkStack.ts`
-- Triggers: `cdk deploy` / `cdk synth`
-- Responsibilities: Instantiates `NetworkingStack` then `ComputeStack` with config from env vars
+- Location: `infra/compute/index.ts`
+- Triggers: `pulumi up --stack prod`
+- Responsibilities: Provisions all compute resources (ECS, Lambda, RDS, DynamoDB, Cognito, CloudFront)
 ## Error Handling
 - API routes: `try/catch` → `NextResponse.json({ error }, { status: 5xx })`
 - Agent stream: Abort errors (client disconnect) handled silently; real errors logged and propagated via `controller.error()`
