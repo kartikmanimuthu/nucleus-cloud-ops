@@ -18,6 +18,7 @@ const vectorBucketName = config.get("vectorBucketName") ?? "";
 const discoveryImageUri = config.get("discoveryImageUri") ?? "";
 const webUiImageUri = config.require("webUiImageUri");
 const nextauthSecret = config.requireSecret("nextauthSecret");
+const dbPassword = config.requireSecret("dbPassword");
 
 // Phase 7+: Networking stack is deployed — use requireOutput() to enforce dependency.
 // requireOutput() throws at preview time if networking stack is not deployed,
@@ -555,6 +556,56 @@ emails.forEach((email: string, i: number) => {
 });
 
 // ============================================================================
+// RDS POSTGRESQL
+// ============================================================================
+
+// RDS Security Group — allow port 5432 from within VPC (ECS tasks + Lambdas)
+const rdsSecurityGroup = new aws.ec2.SecurityGroup("rds-sg", {
+    name: "nucleus-cloud-ops-rds-sg",
+    description: "Security group for RDS PostgreSQL - VPC internal access",
+    vpcId: vpcId,
+    ingress: [{
+        fromPort: 5432,
+        toPort: 5432,
+        protocol: "tcp",
+        cidrBlocks: [vpcCidr],
+        description: "PostgreSQL from VPC (ECS tasks and Lambda functions)",
+    }],
+    egress: [{
+        fromPort: 0,
+        toPort: 0,
+        protocol: "-1",
+        cidrBlocks: ["0.0.0.0/0"],
+        description: "Allow all outbound",
+    }],
+});
+
+// RDS PostgreSQL instance — postgres 16, db.t4g.micro, 20 GB gp3
+const postgresInstance = new aws.rds.Instance("postgres", {
+    identifier: "nucleus-cloud-ops-postgres",
+    engine: "postgres",
+    engineVersion: "16.6",
+    instanceClass: "db.t4g.micro",
+    dbName: "nucleus",
+    username: "nucleus_admin",
+    password: dbPassword,
+    dbSubnetGroupName: dbSubnetGroupName,
+    vpcSecurityGroupIds: [rdsSecurityGroup.id],
+    multiAz: false,
+    allocatedStorage: 20,
+    storageType: "gp3",
+    skipFinalSnapshot: true,
+    deletionProtection: false,
+    tags: { Name: "nucleus-cloud-ops-postgres" },
+}, { retainOnDelete: false });
+
+// DATABASE_URL — secret-wrapped connection string
+const databaseUrl = pulumi.secret(
+    pulumi.interpolate`postgresql://nucleus_admin:${dbPassword}@${postgresInstance.address}:5432/nucleus`
+);
+
+
+// ============================================================================
 // SCHEDULER LAMBDA
 // ============================================================================
 
@@ -648,6 +699,7 @@ const schedulerLambda = new aws.lambda.Function("scheduler-lambda", {
             SNS_TOPIC_ARN: snsTopic.arn,
             HUB_ACCOUNT_ID: accountId,
             NEXT_PUBLIC_HUB_ACCOUNT_ID: accountId,
+            DATABASE_URL: databaseUrl,
         },
     },
 });
@@ -801,6 +853,7 @@ const vectorProcessorLambda = new aws.lambda.Function("vector-processor-lambda",
             BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
             APP_TABLE_NAME: appTable.name,
             AUDIT_TABLE_NAME: auditTable.name,
+            DATABASE_URL: databaseUrl,
         },
     },
 });
@@ -960,6 +1013,7 @@ const kbSyncProcessorLambda = new aws.lambda.Function("kb-sync-processor-lambda"
             KB_VECTOR_INDEX_NAME: "knowledge-base-embeddings",
             KB_STAGING_BUCKET_NAME: kbStagingBucket.bucket,
             BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
+            DATABASE_URL: databaseUrl,
         },
     },
 });
@@ -1103,7 +1157,8 @@ const discoveryTaskDef = new aws.ecs.TaskDefinition("discovery-task-def", {
         auditTable.name,
         inventoryBucket.bucket,
         discoveryLogGroup.name,
-    ]).apply(([appTableN, auditTableN, inventoryBucketN, logGroupN]) =>
+        databaseUrl,
+    ]).apply(([appTableN, auditTableN, inventoryBucketN, logGroupN, databaseUrlVal]) =>
         JSON.stringify([{
             name: "DiscoveryContainer",
             image: discoveryImageUri || "public.ecr.aws/docker/library/python:3.12-slim",
@@ -1114,6 +1169,7 @@ const discoveryTaskDef = new aws.ecs.TaskDefinition("discovery-task-def", {
                 { name: "INVENTORY_BUCKET_NAME", value: inventoryBucketN },
                 { name: "AWS_REGION", value: region },
                 { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
+                { name: "DATABASE_URL", value: databaseUrlVal },
             ],
             logConfiguration: {
                 logDriver: "awslogs",
@@ -1364,13 +1420,14 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         webUiLogGroup.name,
         accountId,
         nextauthSecret,
+        databaseUrl,
     ]).apply(([
         appTableN, auditTableN, checkpointTableN, writesTableN,
         checkpointBucketN, chatHistoryTableN, memoryTableN, usersTeamsTableN,
         cognitoPoolId, cognitoClientId, cognitoClientSecret, identityPoolId,
         inventoryBucketN, inventoryTableN, kbSyncQueueUrl, kbStagingBucketN,
         agentTempBucketN, agentOpsTableN, schedulerLambdaArnVal, ecsTaskRoleArnVal,
-        webUiLogGroupN, acctId, nextauthSecretVal,
+        webUiLogGroupN, acctId, nextauthSecretVal, databaseUrlVal,
     ]) => JSON.stringify([{
         name: "WebUIContainer",
         image: webUiImageUri,
@@ -1442,6 +1499,18 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "LANGFUSE_PUBLIC_KEY", value: "" },
             { name: "LANGFUSE_SECRET_KEY", value: "" },
             { name: "LANGFUSE_HOST", value: "https://cloud.langfuse.com" },
+            { name: "DATABASE_URL", value: databaseUrlVal },
+            // PostgreSQL feature flags — disable DynamoDB, route all entities to PostgreSQL
+            { name: "USE_PG_ACCOUNTS", value: "true" },
+            { name: "USE_PG_SCHEDULES", value: "true" },
+            { name: "USE_PG_AUDIT", value: "true" },
+            { name: "USE_PG_AUDIT_LOGS", value: "true" },
+            { name: "USE_PG_INVENTORY", value: "true" },
+            { name: "USE_PG_AGENT_OPS", value: "true" },
+            { name: "USE_PG_LANGGRAPH", value: "true" },
+            { name: "USE_PG_RBAC", value: "true" },
+            { name: "USE_PG_TENANT_CONFIG", value: "true" },
+            { name: "USE_PG_KB", value: "true" },
         ],
     }])),
 });
@@ -1669,6 +1738,54 @@ export const discoveryExecutionRoleArn = discoveryExecutionRole.arn;
 export const discoverySecurityGroupId = discoverySecurityGroup.id;
 
 // ============================================================================
+// RDS POSTGRESQL — IAM rds-db:connect policies
+// ============================================================================
+
+new aws.iam.RolePolicy("ecs-task-rds-connect-policy", {
+    role: ecsTaskRole.id,
+    policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
+    })),
+});
+
+new aws.iam.RolePolicy("discovery-task-rds-connect-policy", {
+    role: discoveryTaskRole.id,
+    policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
+    })),
+});
+
+new aws.iam.RolePolicy("scheduler-lambda-rds-connect-policy", {
+    role: schedulerLambdaRole.id,
+    policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
+    })),
+});
+
+new aws.iam.RolePolicy("vector-processor-rds-connect-policy", {
+    role: vectorProcessorRole.id,
+    policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
+    })),
+});
+
+new aws.iam.RolePolicy("kb-sync-processor-rds-connect-policy", {
+    role: kbSyncProcessorRole.id,
+    policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
+    })),
+});
+
+// RDS PostgreSQL exports
+export const postgresEndpoint = postgresInstance.address;
+export { databaseUrl };
+
+// ============================================================================
 // CLOUDFRONT DISTRIBUTION
 // ============================================================================
 
@@ -1831,16 +1948,9 @@ export const originVerifySecretValue = pulumi.secret(originVerifySecret.result);
 // These resources use alpha CDK constructs with no native Pulumi equivalent.
 // CFN templates extracted from `cdk synth` output and wrapped in Pulumi.
 
-const s3VectorsTemplate = fs.readFileSync(
-    path.join(__dirname, "s3-vectors-template.json"),
-    "utf-8"
-);
-
-const s3VectorsCfnStack = new aws.cloudformation.Stack("s3-vectors-stack", {
-    name: "nucleus-cloud-ops-s3-vectors-stack",
-    templateBody: s3VectorsTemplate,
-    capabilities: ["CAPABILITY_IAM"],
-});
+// s3-vectors-stack disabled — will be removed in future milestone
+// const s3VectorsTemplate = fs.readFileSync(path.join(__dirname, "s3-vectors-template.json"), "utf-8");
+// const s3VectorsCfnStack = new aws.cloudformation.Stack("s3-vectors-stack", { ... });
 
 const s3TablesTemplate = fs.readFileSync(
     path.join(__dirname, "s3-tables-template.json"),
@@ -1853,5 +1963,5 @@ const s3TablesCfnStack = new aws.cloudformation.Stack("s3-tables-stack", {
     capabilities: ["CAPABILITY_IAM"],
 });
 
-export const s3VectorsCfnStackId = s3VectorsCfnStack.id;
+// export const s3VectorsCfnStackId = s3VectorsCfnStack.id; // disabled
 export const s3TablesCfnStackId = s3TablesCfnStack.id;
