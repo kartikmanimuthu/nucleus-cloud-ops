@@ -12,6 +12,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
+const PAGE_SIZE = 10;
 import {
     AlertDialog,
     AlertDialogAction,
@@ -83,6 +86,12 @@ export function InvitationsTable({
     // sentFlash: Record<invitationId, boolean> — shows "Sent" for 2s
     const [sentFlash, setSentFlash] = useState<Record<string, boolean>>({});
     const [revokingId, setRevokingId] = useState<string | null>(null);
+    const [page, setPage] = useState(0);
+
+    // Reset page when invitations list changes
+    useEffect(() => {
+        setPage(0);
+    }, [invitations.length]);
 
     // Tick down all active cooldowns every second
     useEffect(() => {
@@ -143,9 +152,12 @@ export function InvitationsTable({
     }
 
     const revoking = invitations.find((inv) => inv.id === revokingId);
+    const totalPages = Math.ceil(invitations.length / PAGE_SIZE);
+    const pagedInvitations = invitations.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
     return (
         <TooltipProvider>
+            <div className="space-y-2">
             <Table>
                 <TableHeader>
                     <TableRow>
@@ -158,7 +170,7 @@ export function InvitationsTable({
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {invitations.map((inv) => {
+                    {pagedInvitations.map((inv) => {
                         const cooldown = cooldowns[inv.id] ?? 0;
                         const isFlashing = sentFlash[inv.id] ?? false;
                         const isPending = inv.status === "pending";
@@ -223,6 +235,33 @@ export function InvitationsTable({
                     })}
                 </TableBody>
             </Table>
+
+            {totalPages > 1 && (
+                <div className="flex items-center justify-end gap-2 text-sm text-muted-foreground">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        disabled={page === 0}
+                        onClick={() => setPage((p) => p - 1)}
+                    >
+                        <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span>
+                        Page {page + 1} of {totalPages}
+                    </span>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        disabled={page >= totalPages - 1}
+                        onClick={() => setPage((p) => p + 1)}
+                    >
+                        <ChevronRight className="h-4 w-4" />
+                    </Button>
+                </div>
+            )}
+            </div>
 
             <AlertDialog open={!!revokingId} onOpenChange={(open) => !open && setRevokingId(null)}>
                 <AlertDialogContent>

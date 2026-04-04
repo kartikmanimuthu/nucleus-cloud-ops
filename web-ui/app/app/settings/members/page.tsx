@@ -129,6 +129,19 @@ export default function MembersPage() {
         await fetchInvitations();
     };
 
+    const handleRoleChange = async (memberId: string, role: string) => {
+        const res = await fetch(`/api/settings/members/${memberId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+            throw new Error(json.error ?? "Role update failed.");
+        }
+        await fetchMembers();
+    };
+
     const handleRevoke = async (id: string) => {
         // Optimistic removal
         setInvitations((prev) => prev.filter((inv) => inv.id !== id));
@@ -146,6 +159,7 @@ export default function MembersPage() {
 
     // Derive available roles based on current user's role level
     const sessionRole = (session?.user as { role?: string } | undefined)?.role ?? "Viewer";
+    const currentUserId = (session?.user as { id?: string } | undefined)?.id ?? "";
     const userLevel = ROLE_HIERARCHY[sessionRole] ?? 1;
     const predefinedFiltered = predefinedRoles.filter((r) => r.level <= userLevel).map((r) => r.name);
     const customFiltered = customRoles.filter((r) => r.level <= userLevel).map((r) => r.name);
@@ -172,6 +186,9 @@ export default function MembersPage() {
                     members={members}
                     loading={membersLoading}
                     error={membersError}
+                    currentUserId={currentUserId}
+                    availableRoles={availableRoles}
+                    onRoleChange={handleRoleChange}
                 />
             </section>
 
