@@ -7,7 +7,6 @@ import { logger } from '../utils/logger.js';
 import type { Schedule, ScheduleExecutionMetadata } from '../types/index.js';
 
 const DATABASE_URL = process.env.DATABASE_URL;
-const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || 'org-default';
 
 let pool: Pool | null = null;
 
@@ -31,7 +30,32 @@ function getPool(): Pool {
  * Replaces DynamoDB GSI1 TYPE#SCHEDULE / GSI3 STATUS#active query.
  * Multi-tenant safety: WHERE tenant_id = $1 on every query.
  */
-export async function getSchedules(tenantId: string = DEFAULT_TENANT_ID): Promise<Schedule[]> {
+/**
+ * Get all tenants with status = 'active'.
+ * Used by scheduler to iterate tenants sequentially (D-07, D-09).
+ */
+export async function getActiveTenants(): Promise<Array<{ id: string; name: string }>> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        const result = await client.query(
+            `SELECT id, name FROM tenants WHERE status = 'active' ORDER BY "createdAt" ASC`
+        );
+        logger.debug(`[pg-service] Fetched ${result.rows.length} active tenants`);
+        return result.rows;
+    } catch (error) {
+        logger.error('[pg-service] Error fetching active tenants', error);
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * Get all active schedules for a tenant.
+ * Replaces DynamoDB GSI1 TYPE#SCHEDULE / GSI3 STATUS#active query.
+ * Multi-tenant safety: WHERE tenant_id = $1 on every query.
+ */
+export async function getSchedules(tenantId: string): Promise<Schedule[]> {
     const client: PoolClient = await getPool().connect();
     try {
         const result = await client.query(
@@ -135,7 +159,7 @@ export async function logExecution(execution: {
  * Get all active accounts for a tenant.
  * Replaces DynamoDB GSI3 TYPE#ACCOUNT / STATUS#active query.
  */
-export async function getAccounts(tenantId: string = DEFAULT_TENANT_ID): Promise<import('../types/index.js').Account[]> {
+export async function getAccounts(tenantId: string): Promise<import('../types/index.js').Account[]> {
     const client: PoolClient = await getPool().connect();
     try {
         const result = await client.query(
@@ -166,7 +190,7 @@ export async function getAccounts(tenantId: string = DEFAULT_TENANT_ID): Promise
  * Replaces DynamoDB NucleusAuditTable write.
  */
 export async function createAuditLog(entry: {
-    tenantId?: string;
+    tenantId: string;
     eventType: string;
     action: string;
     user: string;
@@ -184,7 +208,7 @@ export async function createAuditLog(entry: {
     try {
         const id = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const logId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const tenantId = entry.tenantId ?? DEFAULT_TENANT_ID;
+        const tenantId = entry.tenantId;
         // 30-day TTL for audit logs
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
@@ -220,7 +244,7 @@ export async function createAuditLog(entry: {
  */
 export async function getExecutionHistory(
     scheduleId: string,
-    tenantId: string = DEFAULT_TENANT_ID,
+    tenantId: string,
     limit: number = 50
 ): Promise<import('../types/index.js').ExecutionRecord[]> {
     const client: PoolClient = await getPool().connect();

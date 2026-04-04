@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AccountService } from '@/lib/account-service';
 import { authorize } from '@/lib/rbac/authorize';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function POST(
     request: NextRequest,
@@ -14,7 +15,8 @@ export async function POST(
         const { accountId } = await params;
         console.log(`API - Validating account ${accountId}`);
 
-        const result = await AccountService.validateAccount(accountId);
+        const tenantId = await getSessionTenantId();
+        const result = await AccountService.validateAccount(accountId, tenantId);
 
         return NextResponse.json({
             success: true,

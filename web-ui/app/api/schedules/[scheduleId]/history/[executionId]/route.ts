@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ScheduleExecutionService } from "@/lib/schedule-execution-service";
 import { ScheduleService } from "@/lib/schedule-service";
+import { getSessionTenantId } from "@/lib/auth-session";
 
 export async function GET(
     request: NextRequest,
@@ -16,8 +17,10 @@ export async function GET(
             );
         }
 
+        const tenantId = await getSessionTenantId();
+
         // Verify schedule exists
-        const schedule = await ScheduleService.getSchedule(scheduleId);
+        const schedule = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
         if (!schedule) {
             return NextResponse.json(
                 { error: "Schedule not found" },
@@ -28,7 +31,8 @@ export async function GET(
         // Fetch single execution
         const execution = await ScheduleExecutionService.getExecutionById(
             scheduleId,
-            executionId
+            executionId,
+            tenantId,
         );
 
         if (!execution) {

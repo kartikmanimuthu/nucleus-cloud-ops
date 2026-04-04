@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { deleteVectors } from '@/lib/knowledge-base/embedder';
-import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getSessionTenantId } from '@/lib/auth-session';
 import type { DataSource } from '@/lib/knowledge-base/types';
 
 function sanitize(ds: DataSource): DataSource {
@@ -22,7 +22,11 @@ export async function GET(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { kbId, dsId } = await params;
-  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  const tenantId = await getSessionTenantId();
+  const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+  if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+
+  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
   if (!ds) return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
 
   return NextResponse.json({ dataSource: sanitize(ds) });
@@ -37,7 +41,11 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { kbId, dsId } = await params;
-  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  const tenantId = await getSessionTenantId();
+  const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+  if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+
+  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
   if (!ds) return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
 
   const body = await request.json() as { name?: string; config?: Record<string, unknown> };
@@ -45,8 +53,8 @@ export async function PUT(
   if (body.name?.trim()) updates.name = body.name.trim();
   if (body.config) updates.config = { ...ds.config, ...body.config } as DataSource['config'];
 
-  await KnowledgeBaseService.updateDataSource(kbId, dsId, updates);
-  const updated = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  await KnowledgeBaseService.updateDataSource(kbId, dsId, updates, tenantId);
+  const updated = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
 
   return NextResponse.json({ dataSource: sanitize(updated!) });
 }
@@ -60,14 +68,18 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { kbId, dsId } = await params;
-  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  const tenantId = await getSessionTenantId();
+  const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+  if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+
+  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
   if (!ds) return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
 
   if (ds.vectorKeys.length > 0) await deleteVectors(ds.vectorKeys);
-  await KnowledgeBaseService.deleteDataSource(kbId, dsId);
+  await KnowledgeBaseService.deleteDataSource(kbId, dsId, tenantId);
   await Promise.all([
-    KnowledgeBaseService.updateDataSourceCount(kbId, -1, DEFAULT_TENANT_ID),
-    KnowledgeBaseService.updateVectorCount(kbId, -ds.vectorCount, DEFAULT_TENANT_ID),
+    KnowledgeBaseService.updateDataSourceCount(kbId, -1, tenantId),
+    KnowledgeBaseService.updateVectorCount(kbId, -ds.vectorCount, tenantId),
   ]);
 
   return NextResponse.json({ success: true });

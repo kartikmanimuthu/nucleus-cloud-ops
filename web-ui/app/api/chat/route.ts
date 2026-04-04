@@ -46,18 +46,38 @@ export async function POST(req: Request) {
             selectedSkill,  // Skill ID for dynamic skill loading
             mcpServerIds    // MCP server IDs to activate for this session
         } = await req.json();
-        const threadId = requestThreadId || Date.now().toString();
-
-        // Resolve userId from NextAuth/Cognito session — returns USER#<sub>
+        // Resolve userId and tenantId from session
         let resolvedUserId: string;
+        let resolvedTenantId: string;
         try {
-            const { getSessionUserId } = await import("@/lib/auth-session");
+            const { getSessionUserId, getSessionTenantId } = await import("@/lib/auth-session");
             resolvedUserId = await getSessionUserId();
+            resolvedTenantId = await getSessionTenantId();
         } catch {
             return new Response(
                 JSON.stringify({ error: "Unauthorized" }),
                 { status: 401, headers: { 'Content-Type': 'application/json' } }
             );
+        }
+
+        // Assign or validate thread ID (D-12/D-13)
+        let threadId: string;
+        if (requestThreadId) {
+            // Validate tenant ownership on namespaced threads
+            if (requestThreadId.includes(':')) {
+                const [embeddedTenantId] = requestThreadId.split(':');
+                if (embeddedTenantId !== resolvedTenantId) {
+                    return new Response(
+                        JSON.stringify({ error: 'Forbidden: thread belongs to another tenant' }),
+                        { status: 403, headers: { 'Content-Type': 'application/json' } }
+                    );
+                }
+            }
+            // Legacy threads (bare UUID/timestamp) — allow access for session user only
+            threadId = requestThreadId;
+        } else {
+            // New thread — use namespaced format: tenantId:userId:timestamp
+            threadId = `${resolvedTenantId}:${resolvedUserId}:${Date.now()}`;
         }
         // Langfuse expects a plain ID without the USER# prefix
         const langfuseUserId = resolvedUserId.replace(/^USER#/, '') || undefined;
@@ -121,6 +141,7 @@ export async function POST(req: Request) {
             selectedSkill: selectedSkill || null,  // Pass selectedSkill for dynamic loading
             mcpServerIds: mcpServerIds || [],       // Pass MCP server IDs for dynamic tool loading
             userId: resolvedUserId,                 // For memory store scoping
+            tenantId: resolvedTenantId,             // For tenant-scoped memory operations
         };
 
         let graph;
@@ -139,7 +160,7 @@ export async function POST(req: Request) {
 
         const lastMessage = messages[messages.length - 1];
         let input: { messages: (HumanMessage | AIMessage | ToolMessage)[] } | null = null;
-        const config = { configurable: { thread_id: threadId, user_id: resolvedUserId } };
+        const config = { configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId } };
 
         // Track the toolCallId when resuming from HITL approval
         let resumedToolCallId: string | undefined;
@@ -264,9 +285,7 @@ export async function POST(req: Request) {
                 input as any,
                 {
                     version: "v2",
-                    configurable: { thread_id: threadId, user_id: resolvedUserId },
-                    recursionLimit: 100, // Higher limit for complex tasks with many tool calls
-                    signal: graphAbortController.signal,
+                    configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId },
                     ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
                 }
             );
@@ -279,8 +298,9 @@ export async function POST(req: Request) {
                     releaseThreadLock,
                     threadId,
                     graph,
-                    { configurable: { thread_id: threadId, user_id: resolvedUserId } },
+                    { configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId } },
                     resolvedUserId,
+                    resolvedTenantId,
                     preRunMessageCount
                 )
             });
@@ -288,7 +308,7 @@ export async function POST(req: Request) {
             const result = await graph.invoke(
                 input,
                 {
-                    configurable: { thread_id: threadId, user_id: resolvedUserId },
+                    configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId },
                     recursionLimit: 100,
                     signal: req.signal,
                     ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
@@ -325,10 +345,10 @@ export async function POST(req: Request) {
                             }
                             return { role, content, metadata: Object.keys(metadata).length ? metadata : undefined };
                         });
-                        await chatHistory.addMessages(resolvedUserId, threadId, mapped, sessionTitle);
+                        await chatHistory.addMessages(resolvedTenantId, resolvedUserId, threadId, mapped, sessionTitle);
                     }
-                } catch (err) {
-                    console.error('[Chat API] Failed to persist message history (non-stream):', err);
+                } catch (historyErr) {
+                    console.warn('[API] Failed to persist chat history (non-fatal):', historyErr);
                 }
             }
 
@@ -430,6 +450,7 @@ function processStream(
     graph?: any,
     config?: any,
     resolvedUserId?: string,
+    resolvedTenantId?: string,
     preRunMessageCount = 0
 ): ReadableStream<UIMessageChunk> {
     return new ReadableStream({
@@ -707,7 +728,7 @@ function processStream(
                                 }
                                 return { role, content, metadata: Object.keys(metadata).length ? metadata : undefined };
                             });
-                            await chatHistory.addMessages(resolvedUserId, threadId, mapped, sessionTitle);
+                            await chatHistory.addMessages(resolvedTenantId ?? 'default', resolvedUserId, threadId, mapped, sessionTitle);
                             console.log(`[Chat API] Persisted ${newMessages.length} new messages for thread ${threadId} (userId=${resolvedUserId})`);
                         }
                     } catch (err) {

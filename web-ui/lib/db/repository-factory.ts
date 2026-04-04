@@ -143,24 +143,12 @@ export function getScheduleExecutionRepository(): IScheduleExecutionRepository {
 
 /**
  * Returns the active IAuditLogRepository implementation.
- * Controlled by USE_PG_AUDIT_LOGS environment variable.
- *
- * Implementation files:
- *   - DynamoDB: web-ui/lib/db/repositories/audit-log/dynamo.ts
- *   - PostgreSQL: web-ui/lib/db/repositories/audit-log/postgres.ts
+ * Always uses PostgreSQL — DynamoDB path removed.
  */
 export function getAuditLogRepository(): IAuditLogRepository {
-    const usePg = process.env.USE_PG_AUDIT_LOGS === 'true';
-
-    if (usePg) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { AuditLogPostgresRepository } = require('./repositories/audit-log/postgres');
-        return new AuditLogPostgresRepository();
-    }
-
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { AuditLogDynamoRepository } = require('./repositories/audit-log/dynamo');
-    return new AuditLogDynamoRepository();
+    const { AuditLogPostgresRepository } = require('./repositories/audit-log/postgres');
+    return new AuditLogPostgresRepository();
 }
 
 /**

@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
-    getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import { AgentOpsEventPostgresRepository } from './postgres';
 
 const makeEventRow = (overrides: Record<string, unknown> = {}) => ({
@@ -39,7 +39,7 @@ describe('AgentOpsEventPostgresRepository', () => {
                 findMany: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('recordEvent', () => {
@@ -93,5 +93,36 @@ describe('AgentOpsEventPostgresRepository', () => {
             const callArg = mockPrisma.agentOpsEvent.findMany.mock.calls[0][0];
             expect(callArg.where.tenantId).toBe('other-tenant');
         });
+    });
+});
+
+describe('AgentOpsEventPostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        agentOpsEvent: {
+            create: MockedFunction<any>;
+            findMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            agentOpsEvent: {
+                create: vi.fn().mockResolvedValue({}),
+                findMany: vi.fn().mockResolvedValue([]),
+            },
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('recordEvent calls getTenantClient with correct tenantId', async () => {
+        const repo = new AgentOpsEventPostgresRepository();
+        await repo.recordEvent({ tenantId: 'tenant-test', runId: 'run-1', eventType: 'planning', node: 'planner' });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getRunEvents calls getTenantClient with correct tenantId', async () => {
+        const repo = new AgentOpsEventPostgresRepository();
+        await repo.getRunEvents('run-1', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });

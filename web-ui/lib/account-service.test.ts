@@ -12,9 +12,8 @@ vi.mock('@/lib/audit-service', () => ({
     },
 }));
 
-// Mock aws-config for DEFAULT_TENANT_ID
+// Mock aws-config (DEFAULT_TENANT_ID removed — tenantId is now always explicit)
 vi.mock('@/lib/aws-config', () => ({
-    DEFAULT_TENANT_ID: 'org-default',
     getDynamoDBDocumentClient: vi.fn(),
     APP_TABLE_NAME: 'test-table',
     AUDIT_TABLE_NAME: 'test-audit-table',
@@ -75,6 +74,7 @@ describe('AccountService', () => {
                 searchTerm: 'test',
                 page: 2,
                 limit: 5,
+                tenantId: 'test-tenant',
             });
 
             expect(mockRepo.getAccounts).toHaveBeenCalledWith(
@@ -83,23 +83,23 @@ describe('AccountService', () => {
                     searchTerm: 'test',
                     page: 2,
                     limit: 5,
-                    tenantId: 'org-default',
+                    tenantId: 'test-tenant',
                 })
             );
             expect(result.accounts).toHaveLength(1);
             expect(result.totalCount).toBe(1);
         });
 
-        it('uses DEFAULT_TENANT_ID when tenantId not provided', async () => {
+        it('passes undefined tenantId when not provided', async () => {
             mockRepo.getAccounts.mockResolvedValue({ accounts: [], totalCount: 0 });
 
             await AccountService.getAccounts();
 
             const callArg = mockRepo.getAccounts.mock.calls[0][0];
-            expect(callArg.tenantId).toBe('org-default');
+            expect(callArg.tenantId).toBeUndefined();
         });
 
-        it('uses provided tenantId over default', async () => {
+        it('uses provided tenantId', async () => {
             mockRepo.getAccounts.mockResolvedValue({ accounts: [], totalCount: 0 });
 
             await AccountService.getAccounts({ tenantId: 'custom-tenant' });
@@ -113,10 +113,10 @@ describe('AccountService', () => {
         it('returns null when account not found', async () => {
             mockRepo.getAccount.mockResolvedValue(null);
 
-            const result = await AccountService.getAccount('acc-missing');
+            const result = await AccountService.getAccount('acc-missing', 'test-tenant');
 
             expect(result).toBeNull();
-            expect(mockRepo.getAccount).toHaveBeenCalledWith('acc-missing', 'org-default');
+            expect(mockRepo.getAccount).toHaveBeenCalledWith('acc-missing', 'test-tenant');
         });
 
         it('returns account when found', async () => {
@@ -182,11 +182,11 @@ describe('AccountService', () => {
         it('uses DEFAULT_TENANT_ID when tenantId not provided', async () => {
             mockRepo.createAccount.mockResolvedValue(makeAccount());
 
-            await AccountService.createAccount(makeAccount());
+            await AccountService.createAccount(makeAccount(), 'test-tenant');
 
             expect(mockRepo.createAccount).toHaveBeenCalledWith(
                 expect.anything(),
-                'org-default'
+                'test-tenant'
             );
         });
     });
@@ -195,12 +195,12 @@ describe('AccountService', () => {
         it('calls repo.updateAccount with correct args', async () => {
             mockRepo.updateAccount.mockResolvedValue(makeAccount({ name: 'Updated' }));
 
-            await AccountService.updateAccount('acc-1', { name: 'Updated' });
+            await AccountService.updateAccount('acc-1', { name: 'Updated' }, 'test-tenant');
 
             expect(mockRepo.updateAccount).toHaveBeenCalledWith(
                 'acc-1',
                 expect.objectContaining({ name: 'Updated' }),
-                'org-default'
+                'test-tenant'
             );
         });
 
@@ -231,9 +231,9 @@ describe('AccountService', () => {
         it('calls repo.deleteAccount with accountId and tenantId', async () => {
             mockRepo.deleteAccount.mockResolvedValue(undefined);
 
-            await AccountService.deleteAccount('acc-del', 'alice');
+            await AccountService.deleteAccount('acc-del', 'alice', 'test-tenant');
 
-            expect(mockRepo.deleteAccount).toHaveBeenCalledWith('acc-del', 'org-default');
+            expect(mockRepo.deleteAccount).toHaveBeenCalledWith('acc-del', 'test-tenant');
         });
 
         it('calls AuditService.logUserAction after deleting', async () => {
@@ -264,7 +264,7 @@ describe('AccountService', () => {
         it('throws when account not found', async () => {
             mockRepo.getAccount.mockResolvedValue(null);
 
-            await expect(AccountService.validateAccount('acc-missing')).rejects.toThrow(
+            await expect(AccountService.validateAccount('acc-missing', 'test-tenant')).rejects.toThrow(
                 'Failed to validate account'
             );
         });
@@ -272,7 +272,7 @@ describe('AccountService', () => {
         it('throws when account has no roleArn', async () => {
             mockRepo.getAccount.mockResolvedValue(makeAccount({ roleArn: '' }));
 
-            await expect(AccountService.validateAccount('acc-1')).rejects.toThrow(
+            await expect(AccountService.validateAccount('acc-1', 'test-tenant')).rejects.toThrow(
                 'Failed to validate account'
             );
         });
@@ -282,7 +282,7 @@ describe('AccountService', () => {
         it('throws when account not found', async () => {
             mockRepo.getAccount.mockResolvedValue(null);
 
-            await expect(AccountService.toggleAccountStatus('acc-missing')).rejects.toThrow(
+            await expect(AccountService.toggleAccountStatus('acc-missing', 'test-tenant')).rejects.toThrow(
                 'Account acc-missing not found'
             );
         });
@@ -291,12 +291,12 @@ describe('AccountService', () => {
             mockRepo.getAccount.mockResolvedValue(makeAccount({ active: true }));
             mockRepo.updateAccount.mockResolvedValue(makeAccount({ active: false }));
 
-            await AccountService.toggleAccountStatus('acc-1');
+            await AccountService.toggleAccountStatus('acc-1', 'test-tenant');
 
             expect(mockRepo.updateAccount).toHaveBeenCalledWith(
                 'acc-1',
                 expect.objectContaining({ active: false }),
-                'org-default'
+                'test-tenant'
             );
         });
 
@@ -304,12 +304,12 @@ describe('AccountService', () => {
             mockRepo.getAccount.mockResolvedValue(makeAccount({ active: false }));
             mockRepo.updateAccount.mockResolvedValue(makeAccount({ active: true }));
 
-            await AccountService.toggleAccountStatus('acc-1');
+            await AccountService.toggleAccountStatus('acc-1', 'test-tenant');
 
             expect(mockRepo.updateAccount).toHaveBeenCalledWith(
                 'acc-1',
                 expect.objectContaining({ active: true }),
-                'org-default'
+                'test-tenant'
             );
         });
     });

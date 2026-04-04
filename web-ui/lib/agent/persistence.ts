@@ -30,9 +30,9 @@ import { getPrismaClient } from "@/lib/db/pg-config";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface ChatHistoryInterface {
-    addMessages(userId: string, threadId: string, messages: Array<{ role: string; content: string; metadata?: Record<string, unknown> }>, sessionToken?: string): Promise<void>;
-    getMessages(userId: string, threadId: string): Promise<Array<{ role: string; content: string; metadata?: Record<string, unknown>; createdAt?: Date }>>;
-    clearMessages(userId: string, threadId: string): Promise<void>;
+    addMessages(tenantId: string, userId: string, threadId: string, messages: Array<{ role: string; content: string; metadata?: Record<string, unknown> }>, sessionToken?: string): Promise<void>;
+    getMessages(tenantId: string, userId: string, threadId: string): Promise<Array<{ role: string; content: string; metadata?: Record<string, unknown>; createdAt?: Date }>>;
+    clearMessages(tenantId: string, userId: string, threadId: string): Promise<void>;
 }
 
 interface MemoryStoreInterface {
@@ -54,6 +54,7 @@ const g = globalThis as unknown as {
 
 class PostgresChatHistory implements ChatHistoryInterface {
     async addMessages(
+        tenantId: string,
         userId: string,
         threadId: string,
         messages: Array<{ role: string; content: string; metadata?: Record<string, unknown> }>,
@@ -63,7 +64,7 @@ class PostgresChatHistory implements ChatHistoryInterface {
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
         await prisma.chatMessage.createMany({
             data: messages.map((m) => ({
-                tenantId: userId,
+                tenantId: tenantId,
                 sessionId: threadId,
                 role: m.role,
                 content: m.content,
@@ -75,21 +76,22 @@ class PostgresChatHistory implements ChatHistoryInterface {
     }
 
     async getMessages(
+        tenantId: string,
         userId: string,
         threadId: string
     ): Promise<Array<{ role: string; content: string; metadata?: Record<string, unknown>; createdAt?: Date }>> {
         const prisma = getPrismaClient();
         const rows = await prisma.chatMessage.findMany({
-            where: { tenantId: userId, sessionId: threadId },
+            where: { tenantId: tenantId, sessionId: threadId },
             orderBy: { createdAt: "asc" },
         });
         return rows.map((r) => ({ role: r.role, content: r.content, metadata: (r.metadata as Record<string, unknown>) ?? undefined, createdAt: r.createdAt }));
     }
 
-    async clearMessages(userId: string, threadId: string): Promise<void> {
+    async clearMessages(tenantId: string, userId: string, threadId: string): Promise<void> {
         const prisma = getPrismaClient();
         await prisma.chatMessage.deleteMany({
-            where: { tenantId: userId, sessionId: threadId },
+            where: { tenantId: tenantId, sessionId: threadId },
         });
     }
 }
@@ -106,6 +108,7 @@ class PostgresMemoryStore implements MemoryStoreInterface {
     async batch(ops: unknown[], _config?: unknown): Promise<unknown[]> {
         const prisma = getPrismaClient();
         const results: unknown[] = [];
+        const configurable = (_config as Record<string, unknown>)?.configurable as Record<string, unknown> | undefined;
 
         for (const op of ops as Array<Record<string, unknown>>) {
             if (op.namespace && op.key && op.value !== undefined) {
@@ -113,7 +116,8 @@ class PostgresMemoryStore implements MemoryStoreInterface {
                 const namespace = Array.isArray(op.namespace) ? (op.namespace as string[]).join("/") : String(op.namespace);
                 const key = String(op.key);
                 const value = op.value as Record<string, unknown>;
-                const userId = ((_config as Record<string, unknown>)?.configurable as Record<string, unknown>)?.user_id as string ?? "default";
+                const tenantId = configurable?.tenant_id as string ?? "default";
+                const userId = configurable?.user_id as string ?? "default";
                 const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
 
                 let embeddingVector: number[] | null = null;
@@ -129,14 +133,14 @@ class PostgresMemoryStore implements MemoryStoreInterface {
                 if (embeddingStr) {
                     await prisma.$executeRaw`
                         INSERT INTO agent_memories ("id", "tenantId", "userId", "namespace", "key", "value", "embedding", "createdAt", "updatedAt", "expiresAt")
-                        VALUES (gen_random_uuid()::text, ${userId}, ${userId}, ${namespace}, ${key}, ${JSON.stringify(value)}::jsonb, ${embeddingStr}::vector, NOW(), NOW(), ${expiresAt})
+                        VALUES (gen_random_uuid()::text, ${tenantId}, ${userId}, ${namespace}, ${key}, ${JSON.stringify(value)}::jsonb, ${embeddingStr}::vector, NOW(), NOW(), ${expiresAt})
                         ON CONFLICT ("tenantId", "namespace", "key") DO UPDATE
                         SET "value" = EXCLUDED."value", "embedding" = EXCLUDED."embedding", "updatedAt" = NOW(), "expiresAt" = EXCLUDED."expiresAt"
                     `;
                 } else {
                     await prisma.agentMemory.upsert({
-                        where: { tenantId_namespace_key: { tenantId: userId, namespace, key } },
-                        create: { tenantId: userId, userId, namespace, key, value, expiresAt },
+                        where: { tenantId_namespace_key: { tenantId: tenantId, namespace, key } },
+                        create: { tenantId: tenantId, userId, namespace, key, value, expiresAt },
                         update: { value, expiresAt, updatedAt: new Date() },
                     });
                 }
@@ -145,7 +149,7 @@ class PostgresMemoryStore implements MemoryStoreInterface {
                 // Search operation
                 const query = String(op.query);
                 const limit = Number(op.limit ?? 5);
-                const userId = ((_config as Record<string, unknown>)?.configurable as Record<string, unknown>)?.user_id as string ?? "default";
+                const tenantId = configurable?.tenant_id as string ?? "default";
 
                 let queryEmbedding: number[] | null = null;
                 try {
@@ -159,14 +163,14 @@ class PostgresMemoryStore implements MemoryStoreInterface {
                     const rows = await prisma.$queryRaw<Array<{ key: string; value: unknown; namespace: string }>>`
                         SELECT "key", "value", "namespace"
                         FROM agent_memories
-                        WHERE "tenantId" = ${userId}
+                        WHERE "tenantId" = ${tenantId}
                         ORDER BY embedding <=> ${embeddingStr}::vector
                         LIMIT ${limit}
                     `;
                     results.push(rows.map((r) => ({ key: r.key, value: r.value, namespace: r.namespace })));
                 } else {
                     const rows = await prisma.agentMemory.findMany({
-                        where: { tenantId: userId },
+                        where: { tenantId: tenantId },
                         take: limit,
                         orderBy: { createdAt: "desc" },
                     });
@@ -244,10 +248,11 @@ async function initPersistence(): Promise<PersistenceInstances> {
         clientConfig,
     });
     // Wrap in ChatHistoryInterface adapter (metadata not supported by DynamoDB backend)
+    // tenantId is accepted for interface compatibility but DynamoDB backend is single-tenant
     const chatHistory: ChatHistoryInterface = {
-        addMessages: (userId, threadId, messages) => dynamoHistory.addMessages(userId, threadId, messages),
-        getMessages: (userId, threadId) => dynamoHistory.getMessages(userId, threadId),
-        clearMessages: (userId, threadId) => dynamoHistory.clearMessages(userId, threadId),
+        addMessages: (_tenantId, userId, threadId, messages) => dynamoHistory.addMessages(userId, threadId, messages),
+        getMessages: (_tenantId, userId, threadId) => dynamoHistory.getMessages(userId, threadId),
+        clearMessages: (_tenantId, userId, threadId) => dynamoHistory.clearMessages(userId, threadId),
     };
 
     console.log("[Persistence] Initialized DynamoDBSaver, DynamoDBStore, DynamoDBChatMessageHistory");
@@ -288,6 +293,7 @@ export async function getChatHistory(): Promise<ChatHistoryInterface> {
 // ─── Memory helpers ───────────────────────────────────────────────────────────
 
 export async function saveMemory(
+    tenantId: string,
     userId: string,
     namespace: string[],
     key: string,
@@ -296,11 +302,12 @@ export async function saveMemory(
     const store = await getMemoryStore();
     await store.batch(
         [{ namespace, key, value }],
-        { configurable: { user_id: userId } }
+        { configurable: { tenant_id: tenantId, user_id: userId } }
     );
 }
 
 export async function searchMemory(
+    tenantId: string,
     userId: string,
     namespacePrefix: string[],
     query: string,
@@ -309,7 +316,7 @@ export async function searchMemory(
     const store = await getMemoryStore();
     const [results] = await store.batch(
         [{ namespacePrefix, query, limit }],
-        { configurable: { user_id: userId } }
+        { configurable: { tenant_id: tenantId, user_id: userId } }
     );
     return (results as unknown[]) ?? [];
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
-import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getSessionTenantId } from '@/lib/auth-session';
 import type { CreateDataSourceInput, DataSource } from '@/lib/knowledge-base/types';
 
 function sanitizeDataSource(ds: DataSource): DataSource {
@@ -27,7 +27,12 @@ export async function GET(
 
   try {
     const { kbId } = await params;
-    const dataSources = await KnowledgeBaseService.listDataSources(kbId);
+    const tenantId = await getSessionTenantId();
+    const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+    if (!kb) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
+    const dataSources = await KnowledgeBaseService.listDataSources(kbId, tenantId);
     return NextResponse.json({ dataSources: dataSources.map(sanitizeDataSource) });
   } catch (error) {
     console.error('[KB Sources API] Error listing data sources:', error);
@@ -60,13 +65,19 @@ export async function POST(
       return NextResponse.json({ error: 'sourceType is required' }, { status: 400 });
     }
 
+    const tenantId = await getSessionTenantId();
+    const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+    if (!kb) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
+
     const dataSource = await KnowledgeBaseService.createDataSource(kbId, {
       name: input.name.trim(),
       sourceType: input.sourceType,
       config: input.config,
-    });
+    }, tenantId);
 
-    await KnowledgeBaseService.updateDataSourceCount(kbId, 1, DEFAULT_TENANT_ID);
+    await KnowledgeBaseService.updateDataSourceCount(kbId, 1, tenantId);
 
     return NextResponse.json({ dataSource: sanitizeDataSource(dataSource) }, { status: 201 });
   } catch (error) {

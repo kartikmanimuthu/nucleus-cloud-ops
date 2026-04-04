@@ -64,7 +64,7 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
     const { main: model, reflector: reflectorModel } = createAgentModels(modelId);
 
     // ── Tools (shared factory keeps tool sets in sync) ────────────────────────
-    const memoryTools = (store && userId) ? createMemoryTools(userId) : [];
+    const memoryTools = (store && tenantId && userId) ? createMemoryTools(tenantId, userId) : [];
     const baseTools = await assembleTools({ includeS3Tools: false, mcpServerIds, tenantId });
     const tools = [...baseTools, ...memoryTools];
     const modelWithTools = model.bindTools(tools);

@@ -3,6 +3,7 @@ import { AccountService } from '@/lib/account-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 import { authorize } from '@/lib/rbac/authorize';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function GET(request: NextRequest) {
     // Authorization check
@@ -25,7 +26,8 @@ export async function GET(request: NextRequest) {
             connectionFilter,
             searchTerm,
             limit,
-            page
+            page,
+            tenantId: await getSessionTenantId(),
         };
 
         const result = await AccountService.getAccounts(filters);
@@ -54,6 +56,7 @@ export async function POST(request: NextRequest) {
 
         const session = await getServerSession(authOptions);
         const createdBy = session?.user?.email || 'api-user';
+        const tenantId = await getSessionTenantId();
 
         const accountData = await request.json();
         console.log('API - Account data:', accountData, 'User:', createdBy);
@@ -62,7 +65,7 @@ export async function POST(request: NextRequest) {
             ...accountData,
             createdBy: accountData.createdBy || createdBy,
             updatedBy: accountData.updatedBy || createdBy
-        });
+        }, tenantId);
 
         console.log('API - Successfully created account');
         return NextResponse.json({

@@ -6,6 +6,7 @@ import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
 import { authorize } from "@/lib/rbac/authorize";
+import { getSessionTenantId } from "@/lib/auth-session";
 
 // Lambda ARN from environment
 const SCHEDULER_LAMBDA_ARN = process.env.SCHEDULER_LAMBDA_ARN || "";
@@ -24,6 +25,7 @@ export async function POST(
 
     try {
         const { scheduleId } = await params;
+        const tenantId = await getSessionTenantId();
         console.log(`[API] Execute Now triggered for schedule ${scheduleId}`);
 
         if (!scheduleId) {
@@ -34,7 +36,7 @@ export async function POST(
         }
 
         // 1. Fetch schedule to verify existence
-        const schedule = await ScheduleService.getSchedule(scheduleId);
+        const schedule = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
         if (!schedule) {
             console.log(`[API] Schedule ${scheduleId} not found`);
             return NextResponse.json(
@@ -96,7 +98,7 @@ export async function POST(
             try {
                 const errorMessage = lambdaError instanceof Error ? lambdaError.message : String(lambdaError);
                 await ScheduleExecutionService.logExecution({
-                    tenantId: 'default',
+                    tenantId: tenantId,
                     accountId: (schedule.accounts && schedule.accounts[0]) || 'unknown',
                     scheduleId: schedule.id,
                     executionTime,
@@ -117,7 +119,7 @@ export async function POST(
             lastExecution: executionTime,
             executionCount: (schedule.executionCount || 0) + 1,
             active: true
-        }, (schedule.accounts && schedule.accounts[0]) || 'unknown');
+        }, (schedule.accounts && schedule.accounts[0]) || 'unknown', tenantId);
 
         // 4. Log Audit
         await AuditService.logResourceAction({
@@ -128,7 +130,9 @@ export async function POST(
             status: executionStatus === 'failed' ? 'error' : 'success',
             details: `Manual execution triggered via Dashboard. Status: ${executionStatus}`,
             user: userEmail || "unknown-web-user",
-            source: "web-ui"
+            source: "web-ui",
+            tenantId,
+            metadata: { tenantId },
         });
 
         return NextResponse.json({

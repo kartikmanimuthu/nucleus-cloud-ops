@@ -7,7 +7,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { streamText } from 'ai';
 import { getEmbedding } from '@/lib/knowledge-base/embedder';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
-import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // ============================================================================
 // AWS Clients
@@ -82,9 +82,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'query is required' }, { status: 400 });
     }
 
+    // Always extract tenantId — needed for ownership check and cross-tenant filter
+    const tenantId = await getSessionTenantId();
+
     // Validate knowledgeBaseId ownership if provided
     if (knowledgeBaseId) {
-      const kb = await KnowledgeBaseService.getKnowledgeBase(knowledgeBaseId, DEFAULT_TENANT_ID);
+      const kb = await KnowledgeBaseService.getKnowledgeBase(knowledgeBaseId, tenantId);
       if (!kb) {
         return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
       }
@@ -113,14 +116,23 @@ export async function POST(req: NextRequest) {
     const searchResult = await s3VectorsClient.send(searchCommand);
     const rawVectors = searchResult.vectors || [];
 
-    // 5. Filter by knowledgeBaseId if provided
-    const filtered = knowledgeBaseId
-      ? rawVectors.filter(
-          (v) =>
-            (v.metadata as Record<string, string> | undefined)?.knowledgeBaseId ===
-            knowledgeBaseId,
-        )
-      : rawVectors;
+    // 5. Filter vectors to tenant scope
+    let filtered: typeof rawVectors;
+    if (knowledgeBaseId) {
+      // Specific KB requested — already ownership-checked above
+      filtered = rawVectors.filter(
+        (v) =>
+          (v.metadata as Record<string, string> | undefined)?.knowledgeBaseId ===
+          knowledgeBaseId,
+      );
+    } else {
+      // No specific KB — scope to ALL of this tenant's KBs to prevent cross-tenant leakage
+      const tenantKbs = await KnowledgeBaseService.listKnowledgeBases(tenantId);
+      const tenantKbIds = new Set(tenantKbs.map(kb => kb.id));
+      filtered = rawVectors.filter(
+        (v) => tenantKbIds.has((v.metadata as Record<string, string> | undefined)?.knowledgeBaseId ?? ''),
+      );
+    }
 
     console.log(
       `[KB Query] Found ${filtered.length} results (of ${rawVectors.length} total) for: "${query.slice(0, 80)}"`,

@@ -9,7 +9,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import type { UIAccount } from '@/lib/types';
 import type { IAccountRepository, AccountFilters, AccountPage } from './interface';
 
@@ -44,8 +44,8 @@ export class AccountPostgresRepository implements IAccountRepository {
 
             const skip = (page - 1) * limit;
             const [totalCount, rows] = await Promise.all([
-                getPrismaClient().account.count({ where }),
-                getPrismaClient().account.findMany({
+                getTenantClient(tenantId).account.count({ where }),
+                getTenantClient(tenantId).account.findMany({
                     where,
                     skip,
                     take: limit,
@@ -66,7 +66,7 @@ export class AccountPostgresRepository implements IAccountRepository {
 
     async getAccount(accountId: string, tenantId: string): Promise<UIAccount | null> {
         try {
-            const record = await getPrismaClient().account.findFirst({
+            const record = await getTenantClient(tenantId).account.findFirst({
                 where: { tenantId, accountId },
             });
             if (!record) return null;
@@ -80,7 +80,7 @@ export class AccountPostgresRepository implements IAccountRepository {
 
     async createAccount(account: Omit<UIAccount, 'id'>, tenantId: string): Promise<UIAccount> {
         try {
-            const record = await getPrismaClient().account.create({
+            const record = await getTenantClient(tenantId).account.create({
                 data: {
                     tenantId,
                     accountId: account.accountId,
@@ -109,7 +109,7 @@ export class AccountPostgresRepository implements IAccountRepository {
         tenantId: string
     ): Promise<UIAccount> {
         try {
-            const record = await getPrismaClient().account.update({
+            const record = await getTenantClient(tenantId).account.update({
                 where: {
                     tenantId_accountId: { tenantId, accountId },
                 },
@@ -135,7 +135,7 @@ export class AccountPostgresRepository implements IAccountRepository {
 
     async deleteAccount(accountId: string, tenantId: string): Promise<void> {
         try {
-            await getPrismaClient().account.deleteMany({
+            await getTenantClient(tenantId).account.deleteMany({
                 where: { tenantId, accountId },
             });
         } catch (error: unknown) {

@@ -5,6 +5,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
 import * as XLSX from 'xlsx';
 import { getExportColumnsForType, resolveExportValue } from '@/lib/inventory/export-column-map';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 const dynamoClient = new DynamoDBClient({
     region: process.env.AWS_REGION || 'ap-south-1',
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
 
         // Build query to fetch resources - using new inventory schema
         let queryInput: QueryCommandInput;
-        const tenantId = 'default';
+        const tenantId = await getSessionTenantId();
 
         if (accountId) {
             queryInput = {
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
         const distinctAccountIds = [...new Set(rawResources.map(r => r.accountId as string).filter(Boolean))];
         if (distinctAccountIds.length > 0) {
             try {
-                const appTenantId = process.env.DEFAULT_TENANT_ID || 'org-default';
+                const appTenantId = tenantId;
                 const keys = distinctAccountIds.map(id => ({
                     pk: { S: `TENANT#${appTenantId}` },
                     sk: { S: `ACCOUNT#${id}` },

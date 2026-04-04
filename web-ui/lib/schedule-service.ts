@@ -1,6 +1,5 @@
 // Schedule service — delegates to the repository layer via feature flags
 // Use USE_PG_SCHEDULES=true to switch to PostgreSQL, DUAL_WRITE_SCHEDULES=true for dual-write
-import { DEFAULT_TENANT_ID } from './aws-config';
 import { UISchedule } from './types';
 import { AuditService } from './audit-service';
 import { getScheduleRepository } from '@/lib/db/repository-factory';
@@ -26,7 +25,7 @@ export class ScheduleService {
     }): Promise<{ schedules: UISchedule[], total: number }> {
         try {
             console.log('ScheduleService - Fetching schedules with filters:', filters);
-            const tenantId = filters?.tenantId || DEFAULT_TENANT_ID;
+            const tenantId = filters?.tenantId;
             const repo = getScheduleRepository();
             return await repo.getSchedules({
                 tenantId,
@@ -58,7 +57,7 @@ export class ScheduleService {
     static async getSchedule(
         idOrName: string,
         accountId?: string,
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId?: string
     ): Promise<UISchedule | null> {
         try {
             const repo = getScheduleRepository();
@@ -77,7 +76,7 @@ export class ScheduleService {
      */
     static async createSchedule(
         schedule: Omit<UISchedule, 'id'>,
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId: string
     ): Promise<UISchedule> {
         const usePg = process.env.USE_PG_SCHEDULES === 'true';
 
@@ -153,7 +152,7 @@ export class ScheduleService {
         scheduleId: string,
         updates: Partial<Omit<UISchedule, 'name'>>,
         accountId?: string,
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId?: string
     ): Promise<UISchedule> {
         const usePg = process.env.USE_PG_SCHEDULES === 'true';
 
@@ -210,7 +209,7 @@ export class ScheduleService {
         idOrName: string,
         accountId?: string,
         deletedBy: string = 'system',
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId?: string
     ): Promise<void> {
         const usePg = process.env.USE_PG_SCHEDULES === 'true';
 
@@ -265,7 +264,7 @@ export class ScheduleService {
         idOrName: string,
         accountId?: string,
         updatedBy: string = 'system',
-        tenantId: string = DEFAULT_TENANT_ID
+        tenantId?: string
     ): Promise<UISchedule> {
         const currentSchedule = await this.getSchedule(idOrName, accountId, tenantId);
         if (!currentSchedule) {

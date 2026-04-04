@@ -2,33 +2,19 @@
 
 ## What This Is
 
-AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops agent powered by AWS Bedrock. v1.0 completed a full DynamoDB → PostgreSQL migration (Prisma ORM, repository pattern, feature flags, pgvector). v2.0 replaced AWS CDK with Pulumi TypeScript for the core infrastructure stacks (NetworkingStack + ComputeStack), using an S3 backend for state.
+AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops agent powered by AWS Bedrock. Now a multi-tenant SaaS product with dual auth (Cognito + Credentials), custom per-module RBAC, row-level tenant isolation, email invitations, org switching, and tenant branding.
 
 ## Core Value
 
-A fully operational cloud ops platform with modern IaC: Pulumi TypeScript managing all core AWS infrastructure (VPC, ECS Fargate, ALB, CloudFront, Lambda, DynamoDB, SQS, EventBridge, Cognito) — CDK removed for migrated stacks, WebUIStack stays in CDK.
+A fully operational multi-tenant cloud ops SaaS: every user authenticates via Cognito or email/password, every query is tenant-scoped, every action is role-checked, and tenants can self-service onboard, invite members, switch orgs, and configure branding.
 
-## Current State (v2.0 — SHIPPED 2026-03-30)
+## Current Milestone: v5.0 (TBD)
 
-- **All 6 phases complete** (Phases 6–11) — 17 plans, 18/18 requirements
-- **infra/networking/**: `nucleus-vpc` live (`vpc-0cd6e5fd607d1a494`), 4-tier subnets, 2 NAT gateways
-- **infra/compute/**: 49 stack outputs — all DynamoDB tables, S3 buckets, SQS queues, Cognito, Lambdas, ECS, ALB, CloudFront
-- **CloudFront URL**: `https://d11lr8aqp8vqde.cloudfront.net`
-- **CDK source deleted**: `lib/networkingStack.ts`, `lib/computeStack.ts`, `bin/cdkStack.ts` removed
-- **WebUIStack**: stays in CDK, new entry point `bin/webUIStack.ts`
-- **scripts/generate-env.ts**: generates `web-ui/.env.local` from Pulumi stack outputs
-- **S3 Vectors + S3 Tables**: wrapped in `aws.cloudformation.Stack`
+**Status:** Planning — run `/gsd:new-milestone` to define next milestone goals.
 
-## Next Milestone: v3.0 (TBD)
+## Current State
 
-Run `/gsd:new-milestone` to define v3.0 goals.
-
-**Candidates from backlog:**
-- CDK NetworkingStack + ComputeStack destruction (manual step deferred from v2.0)
-- Wire real S3 Vectors bucket ARN to VectorProcessor/KBSyncProcessor Lambda env vars
-- RDS/Aurora for production PostgreSQL (from v1.0 future requirements)
-- WebUIStack migration to Pulumi
-- Full USE_PG_* feature flag cutover in production
+**v4.0 Tenant Isolation Hardening shipped 2026-04-03.** All 4 phases (18–21), 9 plans complete. Every PostgreSQL CRUD operation across all modules is correctly scoped to the active tenant via `getTenantClient()`. 10 repository test files + 6 cross-tenant API isolation test files added as regression coverage.
 
 ## Requirements
 
@@ -49,11 +35,61 @@ Run `/gsd:new-milestone` to define v3.0 goals.
 - ✓ ECS + ALB + CloudFront: Fargate service, circuit breaker, auto scaling — PULUMI-12 through PULUMI-15
 - ✓ Cutover: generate-env.ts, CDK source deleted, S3 Vectors/Tables wrapped — PULUMI-16 through PULUMI-18
 
+### Validated — v3.0
+
+- ✓ Dual auth (Cognito + Credentials) with Prisma adapter and database sessions — AUTH-01 through AUTH-07
+- ✓ Custom RBAC replacing CASL — per-module permissions with custom roles per tenant — RBAC-01 through RBAC-07
+- ✓ Row-level tenant isolation via scoped Prisma client factory — ISOL-01 through ISOL-06
+- ✓ Self-service signup + org creation with slug uniqueness — ONBD-01
+- ✓ Email invitations via Resend with accept/decline flow and multi-org membership — INVT-01 through INVT-06, ONBD-02, ONBD-03
+- ✓ Org switcher + tenant settings (display name, timezone, logo upload) — ORGW-01 through ORGW-04, STNG-01 through STNG-03
+
+### Validated — v4.0
+
+- ✓ All 10 Postgres repositories migrated to getTenantClient() — v4.0
+- ✓ Pre-flight 403 ownership checks on all cross-tenant mutations — v4.0
+- ✓ Discovery Lambda write path resolves tenantId from accountId — v4.0
+- ✓ KnowledgeBaseService wired to repository factory (USE_PG_KB flag) — v4.0
+- ✓ Full AuditService call site sweep — all writes include tenantId — v4.0
+- ✓ Regression tests: 10 repo test files + 6 cross-tenant API isolation tests — v4.0
+
+### Active — v5.0
+
+- [ ] TBD — run `/gsd:new-milestone` to define next milestone goals
+
 ### Out of Scope
 
 - Rewriting discovery Lambda from Python to TypeScript
 - Performance benchmarking CDK vs Pulumi deploy times
-- WebUIStack migration to Pulumi (v2.0 scope)
+- WebUIStack migration to Pulumi (deferred from v2.0)
+- Schema-per-tenant isolation — row-level with tenant_id is correct at this scale
+- SSO/SAML per tenant — Cognito covers enterprise SSO at platform level; defer to v4.0+
+- Billing/subscription tiers — significant complexity (Stripe); defer to v4.0+
+- Usage quotas/rate limits per tenant — defer to v4.0+
+- Permission inheritance chains — explicit permission sets are more auditable
+- Impersonation (login as tenant) — security/audit risk
+- Real-time permission sync (WebSocket) — re-validate on each API request is sufficient
+
+## Context
+
+- **Auth**: NextAuth with dual providers (Cognito + Credentials), Prisma adapter, database sessions with 24h TTL, normalized session shape `{ id, email, tenantId, role, isSuperAdmin }`.
+- **RBAC**: Custom role/permission system with static ROLE_PERMISSIONS map + custom roles per tenant. CASL fully removed.
+- **Tenant isolation**: Scoped Prisma client factory (`getTenantClient`) using `$extends` enforces `tenant_id` on every query. LangGraph threads namespaced as `tenantId:userId:timestamp`. Lambda functions filter by tenant.
+- **Onboarding**: Self-service signup → create org → auto-assigned Owner role. Email invitations via Resend with 48h expiry tokens.
+- **Org switching**: `activeTenantId` on AuthUser persists across sessions. Sidebar dropdown for multi-org users.
+- **Settings**: Tenant admins can configure display name, timezone, notification preferences, and upload org logo via S3 presigned URLs.
+- **Super admin**: Platform-level only — not yet implemented (deferred ADMIN-01–07 to v4.0).
+- **Suspension**: Not yet implemented (deferred SUSP-01–04 to v4.0).
+
+## Constraints
+
+- **AWS Profile**: All migration scripts use `AWS_PROFILE=PLATFORM-ADMIN` for DynamoDB access
+- **Zero downtime**: Feature flags per entity enable instant rollback; DynamoDB tables never deleted
+- **Lambda cold starts**: Prisma engine ~2-4MB — monitor cold start impact in production
+- **Python Lambda**: Discovery Lambda stays Python with psycopg2
+- **Multi-tenant safety**: Every PostgreSQL query includes `WHERE tenant_id = $1` via scoped Prisma client
+- **Raw SQL caveat**: `$executeRaw` / `$queryRawUnsafe` NOT intercepted by tenant hook — callers must manually scope
+- **Thread migration**: Legacy bare UUID threads need migration to `tenantId:userId:uuid` format before production launch
 
 ## Key Decisions
 
@@ -66,95 +102,17 @@ Run `/gsd:new-milestone` to define v3.0 goals.
 | `@pulumi/aws` primitives only | CDK parity easier to verify | ✓ Shipped v2.0 |
 | Explicit physical names | Pulumi auto-naming causes delete+create on rename | ✓ Shipped v2.0 |
 | `retainOnDelete: true` on tables/buckets | Protection against accidental destroy | ✓ Shipped v2.0 |
-| `awsx.ec2.Vpc` for networking | Matches CDK abstraction level | ✓ Shipped v2.0 |
 | Blue/green cutover | CDK stays live until Pulumi smoke-tested | ✓ Shipped v2.0 |
-| CDK destruction is manual | User controls timing after production verification | ✓ Deferred |
-
-## Evolution
-
-This document evolves at phase transitions and milestone boundaries.
-
----
-*Last updated: 2026-03-30 — v2.0 milestone shipped*
-
-**Goal:** Replace AWS CDK with Pulumi TypeScript for NetworkingStack and ComputeStack — full rewrite, CDK removed for those stacks.
-
-**Target features:**
-- Pulumi project scaffold with S3 backend + DynamoDB lock table
-- NetworkingStack rewrite: VPC, subnets, security groups, NAT gateway
-- ComputeStack rewrite: ECS Fargate, ALB, CloudFront, Lambda functions, DynamoDB tables, SQS, EventBridge, Cognito, S3 buckets
-- Stack outputs wired to web-ui env vars (same values, different source)
-- CDK removed for migrated stacks (bin/, lib/networkingStack.ts, lib/computeStack.ts)
-
-## Current State (v2.0 — Phase 7 complete, 2026-03-30)
-
-- **Phase 7 complete** (Networking) — `nucleus-vpc` deployed to AWS us-east-1 (`vpc-0cd6e5fd607d1a494`)
-- **VPC**: 10.0.0.0/16, 4-tier subnets (Public/Private/Database/Intra), 2 NAT gateways, S3+DynamoDB gateway endpoints
-- **infra/networking/**: Real `awsx.ec2.Vpc` implementation, all 9 stack outputs live
-- **infra/compute/**: StackReference wired with `requireOutput()` — resolves live VPC ID
-- **Phase 6 complete** (Pulumi scaffold) — `infra/` directory, S3 backend, KMS secrets provider
-- **v1.0 baseline**: 5 phases complete, 28 plans, 50+ commits
-- **Prisma schema**: 15+ models covering all migrated entities
-- **Repository layer**: Interface + DynamoDB + PostgreSQL implementations for every entity
-- **Feature flags**: `USE_PG_TENANT_CONFIG`, `USE_PG_ACCOUNTS`, `USE_PG_SCHEDULES`, `USE_PG_AUDIT_LOGS`, `USE_PG_KB`, `USE_PG_INVENTORY`, `USE_PG_AGENT_OPS`, `USE_PG_LANGGRAPH`
-- **Migration scripts**: `migrate-all.ts` orchestrates 8 scripts in dependency order; `verify-migration.ts` validates row counts
-- **Tests**: 100+ unit tests (Vitest), Playwright E2E tests for all major flows
-- **pgvector**: Docker Compose uses `pgvector/pgvector:pg16` for semantic memory search
-- **AgentConversationsTable**: Confirmed dead code, removed from CDK
-
-## Requirements
-
-### Validated — v1.0
-
-- ✓ Docker Compose + Prisma ORM foundation (connection pooling, migration tooling, repository factory) — v1.0
-- ✓ Tenant config migration (DynamoDB → PostgreSQL) with repository pattern — v1.0
-- ✓ Accounts + RBAC migration with server-side filtering and cross-tenant isolation — v1.0
-- ✓ Schedules + Executions + Audit Logs migration (Lambda pg-service, dual-write, TTL cleanup) — v1.0
-- ✓ Knowledge Base + DataSource migration with atomic counter updates — v1.0
-- ✓ Inventory migration (Python discovery Lambda via psycopg2, flat JSONB schema) — v1.0
-- ✓ Agent Ops migration (Dynamoose → Prisma, ON CONFLICT lock acquisition) — v1.0
-- ✓ LangGraph persistence migration (PostgresSaver, pgvector memory store, PostgresChatHistory) — v1.0
-- ✓ Data migration scripts for all tables (migrate-all.ts + verify-migration.ts) — v1.0
-- ✓ Unit tests (TDD) for each repository implementation — v1.0
-- ✓ Playwright E2E tests for all migrated modules — v1.0
-- ✓ AgentConversationsTable confirmed dead code, CDK definition removed — v1.0
-
-### Active — v2.0
-
-- [ ] Pulumi project scaffold: S3 backend, DynamoDB lock table, TypeScript config — PULUMI-01
-- [ ] NetworkingStack: VPC, subnets (public/private), security groups, NAT gateway — PULUMI-02
-- [ ] ComputeStack — ECS: Fargate cluster, task definitions, ALB, CloudFront — PULUMI-03
-- [ ] ComputeStack — Lambda: scheduler, discovery, vector_processor, kb_sync_processor — PULUMI-04
-- [ ] ComputeStack — Data: DynamoDB tables, SQS queues, EventBridge rules, Cognito, S3 — PULUMI-05
-- [ ] Stack outputs wired to web-ui env vars; CDK removed for migrated stacks — PULUMI-06
-
-### Out of Scope
-
-- Rewriting discovery Lambda from Python to TypeScript — keep Python with psycopg2
-- Performance benchmarking DynamoDB vs PostgreSQL — migration correctness was priority
-- Schema redesign beyond what migration required — matched existing data model
-
-## Constraints
-
-- **AWS Profile**: All migration scripts use `AWS_PROFILE=PLATFORM-ADMIN` for DynamoDB access
-- **Zero downtime**: Feature flags per entity enable instant rollback; DynamoDB tables never deleted
-- **Lambda cold starts**: Prisma engine ~2-4MB — monitor cold start impact in production
-- **Python Lambda**: Discovery Lambda stays Python with psycopg2
-- **Multi-tenant safety**: Every PostgreSQL query includes `WHERE tenant_id = $1`
-
-## Key Decisions
-
-| Decision | Rationale | Outcome |
-|----------|-----------|---------|
-| Prisma ORM over Drizzle | User prefers Prisma DX; accepted Lambda bundle size trade-off | ✓ Shipped — works well, cold start impact TBD |
-| Repository pattern with feature flags | Zero-downtime migration, instant rollback per entity | ✓ Shipped — 8 feature flags, all working |
-| Migrate LangGraph tables to PostgreSQL | Consolidate all persistence in one database | ✓ Shipped — PostgresSaver + pgvector memory |
-| Keep discovery Lambda in Python | Avoid risky rewrite; add psycopg2 instead | ✓ Shipped — dual-write via pg_writer.py |
-| Docker Compose for local dev | Defer cloud DB decision; fast local iteration | ✓ Shipped — pgvector/pgvector:pg16 image |
-| AgentConversationsTable is dead code | Zero app code references confirmed by grep | ✓ Confirmed — CDK definition removed |
-| Fresh start for LangGraph chat/memory | Ephemeral data (30/90 day TTL); no re-embedding cost | ✓ Accepted — clean cutover |
-| Flat JSONB for inventory resources | Avoids EAV complexity; enables JSONB operators | ✓ Shipped — metadata + tags columns |
-| ON CONFLICT for scheduled task locks | Atomic lock acquisition without scan-and-compare | ✓ Shipped — ScheduledTaskLock table |
+| Dual auth (Cognito + Credentials) | Enterprise SSO via Cognito + direct-managed users via Credentials | ✓ Shipped v3.0 |
+| Database sessions (not JWT) | Required for suspension enforcement — adds DB lookup per request | ✓ Shipped v3.0 |
+| Prisma adapter proxy pattern | AuthUser/AuthAccount/AuthSession @@map to auth_* tables avoids Account collision | ✓ Shipped v3.0 |
+| Remove CASL, build custom RBAC | Need per-module granular permissions with custom roles per tenant | ✓ Shipped v3.0 |
+| Row-level isolation (not schema-per-tenant) | Builds on existing tenant_id pattern, less operational complexity | ✓ Shipped v3.0 |
+| getTenantClient via $extends | Per-request scoped client, not cached — simple and safe | ✓ Shipped v3.0 |
+| Thread ID format tenantId:userId:timestamp | O(1) tenant validation without DB lookup | ✓ Shipped v3.0 |
+| activeTenantId on AuthUser (not session) | Persists across sessions, survives logout | ✓ Shipped v3.0 |
+| Self-service onboarding (not admin-initiated) | User decided self-service replaces admin flow | ✓ Shipped v3.0 |
+| ADMIN/SUSP deferred to v4.0 | Core multi-tenancy shipped without admin panel or suspension | ✓ Accepted |
 
 ## Evolution
 
@@ -174,4 +132,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-29 — v2.0 milestone started (Pulumi IaC Migration)*
+*Last updated: 2026-04-02 after v3.0 milestone*

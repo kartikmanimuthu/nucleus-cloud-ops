@@ -11,7 +11,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import type { ScheduleExecution, UIScheduleExecution } from '@/lib/schedule-execution-service';
 import type { IScheduleExecutionRepository } from './interface';
 
@@ -27,7 +27,7 @@ export class ScheduleExecutionPostgresRepository implements IScheduleExecutionRe
             const expiresAt = new Date(Date.now() + EXECUTION_TTL_MS);
             const executionTime = new Date(execution.executionTime || Date.now());
 
-            const record = await getPrismaClient().scheduleExecution.create({
+            const record = await getTenantClient(execution.tenantId).scheduleExecution.create({
                 data: {
                     tenantId: execution.tenantId,
                     executionId,
@@ -71,7 +71,7 @@ export class ScheduleExecutionPostgresRepository implements IScheduleExecutionRe
         limit: number = 50
     ): Promise<UIScheduleExecution[]> {
         try {
-            const rows = await getPrismaClient().scheduleExecution.findMany({
+            const rows = await getTenantClient(tenantId).scheduleExecution.findMany({
                 where: { tenantId, scheduleId },
                 orderBy: { executionTime: 'desc' },
                 take: limit,
@@ -93,7 +93,7 @@ export class ScheduleExecutionPostgresRepository implements IScheduleExecutionRe
         limit: number = 100
     ): Promise<UIScheduleExecution[]> {
         try {
-            const rows = await getPrismaClient().scheduleExecution.findMany({
+            const rows = await getTenantClient(tenantId).scheduleExecution.findMany({
                 where: { tenantId },
                 orderBy: { executionTime: 'desc' },
                 take: limit,

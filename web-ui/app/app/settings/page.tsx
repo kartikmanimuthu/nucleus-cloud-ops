@@ -4,9 +4,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ThemeSettings } from "@/components/settings/theme-settings"
 import { ProfileForm } from "@/components/settings/profile-form"
-import { Settings, Palette, Bell, Shield, User } from "lucide-react"
+import { Settings, Palette, Bell, Shield, User, Users, Building2 } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 export default function SettingsPage() {
+  const router = useRouter()
+
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8 pt-6 bg-background">
       <div className="flex items-center space-x-2">
@@ -32,6 +35,30 @@ export default function SettingsPage() {
           <TabsTrigger value="security" className="data-[state=active]:bg-background">
             <Shield className="mr-2 h-4 w-4" />
             Security
+          </TabsTrigger>
+          <TabsTrigger
+            value="organization"
+            className="data-[state=active]:bg-background"
+            onClick={() => router.push("/app/settings/organization")}
+          >
+            <Building2 className="mr-2 h-4 w-4" />
+            Organization
+          </TabsTrigger>
+          <TabsTrigger
+            value="roles"
+            className="data-[state=active]:bg-background"
+            onClick={() => router.push("/app/settings/roles")}
+          >
+            <Users className="mr-2 h-4 w-4" />
+            Roles
+          </TabsTrigger>
+          <TabsTrigger
+            value="members"
+            className="data-[state=active]:bg-background"
+            onClick={() => router.push("/app/settings/members")}
+          >
+            <Users className="mr-2 h-4 w-4" />
+            Members
           </TabsTrigger>
         </TabsList>
 

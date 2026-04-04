@@ -27,6 +27,32 @@ class DateTimeEncoder(json.JSONEncoder):
         return super().default(o)
 
 
+def get_tenant_id_for_account(account_id: str, dynamodb_client) -> str:
+    """Look up the tenant that owns this AWS account from DynamoDB (D-11).
+
+    Raises ValueError if no tenantId is found — callers must not silently
+    fall back to a default tenant.
+    """
+    import os
+    table_name = os.environ.get('APP_TABLE_NAME', 'NucleusAppTable')
+    try:
+        response = dynamodb_client.get_item(
+            TableName=table_name,
+            Key={'pk': {'S': f'ACCOUNT#{account_id}'}, 'sk': {'S': 'METADATA'}}
+        )
+        item = response.get('Item', {})
+        tenant_id_attr = item.get('tenantId', {})
+        tenant_id = tenant_id_attr.get('S', '') if isinstance(tenant_id_attr, dict) else ''
+        if not tenant_id:
+            raise ValueError(f'No tenantId found for account {account_id}')
+        return tenant_id
+    except ValueError:
+        raise
+    except Exception as e:
+        print(f'ERROR: Failed to get tenant_id for account {account_id}: {e}')
+        raise
+
+
 def generate_resource_arn(resource: Dict[str, Any], account_id: str) -> str:
     """Generate a resource ARN if not provided."""
     if resource.get('resourceArn'):
@@ -721,7 +747,7 @@ def _truncate_account_inventory(
     dynamodb_client,
     table_name: str,
     account_id: str,
-    tenant_id: str = 'default'
+    tenant_id: str = ''
 ) -> int:
     """
     Delete all existing inventory records for an account before writing fresh data.
@@ -779,7 +805,7 @@ def process_and_store_resources(
     account_name: str = '',
     resources: List[Dict[str, Any]] = None,
     raw_results: Dict[str, Dict[str, Any]] = None,
-    tenant_id: str = 'default',
+    tenant_id: str = '',
     scan_id: str = None,
     s3_table_bucket_arn: str = None,
     s3_table_namespace: str = 'default',
@@ -935,7 +961,7 @@ def process_and_store_resources(
     # Write normalized resources to S3 for vector processing pipeline
     # normalized/{date}/{account_id}.json triggers the vector processor Lambda via SQS
     if bucket_name and s3_client:
-        _store_normalized_for_vectors(s3_client, bucket_name, account_id, account_name, resources, now)
+        _store_normalized_for_vectors(s3_client, bucket_name, account_id, account_name, resources, now, tenant_id)
 
     # S3 Tables write (Iceberg) — non-fatal
     if s3_table_bucket_arn:
@@ -950,7 +976,8 @@ def _store_normalized_for_vectors(
     account_id: str,
     account_name: str = '',
     resources: List[Dict[str, Any]] = None,
-    now: datetime = None
+    now: datetime = None,
+    tenant_id: str = ''
 ) -> None:
     """
     Write normalized resources to S3 under the normalized/ prefix.
@@ -974,6 +1001,7 @@ def _store_normalized_for_vectors(
             'state': r.get('state', ''),
             'accountId': account_id,
             'accountName': account_name,
+            'tenantId': tenant_id,
             'service': r.get('service', ''),
             'tags': r.get('tags', {}),
             'metadata': _extract_metadata(r, r.get('resourceType', '')),
@@ -1060,29 +1088,36 @@ def mark_missing_resources(
     dynamodb_client,
     table_name: str,
     account_id: str,
-    discovered_arns: Set[str]
+    discovered_arns: Set[str],
+    tenant_id: str = ''
 ) -> int:
     """
     Mark resources as 'missing' if they weren't in the latest scan.
-    
+
     Args:
         dynamodb_client: Boto3 DynamoDB client
         table_name: DynamoDB table name
         account_id: AWS account ID
         discovered_arns: Set of ARNs found in current scan
-        
+        tenant_id: Tenant ID that owns this account
+
     Returns:
         Number of resources marked as missing
     """
+    if not tenant_id:
+        print(f"  WARNING: No tenant_id for mark_missing_resources on account {account_id}, skipping")
+        return 0
+
     # Query existing resources for this account
     existing_resources = []
     paginator = dynamodb_client.get_paginator('query')
-    
+    pk_value = f'TENANT#{tenant_id}#ACCOUNT#{account_id}'
+
     for page in paginator.paginate(
         TableName=table_name,
         KeyConditionExpression='pk = :pk AND begins_with(sk, :sk_prefix)',
         ExpressionAttributeValues={
-            ':pk': {'S': f'TENANT#default#ACCOUNT#{account_id}'},
+            ':pk': {'S': pk_value},
             ':sk_prefix': {'S': 'INVENTORY#'}
         },
         ProjectionExpression='sk, resourceArn, discoveryStatus'
@@ -1092,21 +1127,21 @@ def mark_missing_resources(
             status = item.get('discoveryStatus', {}).get('S', 'active')
             if arn and status == 'active':
                 existing_resources.append(item)
-    
+
     # Mark resources not in discovered_arns as missing
     missing_count = 0
     timestamp = datetime.now(timezone.utc).isoformat()
-    
+
     for item in existing_resources:
         arn = item.get('resourceArn', {}).get('S', '')
         sk = item.get('sk', {}).get('S', '')
-        
+
         if arn not in discovered_arns:
             try:
                 dynamodb_client.update_item(
                     TableName=table_name,
                     Key={
-                        'pk': {'S': f'TENANT#default#ACCOUNT#{account_id}'},
+                        'pk': {'S': pk_value},
                         'sk': {'S': sk}
                     },
                     UpdateExpression='SET discoveryStatus = :status, lastDiscoveredAt = :ts',
@@ -1118,10 +1153,10 @@ def mark_missing_resources(
                 missing_count += 1
             except Exception as e:
                 print(f"  ERROR marking resource as missing: {e}")
-    
+
     if missing_count > 0:
         print(f"  Marked {missing_count} resources as missing")
-    
+
     return missing_count
 
 

@@ -4,6 +4,7 @@ import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
 import { authorize } from "@/lib/rbac/authorize";
+import { getSessionTenantId } from "@/lib/auth-session";
 
 // Lambda ARN from environment
 const SCHEDULER_LAMBDA_ARN = process.env.SCHEDULER_LAMBDA_ARN || "";
@@ -23,6 +24,7 @@ export async function POST() {
         // Get user session
         const session = await getServerSession(authOptions);
         const userEmail = session?.user?.email;
+        const tenantId = await getSessionTenantId();
 
         const executionTime = new Date().toISOString();
         let executionStatus: 'success' | 'failed' | 'partial' = 'success';
@@ -62,7 +64,8 @@ export async function POST() {
                 status: 'error',
                 details: `Manual full scan triggering failed: ${errorMessage}`,
                 user: userEmail || "unknown-web-user",
-                userType: "user"
+                userType: "user",
+                tenantId,
             });
 
             return NextResponse.json(
@@ -84,7 +87,8 @@ export async function POST() {
             status: 'success',
             details: `Manual full scan triggered via Dashboard (Async). Execution running in background.`,
             user: userEmail || "unknown-web-user",
-            userType: "user"
+            userType: "user",
+            tenantId,
         });
 
         return NextResponse.json({

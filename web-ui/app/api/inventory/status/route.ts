@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DynamoDBClient, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { unmarshall } from '@aws-sdk/util-dynamodb';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 const dynamoClient = new DynamoDBClient({
     region: process.env.AWS_REGION || 'ap-south-1',
@@ -15,7 +16,7 @@ const INVENTORY_TABLE_NAME = process.env.INVENTORY_TABLE_NAME || 'nucleus-app-in
  * - accountsSynced  : number of distinct accountIds present
  * - lastDiscoveredAt: most recent lastDiscoveredAt timestamp
  */
-async function getLiveStats(): Promise<{
+async function getLiveStats(tenantId: string): Promise<{
     totalResources: number;
     accountsSynced: number;
     lastDiscoveredAt: string | null;
@@ -30,7 +31,11 @@ async function getLiveStats(): Promise<{
             TableName: INVENTORY_TABLE_NAME,
             IndexName: 'GSI1',
             KeyConditionExpression: 'gsi1pk = :pk',
-            ExpressionAttributeValues: { ':pk': { S: 'TYPE#INVENTORY' } },
+            ExpressionAttributeValues: {
+                ':pk': { S: 'TYPE#INVENTORY' },
+                ':tenantId': { S: tenantId },
+            },
+            FilterExpression: 'tenantId = :tenantId',
             ProjectionExpression: 'accountId, lastDiscoveredAt',
             ...(lastKey && { ExclusiveStartKey: lastKey }),
         }));
@@ -82,6 +87,7 @@ export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const accountId = searchParams.get('accountId');
+        const tenantId = await getSessionTenantId();
 
         // Get latest sync status from SYNC#INVENTORY entries
         const syncResult = await dynamoClient.send(new QueryCommand({
@@ -109,12 +115,12 @@ export async function GET(request: NextRequest) {
         let accounts: AccountSyncStatus[] = [];
 
         if (accountId) {
-            // Get specific account status
+            // Get specific account status — scope by tenant prefix
             const result = await dynamoClient.send(new QueryCommand({
                 TableName: APP_TABLE_NAME,
                 KeyConditionExpression: 'pk = :pk AND sk = :sk',
                 ExpressionAttributeValues: {
-                    ':pk': { S: `ACCOUNT#${accountId}` },
+                    ':pk': { S: `TENANT#${tenantId}#ACCOUNT#${accountId}` },
                     ':sk': { S: 'METADATA' },
                 },
             }));
@@ -132,14 +138,16 @@ export async function GET(request: NextRequest) {
                 });
             }
         } else {
-            // Get all accounts with sync status
+            // Get all accounts with sync status — scope by tenant
             const result = await dynamoClient.send(new QueryCommand({
                 TableName: APP_TABLE_NAME,
                 IndexName: 'GSI1',
                 KeyConditionExpression: 'gsi1pk = :pk',
                 ExpressionAttributeValues: {
-                    ':pk': { S: 'TYPE#ACCOUNT' },
+                    ':pk': { S: `TYPE#ACCOUNT` },
+                    ':tenantId': { S: tenantId },
                 },
+                FilterExpression: 'tenantId = :tenantId',
             }));
 
             accounts = (result.Items || []).map(item => {
@@ -156,7 +164,7 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        const { totalResources, accountsSynced, lastDiscoveredAt } = await getLiveStats();
+        const { totalResources, accountsSynced, lastDiscoveredAt } = await getLiveStats(tenantId);
 
         return NextResponse.json({
             latestSync,

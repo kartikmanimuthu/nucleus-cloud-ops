@@ -1,5 +1,28 @@
 # Milestones
 
+## v3.0 Multi-Tenancy (Shipped: 2026-04-01)
+
+**Phases completed:** 6 phases (12–17), 18 plans
+**Timeline:** 2026-03-31 → 2026-04-01
+**Requirements:** 36/47 complete (11 deferred to v4.0)
+
+**Key accomplishments:**
+
+- Dual auth (Cognito + Credentials) with Prisma adapter, database sessions, normalized session shape `{ id, email, tenantId, role, isSuperAdmin }`
+- Custom RBAC replacing CASL — static ROLE_PERMISSIONS map + custom roles per tenant with per-module granular permissions (Owner/Admin/Member/Viewer × Accounts/Schedules/AI Ops/Inventory/Settings)
+- Row-level tenant isolation via scoped Prisma client factory (`getTenantClient` using `$extends`), LangGraph thread namespacing (`tenantId:userId:timestamp`), Lambda tenant filtering
+- Self-service signup + org creation with slug uniqueness enforcement, middleware redirect for users without a tenant
+- Email invitations via Resend with 48h expiry tokens, accept/decline flow, multi-org membership for existing users
+- Org switcher in sidebar (multi-org dropdown, single-org static display), tenant settings (display name, timezone, notifications, logo upload via S3 presigned URLs)
+
+**Known deferrals:**
+- ADMIN-01–07: Super Admin Panel → v4.0
+- SUSP-01–04: Tenant Suspension → v4.0
+
+**Archive:** `.planning/milestones/v3.0-ROADMAP.md`
+
+---
+
 ## v2.0 Pulumi IaC Migration (Shipped: 2026-03-30)
 
 **Phases completed:** 6 phases (6–11), 17 plans

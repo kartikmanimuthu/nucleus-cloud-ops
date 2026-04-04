@@ -109,6 +109,7 @@ export async function listRunsBySource(
  */
 export async function recordEvent(params: {
     runId: string;
+    tenantId: string;
     eventType: AgentEventType;
     node: string;
     content?: string;
@@ -128,8 +129,8 @@ export async function recordEvent(params: {
 /**
  * Get all events for a run (chronological order).
  */
-export async function getRunEvents(runId: string): Promise<AgentOpsEvent[]> {
-    return getAgentOpsEventRepository().getRunEvents(runId, 'default');
+export async function getRunEvents(runId: string, tenantId: string): Promise<AgentOpsEvent[]> {
+    return getAgentOpsEventRepository().getRunEvents(runId, tenantId);
 }
 
 // ─── Human-in-Loop Lookup Helpers ─────────────────────────────────────

@@ -51,12 +51,16 @@ export class RbacPostgresRepository implements IRbacRepository {
         assignedBy: string
     ): Promise<void> {
         try {
+            const customRole = await getPrismaClient().customRole.findFirst({
+                where: { tenantId, name: role },
+            });
             await getPrismaClient().userTenantRole.upsert({
                 where: {
                     userId_tenantId: { userId, tenantId },
                 },
                 update: {
                     role,
+                    roleId: customRole?.id ?? null,
                     email,
                     assignedBy,
                     assignedAt: new Date(),
@@ -66,6 +70,7 @@ export class RbacPostgresRepository implements IRbacRepository {
                     email,
                     tenantId,
                     role,
+                    roleId: customRole?.id ?? null,
                     assignedBy,
                 },
             });

@@ -1,28 +1,15 @@
 // RBAC Module Exports
-// This file exports all RBAC-related functionality for easy imports
 
 // Types
 export * from './types';
 
-// Ability definitions
-export { defineAbilitiesFor, hasPermission } from './abilities';
-
-// React context and hooks (client-side)
-export {
-    AbilityContext,
-    Can,
-    useAbility,
-    usePermission,
-    AbilityProvider
-} from './AbilityContext';
-
-// Server-side utilities
-export { getServerAbility, getSessionRoles } from './server-ability';
+// Permission helpers
+export { hasPermission, hasCustomPermission, canAssignRole, getAutoLevel, ROLE_PERMISSIONS, ROLE_LEVELS } from './permissions';
 
 // API route authorization
-export { authorize, isAdmin, can, cannot } from './authorize';
+export { authorize, isAdmin, can, cannot, getCustomRolePermissions } from './authorize';
 
-// Role service (DynamoDB operations)
+// Role service (DynamoDB / PostgreSQL operations)
 export {
     getUserTenantRole,
     getUserAllRoles,

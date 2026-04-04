@@ -1,84 +1,73 @@
-import { PureAbility } from '@casl/ability';
+// =============================================================================
+// MODULE-BASED TYPES (Phase 13 custom RBAC)
+// =============================================================================
 
-// Define your subjects (resources in your application)
-export type Subjects =
-    | 'Account'          // AWS account management
-    | 'Schedule'         // Schedule CRUD
-    | 'Resource'         // EC2/RDS/ECS resources
-    | 'User'            // User management
-    | 'Role'            // Role management
-    | 'Tenant'          // Tenant settings
-    | 'AuditLog'        // Audit logs
-    | 'Billing'         // Billing & subscription
-    | 'Agent'           // AI agent access
-    | 'KnowledgeBase'   // Knowledge base management
-    | 'all';            // Wildcard for all resources
+/** The 5 top-level modules in the permission matrix */
+export type Module = 'Accounts' | 'Schedules' | 'AIOps' | 'Inventory' | 'Settings';
 
-// Define your actions
-export type Actions =
-    | 'create'
-    | 'read'
-    | 'update'
-    | 'delete'
-    | 'execute'          // Execute schedules
-    | 'approve'          // Approve changes
-    | 'export'           // Export data
-    | 'validate'         // Validate resources
-    | 'use'              // Use features (e.g. AI Agent)
-    | 'manage';          // All actions (admin)
+/** CRUD actions only — schedule execution maps to 'update', audit export maps to 'read' */
+export type Action = 'create' | 'read' | 'update' | 'delete';
 
-// Define the ability type for your application
-export type AppAbility = PureAbility<[Actions, Subjects]>;
+/** The 4 predefined roles with strict hierarchy */
+export type PredefinedRole = 'Owner' | 'Admin' | 'Member' | 'Viewer';
 
-// Available roles in the system
-export type SystemRole = 'SuperAdmins' | 'Support';
+/** Numeric hierarchy level: Owner=4, Admin=3, Member=2, Viewer=1 */
+export type RoleLevel = 1 | 2 | 3 | 4;
+
+/** Permission set shape — used by both static predefined roles and DB-stored custom roles */
+export type PermissionSet = Record<Module, Action[]>;
+
+/**
+ * Maps old CASL subject names to new module names.
+ * Used by authorize() for backward-compatible call sites during migration.
+ */
+export const SUBJECT_TO_MODULE: Record<string, Module> = {
+    Account: 'Accounts',
+    Schedule: 'Schedules',
+    Resource: 'Inventory',
+    User: 'Settings',
+    Role: 'Settings',
+    Tenant: 'Settings',
+    AuditLog: 'Accounts',   // audit read maps to Accounts read (D-03)
+    Agent: 'AIOps',
+    KnowledgeBase: 'AIOps', // Agent + KnowledgeBase collapsed into AI Ops (D-02)
+    Billing: 'Settings',
+    all: 'Settings',        // wildcard fallback
+};
+
+/**
+ * Maps old CASL action names to new CRUD actions.
+ * Used by authorize() for backward-compatible call sites during migration.
+ */
+export const ACTION_MAP: Record<string, Action | Action[]> = {
+    execute: 'update',   // schedule execution maps to update (D-03)
+    approve: 'update',
+    export: 'read',      // audit export maps to read (D-03)
+    validate: 'read',
+    use: 'read',
+    manage: ['create', 'read', 'update', 'delete'],
+    create: 'create',
+    read: 'read',
+    update: 'update',
+    delete: 'delete',
+};
+
+// =============================================================================
+// PERSISTENCE TYPES — used by repository layer and role-service
+// =============================================================================
+
+/** Role values stored in DynamoDB/PostgreSQL for tenant membership */
 export type TenantRole = 'SuperAdmin' | 'TenantAdmin' | 'TenantOperator' | 'TenantViewer';
-export type Role = SystemRole | TenantRole;
 
-// User-Tenant-Role mapping stored in DynamoDB
+/** Shape of a user-tenant-role record returned from the repository */
 export interface UserTenantRole {
-    PK: string;           // USER#{cognitoSub}
-    SK: string;           // TENANT#{tenantId}
+    PK: string;
+    SK: string;
     EntityType: 'UserTenantRole';
-    userId: string;       // Cognito sub
+    userId: string;
     tenantId: string;
     email: string;
     role: TenantRole;
-    assignedAt: string;   // ISO timestamp
-    assignedBy: string;   // Admin who assigned
+    assignedAt: string;
+    assignedBy: string;
 }
-
-// Role definition for admin display
-export interface RoleDefinition {
-    id: TenantRole;
-    name: string;
-    description: string;
-    permissions: string[];
-}
-
-export const ROLE_DEFINITIONS: RoleDefinition[] = [
-    {
-        id: 'SuperAdmin',
-        name: 'Super Admin',
-        description: 'Full system access with all privileges across all tenants',
-        permissions: ['Manage Everything', 'Manage Tenants', 'Manage All Users', 'System Settings'],
-    },
-    {
-        id: 'TenantAdmin',
-        name: 'Tenant Admin',
-        description: 'Full access to manage accounts, schedules, users, and settings',
-        permissions: ['Manage Accounts', 'Manage Schedules', 'Manage Users', 'View Audit Logs', 'Use AI Agent'],
-    },
-    {
-        id: 'TenantOperator',
-        name: 'Tenant Operator',
-        description: 'Can manage schedules and execute operations on Schedule',
-        permissions: ['View Accounts', 'Manage Schedules', 'Execute Schedules', 'View Audit Logs'],
-    },
-    {
-        id: 'TenantViewer',
-        name: 'Tenant Viewer',
-        description: 'Read-only access to view resources and logs',
-        permissions: ['View Accounts', 'View Schedules', 'View Audit Logs'],
-    },
-];

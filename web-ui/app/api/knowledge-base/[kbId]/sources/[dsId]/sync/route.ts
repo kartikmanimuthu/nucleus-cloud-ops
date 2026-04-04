@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
+import { getSessionTenantId } from '@/lib/auth-session';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import type { S3BucketConfig, ConfluenceConfig, BitbucketConfig } from '@/lib/knowledge-base/types';
 
@@ -22,8 +23,11 @@ export async function POST(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { kbId, dsId } = await params;
+  const tenantId = await getSessionTenantId();
+  const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+  if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 
-  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId);
+  const ds = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
   if (!ds) return NextResponse.json({ error: 'Data source not found' }, { status: 404 });
   if (ds.sourceType === 'file-upload') return NextResponse.json({ error: 'Re-sync not supported for file uploads' }, { status: 400 });
 
@@ -31,7 +35,7 @@ export async function POST(
   if (!jobType) return NextResponse.json({ error: `Unsupported source type: ${ds.sourceType}` }, { status: 400 });
 
   // Mark as syncing immediately
-  await KnowledgeBaseService.updateDataSource(kbId, dsId, { status: 'syncing' });
+  await KnowledgeBaseService.updateDataSource(kbId, dsId, { status: 'syncing' }, tenantId);
 
   // Enqueue background job — pass old vector keys so Lambda can clean them up
   await sqs.send(new SendMessageCommand({

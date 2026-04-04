@@ -3,6 +3,7 @@ import { DashboardClient, DashboardStats, RecentActivity } from "@/components/da
 import { ScheduleService } from "@/lib/schedule-service";
 import { AccountService } from "@/lib/account-service";
 import { AuditService } from "@/lib/audit-service";
+import { getSessionTenantId } from "@/lib/auth-session";
 import { UISchedule } from "@/lib/types";
 
 // Server-side data fetching
@@ -15,26 +16,28 @@ async function getDashboardData(): Promise<{
   error?: string;
 }> {
   try {
+    const tenantId = await getSessionTenantId();
+
     // Fetch accounts, schedules, and audit logs in parallel
     const [accounts, schedules, auditLogs] = await Promise.all([
       AccountService.getAccounts().catch(() => {
         console.error("Failed to fetch accounts");
         return { accounts: [] };
       }),
-      ScheduleService.getSchedules().catch(() => {
+      ScheduleService.getSchedules({ tenantId }).catch(() => {
          console.error("Failed to fetch schedules");
          return { schedules: [] };
       }),
-      AuditService.getAuditLogs().catch(() => {
+      AuditService.getAuditLogs({}, tenantId).catch(() => {
          console.error("Failed to fetch audit logs");
-         return [];
+         return { logs: [], nextPageToken: undefined };
       }),
     ]);
 
     // Handle the structure returned by services (some return { accounts: [], nextToken... })
     const accountList = Array.isArray(accounts) ? accounts : (accounts as any).accounts || [];
     const scheduleList = Array.isArray(schedules) ? schedules : (schedules as any).schedules || [];
-    const auditLogList = Array.isArray(auditLogs) ? auditLogs : [];
+    const auditLogList = (auditLogs as any).logs || [];
 
     // Calculate dashboard stats from real data
     const totalAccounts = accountList.length;

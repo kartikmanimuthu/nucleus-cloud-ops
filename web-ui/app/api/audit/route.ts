@@ -4,6 +4,7 @@ import { AuditService, AuditLogFilters } from '@/lib/audit-service';
 import { getDynamoDBDocumentClient, AUDIT_TABLE_NAME } from '@/lib/aws-config';
 import { DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { authorize } from '@/lib/rbac/authorize';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function GET(request: NextRequest) {
     // Authorization check
@@ -35,7 +36,8 @@ export async function GET(request: NextRequest) {
 
         console.log('API - Fetching audit logs with filters:', filters);
 
-        const { logs, nextPageToken } = await AuditService.getAuditLogs(filters);
+        const tenantId = await getSessionTenantId();
+        const { logs, nextPageToken } = await AuditService.getAuditLogs(filters, tenantId);
 
         return NextResponse.json({
             success: true,
@@ -65,9 +67,12 @@ export async function POST(request: NextRequest) {
             request.headers.get('x-real-ip') ||
             'unknown';
 
+        const tenantId = await getSessionTenantId();
+
         // Add audit log
         await AuditService.createAuditLog({
             ...auditData,
+            tenantId,
             userAgent,
             ipAddress,
             source: 'web-ui',

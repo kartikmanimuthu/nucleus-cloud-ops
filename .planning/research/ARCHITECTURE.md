@@ -1,415 +1,591 @@
-# Architecture Patterns: Pulumi TypeScript IaC Migration
+# Architecture Research: Multi-Tenancy Integration
 
-**Domain:** CDK → Pulumi migration for AWS Cloud Ops platform
-**Researched:** 2026-03-29
-**Overall confidence:** HIGH (Pulumi docs verified via official sources)
-
----
-
-## Recommended Architecture
-
-### Directory Layout
-
-Place the Pulumi project in a new top-level `infra/` directory — not at the repo root. Reasons:
-
-1. CDK uses `"module": "commonjs"` in `tsconfig.json`; Pulumi TypeScript uses `"module": "ESNext"` — they conflict if co-located
-2. CDK's `cdk.json` and `Pulumi.yaml` both expect to be the root config file for their respective tools
-3. Keeping `infra/` separate makes the coexistence period clean: CDK files in `lib/` + `bin/`, Pulumi files in `infra/`
-4. After migration, `lib/networkingStack.ts` and `lib/computeStack.ts` are deleted; `infra/` remains
-
-Two Pulumi **projects** mirror the two CDK stacks. In Pulumi, a project = one `Pulumi.yaml` + program. A stack = one deployment instance of that project (e.g., `prod`).
-
-```
-infra/
-  networking/                  # Pulumi project 1 — mirrors NetworkingStack
-    Pulumi.yaml
-    index.ts
-    package.json
-    tsconfig.json
-    Pulumi.prod.yaml            # stack-specific config (region, CIDR, etc.)
-  compute/                     # Pulumi project 2 — mirrors ComputeStack
-    Pulumi.yaml
-    index.ts
-    components/                # optional: split large index.ts into modules
-      dynamodb.ts
-      ecs.ts
-      lambda.ts
-      cognito.ts
-      cloudfront.ts
-    package.json
-    tsconfig.json
-    Pulumi.prod.yaml
-  bootstrap/                   # one-time setup — creates S3 bucket for state
-    bootstrap.sh                # aws cli commands to create bucket + enable versioning
-```
-
-### Component Boundaries
-
-| Component | Responsibility | Communicates With |
-|-----------|---------------|-------------------|
-| `infra/networking/` | VPC, subnets (4 tiers), NAT gateway, VPC endpoints, RDS/cache subnet groups | Exports outputs consumed by compute |
-| `infra/compute/` | ECS Fargate, ALB, CloudFront, all Lambda functions, DynamoDB tables, SQS, EventBridge, Cognito, S3 buckets | Reads networking outputs via StackReference |
-| `infra/bootstrap/` | S3 state bucket creation (one-time, manual) | Prerequisite for both projects |
-| `lib/webUIStack.ts` | Stays in CDK — not migrated | Independent CDK stack |
-| `web-ui/` | Reads Pulumi stack outputs as env vars | Downstream consumer |
+**Domain:** SaaS multi-tenancy on Next.js App Router + Prisma + NextAuth
+**Researched:** 2026-03-31
+**Confidence:** HIGH (based on direct codebase analysis + verified patterns)
 
 ---
 
-## S3 Backend Bootstrap Process
+## System Overview
 
-Pulumi's S3 backend does **not** require DynamoDB. Unlike Terraform, Pulumi handles state locking internally using S3 conditional writes (optimistic locking). You only need an S3 bucket with versioning enabled.
-
-### Bootstrap Steps (one-time, manual)
-
-```bash
-# 1. Create the state bucket (versioning required for Pulumi's locking)
-aws s3api create-bucket \
-  --bucket nucleus-pulumi-state \
-  --region us-east-1 \
-  --profile PLATFORM-ADMIN
-
-aws s3api put-bucket-versioning \
-  --bucket nucleus-pulumi-state \
-  --versioning-configuration Status=Enabled \
-  --profile PLATFORM-ADMIN
-
-# 2. Block public access
-aws s3api put-public-access-block \
-  --bucket nucleus-pulumi-state \
-  --public-access-block-configuration \
-    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true \
-  --profile PLATFORM-ADMIN
-
-# 3. Login to the S3 backend (run once per machine/CI environment)
-pulumi login 's3://nucleus-pulumi-state?region=us-east-1&awssdk=v2&profile=PLATFORM-ADMIN'
 ```
-
-The `bootstrap/bootstrap.sh` script in `infra/bootstrap/` captures these commands so they're reproducible.
-
-### Pulumi.yaml Backend Config (alternative to CLI login)
-
-```yaml
-name: nucleus-networking
-runtime: nodejs
-description: Nucleus Cloud Ops — VPC and networking
-backend:
-  url: s3://nucleus-pulumi-state?region=us-east-1&awssdk=v2&profile=PLATFORM-ADMIN
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Browser / Client                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
+│  │  Login Page  │  │ Org Switcher │  │  Feature Pages (scoped)  │  │
+│  │  /login      │  │  (header)    │  │  /app/accounts, etc.     │  │
+│  └──────┬───────┘  └──────┬───────┘  └────────────┬─────────────┘  │
+└─────────┼─────────────────┼───────────────────────┼────────────────┘
+          │                 │                        │
+┌─────────▼─────────────────▼────────────────────────▼────────────────┐
+│                    Next.js Middleware (edge)                          │
+│  withAuth → tenant context injection → super-admin route guard       │
+└─────────────────────────────────────────────────────────────────────┘
+          │
+┌─────────▼─────────────────────────────────────────────────────────┐
+│                    NextAuth (auth-options.ts)                       │
+│  Provider 1: CognitoProvider (existing)                            │
+│  Provider 2: CredentialsProvider (new — Prisma User lookup)        │
+│  JWT callback: embed tenantId, role, isSuperAdmin into token       │
+│  Session callback: surface tenantId + role to session.user         │
+└─────────────────────────────────────────────────────────────────────┘
+          │
+┌─────────▼─────────────────────────────────────────────────────────┐
+│                    API Route Layer (app/api/)                       │
+│  authorize(action, subject, tenantId) — replaces CASL authorize()  │
+│  getTenantContext() — extracts tenantId from session               │
+│  Super-admin routes: /api/admin/** (platform-level only)           │
+└─────────────────────────────────────────────────────────────────────┘
+          │
+┌─────────▼─────────────────────────────────────────────────────────┐
+│                    Service Layer (lib/*-service.ts)                 │
+│  All services receive tenantId explicitly — no DEFAULT_TENANT_ID   │
+│  Repository calls always include WHERE tenant_id = $tenantId       │
+└─────────────────────────────────────────────────────────────────────┘
+          │
+┌─────────▼─────────────────────────────────────────────────────────┐
+│                    Prisma / PostgreSQL                               │
+│  New models: User, Invitation, Permission, Role (custom RBAC)      │
+│  Existing: tenant_id on all tables (already present from v1.0)     │
+│  Tenant.status: active | suspended | pending                       │
+└─────────────────────────────────────────────────────────────────────┘
 ```
-
-Setting `backend.url` in `Pulumi.yaml` means no `pulumi login` step is needed — the project always uses this backend. This is the recommended approach for CI/CD.
 
 ---
 
-## Cross-Stack References: CDK Props → Pulumi StackReference
+## Component Responsibilities
 
-### CDK Pattern (current)
+| Component | Responsibility | Status |
+|-----------|---------------|--------|
+| `web-ui/middleware.ts` | Auth guard + tenant context injection into request headers | Modify |
+| `web-ui/lib/auth-options.ts` | NextAuth config — add CredentialsProvider, extend JWT/session with tenantId + role | Modify |
+| `web-ui/lib/auth-session.ts` | `getSessionUserId()` + new `getSessionTenantId()`, `getSessionRole()` | Modify |
+| `web-ui/lib/rbac/` | Remove CASL entirely; replace with custom permission check functions | Replace |
+| `web-ui/lib/tenant-service.ts` | Tenant CRUD, suspension, onboarding — new service | New |
+| `web-ui/lib/user-service.ts` | User persistence for Credentials auth, invitation management | New |
+| `web-ui/lib/invitation-service.ts` | Token generation, email dispatch, accept/decline flow | New |
+| `web-ui/app/api/admin/**` | Super-admin API routes (tenant management, user management) | New |
+| `web-ui/app/app/admin/**` | Super-admin UI pages | Extend existing stub |
+| `web-ui/components/org-switcher/` | Tenant dropdown in header, triggers data reload | New |
+| `prisma/schema.prisma` | Add User, Invitation, Permission, Role models; add status to Tenant | Modify |
+| `lambda/scheduler/` | Read tenantId from schedule record — already present, enforce in queries | Verify |
 
-```typescript
-// bin/cdkStack.ts — passes vpc object directly as a prop
-const networkingStack = new NetworkingStack(app, 'NetworkingStack', { ... });
-new ComputeStack(app, 'ComputeStack', { vpc: networkingStack.vpc });
-```
+---
 
-CDK resolves this at synth time within the same process. CloudFormation exports/imports handle the actual runtime dependency.
+## Integration Points: New vs Modified
 
-### Pulumi Pattern (target)
+### Modified: `web-ui/middleware.ts`
 
-Pulumi uses `StackReference` — one project reads exported outputs from another project's deployed stack.
+Current middleware only checks `!!token` for auth. Needs two additions:
 
-**Step 1: networking/index.ts exports outputs**
-
-```typescript
-import * as aws from "@pulumi/aws";
-import * as pulumi from "@pulumi/pulumi";
-
-const vpc = new aws.ec2.Vpc("nucleus-vpc", { ... });
-
-// Export IDs — these become the StackReference outputs
-export const vpcId = vpc.id;
-export const vpcCidr = vpc.cidrBlock;
-export const publicSubnetIds = pulumi.output(publicSubnets.map(s => s.id));
-export const privateSubnetIds = pulumi.output(privateSubnets.map(s => s.id));
-export const databaseSubnetIds = pulumi.output(databaseSubnets.map(s => s.id));
-export const intraSubnetIds = pulumi.output(intraSubnets.map(s => s.id));
-```
-
-**Step 2: compute/index.ts consumes via StackReference**
+1. Inject `x-tenant-id` header from `token.tenantId` so API routes can read it without re-fetching the session.
+2. Guard `/app/admin/**` and `/api/admin/**` routes — redirect/403 unless `token.isSuperAdmin === true`.
 
 ```typescript
-import * as pulumi from "@pulumi/pulumi";
-import * as aws from "@pulumi/aws";
+// web-ui/middleware.ts (modified)
+import { withAuth } from "next-auth/middleware";
+import { NextResponse } from "next/server";
 
-// Format: "organization/project-name/stack-name"
-// With S3 backend (no org), format is: "organization/project/stack"
-// For self-managed backends, use the project name directly
-const networking = new pulumi.StackReference("nucleus-networking/prod");
+export default withAuth(
+  function middleware(req) {
+    const token = req.nextauth.token;
+    const { pathname } = req.nextUrl;
 
-const vpcId = networking.requireOutput("vpcId") as pulumi.Output<string>;
-const privateSubnetIds = networking.requireOutput("privateSubnetIds") as pulumi.Output<string[]>;
+    // Super-admin guard
+    if (pathname.startsWith('/app/admin') || pathname.startsWith('/api/admin')) {
+      if (!token?.isSuperAdmin) {
+        return pathname.startsWith('/api/')
+          ? NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+          : NextResponse.redirect(new URL('/app/dashboard', req.url));
+      }
+    }
 
-// Reconstruct VPC object from ID (for resources that need the full object)
-const vpc = aws.ec2.Vpc.get("nucleus-vpc", vpcId);
-
-// Reconstruct subnet objects from IDs
-const privateSubnets = privateSubnetIds.apply(ids =>
-  ids.map((id, i) => aws.ec2.Subnet.get(`private-subnet-${i}`, id))
+    // Inject tenant context into request headers for API routes
+    const requestHeaders = new Headers(req.headers);
+    if (token?.tenantId) {
+      requestHeaders.set('x-tenant-id', token.tenantId as string);
+    }
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  },
+  {
+    callbacks: {
+      authorized: ({ token, req }) => {
+        const { pathname } = req.nextUrl;
+        if (pathname === '/login' || pathname === '/' || pathname.startsWith('/docs')) {
+          return true;
+        }
+        return !!token;
+      },
+    },
+  }
 );
 ```
 
-**StackReference name format with S3 backend:**
+### Modified: `web-ui/lib/auth-options.ts`
 
-With a self-managed (S3) backend, the organization segment is omitted. The format is `<project>/<stack>`:
-
-```typescript
-const networking = new pulumi.StackReference("nucleus-networking/prod");
-```
-
----
-
-## Stack Outputs → web-ui Env Vars
-
-### CDK Pattern (current)
-
-CDK inlines env vars directly into the ECS task definition container environment at synth time. Values like `this.userPool.userPoolId` are resolved by CloudFormation at deploy time.
-
-### Pulumi Pattern (target)
-
-Pulumi stack outputs are available after `pulumi up` via CLI. The pattern is to generate a `.env` file from outputs:
-
-```bash
-# After pulumi up in infra/compute/
-pulumi stack output --json --stack prod > /tmp/pulumi-outputs.json
-
-# Script reads JSON and writes web-ui/.env.local
-node scripts/generate-env.ts
-```
-
-**scripts/generate-env.ts** (new file to create):
+Add CredentialsProvider alongside existing CognitoProvider. Extend JWT callback to embed `tenantId`, `role`, `isSuperAdmin`.
 
 ```typescript
-import { execSync } from "child_process";
-import { writeFileSync } from "fs";
-
-const outputs = JSON.parse(
-  execSync("pulumi stack output --json --stack prod", {
-    cwd: "infra/compute"
-  }).toString()
-);
-
-const envLines = [
-  `COGNITO_USER_POOL_ID=${outputs.cognitoUserPoolId}`,
-  `COGNITO_USER_POOL_CLIENT_ID=${outputs.cognitoUserPoolClientId}`,
-  `COGNITO_IDENTITY_POOL_ID=${outputs.cognitoIdentityPoolId}`,
-  `APP_TABLE_NAME=${outputs.appTableName}`,
-  `AUDIT_TABLE_NAME=${outputs.auditTableName}`,
-  // ... all other env vars
-];
-
-writeFileSync("web-ui/.env.local", envLines.join("\n"));
-```
-
-For ECS container environment (the equivalent of CDK's inline env block), Pulumi passes outputs directly as `Output<string>` values — Pulumi resolves them at deploy time:
-
-```typescript
-const container = new aws.ecs.TaskDefinition("web-ui-task", {
-  containerDefinitions: pulumi.all([
-    userPool.id,
-    userPoolClient.id,
-    appTable.name,
-  ]).apply(([poolId, clientId, tableName]) =>
-    JSON.stringify([{
-      name: "WebUIContainer",
-      environment: [
-        { name: "COGNITO_USER_POOL_ID", value: poolId },
-        { name: "COGNITO_USER_POOL_CLIENT_ID", value: clientId },
-        { name: "APP_TABLE_NAME", value: tableName },
-        // ...
-      ]
-    }])
-  )
-});
-```
-
----
-
-## Patterns to Follow
-
-### Pattern 1: pulumi.all() for multi-output dependencies
-
-When a resource needs multiple Output values resolved together (e.g., the ECS container env block), use `pulumi.all()`:
-
-```typescript
-const containerDef = pulumi.all([
-  userPool.id, userPoolClient.id, appTable.name, auditTable.name
-]).apply(([poolId, clientId, appTableName, auditTableName]) => ({
-  // all values are plain strings here
-  environment: [
-    { name: "COGNITO_USER_POOL_ID", value: poolId },
-    ...
-  ]
-}));
-```
-
-### Pattern 2: ComponentResource for logical grouping
-
-Split the large ComputeStack into ComponentResources — Pulumi's equivalent of CDK Constructs:
-
-```typescript
-// infra/compute/components/dynamodb.ts
-import * as pulumi from "@pulumi/pulumi";
-import * as aws from "@pulumi/aws";
-
-export class NucleusDynamoTables extends pulumi.ComponentResource {
-  public readonly appTable: aws.dynamodb.Table;
-  public readonly auditTable: aws.dynamodb.Table;
-  // ...
-
-  constructor(name: string, opts?: pulumi.ComponentResourceOptions) {
-    super("nucleus:compute:DynamoTables", name, {}, opts);
-    this.appTable = new aws.dynamodb.Table("app-table", { ... }, { parent: this });
-    // ...
+// Key additions to authOptions
+providers: [
+  CognitoProvider({ ... }), // existing
+  CredentialsProvider({
+    name: 'credentials',
+    credentials: { email: {}, password: {} },
+    async authorize(credentials) {
+      // bcrypt compare against User table in Prisma
+      const user = await UserService.verifyCredentials(credentials.email, credentials.password);
+      if (!user) return null;
+      return { id: user.id, email: user.email, name: user.name };
+    }
+  })
+],
+callbacks: {
+  async jwt({ token, account, user, trigger, session }) {
+    if (trigger === 'update' && session?.tenantId) {
+      // Org switch: update active tenant in token
+      token.tenantId = session.tenantId;
+      token.role = session.role;
+    }
+    if (account && user) {
+      // Initial sign-in: load tenant membership
+      const membership = await getDefaultTenantMembership(token.sub ?? user.id);
+      token.tenantId = membership?.tenantId ?? null;
+      token.role = membership?.role ?? null;
+      token.isSuperAdmin = await isSuperAdmin(token.sub ?? user.id);
+    }
+    return token;
+  },
+  async session({ session, token }) {
+    session.user.tenantId = token.tenantId;
+    session.user.role = token.role;
+    session.user.isSuperAdmin = token.isSuperAdmin;
+    return session;
   }
 }
 ```
 
-Then in `index.ts`:
-```typescript
-const tables = new NucleusDynamoTables("nucleus-tables");
-const ecs = new NucleusEcsService("nucleus-ecs", { tables, vpc });
-```
+The `trigger === 'update'` path is how org switching works: the client calls `update({ tenantId, role })` from `next-auth/react` after the user picks a different org, which re-runs the JWT callback and refreshes the session cookie.
 
-### Pattern 3: Config for environment-specific values
+### Modified: `web-ui/lib/auth-session.ts`
 
-Replace CDK's `getConfig()` / env var reading with Pulumi's typed config:
+Add helpers that API routes use to extract tenant context:
 
 ```typescript
-// infra/networking/index.ts
-const config = new pulumi.Config();
-const vpcCidr = config.get("vpcCidr") ?? "10.0.0.0/16";
-const maxAzs = config.getNumber("maxAzs") ?? 2;
+export async function getSessionTenantId(): Promise<string> {
+  const session = await getServerSession(authOptions);
+  const tenantId = (session?.user as any)?.tenantId;
+  if (!tenantId) throw new Error('No active tenant in session');
+  return tenantId;
+}
+
+export async function getSessionRole(): Promise<string | null> {
+  const session = await getServerSession(authOptions);
+  return (session?.user as any)?.role ?? null;
+}
+
+export async function assertSuperAdmin(): Promise<void> {
+  const session = await getServerSession(authOptions);
+  if (!(session?.user as any)?.isSuperAdmin) {
+    throw new Error('Forbidden: super-admin only');
+  }
+}
 ```
 
-Values live in `Pulumi.prod.yaml`:
-```yaml
-config:
-  aws:region: us-east-1
-  nucleus-networking:vpcCidr: 10.0.0.0/16
-  nucleus-networking:maxAzs: 2
-  nucleus-networking:natGateways: 2
+Alternatively, API routes can read `x-tenant-id` from the injected header (faster — no session re-fetch):
+
+```typescript
+// In an API route handler
+export async function GET(req: NextRequest) {
+  const tenantId = req.headers.get('x-tenant-id');
+  if (!tenantId) return NextResponse.json({ error: 'No tenant context' }, { status: 400 });
+  // ...
+}
 ```
+
+### Replaced: `web-ui/lib/rbac/`
+
+Remove all CASL imports (`@casl/ability`). Replace `authorize()` with a custom function that reads the role from the session and checks against a static permission map.
+
+New structure:
+
+```
+web-ui/lib/rbac/
+  types.ts          — keep TenantRole, Actions, Subjects (remove AppAbility/PureAbility)
+  permissions.ts    — static ROLE_PERMISSIONS map (replaces abilities.ts)
+  authorize.ts      — new authorize() using permissions map (replaces CASL)
+  role-service.ts   — unchanged (delegates to IRbacRepository)
+```
+
+New `permissions.ts` pattern:
+
+```typescript
+// No CASL — plain object lookup
+export const ROLE_PERMISSIONS: Record<TenantRole | 'SuperAdmin', Set<string>> = {
+  SuperAdmin:      new Set(['*']),
+  TenantAdmin:     new Set(['Account:read','Account:create','Account:update','Account:delete','Schedule:*','User:*','Agent:use',...]),
+  TenantOperator:  new Set(['Account:read','Schedule:*','Schedule:execute','AuditLog:read',...]),
+  TenantViewer:    new Set(['Account:read','Schedule:read','AuditLog:read',...]),
+};
+
+export function can(role: string, action: Actions, subject: Subjects): boolean {
+  const perms = ROLE_PERMISSIONS[role as TenantRole];
+  if (!perms) return false;
+  if (perms.has('*')) return true;
+  return perms.has(`${subject}:${action}`) || perms.has(`${subject}:*`);
+}
+```
+
+New `authorize.ts` — reads role from session, no CASL:
+
+```typescript
+export async function authorize(action: Actions, subject: Subjects): Promise<NextResponse | null> {
+  const session = await getServerSession(authOptions);
+  const role = (session?.user as any)?.role;
+  const isSuperAdmin = (session?.user as any)?.isSuperAdmin;
+
+  if (isSuperAdmin || can(role, action, subject)) return null;
+
+  return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+}
+```
+
+### Modified: Prisma Schema
+
+New models needed:
+
+```prisma
+// User — for CredentialsProvider auth (Prisma adapter pattern)
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?   // null for Cognito-only users
+  isSuperAdmin  Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  memberships   TenantMembership[]
+  invitations   Invitation[]
+
+  @@map("users")
+}
+
+// TenantMembership — replaces UserTenantRole (same data, cleaner name)
+// Keep UserTenantRole table for backward compat; add this as the v3 model
+model TenantMembership {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      String   // TenantAdmin | TenantOperator | TenantViewer
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@map("tenant_memberships")
+}
+
+// Invitation — email invite flow
+model Invitation {
+  id         String    @id @default(cuid())
+  tenantId   String
+  email      String
+  role       String
+  token      String    @unique  // secure random token in URL
+  invitedBy  String             // userId of inviter
+  status     String    @default("pending") // pending|accepted|declined|expired
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  acceptedAt DateTime?
+
+  inviter User   @relation(fields: [invitedBy], references: [id])
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([token])
+  @@map("invitations")
+}
+```
+
+Modify existing `Tenant` model:
+
+```prisma
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique  // URL-safe identifier
+  status      String   @default("active") // active|suspended|pending
+  suspendedAt DateTime?
+  suspendedBy String?
+  settings    Json     @default("{}")  // branding, timezone, notifications
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  configs     TenantConfig[]
+  memberships TenantMembership[]
+  invitations Invitation[]
+
+  @@map("tenants")
+}
+```
+
+---
+
+## Data Flow Changes
+
+### Request Flow (after v3.0)
+
+```
+Browser Request
+    ↓
+middleware.ts
+  → check token.isSuperAdmin for /admin routes
+  → inject x-tenant-id header from token.tenantId
+    ↓
+API Route Handler
+  → read tenantId from x-tenant-id header (or getSessionTenantId())
+  → authorize(action, subject) — checks role from session
+  → check tenant status (suspended tenants → 403 on mutating ops)
+    ↓
+Service Layer
+  → receives tenantId explicitly (no DEFAULT_TENANT_ID fallback)
+  → passes tenantId to repository
+    ↓
+Repository (Prisma)
+  → WHERE tenant_id = tenantId on every query
+    ↓
+PostgreSQL
+```
+
+### Org Switch Flow
+
+```
+User clicks org in header dropdown
+    ↓
+OrgSwitcher component calls update({ tenantId, role }) from next-auth/react
+    ↓
+NextAuth JWT callback (trigger === 'update') updates token.tenantId + token.role
+    ↓
+Session cookie refreshed with new tenantId
+    ↓
+Client router.refresh() — all server components re-render with new tenant context
+    ↓
+All API calls now carry new x-tenant-id header
+```
+
+### Invitation Flow
+
+```
+TenantAdmin POSTs /api/invitations { email, role }
+    ↓
+InvitationService.create() — generates crypto token, stores in invitations table, sends email
+    ↓
+Invitee clicks link: GET /invite/[token]
+    ↓
+/app/invite/[token] page — validates token, shows accept/decline UI
+    ↓
+POST /api/invitations/[token]/accept
+    ↓
+InvitationService.accept() — creates User (if new) + TenantMembership, marks invitation accepted
+    ↓
+Redirect to /login (or auto-sign-in if already authenticated)
+```
+
+### Tenant Suspension Flow
+
+```
+SuperAdmin POSTs /api/admin/tenants/[id]/suspend
+    ↓
+TenantService.suspend() — sets tenant.status = 'suspended', records suspendedAt + suspendedBy
+    ↓
+Middleware reads tenant status on each request (cached in token or checked per-request)
+    ↓
+Suspended tenant users: read-only access (GET allowed, mutations return 423 Locked)
+    ↓
+SuperAdmin POSTs /api/admin/tenants/[id]/unsuspend → status = 'active'
+```
+
+---
+
+## New Route Structure
+
+### Admin Panel (`/app/app/admin/`)
+
+```
+web-ui/app/app/admin/
+  layout.tsx              — super-admin guard (existing, uses CASL — replace with isSuperAdmin check)
+  page.tsx                — admin dashboard (tenant count, recent activity)
+  tenants/
+    page.tsx              — list all tenants (status, user count, created date)
+    new/
+      page.tsx            — onboard new tenant form
+    [tenantId]/
+      page.tsx            — tenant detail (settings, users, suspension controls)
+  users/
+    page.tsx              — existing stub (list all users across tenants)
+```
+
+### Admin API (`/web-ui/app/api/admin/`)
+
+```
+web-ui/app/api/admin/
+  tenants/
+    route.ts              — GET (list all), POST (create tenant + root user)
+    [tenantId]/
+      route.ts            — GET (detail), PATCH (settings), DELETE (soft-delete)
+      suspend/
+        route.ts          — POST (suspend), DELETE (unsuspend)
+      users/
+        route.ts          — GET (list tenant users)
+  users/
+    route.ts              — GET (list all users platform-wide)
+    role/
+      route.ts            — existing POST (assign role) — keep, update to use new RBAC
+```
+
+### Invitation API
+
+```
+web-ui/app/api/invitations/
+  route.ts                — POST (create invitation, send email)
+  [token]/
+    route.ts              — GET (validate token), POST (accept), DELETE (decline)
+```
+
+### Invitation UI
+
+```
+web-ui/app/invite/
+  [token]/
+    page.tsx              — accept/decline invitation page (public, no auth required)
+```
+
+---
+
+## Lambda Tenant Awareness
+
+The scheduler Lambda (`lambda/scheduler/`) reads schedules from the database and executes them. It already has `tenantId` on schedule records from v1.0. Required changes are minimal:
+
+| Lambda | Change Needed |
+|--------|--------------|
+| `scheduler` | Verify all DB queries include `tenantId` filter; skip schedules for suspended tenants (check `tenant.status` before executing) |
+| `discovery` | Already scoped by AWS account; `tenantId` on inventory records is set at write time — no change needed |
+| `vector_processor` | Reads from S3, writes to S3 Vectors — no tenant context needed at this layer |
+| `kb_sync_processor` | Reads `tenantId` from the KB record it processes — already scoped |
+
+The scheduler Lambda needs one new check: before executing a schedule, verify the owning tenant is not suspended. This requires a lightweight DB query or a cached tenant status lookup.
+
+---
+
+## Recommended Build Order
+
+Dependencies flow strictly top-to-bottom. Each phase unblocks the next.
+
+### Phase 1: Foundation (Prisma + Auth)
+Build first because everything else depends on it.
+- Add `User`, `TenantMembership`, `Invitation` Prisma models; add `status`/`slug`/`settings` to `Tenant`
+- Add CredentialsProvider to `auth-options.ts`; extend JWT/session callbacks with `tenantId`, `role`, `isSuperAdmin`
+- Add `getSessionTenantId()`, `getSessionRole()`, `assertSuperAdmin()` to `auth-session.ts`
+- Update `middleware.ts` with tenant header injection + super-admin route guard
+
+### Phase 2: Custom RBAC (replaces CASL)
+Depends on Phase 1 (role is now in session).
+- Remove `@casl/ability` imports from all files
+- Write `permissions.ts` with static `ROLE_PERMISSIONS` map
+- Rewrite `authorize.ts` to use permissions map instead of CASL
+- Update all API routes that call `authorize()` — signature stays the same, internals change
+- Remove `AbilityContext.tsx`, `server-ability.ts`, `abilities.ts`
+
+### Phase 3: Tenant Context Enforcement
+Depends on Phase 1 (tenantId in session) and Phase 2 (new authorize).
+- Replace all `DEFAULT_TENANT_ID` fallbacks with `getSessionTenantId()` in API routes
+- Add tenant suspension check in middleware or a shared API helper
+- Update service layer to require explicit `tenantId` (remove default parameter)
+
+### Phase 4: Org Switching
+Depends on Phase 1 (tenantId in JWT) and Phase 3 (tenant-scoped data).
+- Build `OrgSwitcher` component — calls `update()` from `next-auth/react`
+- Add `getUserTenants()` to `role-service.ts` (list all tenants a user belongs to)
+- Wire into header/sidebar
+
+### Phase 5: Super Admin Panel
+Depends on Phase 1 (super-admin guard) and Phase 3 (tenant CRUD).
+- Build `TenantService` (create, list, suspend, unsuspend, settings)
+- Build `/api/admin/tenants/**` routes
+- Build `/app/admin/tenants/**` pages
+
+### Phase 6: User Invitations
+Depends on Phase 1 (User model) and Phase 5 (tenant exists before inviting).
+- Build `InvitationService` (create token, send email, accept, decline)
+- Build `/api/invitations/**` routes
+- Build `/app/invite/[token]` page
+
+### Phase 7: Tenant Settings UI
+Depends on Phase 5 (tenant model has settings field).
+- Build settings form (branding, timezone, notifications)
+- Wire to `TenantConfigService` or directly to `Tenant.settings` JSON field
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Single Pulumi project for both networking + compute
+### Anti-Pattern 1: DEFAULT_TENANT_ID as a fallback
 
-**What:** Putting all resources in one `index.ts` / one `Pulumi.yaml`
-**Why bad:** Loses independent deployability. Networking changes force a full compute plan. Mirrors the CDK problem of one giant stack.
-**Instead:** Two separate projects with StackReference. Deploy networking first, compute second.
+**What people do:** Keep `DEFAULT_TENANT_ID = 'default'` as a fallback when tenantId is missing from session.
+**Why it's wrong:** Silently serves wrong-tenant data. A missing tenantId means the session is broken — it should be a hard error, not a silent fallback.
+**Do this instead:** `getSessionTenantId()` throws if tenantId is absent. API routes catch and return 400/401.
 
-### Anti-Pattern 2: Hardcoding Output values with `.get()` before they exist
+### Anti-Pattern 2: Checking tenant status in every service method
 
-**What:** Calling `aws.ec2.Vpc.get("vpc", "vpc-hardcoded-id")` with a literal ID
-**Why bad:** Breaks the dependency graph — Pulumi won't know to wait for networking to deploy first
-**Instead:** Always pass `vpcId` as an `Output<string>` from StackReference; Pulumi resolves ordering automatically
+**What people do:** Add `if (tenant.status === 'suspended') throw ...` inside each service.
+**Why it's wrong:** Duplicated logic, easy to miss a service, inconsistent error responses.
+**Do this instead:** Single suspension check in middleware (for page routes) and a shared `assertTenantActive(tenantId)` helper called once at the top of each API route handler.
 
-### Anti-Pattern 3: Using `pulumi.output().apply()` for everything
+### Anti-Pattern 3: Storing tenantId only in the JWT, not verifying it
 
-**What:** Wrapping every value in `.apply()` unnecessarily
-**Why bad:** Makes code hard to read; `.apply()` defers execution and hides values during preview
-**Instead:** Use `pulumi.all()` only when you need multiple outputs resolved together; keep plain values plain
+**What people do:** Trust `token.tenantId` without verifying the user still has membership in that tenant.
+**Why it's wrong:** If a user is removed from a tenant, their existing JWT still carries the old tenantId until it expires.
+**Do this instead:** On JWT refresh (every `session.maxAge` interval), re-validate membership. Or check membership on sensitive operations (role assignment, account creation).
 
-### Anti-Pattern 4: Deleting CDK stacks before Pulumi stacks are deployed
+### Anti-Pattern 4: Super-admin as a tenant member
 
-**What:** Running `cdk destroy NetworkingStack` before `pulumi up` in `infra/networking/`
-**Why bad:** Destroys live infrastructure with no replacement
-**Instead:** Deploy Pulumi stacks first, verify they're healthy, then destroy CDK stacks
+**What people do:** Add the super-admin user to every tenant's `user_tenant_roles` table.
+**Why it's wrong:** Pollutes tenant user lists, creates confusion about data ownership, breaks tenant isolation semantics.
+**Do this instead:** Super-admin is identified by `User.isSuperAdmin = true`. They bypass tenant checks entirely via the `isSuperAdmin` flag in the JWT — they are never a member of any tenant.
 
----
+### Anti-Pattern 5: Rebuilding CASL with a custom library
 
-## CDK/Pulumi Coexistence During Migration
-
-During the migration phases, both CDK and Pulumi will exist in the repo simultaneously:
-
-| Phase | CDK State | Pulumi State |
-|-------|-----------|--------------|
-| PULUMI-01 (scaffold) | NetworkingStack + ComputeStack active | infra/ exists, no resources deployed |
-| PULUMI-02 (networking) | NetworkingStack active | infra/networking/ deployed to a NEW VPC |
-| PULUMI-03–05 (compute) | ComputeStack active | infra/compute/ deployed alongside CDK compute |
-| PULUMI-06 (cutover) | CDK stacks destroyed | Pulumi stacks are the only IaC |
-
-Key constraint: Pulumi creates **new** AWS resources — it does not import the existing CDK-managed resources. The cutover is a blue/green switch at the DNS/CloudFront level, not an in-place migration.
-
----
-
-## New Files Required
-
-| File | Purpose |
-|------|---------|
-| `infra/bootstrap/bootstrap.sh` | One-time S3 state bucket creation |
-| `infra/networking/Pulumi.yaml` | Networking project definition + backend URL |
-| `infra/networking/index.ts` | VPC, subnets, NAT, endpoints, subnet groups |
-| `infra/networking/package.json` | `@pulumi/pulumi`, `@pulumi/aws` dependencies |
-| `infra/networking/tsconfig.json` | ESNext module, strict mode |
-| `infra/networking/Pulumi.prod.yaml` | Stack config (CIDR, AZs, region) |
-| `infra/compute/Pulumi.yaml` | Compute project definition + backend URL |
-| `infra/compute/index.ts` | Entry point, wires components together |
-| `infra/compute/components/dynamodb.ts` | All DynamoDB tables |
-| `infra/compute/components/ecs.ts` | ECS cluster, task def, service, ALB |
-| `infra/compute/components/lambda.ts` | Scheduler, vector processor, KB sync lambdas |
-| `infra/compute/components/cognito.ts` | User pool, client, identity pool |
-| `infra/compute/components/cloudfront.ts` | CloudFront distribution |
-| `infra/compute/components/storage.ts` | S3 buckets, SQS queues, EventBridge |
-| `infra/compute/package.json` | Dependencies |
-| `infra/compute/tsconfig.json` | ESNext module, strict mode |
-| `infra/compute/Pulumi.prod.yaml` | Stack config (app name, domain, ECS sizing) |
-| `scripts/generate-env.ts` | Reads pulumi stack output → writes web-ui/.env.local |
-
-## Modified Files
-
-| File | Change |
-|------|--------|
-| `bin/cdkStack.ts` | Remove NetworkingStack + ComputeStack instantiation (PULUMI-06) |
-| `lib/networkingStack.ts` | Delete (PULUMI-06) |
-| `lib/computeStack.ts` | Delete (PULUMI-06) |
-| `package.json` (root) | Remove CDK deps for deleted stacks (PULUMI-06) |
-| `web-ui/.env.local.example` | Add note that values come from `scripts/generate-env.ts` |
-
----
-
-## Build Order for Phases
-
-1. **PULUMI-01: Scaffold** — `infra/bootstrap/`, `infra/networking/` and `infra/compute/` project files, S3 backend login, no AWS resources yet. Validates toolchain.
-
-2. **PULUMI-02: Networking** — Deploy `infra/networking/` to AWS. Creates new VPC alongside existing CDK VPC. Exports vpcId, subnetIds. CDK networking still live.
-
-3. **PULUMI-03: ECS** — Deploy ECS cluster, ALB, CloudFront in `infra/compute/` pointing at the Pulumi VPC. CDK compute still live.
-
-4. **PULUMI-04: Lambda** — Add scheduler, vector processor, KB sync, discovery task definitions to `infra/compute/`.
-
-5. **PULUMI-05: Data** — Add DynamoDB tables, SQS, EventBridge, Cognito, S3 buckets to `infra/compute/`. At this point Pulumi compute stack is feature-complete.
-
-6. **PULUMI-06: Cutover** — Wire stack outputs to web-ui env vars. Destroy CDK NetworkingStack + ComputeStack. Remove CDK files.
+**What people do:** Reach for another ABAC library (e.g., `accesscontrol`, `node-casbin`) to replace CASL.
+**Why it's wrong:** The permission model here is simple role-based (4 roles, ~5 subjects, ~5 actions). A static lookup table is 20 lines and zero dependencies.
+**Do this instead:** `ROLE_PERMISSIONS` map in `permissions.ts`. Add complexity only if per-resource conditions are needed.
 
 ---
 
 ## Scalability Considerations
 
-| Concern | Approach |
-|---------|----------|
-| State file size | S3 backend handles large state files; versioning provides rollback |
-| Concurrent deploys | Pulumi S3 locking prevents concurrent `pulumi up` on same stack |
-| Secret values | Use `pulumi config set --secret` for NEXTAUTH_SECRET, Cognito client secret; stored encrypted in `Pulumi.prod.yaml` |
-| Lambda bundling | Pulumi's `aws.lambda.Function` with `code: new pulumi.asset.AssetArchive(...)` or use `pulumi-aws-native` for NodejsFunction equivalent |
+| Scale | Architecture Adjustments |
+|-------|--------------------------|
+| 1-50 tenants | Current approach — session-based tenantId, row-level isolation, no caching needed |
+| 50-500 tenants | Cache tenant status in Redis/Upstash to avoid DB hit on every request for suspension check |
+| 500+ tenants | Consider tenant-aware connection pooling (PgBouncer per tenant); evaluate schema-per-tenant for largest customers |
+
+The current row-level isolation approach (single schema, `tenant_id` column) is the right choice for this scale. Schema-per-tenant adds operational complexity that isn't justified until you have compliance requirements or very large per-tenant data volumes.
 
 ---
 
 ## Sources
 
-- Pulumi project structure: https://www.pulumi.com/docs/iac/concepts/projects/ (HIGH confidence — official docs)
-- Pulumi S3 backend config: https://www.pulumi.com/docs/iac/concepts/state-and-backends/ (HIGH confidence — official docs)
-- StackReference API: https://www.pulumi.com/docs/iac/concepts/stacks/ (HIGH confidence — official docs)
-- `aws.ec2.Vpc.get()` pattern: https://www.pulumi.com/registry/packages/aws/api-docs/ec2/vpc/ (HIGH confidence — official registry)
-- Pulumi TypeScript project init: https://www.pulumi.com/docs/iac/get-started/aws/create-project/ (HIGH confidence — official docs)
-- CDK/Pulumi coexistence pattern: training data + official docs (MEDIUM confidence — no single authoritative source for coexistence strategy)
+- Next.js App Router middleware docs: https://nextjs.org/docs/app/building-your-application/routing/middleware (HIGH)
+- NextAuth JWT `trigger: 'update'` for session mutation: https://next-auth.js.org/configuration/callbacks#jwt-callback (HIGH)
+- NextAuth CredentialsProvider: https://next-auth.js.org/providers/credentials (HIGH)
+- Prisma schema relations: https://www.prisma.io/docs/orm/prisma-schema/data-model/relations (HIGH)
+- Row-level multi-tenancy pattern: direct codebase analysis of existing `tenant_id` columns (HIGH)
+- CASL removal rationale: codebase analysis — `@casl/ability` in `web-ui/lib/rbac/` (HIGH)
+
+---
+*Architecture research for: v3.0 Multi-Tenancy on Nucleus Cloud Ops*
+*Researched: 2026-03-31*

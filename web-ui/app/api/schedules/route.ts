@@ -5,6 +5,7 @@ import { AuditService } from '@/lib/audit-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 import { authorize } from '@/lib/rbac/authorize';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // GET /api/schedules - Get all schedules with optional filtering
 export async function GET(request: NextRequest) {
@@ -25,7 +26,8 @@ export async function GET(request: NextRequest) {
             resourceFilter,
             searchTerm,
             page,
-            limit
+            limit,
+            tenantId: await getSessionTenantId(),
         };
 
         // Fetch schedules with optional filters
@@ -65,6 +67,7 @@ export async function POST(request: NextRequest) {
 
         const session = await getServerSession(authOptions);
         const createdBy = session?.user?.email || 'api-user';
+        const tenantId = await getSessionTenantId();
 
         const body = await request.json();
 
@@ -79,9 +82,6 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Validate accountId if resource selection is intended
-        // Note: For backward compatibility, we don't strictly require it yet unless business logic demands it.
-        // But the requirement says "schedule has to be created against an account".
         if (!body.accountId) {
             return NextResponse.json(
                 {
@@ -127,13 +127,14 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Create schedule
+        // Create schedule — map accountId → accounts array for the repository
         const schedule = await ScheduleService.createSchedule({
             ...body,
-            active: body.active !== undefined ? body.active : true, // Default to active
+            accounts: [body.accountId],
+            active: body.active !== undefined ? body.active : true,
             createdBy,
             updatedBy: createdBy
-        });
+        }, tenantId);
 
         // Log audit event
         await AuditService.logUserAction({
@@ -141,10 +142,12 @@ export async function POST(request: NextRequest) {
             resourceType: 'schedule',
             resourceId: schedule.name,
             resourceName: schedule.name,
-            user: createdBy, // This would be passed from the client in a real implementation
+            user: createdBy,
             userType: 'user',
             status: 'success',
             details: `Created schedule "${schedule.name}"`,
+            tenantId,
+            metadata: { tenantId },
         });
 
         return NextResponse.json({
@@ -166,6 +169,8 @@ export async function POST(request: NextRequest) {
                 userType: 'user',
                 status: 'error',
                 details: `Failed to create schedule: ${error.message}`,
+                tenantId,
+                metadata: { tenantId },
             });
         }
 

@@ -1,7 +1,6 @@
 // Account service — delegates persistence to the repository layer
 // Persistence operations route through getAccountRepository() which reads
 // USE_PG_ACCOUNTS to select DynamoDB or PostgreSQL backend.
-import { DEFAULT_TENANT_ID } from './aws-config';
 import { UIAccount } from './types';
 import { AuditService } from './audit-service';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
@@ -31,21 +30,21 @@ export class AccountService {
             connectionFilter: filters?.connectionFilter,
             page: filters?.page,
             limit: filters?.limit,
-            tenantId: filters?.tenantId || DEFAULT_TENANT_ID,
+            tenantId: filters?.tenantId,
         });
     }
 
     /**
      * Get a specific account by account ID.
      */
-    static async getAccount(accountId: string, tenantId: string = DEFAULT_TENANT_ID): Promise<UIAccount | null> {
+    static async getAccount(accountId: string, tenantId: string): Promise<UIAccount | null> {
         return getAccountRepository().getAccount(accountId, tenantId);
     }
 
     /**
      * Create a new account and emit an audit log entry.
      */
-    static async createAccount(account: Omit<UIAccount, 'id'>, tenantId: string = DEFAULT_TENANT_ID): Promise<UIAccount> {
+    static async createAccount(account: Omit<UIAccount, 'id'>, tenantId: string): Promise<UIAccount> {
         const result = await getAccountRepository().createAccount(account, tenantId);
         await AuditService.logUserAction({
             action: 'Create Account',
@@ -68,7 +67,7 @@ export class AccountService {
     /**
      * Update an existing account and emit an audit log entry.
      */
-    static async updateAccount(accountId: string, updates: Partial<Omit<UIAccount, 'id' | 'accountId'>>, tenantId: string = DEFAULT_TENANT_ID): Promise<UIAccount> {
+    static async updateAccount(accountId: string, updates: Partial<Omit<UIAccount, 'id' | 'accountId'>>, tenantId: string): Promise<UIAccount> {
         const result = await getAccountRepository().updateAccount(accountId, updates, tenantId);
         await AuditService.logUserAction({
             action: 'Update Account',
@@ -87,7 +86,7 @@ export class AccountService {
     /**
      * Delete an account and emit an audit log entry.
      */
-    static async deleteAccount(accountId: string, deletedBy = 'system', tenantId: string = DEFAULT_TENANT_ID): Promise<void> {
+    static async deleteAccount(accountId: string, deletedBy = 'system', tenantId: string): Promise<void> {
         await getAccountRepository().deleteAccount(accountId, tenantId);
         await AuditService.logUserAction({
             action: 'Delete Account',
@@ -160,7 +159,7 @@ export class AccountService {
     /**
      * Validate account connection — updates status in DB, emits audit log.
      */
-    static async validateAccount(accountId: string, tenantId: string = DEFAULT_TENANT_ID): Promise<UIAccount> {
+    static async validateAccount(accountId: string, tenantId: string): Promise<UIAccount> {
         try {
             console.log(`AccountService - Validating account: ${accountId}`);
 
@@ -229,7 +228,7 @@ export class AccountService {
     /**
      * Toggle the active status of an AWS account.
      */
-    static async toggleAccountStatus(accountId: string, tenantId: string = DEFAULT_TENANT_ID): Promise<UIAccount> {
+    static async toggleAccountStatus(accountId: string, tenantId: string): Promise<UIAccount> {
         const account = await this.getAccount(accountId, tenantId);
         if (!account) {
             throw new Error(`Account ${accountId} not found`);
@@ -244,7 +243,7 @@ export class AccountService {
     /**
      * Scan resources (EC2, ECS, RDS, ASG) for a given account.
      */
-    static async scanResources(accountId: string, tenantId: string = DEFAULT_TENANT_ID): Promise<Array<{ id: string; type: 'ec2' | 'ecs' | 'rds' | 'asg' | 'docdb'; name: string; arn: string; clusterArn?: string }>> {
+    static async scanResources(accountId: string, tenantId: string): Promise<Array<{ id: string; type: 'ec2' | 'ecs' | 'rds' | 'asg' | 'docdb'; name: string; arn: string; clusterArn?: string }>> {
         try {
             console.log(`AccountService - Scanning resources for account: ${accountId}`);
 

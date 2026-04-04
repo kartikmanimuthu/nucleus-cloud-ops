@@ -1,39 +1,52 @@
 import { NextResponse } from 'next/server';
-import { getServerAbility } from './server-ability';
-import { Actions, Subjects } from './types';
-import { subject } from '@casl/ability';
+import { getAuthSession } from '@/lib/auth-session';
+import {
+    SUBJECT_TO_MODULE,
+    ACTION_MAP,
+    type Module,
+    type Action,
+    type PredefinedRole,
+} from './types';
+import { hasPermission, hasCustomPermission } from './permissions';
+import { getCustomRolePermissions } from './custom-role-service';
+
+/** Predefined role names for runtime check */
+const PREDEFINED_ROLES = new Set<string>(['Owner', 'Admin', 'Member', 'Viewer']);
+
+export { getCustomRolePermissions };
 
 /**
  * Authorization helper for API routes.
  * Returns a NextResponse error if unauthorized, or null if authorized.
- * 
- * @param action - The action being performed (create, read, update, delete, etc.)
- * @param subjectType - The resource type being accessed
- * @param subjectData - Optional subject data for ABAC (attribute-based) checks
- * @returns NextResponse with 403 error if unauthorized, null if authorized
- * 
+ *
+ * Signature is backward-compatible — existing call sites work without changes.
+ *
  * @example
- * // In an API route
- * export async function DELETE(request: Request) {
- *   const authError = await authorize('delete', 'Schedule');
- *   if (authError) return authError;
- *   
- *   // Proceed with delete logic...
- * }
+ * const authError = await authorize('delete', 'Schedule');
+ * if (authError) return authError;
  */
 export async function authorize(
-    action: Actions,
-    subjectType: Subjects,
-    subjectData?: Record<string, any>
+    action: string,
+    subjectType: string,
+    _subjectData?: Record<string, unknown>
 ): Promise<NextResponse | null> {
-    const ability = await getServerAbility();
+    const session = await getAuthSession();
 
-    // Check permission with optional ABAC conditions
-    const canPerform = subjectData
-        ? ability.can(action, subject(subjectType, subjectData) as any)
-        : ability.can(action, subjectType);
+    if (!session?.user) {
+        return NextResponse.json(
+            { error: 'Unauthenticated', message: 'No valid session' },
+            { status: 401 }
+        );
+    }
 
-    if (!canPerform) {
+    // SuperAdmin bypasses all permission checks
+    if (session.user.isSuperAdmin === true) {
+        return null;
+    }
+
+    const role = session.user.role;
+
+    if (!role) {
         return NextResponse.json(
             {
                 error: 'Forbidden',
@@ -45,39 +58,72 @@ export async function authorize(
         );
     }
 
-    return null; // Authorized
+    // Map old subject name to new module
+    const module: Module = SUBJECT_TO_MODULE[subjectType] ?? (subjectType as Module);
+
+    // Map old action name to new CRUD action(s)
+    const mappedAction = ACTION_MAP[action];
+    // For 'manage' which maps to an array, check if any action is permitted
+    const actionsToCheck: Action[] = Array.isArray(mappedAction)
+        ? mappedAction
+        : [mappedAction ?? (action as Action)];
+
+    let permitted = false;
+
+    if (PREDEFINED_ROLES.has(role)) {
+        // Static predefined role check
+        permitted = actionsToCheck.some((a) =>
+            hasPermission(role as PredefinedRole, a, module)
+        );
+    } else {
+        // Custom role — look up from DB (stub returns null = deny)
+        const tenantId = session.user.tenantId ?? '';
+        const customPerms = await getCustomRolePermissions(role, tenantId);
+        if (customPerms) {
+            permitted = actionsToCheck.some((a) =>
+                hasCustomPermission(customPerms, a, module)
+            );
+        }
+    }
+
+    if (!permitted) {
+        return NextResponse.json(
+            {
+                error: 'Forbidden',
+                message: `You do not have permission to ${action} ${subjectType}`,
+                action,
+                subject: subjectType,
+            },
+            { status: 403 }
+        );
+    }
+
+    return null;
 }
 
 /**
  * Check if the current user has admin privileges.
- * 
- * @returns true if user can manage all resources
+ * Checks for Owner or Admin predefined role, or SuperAdmin flag.
  */
 export async function isAdmin(): Promise<boolean> {
-    const ability = await getServerAbility();
-    return ability.can('manage', 'all');
+    const session = await getAuthSession();
+    if (!session?.user) return false;
+    if (session.user.isSuperAdmin === true) return true;
+    return session.user.role === 'Owner' || session.user.role === 'Admin';
 }
 
 /**
  * Check if the current user can perform an action on a subject.
- * 
- * @param action - The action to check
- * @param subjectType - The subject type
- * @returns true if the user has permission
  */
-export async function can(action: Actions, subjectType: Subjects): Promise<boolean> {
-    const ability = await getServerAbility();
-    return ability.can(action, subjectType);
+export async function can(action: string, subjectType: string): Promise<boolean> {
+    const result = await authorize(action, subjectType);
+    return result === null;
 }
 
 /**
  * Check if the current user cannot perform an action on a subject.
- * 
- * @param action - The action to check  
- * @param subjectType - The subject type
- * @returns true if the user does NOT have permission
  */
-export async function cannot(action: Actions, subjectType: Subjects): Promise<boolean> {
-    const ability = await getServerAbility();
-    return ability.cannot(action, subjectType);
+export async function cannot(action: string, subjectType: string): Promise<boolean> {
+    const result = await authorize(action, subjectType);
+    return result !== null;
 }

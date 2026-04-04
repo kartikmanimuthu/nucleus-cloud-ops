@@ -16,7 +16,8 @@ try:
     from src.data_processor import (
         process_and_store_resources,
         store_merged_to_s3,
-        save_sync_status
+        save_sync_status,
+        get_tenant_id_for_account,
     )
     from src.audit_logger import create_audit_log
 except ImportError:
@@ -25,7 +26,8 @@ except ImportError:
     from data_processor import (
         process_and_store_resources,
         store_merged_to_s3,
-        save_sync_status
+        save_sync_status,
+        get_tenant_id_for_account,
     )
     from audit_logger import create_audit_log
 
@@ -54,6 +56,7 @@ def get_active_accounts(dynamodb_client, table_name: str) -> List[Dict[str, Any]
                 'roleArn': item.get('roleArn', item.get('role_arn', {})).get('S', ''),
                 'externalId': item.get('externalId', item.get('external_id', {})).get('S', ''),
                 'regions': extract_regions(item.get('regions', {})),
+                'tenantId': item.get('tenantId', {}).get('S', ''),
             })
     
     return accounts
@@ -193,13 +196,25 @@ def main():
         account_name = account.get('accountName', account_id)
         role_arn = account.get('roleArn')
         external_id = account.get('externalId')
-        
+
         if not account_id:
             print("WARN: Skipping account with no accountId")
             continue
-        
+
+        # D-11: Resolve tenant_id from account record
+        tenant_id = account.get('tenantId', '')
+        if not tenant_id:
+            try:
+                tenant_id = get_tenant_id_for_account(account_id, dynamodb)
+                print(f"  Resolved tenant_id={tenant_id} for account {account_id}")
+            except Exception as e:
+                print(f"ERROR: Cannot resolve tenant_id for account {account_id}: {e}")
+                print(f"  Skipping account {account_id} — tenant_id is required")
+                failed_accounts += 1
+                continue
+
         print(f"\n{'=' * 40}")
-        print(f"Scanning Account: {account_name} ({account_id})")
+        print(f"Scanning Account: {account_name} ({account_id}) [tenant={tenant_id}]")
         print(f"{'=' * 40}")
         start_time = datetime.now(timezone.utc)
         
@@ -232,6 +247,7 @@ def main():
                 account_name=account_name,
                 resources=resources,
                 raw_results=raw_results,
+                tenant_id=tenant_id,
                 scan_id=scan_id,
                 s3_table_bucket_arn=s3_table_bucket_arn,
                 s3_table_namespace=s3_table_namespace,

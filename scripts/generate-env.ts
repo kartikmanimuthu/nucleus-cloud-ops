@@ -102,6 +102,7 @@ function mapOutputsToEnvVars(outputs: Record<string, string>): Record<string, st
     set("AGENT_TEMP_BUCKET", o.agentTempBucketName);
     set("KB_STAGING_BUCKET_NAME", o.kbStagingBucketName);
     set("INVENTORY_BUCKET_NAME", o.inventoryBucketName);
+    if (o.assetsBucketName) set("ASSETS_BUCKET_NAME", o.assetsBucketName);
 
     // SQS queues
     set("KB_SYNC_QUEUE_URL", o.kbSyncQueueUrl);
@@ -112,6 +113,8 @@ function mapOutputsToEnvVars(outputs: Record<string, string>): Record<string, st
     set("NEXT_PUBLIC_COGNITO_USER_POOL_ID", o.cognitoUserPoolId, true);
     set("COGNITO_USER_POOL_CLIENT_ID", o.cognitoUserPoolClientId, true);
     set("NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID", o.cognitoUserPoolClientId, true);
+    // auth-options.ts reads COGNITO_APP_CLIENT_ID and COGNITO_APP_CLIENT_SECRET
+    set("COGNITO_APP_CLIENT_ID", o.cognitoUserPoolClientId, true);
     set("COGNITO_CLIENT_SECRET", o.cognitoUserPoolClientSecret, true);
     set("COGNITO_APP_CLIENT_SECRET", o.cognitoUserPoolClientSecret, true);
     set("COGNITO_IDENTITY_POOL_ID", o.cognitoIdentityPoolId);
@@ -119,11 +122,16 @@ function mapOutputsToEnvVars(outputs: Record<string, string>): Record<string, st
 
     // Cognito domain — constructed from prefix
     if (o.cognitoDomainPrefix) {
-        const domain = `${o.cognitoDomainPrefix}.auth.us-east-1.amazoncognito.com`;
+        const region = o.cognitoUserPoolId?.split("_")[0] ?? "us-east-1";
+        const domain = `${o.cognitoDomainPrefix}.auth.${region}.amazoncognito.com`;
         set("COGNITO_DOMAIN", domain);
         set("NEXT_PUBLIC_COGNITO_DOMAIN", domain);
+        // COGNITO_ISSUER is required by auth-options.ts for the OpenID Connect discovery URL
+        if (o.cognitoUserPoolId) {
+            set("COGNITO_ISSUER", `https://cognito-idp.${region}.amazonaws.com/${o.cognitoUserPoolId}`);
+        }
     } else {
-        console.warn("WARN: cognitoDomainPrefix missing — COGNITO_DOMAIN not set.");
+        console.warn("WARN: cognitoDomainPrefix missing — COGNITO_DOMAIN and COGNITO_ISSUER not set.");
     }
 
     // CloudFront / NextAuth
@@ -183,6 +191,22 @@ function writeEnvFile(dynamic: Record<string, string>, statics: Record<string, s
         lines.push(`${key}=${value}`);
     }
 
+    lines.push("");
+    lines.push("# ── Local development overrides (override Pulumi values for localhost) ─────────");
+    lines.push("DATABASE_URL=postgresql://nucleus:nucleus_dev@localhost:5432/nucleus?connection_limit=10");
+    lines.push("NEXTAUTH_SECRET=local-dev-secret-change-in-prod");
+    lines.push("NEXTAUTH_URL=http://localhost:3001");
+    lines.push("NEXT_PUBLIC_NEXTAUTH_URL=http://localhost:3001");
+    lines.push("");
+    lines.push("# PostgreSQL feature flags (set to true to use PG instead of DynamoDB)");
+    lines.push("USE_PG_TENANT_CONFIG=true");
+    lines.push("USE_PG_ACCOUNTS=true");
+    lines.push("USE_PG_SCHEDULES=true");
+    lines.push("USE_PG_AUDIT=true");
+    lines.push("USE_PG_KB=false");
+    lines.push("USE_PG_INVENTORY=false");
+    lines.push("USE_PG_AGENT_OPS=false");
+    lines.push("DUAL_WRITE_SCHEDULES=false");
     lines.push("");
 
     const content = lines.join("\n");

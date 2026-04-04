@@ -24,9 +24,6 @@ import { calculateTTL } from '../utils/time-utils.js';
 const APP_TABLE_NAME = process.env.APP_TABLE_NAME || 'cost-optimization-scheduler-app-table';
 const AUDIT_TABLE_NAME = process.env.AUDIT_TABLE_NAME || 'cost-optimization-scheduler-audit-table';
 const AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'ap-south-1';
-// IMPORTANT: This must match the DEFAULT_TENANT_ID in cost-scheduler-web-ui/lib/aws-config.ts
-// Hardcoded to avoid bundler evaluating process.env at build time
-const DEFAULT_TENANT_ID = 'org-default';
 
 // Singleton DynamoDB client
 let docClient: DynamoDBDocumentClient | null = null;
@@ -104,7 +101,7 @@ export async function fetchActiveSchedules(): Promise<Schedule[]> {
  * Fetch a specific schedule by ID
  * Uses GSI3 with proper key condition on both gsi3pk and gsi3sk
  */
-export async function fetchScheduleById(scheduleId: string, tenantId = DEFAULT_TENANT_ID): Promise<Schedule | null> {
+export async function fetchScheduleById(scheduleId: string, tenantId: string): Promise<Schedule | null> {
     const client = getDynamoDBClient();
 
     // Search both active and inactive status
@@ -321,5 +318,5 @@ export async function createExecutionAuditLog(
     logger.info('Execution audit log created', { executionId, scheduleId: schedule.scheduleId });
 }
 
-export { APP_TABLE_NAME, AUDIT_TABLE_NAME, AWS_REGION, DEFAULT_TENANT_ID };
+export { APP_TABLE_NAME, AUDIT_TABLE_NAME, AWS_REGION };
 

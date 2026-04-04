@@ -9,7 +9,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import type { UISchedule } from '@/lib/types';
 import type { IScheduleRepository, ScheduleFilters, SchedulePage } from './interface';
 
@@ -65,8 +65,8 @@ export class SchedulePostgresRepository implements IScheduleRepository {
             const skip = (page - 1) * limit;
 
             const [total, rows] = await Promise.all([
-                getPrismaClient().schedule.count({ where }),
-                getPrismaClient().schedule.findMany({
+                getTenantClient(tenantId).schedule.count({ where }),
+                getTenantClient(tenantId).schedule.findMany({
                     where,
                     skip,
                     take: limit,
@@ -107,7 +107,7 @@ export class SchedulePostgresRepository implements IScheduleRepository {
                 };
                 if (accountId) where.accountId = accountId;
 
-                const record = await getPrismaClient().schedule.findFirst({ where });
+                const record = await getTenantClient(effectiveTenantId).schedule.findFirst({ where });
                 if (record) return this.transformToUISchedule(record);
                 return null;
             }
@@ -119,7 +119,7 @@ export class SchedulePostgresRepository implements IScheduleRepository {
             };
             if (accountId) where.accountId = accountId;
 
-            const record = await getPrismaClient().schedule.findFirst({ where });
+            const record = await getTenantClient(effectiveTenantId).schedule.findFirst({ where });
             if (!record) return null;
             return this.transformToUISchedule(record);
         } catch (error: unknown) {
@@ -141,7 +141,7 @@ export class SchedulePostgresRepository implements IScheduleRepository {
 
             const scheduleId = `sched-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-            const record = await getPrismaClient().schedule.create({
+            const record = await getTenantClient(tenantId).schedule.create({
                 data: {
                     tenantId,
                     scheduleId,
@@ -174,7 +174,7 @@ export class SchedulePostgresRepository implements IScheduleRepository {
         _accountId?: string
     ): Promise<UISchedule> {
         try {
-            const record = await getPrismaClient().schedule.update({
+            const record = await getTenantClient(tenantId).schedule.update({
                 where: {
                     tenantId_scheduleId: { tenantId, scheduleId },
                 },
@@ -203,7 +203,7 @@ export class SchedulePostgresRepository implements IScheduleRepository {
 
     async deleteSchedule(scheduleId: string, tenantId: string, _accountId?: string): Promise<void> {
         try {
-            await getPrismaClient().schedule.deleteMany({
+            await getTenantClient(tenantId).schedule.deleteMany({
                 where: { tenantId, scheduleId },
             });
         } catch (error: unknown) {

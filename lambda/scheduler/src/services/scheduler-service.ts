@@ -8,36 +8,16 @@ import {
     fetchScheduleById,
     createAuditLog,
     createExecutionAuditLog,
-    DEFAULT_TENANT_ID,
 } from './dynamodb-service.js';
-import { getSchedules as getSchedulesPg, getAccounts as getAccountsPg, logExecution as logExecutionPg } from './pg-service.js';
+import {
+    getActiveTenants,
+    getSchedules as getSchedulesPg,
+    getAccounts as getAccountsPg,
+    logExecution as logExecutionPg,
+} from './pg-service.js';
 
 // USE_PG_SCHEDULES=true routes schedule reads/writes to PostgreSQL
 const USE_PG_SCHEDULES = process.env.USE_PG_SCHEDULES === 'true';
-
-/**
- * Fetch active schedules — switches between DynamoDB and PostgreSQL via USE_PG_SCHEDULES.
- */
-async function fetchActiveSchedules(): Promise<Awaited<ReturnType<typeof fetchActiveSchedulesDynamo>>> {
-    if (USE_PG_SCHEDULES) {
-        logger.info('[scheduler-service] Using PostgreSQL for schedule fetch (USE_PG_SCHEDULES=true)');
-        const pgSchedules = await getSchedulesPg(DEFAULT_TENANT_ID);
-        return pgSchedules as Awaited<ReturnType<typeof fetchActiveSchedulesDynamo>>;
-    }
-    return fetchActiveSchedulesDynamo();
-}
-
-/**
- * Fetch active accounts — switches between DynamoDB and PostgreSQL via USE_PG_SCHEDULES.
- */
-async function fetchAccounts(): Promise<Awaited<ReturnType<typeof fetchActiveAccounts>>> {
-    if (USE_PG_SCHEDULES) {
-        logger.info('[scheduler-service] Using PostgreSQL for account fetch (USE_PG_SCHEDULES=true)');
-        const pgAccounts = await getAccountsPg(DEFAULT_TENANT_ID);
-        return pgAccounts as Awaited<ReturnType<typeof fetchActiveAccounts>>;
-    }
-    return fetchActiveAccounts();
-}
 import {
     createExecutionRecord,
     updateExecutionRecord,
@@ -81,20 +61,10 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
     logger.setContext({ executionId, mode: 'full' });
     logger.info('Starting full scan');
 
-    // Filter to ensure we only get actual schedules (in case GSI3 returns other active items like Accounts)
-    const schedules = (await fetchActiveSchedules()).filter(s => s.type === 'schedule');
-    const accounts = await fetchAccounts();
-
-    logger.info(`Found ${schedules.length} active schedules and ${accounts.length} active accounts`);
-
-    if (schedules.length === 0) {
-        logger.info('No active schedules to process');
-        return createResult(executionId, 'full', startTime, 0, 0, 0, 0);
-    }
-
     let totalStarted = 0;
     let totalStopped = 0;
     let totalFailed = 0;
+    let totalSchedulesProcessed = 0;
     const processedSchedules: Array<{
         scheduleId: string;
         scheduleName: string;
@@ -104,33 +74,94 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
         status: 'success' | 'partial' | 'error';
     }> = [];
 
-    // Process each schedule
-    for (const schedule of schedules) {
-        logger.debug(`Processing schedule loop: ${schedule.scheduleId} (${schedule.name})`, { schedule });
-        try {
-            const result = await processSchedule(schedule, accounts, triggeredBy);
-            totalStarted += result.started;
-            totalStopped += result.stopped;
-            totalFailed += result.failed;
-            processedSchedules.push({
-                scheduleId: schedule.scheduleId,
-                scheduleName: schedule.name,
-                started: result.started,
-                stopped: result.stopped,
-                failed: result.failed,
-                status: result.failed > 0 ? 'partial' : 'success',
-            });
-        } catch (error) {
-            logger.error(`Error processing schedule ${schedule.scheduleId}`, error);
-            totalFailed++;
-            processedSchedules.push({
-                scheduleId: schedule.scheduleId,
-                scheduleName: schedule.name,
-                started: 0,
-                stopped: 0,
-                failed: 1,
-                status: 'error',
-            });
+    if (USE_PG_SCHEDULES) {
+        // D-07: Iterate all active tenants sequentially
+        const tenants = await getActiveTenants();
+        logger.info(`Found ${tenants.length} active tenants`);
+
+        if (tenants.length === 0) {
+            logger.info('No active tenants to process');
+            return createResult(executionId, 'full', startTime, 0, 0, 0, 0);
+        }
+
+        // D-09: Process tenants sequentially
+        for (const tenant of tenants) {
+            logger.info(`Processing tenant: ${tenant.name} (${tenant.id})`);
+            const schedules = (await getSchedulesPg(tenant.id)).filter(s => s.type === 'schedule');
+            const accounts = await getAccountsPg(tenant.id);
+            logger.info(`Tenant ${tenant.name}: ${schedules.length} active schedules, ${accounts.length} accounts`);
+
+            for (const schedule of schedules) {
+                logger.debug(`Processing schedule: ${schedule.scheduleId} (${schedule.name})`, { schedule });
+                try {
+                    const result = await processSchedule(schedule, accounts, triggeredBy);
+                    totalStarted += result.started;
+                    totalStopped += result.stopped;
+                    totalFailed += result.failed;
+                    totalSchedulesProcessed++;
+                    processedSchedules.push({
+                        scheduleId: schedule.scheduleId,
+                        scheduleName: schedule.name,
+                        started: result.started,
+                        stopped: result.stopped,
+                        failed: result.failed,
+                        status: result.failed > 0 ? 'partial' : 'success',
+                    });
+                } catch (error) {
+                    logger.error(`Error processing schedule ${schedule.scheduleId} for tenant ${tenant.id}`, error);
+                    totalFailed++;
+                    totalSchedulesProcessed++;
+                    processedSchedules.push({
+                        scheduleId: schedule.scheduleId,
+                        scheduleName: schedule.name,
+                        started: 0,
+                        stopped: 0,
+                        failed: 1,
+                        status: 'error',
+                    });
+                }
+            }
+        }
+    } else {
+        // DynamoDB path: fetch all active schedules and accounts globally
+        const schedules = (await fetchActiveSchedulesDynamo()).filter(s => s.type === 'schedule');
+        const accounts = await fetchActiveAccounts();
+        logger.info(`Found ${schedules.length} active schedules and ${accounts.length} active accounts`);
+
+        if (schedules.length === 0) {
+            logger.info('No active schedules to process');
+            return createResult(executionId, 'full', startTime, 0, 0, 0, 0);
+        }
+
+        for (const schedule of schedules) {
+            logger.debug(`Processing schedule loop: ${schedule.scheduleId} (${schedule.name})`, { schedule });
+            try {
+                const result = await processSchedule(schedule, accounts, triggeredBy);
+                totalStarted += result.started;
+                totalStopped += result.stopped;
+                totalFailed += result.failed;
+                totalSchedulesProcessed++;
+                processedSchedules.push({
+                    scheduleId: schedule.scheduleId,
+                    scheduleName: schedule.name,
+                    started: result.started,
+                    stopped: result.stopped,
+                    failed: result.failed,
+                    status: result.failed > 0 ? 'partial' : 'success',
+                });
+            } catch (error) {
+                logger.error(`Error processing schedule ${schedule.scheduleId}`, error);
+                totalFailed++;
+                totalSchedulesProcessed++;
+                processedSchedules.push({
+                    scheduleId: schedule.scheduleId,
+                    scheduleName: schedule.name,
+                    started: 0,
+                    stopped: 0,
+                    failed: 1,
+                    status: 'error',
+                });
+            }
         }
     }
 
@@ -148,7 +179,7 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
         details: `Full scan completed: ${totalStarted} started, ${totalStopped} stopped, ${totalFailed} failed`,
         severity: totalFailed > 0 ? 'medium' : 'info',
         metadata: {
-            schedulesProcessed: schedules.length,
+            schedulesProcessed: totalSchedulesProcessed,
             resourcesStarted: totalStarted,
             resourcesStopped: totalStopped,
             resourcesFailed: totalFailed,
@@ -162,7 +193,7 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
         executionId,
         'full',
         startTime,
-        schedules.length,
+        totalSchedulesProcessed,
         totalStarted,
         totalStopped,
         totalFailed
@@ -183,6 +214,10 @@ export async function runPartialScan(
 
     if (!scheduleId) {
         throw new Error('scheduleId or scheduleName is required for partial scan');
+    }
+
+    if (!event.tenantId) {
+        throw new Error('tenantId is required for partial scan');
     }
 
     logger.setContext({ executionId, mode: 'partial', scheduleId, user: userEmail || 'system' });
@@ -213,7 +248,9 @@ export async function runPartialScan(
 
     logger.debug('Fetched schedule for partial scan', { schedule });
 
-    const accounts = await fetchAccounts();
+    const accounts = USE_PG_SCHEDULES
+        ? await getAccountsPg(event.tenantId)
+        : await fetchActiveAccounts();
     logger.debug(`Fetched ${accounts.length} active accounts for partial scan`);
 
     try {
@@ -296,6 +333,12 @@ async function processSchedule(
     const resources = schedule.resources || [];
     const scheduleStartTime = Date.now();
 
+    if (!schedule.tenantId) {
+        logger.warn(`Schedule ${schedule.scheduleId} has no tenantId, skipping`);
+        return { started: 0, stopped: 0, failed: 0 };
+    }
+    const tenantId: string = schedule.tenantId;
+
     logger.info(`Processing schedule: ${schedule.name} (${schedule.scheduleId}) with ${resources.length} resources`);
 
     if (resources.length === 0) {
@@ -326,7 +369,7 @@ async function processSchedule(
     const execParams: CreateExecutionParams = {
         scheduleId: schedule.scheduleId,
         scheduleName: schedule.name,
-        tenantId: schedule.tenantId || DEFAULT_TENANT_ID,
+        tenantId,
         accountId: schedule.accountId || 'system',
         triggeredBy,
     };
@@ -405,7 +448,7 @@ async function processSchedule(
                                 const savedState = await getLastEC2InstanceState(
                                     schedule.scheduleId,
                                     resource.arn,
-                                    schedule.tenantId
+                                    tenantId
                                 );
                                 lastState = savedState || undefined;
                                 if (lastState) {
@@ -422,7 +465,7 @@ async function processSchedule(
                                 const savedState = await getLastRDSInstanceState(
                                     schedule.scheduleId,
                                     resource.arn,
-                                    schedule.tenantId
+                                    tenantId
                                 );
                                 lastState = savedState || undefined;
                                 if (lastState) {
@@ -440,7 +483,7 @@ async function processSchedule(
                                 const lastState = await getLastECSServiceState(
                                     schedule.scheduleId,
                                     resource.arn,
-                                    schedule.tenantId
+                                    tenantId
                                 );
                                 lastDesiredCount = lastState?.desiredCount;
                                 lastAsgState = lastState?.asg_state;
@@ -455,7 +498,7 @@ async function processSchedule(
                                 const savedState = await getLastASGState(
                                     schedule.scheduleId,
                                     resource.arn,
-                                    schedule.tenantId
+                                    tenantId
                                 );
                                 lastState = savedState || undefined;
                                 if (lastState) {
@@ -496,7 +539,7 @@ async function processSchedule(
                 await logExecutionPg({
                     tenantId: execParams.tenantId,
                     scheduleId: execParams.scheduleId,
-                    accountId: execParams.accountId,
+                    accountId: execParams.accountId ?? 'unknown',
                     status: failed > 0 ? 'partial' : 'success',
                     executionTime: new Date().toISOString(),
                     resourcesStarted: started,
@@ -507,7 +550,7 @@ async function processSchedule(
                 });
                 logger.info(`[pg-service] Execution record written to PostgreSQL for schedule ${schedule.name}`);
             } catch (pgError) {
-                logger.warn('[scheduler-service] Failed to write execution to PostgreSQL (non-fatal)', pgError);
+                logger.warn('[scheduler-service] Failed to write execution to PostgreSQL (non-fatal)', { error: String(pgError) });
             }
         }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuditService } from '@/lib/audit-service';
 import { ScheduleExecutionService } from '@/lib/schedule-execution-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // GET /api/accounts/[accountId]/activity - Get recent activity logs for this account
 export async function GET(
@@ -18,11 +19,12 @@ export async function GET(
         }
 
         const decodedAccountId = decodeURIComponent(accountId);
+        const tenantId = await getSessionTenantId();
 
         // Fetch audit logs
         const auditPromise = AuditService.getAuditLogs({
-            limit: 100, // Increased limit to ensure we find relevant logs
-        });
+            limit: 100,
+        }, tenantId);
 
         // Fetch schedule executions
         const executionsPromise = ScheduleExecutionService.getRecentExecutions({

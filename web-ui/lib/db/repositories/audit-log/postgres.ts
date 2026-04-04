@@ -12,7 +12,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import type { AuditLog } from '@/lib/types';
 import type { AuditLogFilters, AuditLogResponse } from '@/lib/audit-service';
 import type { IAuditLogRepository } from './interface';
@@ -38,12 +38,13 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
             const logId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const expiresAt = new Date(Date.now() + AUDIT_TTL_MS);
 
-            // tenantId is required for multi-tenant PostgreSQL; fall back to 'org-default'
-            // for backward compatibility with callers that don't pass tenantId
-            const tenantId = (auditData as Record<string, unknown>).tenantId as string | undefined
-                ?? 'org-default';
+            const tenantId = (auditData as Record<string, unknown>).tenantId as string | undefined;
+            if (!tenantId) {
+                console.error('[AuditLogPostgresRepository] createAuditLog called without tenantId — skipping');
+                return;
+            }
 
-            await getPrismaClient().auditLog.create({
+            await getTenantClient(tenantId).auditLog.create({
                 data: {
                     tenantId,
                     logId,
@@ -143,7 +144,7 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
                 ];
             }
 
-            const rows = await getPrismaClient().auditLog.findMany({
+            const rows = await getTenantClient(tenantId).auditLog.findMany({
                 where,
                 orderBy: { timestamp: 'desc' },
                 take: limit,

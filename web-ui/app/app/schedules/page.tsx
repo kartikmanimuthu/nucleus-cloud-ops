@@ -1,6 +1,7 @@
 
 import { ScheduleService } from "@/lib/schedule-service";
 import { UISchedule, SearchParams } from "@/lib/types";
+import { getSessionTenantId } from "@/lib/auth-session";
 import { SchedulesPageClient } from "./schedules-page-client";
 
 // Server-side data fetching with filters
@@ -10,6 +11,7 @@ async function getSchedulesData(filters?: {
   searchTerm?: string;
   page?: number;
   limit?: number;
+  tenantId?: string;
 }): Promise<{ schedules: UISchedule[], total: number, error?: string }> {
   try {
     const { schedules, total } = await ScheduleService.getSchedules(filters);
@@ -26,20 +28,23 @@ async function getSchedulesData(filters?: {
 
 export default async function SchedulesPage({ searchParams }: { searchParams: SearchParams }) {
   searchParams = await searchParams
+  const tenantId = await getSessionTenantId();
+
   // Extract filters from URL parameters
   const statusFilter = typeof searchParams.status === 'string' ? searchParams.status : 'all';
   const resourceFilter = typeof searchParams.resource === 'string' ? searchParams.resource : 'all';
   const searchTerm = typeof searchParams.search === 'string' ? searchParams.search : '';
   const page = typeof searchParams.page === 'string' ? parseInt(searchParams.page) : 1;
   const limit = typeof searchParams.limit === 'string' ? parseInt(searchParams.limit) : 10;
-  
+
   // Fetch filtered schedules from the server side
   const { schedules, total, error } = await getSchedulesData({
     statusFilter: statusFilter !== 'all' ? statusFilter : undefined,
     resourceFilter: resourceFilter !== 'all' ? resourceFilter : undefined,
     searchTerm: searchTerm || undefined,
     page,
-    limit
+    limit,
+    tenantId
   });
 
   // Calculate server-side summary statistics

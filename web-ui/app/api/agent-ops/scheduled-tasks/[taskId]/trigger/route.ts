@@ -3,13 +3,16 @@ import { getScheduledTask, updateLastRun } from '@/lib/agent-ops/scheduled-task-
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { notifyScheduledRunResult } from '@/lib/agent-ops/scheduled-notifier';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function POST(req: Request, { params }: { params: Promise<{ taskId: string }> }) {
     try {
         const { taskId } = await params;
-        const { tenantId = 'default' } = await req.json().catch(() => ({}));
+        const tenantId = await getSessionTenantId();
+
+        // Pre-flight ownership check (D-08)
         const task = await getScheduledTask(tenantId, taskId);
-        if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        if (!task) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 
         const scheduledAt = new Date().toISOString();
         const run = await agentOpsService.createRun({

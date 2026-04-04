@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
-    getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import { KnowledgeBasePostgresRepository } from './postgres';
 
 const makeKBRow = (overrides: Record<string, unknown> = {}) => ({
@@ -43,7 +43,7 @@ describe('KnowledgeBasePostgresRepository', () => {
                 deleteMany: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('listKnowledgeBases', () => {
@@ -198,5 +198,61 @@ describe('KnowledgeBasePostgresRepository', () => {
             expect(callArg.data.vectorCount).toEqual({ increment: 50 });
             expect(callArg.where).toMatchObject({ id: 'kb-1', tenantId: 'tenant-1' });
         });
+    });
+});
+
+describe('KnowledgeBasePostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        knowledgeBase: {
+            findMany: MockedFunction<any>;
+            findFirst: MockedFunction<any>;
+            create: MockedFunction<any>;
+            updateMany: MockedFunction<any>;
+            deleteMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            knowledgeBase: {
+                findMany: vi.fn().mockResolvedValue([]),
+                findFirst: vi.fn().mockResolvedValue(null),
+                create: vi.fn(),
+                updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+                deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('listKnowledgeBases calls getTenantClient with correct tenantId', async () => {
+        const repo = new KnowledgeBasePostgresRepository();
+        await repo.listKnowledgeBases('tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getKnowledgeBase calls getTenantClient with correct tenantId', async () => {
+        const repo = new KnowledgeBasePostgresRepository();
+        await repo.getKnowledgeBase('kb-1', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('createKnowledgeBase calls getTenantClient with correct tenantId', async () => {
+        mockPrisma.knowledgeBase.create.mockResolvedValue(makeKBRow({ tenantId: 'tenant-test' }));
+        const repo = new KnowledgeBasePostgresRepository();
+        await repo.createKnowledgeBase({ name: 'New KB' }, 'tenant-test', 'user-1');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('updateKnowledgeBase calls getTenantClient with correct tenantId', async () => {
+        const repo = new KnowledgeBasePostgresRepository();
+        await repo.updateKnowledgeBase('kb-1', { name: 'Updated' }, 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('deleteKnowledgeBase calls getTenantClient with correct tenantId', async () => {
+        const repo = new KnowledgeBasePostgresRepository();
+        await repo.deleteKnowledgeBase('kb-1', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });

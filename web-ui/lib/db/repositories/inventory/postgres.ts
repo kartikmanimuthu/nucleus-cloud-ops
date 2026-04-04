@@ -9,7 +9,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
 import type {
     IInventoryRepository,
     InventoryResource,
@@ -74,9 +74,10 @@ export class InventoryPostgresRepository implements IInventoryRepository {
 
             const skip = (page - 1) * limit;
 
+            const client = getTenantClient(tenantId);
             const [total, rows] = await Promise.all([
-                getPrismaClient().inventoryResource.count({ where }),
-                getPrismaClient().inventoryResource.findMany({
+                client.inventoryResource.count({ where }),
+                client.inventoryResource.findMany({
                     where,
                     skip,
                     take: limit,
@@ -99,7 +100,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
         resourceId: string
     ): Promise<InventoryResource | null> {
         try {
-            const row = await getPrismaClient().inventoryResource.findUnique({
+            const row = await getTenantClient(tenantId).inventoryResource.findUnique({
                 where: {
                     tenantId_accountId_resourceType_resourceId: {
                         tenantId,
@@ -121,17 +122,31 @@ export class InventoryPostgresRepository implements IInventoryRepository {
         resource: Omit<InventoryResource, 'id'>
     ): Promise<InventoryResource> {
         try {
-            const row = await getPrismaClient().inventoryResource.upsert({
+            // D-03: Resolve tenantId from accountId when missing/default (Lambda write path safety)
+            let resolvedTenantId = resource.tenantId;
+            if (!resolvedTenantId || resolvedTenantId === 'default' || resolvedTenantId === 'org-default') {
+                const account = await getPrismaClient().account.findFirst({
+                    where: { accountId: resource.accountId },
+                    select: { tenantId: true },
+                });
+                if (!account?.tenantId) {
+                    console.error(`[InventoryPostgresRepository] No account found for accountId=${resource.accountId}, skipping upsert`);
+                    return null as unknown as InventoryResource;
+                }
+                resolvedTenantId = account.tenantId;
+            }
+
+            const row = await getTenantClient(resolvedTenantId).inventoryResource.upsert({
                 where: {
                     tenantId_accountId_resourceType_resourceId: {
-                        tenantId: resource.tenantId,
+                        tenantId: resolvedTenantId,
                         accountId: resource.accountId,
                         resourceType: resource.resourceType,
                         resourceId: resource.resourceId,
                     },
                 },
                 create: {
-                    tenantId: resource.tenantId,
+                    tenantId: resolvedTenantId,
                     accountId: resource.accountId,
                     region: resource.region,
                     resourceType: resource.resourceType,
@@ -166,10 +181,28 @@ export class InventoryPostgresRepository implements IInventoryRepository {
         if (!resources.length) return 0;
 
         try {
-            let count = 0;
-            await getPrismaClient().$transaction(
-                resources.map((resource) =>
-                    getPrismaClient().inventoryResource.upsert({
+            // D-04: Resolve tenantId from accountId when missing/default (Lambda write path safety)
+            // All resources in a batch share the same accountId (same discovery scan)
+            let resolvedTenantId = resources[0].tenantId;
+            if (!resolvedTenantId || resolvedTenantId === 'default' || resolvedTenantId === 'org-default') {
+                const account = await getPrismaClient().account.findFirst({
+                    where: { accountId: resources[0].accountId },
+                    select: { tenantId: true },
+                });
+                if (!account?.tenantId) {
+                    console.error(`[InventoryPostgresRepository] No account found for accountId=${resources[0].accountId}, skipping batch upsert`);
+                    return 0;
+                }
+                resolvedTenantId = account.tenantId;
+            }
+
+            // Stamp every resource with the resolved tenantId
+            const scopedResources = resources.map((r) => ({ ...r, tenantId: resolvedTenantId }));
+
+            const client = getTenantClient(resolvedTenantId);
+            await client.$transaction(
+                scopedResources.map((resource) =>
+                    client.inventoryResource.upsert({
                         where: {
                             tenantId_accountId_resourceType_resourceId: {
                                 tenantId: resource.tenantId,
@@ -202,8 +235,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
                     })
                 )
             );
-            count = resources.length;
-            return count;
+            return scopedResources.length;
         } catch (error: unknown) {
             const msg = error instanceof Error ? error.message : String(error);
             console.error('[InventoryPostgresRepository] Error in upsertBatch:', error);
@@ -213,7 +245,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
 
     async getResourceCounts(tenantId: string): Promise<ResourceCount[]> {
         try {
-            const groups = await getPrismaClient().inventoryResource.groupBy({
+            const groups = await getTenantClient(tenantId).inventoryResource.groupBy({
                 by: ['resourceType'],
                 where: { tenantId },
                 _count: { resourceType: true },
@@ -236,7 +268,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
         accountId: string
     ): Promise<number> {
         try {
-            const result = await getPrismaClient().inventoryResource.deleteMany({
+            const result = await getTenantClient(tenantId).inventoryResource.deleteMany({
                 where: { tenantId, accountId },
             });
             return result.count;
@@ -281,7 +313,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
                 LIMIT ${limitParam}
             `;
 
-            const rows = await getPrismaClient().$queryRawUnsafe<
+            const rows = await getTenantClient(tenantId).$queryRawUnsafe<
                 Array<{
                     id: string;
                     tenantId: string;

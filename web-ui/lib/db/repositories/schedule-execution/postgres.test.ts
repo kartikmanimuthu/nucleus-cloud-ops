@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
-    getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import { ScheduleExecutionPostgresRepository } from './postgres';
 
 const makeExecutionRow = (overrides: Record<string, unknown> = {}) => ({
@@ -42,7 +42,7 @@ describe('ScheduleExecutionPostgresRepository', () => {
                 findMany: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('logExecution', () => {
@@ -166,5 +166,52 @@ describe('ScheduleExecutionPostgresRepository', () => {
             expect(result[0].status).toBe('partial');
             expect(result[0].resourcesFailed).toBe(1);
         });
+    });
+});
+
+describe('ScheduleExecutionPostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        scheduleExecution: {
+            create: MockedFunction<any>;
+            findMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            scheduleExecution: {
+                create: vi.fn(),
+                findMany: vi.fn().mockResolvedValue([]),
+            },
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('logExecution calls getTenantClient with correct tenantId', async () => {
+        mockPrisma.scheduleExecution.create.mockResolvedValue({
+            id: 'cuid-1', tenantId: 'tenant-test', executionId: 'exec-1', scheduleId: 'sched-1',
+            accountId: 'acc-1', status: 'success', executionTime: new Date(),
+            resourcesStarted: 0, resourcesStopped: 0, resourcesFailed: 0,
+            duration: null, errorMessage: null, details: null, scheduleMetadata: null,
+            expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+        });
+        const repo = new ScheduleExecutionPostgresRepository();
+        await repo.logExecution({
+            tenantId: 'tenant-test', accountId: 'acc-1', scheduleId: 'sched-1',
+            executionTime: new Date().toISOString(), status: 'success',
+        });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getExecutionHistory calls getTenantClient with correct tenantId', async () => {
+        const repo = new ScheduleExecutionPostgresRepository();
+        await repo.getExecutionHistory('sched-1', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getRecentExecutions calls getTenantClient with correct tenantId', async () => {
+        const repo = new ScheduleExecutionPostgresRepository();
+        await repo.getRecentExecutions('tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });

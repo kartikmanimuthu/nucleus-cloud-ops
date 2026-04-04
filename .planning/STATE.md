@@ -1,34 +1,34 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: executing
-stopped_at: Completed quick task 260331-ocp migrate ask-ai from S3 Vectors + DynamoDB to PostgreSQL pgvector
-last_updated: "2026-03-31T12:20:23.520Z"
-last_activity: 2026-03-31
+milestone: v4.0
+milestone_name: Tenant Isolation Hardening
+status: in_progress
+stopped_at: Phase 21 complete — v4.0 milestone complete
+last_updated: "2026-04-03"
+last_activity: 2026-04-03
 progress:
-  total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 20
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 9
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-29)
+See: .planning/PROJECT.md (updated 2026-04-03)
 
-**Core value:** Pulumi TypeScript managing all core AWS infrastructure — CDK removed for NetworkingStack + ComputeStack
-**Current focus:** Phase 11 — cutover-cdk-removal
+**Core value:** Multi-tenant SaaS cloud ops platform with dual auth, custom RBAC, tenant isolation, invitations, org switching, and branding
+**Current focus:** Phase 18 — Accounts & Scheduler Isolation
 
 ## Current Position
 
-Phase: 05 (langgraph-migration-validation) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-03-31
+Phase: 18 (Accounts & Scheduler Isolation) — EXECUTING
+Plan: 2 of 2
+Status: Phase complete — ready for verification
+Last activity: 2026-04-03
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -36,104 +36,60 @@ Progress: [░░░░░░░░░░] 0%
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 18
+- Timeline: 2 days (2026-03-31 → 2026-04-01)
 
 **By Phase:**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| - | - | - | - |
-
-**Recent Trend:**
-
-- Last 5 plans: none yet
-- Trend: -
-
-*Updated after each plan completion*
-| Phase 06-scaffold P01 | 8 | 2 tasks | 11 files |
-| Phase 06-scaffold P02 | 25 | 2 tasks | 3 files |
-| Phase 07-networking P01 | 3 | 2 tasks | 4 files |
-| Phase 07-networking P02 | 25 | 1 tasks | 1 files |
-| Phase 07-networking P03 | 8 | 1 tasks | 0 files |
-| Phase 07-networking P03 | 8 | 1 tasks | 0 files |
-| Phase 08-data-layer P01 | 3 | 2 tasks | 1 files |
-| Phase 08-data-layer P02 | 6 | 2 tasks | 2 files |
-| Phase 08-data-layer P03 | 10 | 2 tasks | 1 files |
-| Phase 09-lambda-eventbridge P09-01 | 8 | 2 tasks | 5 files |
-| Phase 09-lambda-eventbridge P09-02 | 3 | 2 tasks | 1 files |
-| Phase 09-lambda-eventbridge P09-03 | 11 | 2 tasks | 1 files |
-| Phase 10-ecs-alb-cloudfront P01 | 18 | 2 tasks | 4 files |
-| Phase 10-ecs-alb-cloudfront P02 | 12 | 2 tasks | 1 files |
-| Phase 10-ecs-alb-cloudfront P03 | 31 | 1 tasks | 2 files |
-| Phase 11-cutover-cdk-removal P01 | 2 | 1 tasks | 1 files |
-| Phase 11-cutover-cdk-removal P02 | 12 | 2 tasks | 3 files |
-| Phase 11-cutover-cdk-removal P03 | 3 | 2 tasks | 5 files |
+| Phase | Plans | Completed |
+|-------|-------|-----------|
+| 12. Auth Foundation | 3 | 2026-03-31 |
+| 13. Custom RBAC | 4 | 2026-03-31 |
+| 14. Tenant Context Enforcement | 4 | 2026-04-01 |
+| 15. Super Admin + Onboarding | 2 | 2026-04-01 |
+| 16. User Invitations | 2 | 2026-04-01 |
+| 17. Org Switcher + Settings | 3 | 2026-04-01 |
+| Phase 18 P01 | 5 | 2 tasks | 2 files |
+| Phase 18 P02 | 8 | 2 tasks | 8 files |
+| Phase 19-inventory-agent-ops-isolation P01 | 10 | 2 tasks | 4 files |
+| Phase 19-inventory-agent-ops-isolation P02 | 15 | 2 tasks | 15 files |
+| Phase 20-knowledge-base-channels-isolation P02 | 5 | 1 tasks | 2 files |
+| Phase 20-knowledge-base-channels-isolation P01 | 15 | 2 tasks | 8 files |
+| Phase 21-audit-settings-regression-tests P01 | 10 | 2 tasks | 6 files |
+| Phase 21-audit-settings-regression-tests P03 | 8 | 2 tasks | 6 files |
+| Phase 21-audit-settings-regression-tests P02 | 18 | 2 tasks | 10 files |
 
 ## Accumulated Context
 
 ### Decisions
 
-Key decisions from research (2026-03-29):
+See PROJECT.md Key Decisions table for full log.
 
-- S3 backend (no DynamoDB lock table) — Pulumi uses S3 conditional writes for locking; DynamoDB lock table is a Terraform pattern, not Pulumi
-- KMS secrets provider (`awskms://alias/pulumi-secrets`) — replaces passphrase; required for CI/team use; passphrase loss locks state permanently
-- Two separate Pulumi projects (`infra/networking/`, `infra/compute/`) — mirrors CDK stack split; connected via StackReference
-- `infra/` subdirectory (not repo root) — CDK tsconfig uses `"module": "commonjs"`, Pulumi uses `"module": "ESNext"`; co-location causes conflicts
-- `@pulumi/aws` primitives only — no `@pulumi/awsx` or `@pulumi/cdk`; CDK parity is easier to verify with 1:1 resource mapping
-- Explicit physical names on every resource — Pulumi auto-naming appends 7-char suffix; any rename triggers delete+create
-- `retainOnDelete: true` on all DynamoDB tables and S3 buckets — protection against accidental `pulumi destroy`
-- `forceNewDeployment: true` on ECS service — ECS does not redeploy on task definition update without this
-- Blue/green cutover — Pulumi deploys new resources alongside CDK; CDK stays live until Pulumi smoke-tested
-- S3 Vectors + S3 Tables deferred to Phase 11 — no native `@pulumi/aws` support; wrap in `aws.cloudformation.Stack`
-- [Phase 06-scaffold]: getOutput() used in compute StackReference (not requireOutput()) — networking has placeholder values during scaffold; Phase 8+ switches to requireOutput()
-- [Phase 06-scaffold]: infra/ subdirectory isolation: Pulumi tsconfig commonjs module prevents conflict with root CDK tsconfig
-- [Phase 06-scaffold]: KMS URI needs ?region=us-east-1 suffix — profile default region (ap-south-1) does not match bucket/key region (us-east-1)
-- [Phase 06-scaffold]: StackReference for S3 backend requires literal 'organization' prefix: organization/nucleus-networking/prod
-- [Phase 07-networking]: awsx.ec2.Vpc component used for networking (not raw aws.ec2.* primitives) — matches CDK ec2.Vpc abstraction level
-- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds filtered from vpc.subnets by Name tag — vpc.isolatedSubnetIds merges all Isolated tiers making them indistinguishable
-- [Phase 07-networking]: awsx subnet naming confirmed as nucleus-vpc-<spec-name>-<index> — Name tag filter in index.ts is correct
-- [Phase 07-networking]: No repo file changes on pulumi up — Pulumi state is in S3; task commit skipped (nothing to stage)
-- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds Name tag filters confirmed correct at deploy time — each returned exactly 2 IDs
-- [Phase 07-networking]: compute requireOutput() resolves to vpc-0cd6e5fd607d1a494 — StackReference wiring is live and enforced
-- [Phase 07-networking]: No repo file changes on pulumi up — Pulumi state is in S3; task commit skipped (nothing to stage)
-- [Phase 07-networking]: databaseSubnetIds and intraSubnetIds Name tag filters confirmed correct at deploy time — each returned exactly 2 IDs
-- [Phase 07-networking]: compute requireOutput() resolves to vpc-0cd6e5fd607d1a494 — StackReference wiring is live and enforced
-- [Phase 08-data-layer]: Deprecated hashKey/rangeKey in globalSecondaryIndexes are warnings only — preview exits 0; no migration to key_schema needed for this phase
-- [Phase 08-data-layer]: Used aws.getCallerIdentityOutput() instead of top-level await — tsconfig commonjs module incompatible with top-level await
-- [Phase 08-data-layer]: cognitoUserPoolClientSecret exported as pulumi.secret() — encrypted in Pulumi state, shows [secret] in stack output
-- [Phase 09-lambda-eventbridge]: npm ci required before esbuild for scheduler Lambda (uuid, dayjs, pg are non-AWS-SDK deps not in Lambda runtime)
-- [Phase 09-lambda-eventbridge]: vector_processor esbuild runs from project root — no package.json, needs root node_modules for @aws-sdk/client-s3vectors and @prisma/client
-- [Phase 09-lambda-eventbridge]: lambda.zip files added to .gitignore — build artifacts produced by infra/build-lambdas.sh, not committed to source
-- [Phase 09-lambda-eventbridge]: aws.lambda.Function uses name not functionName — Pulumi API difference from CDK NodejsFunction
-- [Phase 09-lambda-eventbridge]: VECTOR_BUCKET_ARN and KB_VECTOR_BUCKET_NAME are intentional placeholders — Phase 11 wires real S3 Vectors bucket
-- [Phase 09-lambda-eventbridge]: Discovery ECS task definition created without cluster ARN — Phase 10 adds EventBridge Scheduler target when cluster exists
-- [Phase 10-ecs-alb-cloudfront]: webUiImageUri stored in Pulumi config — executor sets after running build-images.sh
-- [Phase 10-ecs-alb-cloudfront]: nextauthSecret uses config.requireSecret() — KMS-encrypted in Pulumi state, not plaintext
-- [Phase 10-ecs-alb-cloudfront]: Discovery task def corrected 256/512 -> 1024/2048 CPU/MiB to match CDK (Phase 9 deployed wrong values)
-- [Phase 10-ecs-alb-cloudfront]: ALB inbound restricted to CloudFront managed prefix list — not open to internet
-- [Phase 10-ecs-alb-cloudfront]: ECS service desiredCount=0 at deploy — scale up after smoke testing
-- [Phase 10-ecs-alb-cloudfront]: dependsOn: [httpListener] on ECS service ensures listener exists before target registration
-- [Phase 10-ecs-alb-cloudfront]: random.RandomString for CloudFront origin verify secret — stable value prevents CloudFront replacement on every pulumi preview
-- [Phase 10-ecs-alb-cloudfront]: AWS EC2 security group descriptions must use ASCII only — em dash causes 400 InvalidParameterValue error
-- [Phase 10-ecs-alb-cloudfront]: Public ECR requires separate auth (aws ecr-public get-login-password) before docker build — not covered by private ECR login
-- [Phase 11-cutover-cdk-removal]: generate-env.ts uses --show-secrets to resolve cognitoUserPoolClientSecret; writes to web-ui/.env.local; constructs COGNITO_DOMAIN from prefix
-- [Phase 11-cutover-cdk-removal]: S3 Vectors CFN template includes 21 resources: VectorBucket custom resource + 2 index custom resources with Lambda-backed providers and IAM roles
-- [Phase 11-cutover-cdk-removal]: cdk synth requires APP_NAME/AWS_ACCOUNT_ID/AWS_REGION env vars + AWS_PROFILE env var (not --profile flag which is a stack selector)
-- [Phase 11-cutover-cdk-removal]: templateBody read via fs.readFileSync inline (not S3-hosted) per CONTEXT.md locked decision; CAPABILITY_IAM required for vectors template IAM resources
-- [Phase 11-cutover-cdk-removal]: bin/webUIStack.ts omits schedulerLambdaArn — optional prop, can be wired via CDK context later if needed
-- [Phase 11-cutover-cdk-removal]: CDK package.json dependencies preserved — WebUIStack still requires aws-cdk-lib, constructs, etc.
+- [Phase 18]: getTenantClient(tenantId) in repository layer — Prisma middleware auto-injects tenantId on every query
+- [Phase 18]: Pre-flight ownership check in API route layer returns 403 before any cross-tenant mutation attempt
+- [Phase 18]: getTenantClient(tenantId) in SchedulePostgresRepository and ScheduleExecutionPostgresRepository — all 9 methods now tenant-scoped
+- [Phase 18]: Pre-flight ownership checks on schedule PUT/DELETE/toggle return 403 before any cross-tenant mutation
+- [Phase 19-inventory-agent-ops-isolation]: getPrismaClient() retained only for cross-entity account→tenantId lookup in upsertResource/upsertBatch
+- [Phase 19-inventory-agent-ops-isolation]: getTenantClient(tenantId) in all 3 agent-ops repositories; cross-tenant webhook methods kept on getPrismaClient with explicit comments
+- [Phase 19-inventory-agent-ops-isolation]: All 11 agent-ops API routes derive tenantId from getSessionTenantId(); pre-flight 403 on approve/cancel/resume (D-06) and all scheduled-task mutations (D-08)
+- [Phase 20-knowledge-base-channels-isolation]: TenantConfigService already accepted tenantId — no service changes needed, only route-layer fix
+- [Phase 20-knowledge-base-channels-isolation]: getTenantClient(tenantId) in KB and DataSource repos — consistent with Phase 18/19 pattern
+- [Phase 20-knowledge-base-channels-isolation]: Data source service methods called without tenantId — isolation via parent KB ownership pre-flight
+- [Phase 20-knowledge-base-channels-isolation]: Query route: tenantId extracted unconditionally; no-kbId path filters to tenant KB IDs to prevent cross-tenant vector leakage
+- [Phase 21-audit-settings-regression-tests]: AuditLogPostgresRepository uses getTenantClient(tenantId) for both createAuditLog and getAuditLogs — consistent with Phase 18/19/20 pattern
+- [Phase 21-audit-settings-regression-tests]: tenantId promoted from metadata-only to top-level property in all logUserAction/logResourceAction calls so repository layer can extract it
+- [Phase 21-audit-settings-regression-tests]: Mock at service layer for static-class routes; mock at repo/service-object layer for direct-call routes
+- [Phase 21-audit-settings-regression-tests]: audit-logs.test.ts: session-error path returns 500 with AuditService never called — proves no unscoped data path
+- [Phase 21-audit-settings-regression-tests]: Repos with cross-tenant methods mock both getTenantClient and getPrismaClient; isolation assertions only cover tenant-scoped methods
 
 ### Pending Todos
 
-- Phase 6 prerequisite: create S3 state bucket via `infra/bootstrap/bootstrap.sh` (one-time manual step)
-- Phase 11 prerequisite: run `cdk synth` to extract CFN templates for S3 Vectors + S3 Tables before wrapping in `aws.cloudformation.Stack`
-- Phase 10 prerequisite: verify container image build approach — CDK uses `ecs.ContainerImage.fromAsset`; Pulumi equivalent needs confirmation (may require separate ECR push step)
+- LangGraph thread ID migration script (bare UUIDs → tenantId:userId:uuid) — needed before production launch
+- Resend domain verification (SPF/DKIM) — blocks production email delivery
 
 ### Blockers/Concerns
 
-None at start of milestone.
+None.
 
 ### Quick Tasks Completed
 
@@ -149,8 +105,18 @@ None at start of milestone.
 | 260331-ocp | Migrate Ask AI from S3 Vectors + DynamoDB to PostgreSQL pgvector | 2026-03-31 | 2fef9ab | [260331-ocp-migrate-ask-ai-from-s3-vectors-dynamodb-](./quick/260331-ocp-migrate-ask-ai-from-s3-vectors-dynamodb-/) |
 | 260331-rpk | Create PostgreSQL RDS database in Pulumi and wire DATABASE_URL to all dependent services | 2026-03-31 | f09d2d3 | [260331-rpk-create-postgresql-rds-database-in-pulumi](./quick/260331-rpk-create-postgresql-rds-database-in-pulumi/) |
 | 260331-vh0 | Disable DynamoDB and enable PostgreSQL via feature flag environment variable, deploy via Pulumi | 2026-03-31 | a749767 | [260331-vh0-disable-dynamodb-and-enable-postgresql-v](./quick/260331-vh0-disable-dynamodb-and-enable-postgresql-v/) |
+| 260402-1et | fix post-login redirect loop cognito and credentials login not navigating to app | 2026-04-01 | 8e914bf | [260402-1et-fix-post-login-redirect-loop-cognito-and](.planning/quick/260402-1et-fix-post-login-redirect-loop-cognito-and/) |
+| 260403-j7b | logged in user should have provision to create his new tenant and switch the tenant and the whole application should render based on the switched tenant | 2026-04-03 | d9912b2 | [260403-j7b-logged-in-user-should-have-provision-to-](.planning/quick/260403-j7b-logged-in-user-should-have-provision-to-/) |
+| 260403-s0b | fix invitation login - invited users cannot login with temporary credentials | 2026-04-03 | bf1f57e | [260403-s0b-fix-invitation-login-invited-users-canno](.planning/quick/260403-s0b-fix-invitation-login-invited-users-canno/) |
+| 260403-seb | fix custom roles not appearing in invite dropdown + logo upload silent failure | 2026-04-03 | e994405 | [260403-seb-fix-custom-roles-not-appearing-in-invite](.planning/quick/260403-seb-fix-custom-roles-not-appearing-in-invite/) |
+| 260403-t3i | fix scheduler account dropdown to show tenant-scoped accounts and scope schedule creation to tenant | 2026-04-03 | — | [260403-t3i-fix-scheduler-account-dropdown-to-show-t](.planning/quick/260403-t3i-fix-scheduler-account-dropdown-to-show-t/) |
+| 260403-u7l | fix role ID gap, seed default roles, multi-org membership | 2026-04-03 | 10f5497 | [260403-u7l-fix-role-id-gap-seed-default-roles-multi](.planning/quick/260403-u7l-fix-role-id-gap-seed-default-roles-multi/) |
+| 260403-wqs | add preset/custom type segregation to custom_roles table and UI | 2026-04-03 | 41bda37 | [260403-wqs-add-preset-custom-type-segregation-to-cu](.planning/quick/260403-wqs-add-preset-custom-type-segregation-to-cu/) |
+| 260404-g74 | Add role editing for team members and pagination to both Team Members and Pending Invitations grids on the Settings Members page | 2026-04-04 | a16f820 | [260404-g74-add-role-editing-for-team-members-and-pa](.planning/quick/260404-g74-add-role-editing-for-team-members-and-pa/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-31 - Completed quick task 260331-vh0: Disable DynamoDB and enable PostgreSQL via feature flag environment variable, deploy via Pulumi
+Last activity: 2026-04-04 - Completed quick task 260404-g74: Add role editing for team members and pagination to both Team Members and Pending Invitations grids on the Settings Members page
+Last session: 2026-04-03T21:22:04.473Z
+Stopped at: Completed 21-02-PLAN.md
 Resume file: None

@@ -1,10 +1,9 @@
 import { redirect } from 'next/navigation';
-import { getServerAbility } from '@/lib/rbac/server-ability';
-import { Actions, Subjects } from '@/lib/rbac/types';
+import { can } from '@/lib/rbac/authorize';
 
 interface AuthorizePageProps {
-  action: Actions;
-  subject: Subjects;
+  action: string;
+  subject: string;
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }
@@ -12,21 +11,21 @@ interface AuthorizePageProps {
 /**
  * Server component wrapper that checks authorization before rendering children.
  * If user lacks permission, redirects to /unauthorized page.
- * 
+ *
  * @example
  * <AuthorizePage action="read" subject="Account">
  *   <AccountsPage />
  * </AuthorizePage>
  */
-export async function AuthorizePage({ 
-  action, 
-  subject, 
+export async function AuthorizePage({
+  action,
+  subject,
   children,
-  fallback 
+  fallback,
 }: AuthorizePageProps) {
-  const ability = await getServerAbility();
-  
-  if (ability.cannot(action, subject)) {
+  const allowed = await can(action, subject);
+
+  if (!allowed) {
     if (fallback) {
       return <>{fallback}</>;
     }
@@ -40,18 +39,17 @@ export async function AuthorizePage({
  * Helper function to check authorization in server components.
  * Returns true if authorized, false otherwise.
  */
-export async function checkPageAuth(action: Actions, subject: Subjects): Promise<boolean> {
-  const ability = await getServerAbility();
-  return ability.can(action, subject);
+export async function checkPageAuth(action: string, subject: string): Promise<boolean> {
+  return can(action, subject);
 }
 
 /**
  * Redirect to unauthorized if user cannot perform action.
  * Use this in page components or layouts.
  */
-export async function requireAuth(action: Actions, subject: Subjects): Promise<void> {
-  const ability = await getServerAbility();
-  if (ability.cannot(action, subject)) {
+export async function requireAuth(action: string, subject: string): Promise<void> {
+  const allowed = await can(action, subject);
+  if (!allowed) {
     redirect('/unauthorized');
   }
 }

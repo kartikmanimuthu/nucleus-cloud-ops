@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ScheduleService } from '@/lib/schedule-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 // GET /api/schedules/[scheduleId] - Get a specific schedule by ID
 export async function GET(
@@ -10,13 +11,8 @@ export async function GET(
 ) {
     try {
         const { scheduleId } = await params;
-
-        // In the new schema, we query by ID or Name?
-        // The previous implementation used Name as PK/SK.
-        // New implementation uses UUID as PK/SK.
-        // The param passed here is likely the scheduleId (UUID).
-
-        const schedule = await ScheduleService.getSchedule(scheduleId);
+        const tenantId = await getSessionTenantId();
+        const schedule = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
 
         if (!schedule) {
             return NextResponse.json(
@@ -44,14 +40,18 @@ export async function PUT(
         const { scheduleId } = await params;
         const session = await getServerSession(authOptions);
         const updatedBy = session?.user?.email || 'api-user';
+        const tenantId = await getSessionTenantId();
 
         const body = await request.json();
-
-        // ... validation ...
         const updateData = { ...body, id: scheduleId, updatedBy };
 
-        // ... update logic ...
-        const updatedSchedule = await ScheduleService.updateSchedule(scheduleId, updateData);
+        // Pre-flight ownership check (D-03)
+        const existing = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
+        if (!existing) {
+            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+        }
+
+        const updatedSchedule = await ScheduleService.updateSchedule(scheduleId, updateData, undefined, tenantId);
 
         return NextResponse.json(updatedSchedule);
     } catch (error) {
@@ -72,8 +72,15 @@ export async function DELETE(
         const { scheduleId } = await params;
         const session = await getServerSession(authOptions);
         const deletedBy = session?.user?.email || 'api-user';
+        const tenantId = await getSessionTenantId();
 
-        await ScheduleService.deleteSchedule(scheduleId, undefined, deletedBy);
+        // Pre-flight ownership check (D-03)
+        const existing = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
+        if (!existing) {
+            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+        }
+
+        await ScheduleService.deleteSchedule(scheduleId, undefined, deletedBy, tenantId);
 
         return NextResponse.json({ success: true });
     } catch (error) {

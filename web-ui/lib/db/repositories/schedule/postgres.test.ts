@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
 vi.mock('@/lib/db/pg-config', () => ({
-    getPrismaClient: vi.fn(),
+    getTenantClient: vi.fn(),
 }));
 
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import { SchedulePostgresRepository } from './postgres';
 
 const makeScheduleRow = (overrides: Record<string, unknown> = {}) => ({
@@ -51,7 +51,7 @@ describe('SchedulePostgresRepository', () => {
                 deleteMany: vi.fn(),
             },
         };
-        vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
     });
 
     describe('getSchedules', () => {
@@ -276,5 +276,78 @@ describe('SchedulePostgresRepository', () => {
             );
             expect(result.active).toBe(false);
         });
+    });
+});
+
+describe('SchedulePostgresRepository — tenant isolation', () => {
+    let mockPrisma: {
+        schedule: {
+            findMany: MockedFunction<any>;
+            count: MockedFunction<any>;
+            findFirst: MockedFunction<any>;
+            create: MockedFunction<any>;
+            update: MockedFunction<any>;
+            deleteMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            schedule: {
+                findMany: vi.fn().mockResolvedValue([]),
+                count: vi.fn().mockResolvedValue(0),
+                findFirst: vi.fn().mockResolvedValue(null),
+                create: vi.fn(),
+                update: vi.fn(),
+                deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+            },
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('getSchedules calls getTenantClient with correct tenantId', async () => {
+        const repo = new SchedulePostgresRepository();
+        await repo.getSchedules({ tenantId: 'tenant-test' });
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('getSchedule calls getTenantClient with correct tenantId', async () => {
+        const repo = new SchedulePostgresRepository();
+        await repo.getSchedule('sched-abc', undefined, 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('createSchedule calls getTenantClient with correct tenantId', async () => {
+        mockPrisma.schedule.create.mockResolvedValue({
+            id: 'cuid-1', tenantId: 'tenant-test', scheduleId: 'sched-new', accountId: 'acc-1',
+            name: 'Test', description: null, starttime: '09:00', endtime: '17:00', timezone: 'UTC',
+            days: ['Mon'], active: true, resources: [], createdAt: new Date(), updatedAt: new Date(),
+            createdBy: 'system', updatedBy: 'system',
+        });
+        const repo = new SchedulePostgresRepository();
+        await repo.createSchedule({
+            name: 'Test', active: true, days: ['Mon'], starttime: '09:00', endtime: '17:00',
+            timezone: 'UTC', accounts: ['acc-1'], resourceTypes: [], description: '',
+            executionCount: 0, successRate: 100, estimatedSavings: 0,
+        }, 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('updateSchedule calls getTenantClient with correct tenantId', async () => {
+        mockPrisma.schedule.update.mockResolvedValue({
+            id: 'cuid-1', tenantId: 'tenant-test', scheduleId: 'sched-abc', accountId: 'acc-1',
+            name: 'Updated', description: null, starttime: '09:00', endtime: '17:00', timezone: 'UTC',
+            days: ['Mon'], active: false, resources: [], createdAt: new Date(), updatedAt: new Date(),
+            createdBy: 'system', updatedBy: 'system',
+        });
+        const repo = new SchedulePostgresRepository();
+        await repo.updateSchedule('sched-abc', { active: false }, 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
+    });
+
+    it('deleteSchedule calls getTenantClient with correct tenantId', async () => {
+        const repo = new SchedulePostgresRepository();
+        await repo.deleteSchedule('sched-abc', 'tenant-test');
+        expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });

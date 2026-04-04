@@ -8,7 +8,14 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { Loader2, Shield, Users, RefreshCw } from 'lucide-react';
-import { ROLE_DEFINITIONS, TenantRole } from '@/lib/rbac/types';
+import type { PredefinedRole } from '@/lib/rbac/types';
+
+const ROLE_DEFINITIONS: { id: PredefinedRole; name: string; description: string; permissions: string[] }[] = [
+  { id: 'Owner', name: 'Owner', description: 'Full system access with all privileges', permissions: ['All Modules', 'Manage Users', 'Delete Resources'] },
+  { id: 'Admin', name: 'Admin', description: 'Full access except destructive settings operations', permissions: ['Manage Accounts', 'Manage Schedules', 'Manage Users', 'View Audit Logs'] },
+  { id: 'Member', name: 'Member', description: 'Create and manage resources, read-only settings', permissions: ['Manage Accounts', 'Manage Schedules', 'Use AI Ops', 'View Inventory'] },
+  { id: 'Viewer', name: 'Viewer', description: 'Read-only access across all modules', permissions: ['View Accounts', 'View Schedules', 'View Audit Logs'] },
+];
 
 interface User {
   id: string;
@@ -18,7 +25,7 @@ interface User {
   status: string;
   enabled: boolean;
   createdAt: string;
-  role: TenantRole | null;
+  role: PredefinedRole | null;
   tenantId: string;
 }
 
@@ -48,7 +55,7 @@ export default function UserManagementPage() {
     fetchUsers();
   }, []);
 
-  const assignRole = async (user: User, role: TenantRole) => {
+  const assignRole = async (user: User, role: PredefinedRole) => {
     setAssigningRole(user.sub);
     try {
       const response = await fetch('/api/admin/users/role', {
@@ -80,13 +87,15 @@ export default function UserManagementPage() {
     }
   };
 
-  const getRoleBadgeVariant = (role: TenantRole | null) => {
+  const getRoleBadgeVariant = (role: PredefinedRole | null) => {
     switch (role) {
-      case 'TenantAdmin':
+      case 'Owner':
         return 'default';
-      case 'TenantOperator':
+      case 'Admin':
+        return 'default';
+      case 'Member':
         return 'secondary';
-      case 'TenantViewer':
+      case 'Viewer':
         return 'outline';
       default:
         return 'destructive';
@@ -199,7 +208,7 @@ export default function UserManagementPage() {
                     <TableCell>
                       <Select
                         value={user.role || ''}
-                        onValueChange={(value) => assignRole(user, value as TenantRole)}
+                        onValueChange={(value) => assignRole(user, value as PredefinedRole)}
                         disabled={assigningRole === user.sub}
                       >
                         <SelectTrigger className="w-40">

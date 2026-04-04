@@ -1,5 +1,5 @@
 import { Metadata } from 'next';
-import { getServerAbility } from '@/lib/rbac/server-ability';
+import { isAdmin } from '@/lib/rbac/authorize';
 import { redirect } from 'next/navigation';
 
 export const metadata: Metadata = {
@@ -12,11 +12,10 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Check if user has admin permissions
-  const ability = await getServerAbility();
-  
-  // Must be able to read users to access admin section
-  if (ability.cannot('read', 'User')) {
+  // Check if user has admin permissions (Owner or Admin role)
+  const admin = await isAdmin();
+
+  if (!admin) {
     redirect('/app/dashboard');
   }
 

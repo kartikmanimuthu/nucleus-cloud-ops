@@ -1,12 +1,12 @@
 /**
  * Agent Ops — Run Detail API
- * 
+ *
  * GET /api/agent-ops/[runId]
- * Query params: tenantId
  */
 
 import { NextResponse } from 'next/server';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function GET(
     req: Request,
@@ -14,13 +14,12 @@ export async function GET(
 ) {
     try {
         const { runId } = await params;
-        const url = new URL(req.url);
-        const tenantId = url.searchParams.get('tenantId') || 'default';
+        const tenantId = await getSessionTenantId();
 
         // Fetch run and events in parallel
         const [run, events] = await Promise.all([
             agentOpsService.getRun(tenantId, runId),
-            agentOpsService.getRunEvents(runId),
+            agentOpsService.getRunEvents(runId, tenantId),
         ]);
 
         if (!run) {

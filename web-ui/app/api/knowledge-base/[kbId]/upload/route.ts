@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
-import { DEFAULT_TENANT_ID } from '@/lib/aws-config';
+import { getSessionTenantId } from '@/lib/auth-session';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
@@ -32,6 +32,10 @@ export async function POST(
 
   const { kbId } = await params;
 
+  const tenantId = await getSessionTenantId();
+  const kb = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
+  if (!kb) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -53,9 +57,9 @@ export async function POST(
     name: file.name,
     sourceType: 'file-upload',
     config: { fileName: file.name, fileSize: file.size, mimeType: file.type, s3Key: stagingKey, chunkCount: 0 },
-  });
-  await KnowledgeBaseService.updateDataSource(kbId, ds.id, { status: 'syncing' });
-  await KnowledgeBaseService.updateDataSourceCount(kbId, 1, DEFAULT_TENANT_ID);
+  }, tenantId);
+  await KnowledgeBaseService.updateDataSource(kbId, ds.id, { status: 'syncing' }, tenantId);
+  await KnowledgeBaseService.updateDataSourceCount(kbId, 1, tenantId);
 
   // Enqueue background job
   await sqs.send(new SendMessageCommand({

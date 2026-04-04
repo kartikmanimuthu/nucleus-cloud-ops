@@ -5,7 +5,7 @@
  * recordEvent never throws — failures are logged only.
  * getRunEvents returns events in chronological order (createdAt ASC).
  */
-import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantClient } from '@/lib/db/pg-config';
 import type { AgentOpsEvent } from '@/lib/agent-ops/types';
 import type { IAgentOpsEventRepository, RecordEventParams } from './interface';
 
@@ -45,9 +45,9 @@ export class AgentOpsEventPostgresRepository implements IAgentOpsEventRepository
     async recordEvent(params: RecordEventParams): Promise<void> {
         const expiresAt = new Date(Date.now() + TTL_30_DAYS_MS);
         try {
-            await getPrismaClient().agentOpsEvent.create({
+            await getTenantClient(params.tenantId).agentOpsEvent.create({
                 data: {
-                    tenantId: 'org-default', // tenantId resolved from run at call site if needed
+                    tenantId: params.tenantId,
                     runId: params.runId,
                     eventType: params.eventType,
                     node: params.node,
@@ -66,7 +66,7 @@ export class AgentOpsEventPostgresRepository implements IAgentOpsEventRepository
     }
 
     async getRunEvents(runId: string, tenantId: string): Promise<AgentOpsEvent[]> {
-        const records = await getPrismaClient().agentOpsEvent.findMany({
+        const records = await getTenantClient(tenantId).agentOpsEvent.findMany({
             where: { runId, tenantId },
             orderBy: { createdAt: 'asc' },
         });
