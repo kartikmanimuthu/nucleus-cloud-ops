@@ -1,17 +1,10 @@
 import { NextResponse } from "next/server";
 import { AuditService } from "@/lib/audit-service";
-import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
 import { authorize } from "@/lib/rbac/authorize";
 import { getSessionTenantId } from "@/lib/auth-session";
-
-// Lambda ARN from environment
-const SCHEDULER_LAMBDA_ARN = process.env.SCHEDULER_LAMBDA_ARN || "";
-const AWS_REGION = process.env.AWS_REGION || "ap-south-1";
-
-// Initialize Lambda client
-const lambdaClient = new LambdaClient({ region: AWS_REGION });
+import { getBoss } from "@/lib/boss-client";
 
 export async function POST() {
     // Check authorization - execute action on Schedule subject
@@ -27,33 +20,24 @@ export async function POST() {
         const tenantId = await getSessionTenantId();
 
         const executionTime = new Date().toISOString();
-        let executionStatus: 'success' | 'failed' | 'partial' = 'success';
 
-        // Invoke Lambda for full scan (no scheduleId or scheduleName)
+        // Enqueue full scan job via pg-boss (fire-and-forget)
         try {
             const payload = {
                 triggeredBy: 'web-ui',
                 userEmail: userEmail || 'unknown-web-user',
+                tenantId,
             };
 
-            console.log(`[API] Invoking Lambda ${SCHEDULER_LAMBDA_ARN} for full scan (Async) with payload:`, payload);
+            console.log(`[API] Enqueuing scheduler-scan job for full scan with payload:`, payload);
 
-            const command = new InvokeCommand({
-                FunctionName: SCHEDULER_LAMBDA_ARN,
-                Payload: Buffer.from(JSON.stringify(payload)),
-                InvocationType: 'Event', // Asynchronous invocation
-            });
+            const boss = await getBoss();
+            await boss.send('scheduler-scan', payload);
 
-            await lambdaClient.send(command);
+        } catch (enqueueError) {
+            console.error(`[API] Job enqueue failed:`, enqueueError);
 
-            // For async, we assume success if no error was thrown during invocation
-            executionStatus = 'success';
-
-        } catch (lambdaError) {
-            console.error(`[API] Lambda invocation failed:`, lambdaError);
-            executionStatus = 'failed';
-
-            const errorMessage = lambdaError instanceof Error ? lambdaError.message : String(lambdaError);
+            const errorMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
 
             // Log audit entry for failure
             await AuditService.logUserAction({
@@ -72,7 +56,7 @@ export async function POST() {
                 {
                     success: false,
                     error: errorMessage,
-                    message: "Lambda invocation failed"
+                    message: "Failed to enqueue scan job"
                 },
                 { status: 500 }
             );

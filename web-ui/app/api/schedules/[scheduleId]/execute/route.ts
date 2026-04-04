@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ScheduleService } from "@/lib/schedule-service";
 import { AuditService } from "@/lib/audit-service";
-import { ScheduleExecutionService } from "@/lib/schedule-execution-service";
-import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
 import { authorize } from "@/lib/rbac/authorize";
 import { getSessionTenantId } from "@/lib/auth-session";
-
-// Lambda ARN from environment
-const SCHEDULER_LAMBDA_ARN = process.env.SCHEDULER_LAMBDA_ARN || "";
-const AWS_REGION = process.env.AWS_REGION || "ap-south-1";
-
-// Initialize Lambda client
-const lambdaClient = new LambdaClient({ region: AWS_REGION });
+import { getBoss } from "@/lib/boss-client";
 
 export async function POST(
     request: NextRequest,
@@ -50,68 +42,49 @@ export async function POST(
         const userEmail = session?.user?.email;
 
         const executionTime = new Date().toISOString();
-        let lambdaResult = null;
-        let executionStatus: 'success' | 'failed' | 'partial' = 'success';
 
-        // 2. Try to invoke Lambda with schedule parameters
+        // 2. Enqueue partial scan job via pg-boss (fire-and-forget)
         try {
             const payload = {
                 scheduleId: schedule.id,
                 scheduleName: schedule.name,
                 triggeredBy: 'web-ui',
                 userEmail: userEmail || 'unknown-web-user',
+                tenantId,
             };
 
-            console.log(`[API] Invoking Lambda ${SCHEDULER_LAMBDA_ARN} with payload:`, payload);
+            console.log(`[API] Enqueuing scheduler-scan job for schedule ${schedule.id} with payload:`, payload);
 
-            const command = new InvokeCommand({
-                FunctionName: SCHEDULER_LAMBDA_ARN,
-                Payload: Buffer.from(JSON.stringify(payload)),
-                InvocationType: 'RequestResponse', // Synchronous invocation
+            const boss = await getBoss();
+            await boss.send('scheduler-scan', payload);
+
+        } catch (enqueueError) {
+            console.error(`[API] Job enqueue failed:`, enqueueError);
+
+            const errorMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
+
+            // Log audit for failure
+            await AuditService.logResourceAction({
+                action: "Execute Schedule",
+                resourceType: "schedule",
+                resourceId: schedule.id,
+                resourceName: schedule.name,
+                status: 'error',
+                details: `Manual execution enqueue failed: ${errorMessage}`,
+                user: userEmail || "unknown-web-user",
+                source: "web-ui",
+                tenantId,
+                metadata: { tenantId },
             });
 
-            const response = await lambdaClient.send(command);
-
-            if (response.Payload) {
-                lambdaResult = JSON.parse(Buffer.from(response.Payload).toString());
-                console.log(`[API] Lambda response:`, lambdaResult);
-
-                if (lambdaResult.resourcesFailed > 0) {
-                    executionStatus = 'partial';
-                }
-            }
-
-            // Check for Lambda errors
-            if (response.FunctionError) {
-                console.error(`[API] Lambda function error:`, response.FunctionError);
-                executionStatus = 'failed';
-            }
-
-        } catch (lambdaError) {
-            console.error(`[API] Lambda invocation failed:`, lambdaError);
-
-            // If Lambda invocation fails (e.g., in local dev), log execution locally
-            console.log(`[API] Falling back to local execution tracking`);
-            executionStatus = 'failed';
-
-            // Log execution record for tracking (even on failure)
-            try {
-                const errorMessage = lambdaError instanceof Error ? lambdaError.message : String(lambdaError);
-                await ScheduleExecutionService.logExecution({
-                    tenantId: tenantId,
-                    accountId: (schedule.accounts && schedule.accounts[0]) || 'unknown',
-                    scheduleId: schedule.id,
-                    executionTime,
-                    status: 'failed',
-                    resourcesStarted: 0,
-                    resourcesStopped: 0,
-                    resourcesFailed: 0,
-                    errorMessage: `Lambda invocation failed: ${errorMessage}`,
-                    details: { triggeredBy: 'web-ui', error: String(lambdaError) }
-                });
-            } catch (logError) {
-                console.error(`[API] Failed to log execution:`, logError);
-            }
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: errorMessage,
+                    message: "Failed to enqueue scan job"
+                },
+                { status: 500 }
+            );
         }
 
         // 3. Update schedule metadata
@@ -127,8 +100,8 @@ export async function POST(
             resourceType: "schedule",
             resourceId: schedule.id,
             resourceName: schedule.name,
-            status: executionStatus === 'failed' ? 'error' : 'success',
-            details: `Manual execution triggered via Dashboard. Status: ${executionStatus}`,
+            status: 'success',
+            details: `Manual execution triggered via Dashboard (Async). Execution running in background.`,
             user: userEmail || "unknown-web-user",
             source: "web-ui",
             tenantId,
@@ -136,13 +109,11 @@ export async function POST(
         });
 
         return NextResponse.json({
-            success: executionStatus !== 'failed',
-            message: executionStatus === 'failed'
-                ? "Execution failed - Lambda invocation error"
-                : "Schedule execution triggered successfully",
+            success: true,
+            message: "Schedule execution triggered successfully (Background)",
             executionTime,
-            executionStatus,
-            lambdaResult
+            executionStatus: 'success',
+            isAsync: true
         });
 
     } catch (error) {

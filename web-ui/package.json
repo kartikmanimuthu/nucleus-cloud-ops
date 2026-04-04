@@ -114,6 +114,7 @@
     "next-themes": "latest",
     "npm": "^11.4.2",
     "pdf-parse": "^2.4.5",
+    "pg-boss": "^10.4.2",
     "postcss": "^8",
     "postcss-import": "^16.1.1",
     "prisma": "^5.22.0",

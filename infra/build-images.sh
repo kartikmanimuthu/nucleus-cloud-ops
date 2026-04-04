@@ -46,7 +46,30 @@ docker build \
 docker push "${ECR_URI}:latest"
 
 echo ""
-echo "Image URI: ${ECR_URI}:latest"
+echo "WebUI Image URI: ${ECR_URI}:latest"
+
+# --- Workers image ---
+WORKERS_ECR_REPO_NAME="nucleus-cloud-ops-workers"
+WORKERS_ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${WORKERS_ECR_REPO_NAME}"
+
+# Create ECR repo if it doesn't exist
+aws ecr describe-repositories \
+    --repository-names "$WORKERS_ECR_REPO_NAME" \
+    --region "$AWS_REGION" \
+    --profile "$AWS_PROFILE" 2>/dev/null \
+  || aws ecr create-repository \
+    --repository-name "$WORKERS_ECR_REPO_NAME" \
+    --region "$AWS_REGION" \
+    --profile "$AWS_PROFILE"
+
+echo "==> Building Workers container image..."
+docker build \
+    -f "${PROJECT_ROOT}/workers/Dockerfile" \
+    --platform linux/arm64 \
+    -t "${WORKERS_ECR_URI}:latest" \
+    "${PROJECT_ROOT}"
+
+docker push "${WORKERS_ECR_URI}:latest"
+
 echo ""
-echo "Set in Pulumi config:"
-echo "  cd infra/compute && pulumi config set webUiImageUri ${ECR_URI}:latest"
+echo "Workers Image URI: ${WORKERS_ECR_URI}:latest"
