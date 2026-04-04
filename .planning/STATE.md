@@ -102,9 +102,11 @@ None.
 | 260403-t3i | fix scheduler account dropdown to show tenant-scoped accounts and scope schedule creation to tenant | 2026-04-03 | — | [260403-t3i-fix-scheduler-account-dropdown-to-show-t](.planning/quick/260403-t3i-fix-scheduler-account-dropdown-to-show-t/) |
 | 260403-u7l | fix role ID gap, seed default roles, multi-org membership | 2026-04-03 | 10f5497 | [260403-u7l-fix-role-id-gap-seed-default-roles-multi](.planning/quick/260403-u7l-fix-role-id-gap-seed-default-roles-multi/) |
 | 260403-wqs | add preset/custom type segregation to custom_roles table and UI | 2026-04-03 | 41bda37 | [260403-wqs-add-preset-custom-type-segregation-to-cu](.planning/quick/260403-wqs-add-preset-custom-type-segregation-to-cu/) |
+| 260404-g74 | Add role editing for team members and pagination to both Team Members and Pending Invitations grids on the Settings Members page | 2026-04-04 | a16f820 | [260404-g74-add-role-editing-for-team-members-and-pa](.planning/quick/260404-g74-add-role-editing-for-team-members-and-pa/) |
 
 ## Session Continuity
 
+Last activity: 2026-04-04 - Completed quick task 260404-g74: Add role editing for team members and pagination to both Team Members and Pending Invitations grids on the Settings Members page
 Last session: 2026-04-03T21:22:04.473Z
 Stopped at: Completed 21-02-PLAN.md
 Resume file: None
