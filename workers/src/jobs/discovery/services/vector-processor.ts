@@ -58,8 +58,6 @@ export function createResourceText(resource: Resource): string {
   parts.push(`Type: ${resource.resourceType || 'Unknown'}`);
   parts.push(`Service: ${resource.service || resource.resourceType?.split('_')[0] || 'Unknown'}`);
   parts.push(`Region: ${resource.region || 'Unknown'}`);
-  parts.push(`Account: ${resource.resourceId ? resource.resourceId : 'Unknown'}`);
-
   if (resource.state) {
     parts.push(`State: ${resource.state}`);
   }
@@ -81,7 +79,7 @@ export function createResourceText(resource: Resource): string {
   if (resource.resourceType === 'ec2_vpcs' && resource.rawData && typeof resource.rawData === 'object') {
     const raw = resource.rawData as Record<string, unknown>;
     if (raw.CidrBlock) parts.push(`CIDR: ${raw.CidrBlock}`);
-    if (raw.IsDefault) parts.push(`Default VPC: true`);
+    if (raw.IsDefault) parts.push(`Default VPC: ${raw.IsDefault}`);
   }
 
   const meta = resource.rawData;
