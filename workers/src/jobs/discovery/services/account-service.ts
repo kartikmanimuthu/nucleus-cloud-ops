@@ -1,24 +1,7 @@
 // workers/src/jobs/discovery/services/account-service.ts
-import { Pool, type PoolClient } from 'pg';
+import type { PoolClient } from 'pg';
 import type { Account } from '../types.js';
-
-let pool: Pool | null = null;
-
-function getPool(): Pool {
-  if (!pool) {
-    const DATABASE_URL = process.env.DATABASE_URL;
-    if (!DATABASE_URL) {
-      throw new Error('DATABASE_URL environment variable is required');
-    }
-    pool = new Pool({
-      connectionString: DATABASE_URL,
-      max: 3,
-      idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 5000,
-    });
-  }
-  return pool;
-}
+import { getPool } from './db.js';
 
 /**
  * Get all active tenants. Used by fan-out handler.
@@ -31,8 +14,8 @@ export async function getAllTenants(): Promise<Array<{ id: string; name: string 
     );
     return result.rows;
   } catch (error) {
-    console.error('[discovery/account] Error fetching active tenants:', error);
-    return [];
+    console.error('[discovery/account-service] Error fetching active tenants', error);
+    throw error;  // re-throw so pg-boss retries the fan-out job
   } finally {
     client.release();
   }

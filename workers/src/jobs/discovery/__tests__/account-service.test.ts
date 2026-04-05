@@ -39,12 +39,10 @@ describe('account-service', () => {
       expect(mockRelease).toHaveBeenCalled();
     });
 
-    it('should return empty array on error', async () => {
+    it('should throw on error so pg-boss retries the fan-out job', async () => {
       mockQuery.mockRejectedValueOnce(new Error('connection refused'));
 
-      const tenants = await getAllTenants();
-
-      expect(tenants).toEqual([]);
+      await expect(getAllTenants()).rejects.toThrow('connection refused');
       expect(mockRelease).toHaveBeenCalled();
     });
   });
