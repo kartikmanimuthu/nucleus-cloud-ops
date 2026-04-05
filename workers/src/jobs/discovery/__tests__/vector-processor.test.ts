@@ -2,18 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Resource } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Hoisted mock variables — must use vi.hoisted() so they are available when
-// vi.mock() factory functions run (vi.mock is hoisted above all imports).
+// Hoisted mock variables
 // ---------------------------------------------------------------------------
-const { mockInvokeModel, mockPutVectors, mockDeleteVectors, mockFindUnique, mockUpsert } =
+const { mockInvokeModel, mockQuery, mockRelease, mockConnect } =
   vi.hoisted(() => ({
     mockInvokeModel: vi.fn().mockResolvedValue({
       body: new TextEncoder().encode(JSON.stringify({ embedding: Array(1024).fill(0.1) })),
     }),
-    mockPutVectors: vi.fn().mockResolvedValue({}),
-    mockDeleteVectors: vi.fn().mockResolvedValue({}),
-    mockFindUnique: vi.fn().mockResolvedValue(null),
-    mockUpsert: vi.fn().mockResolvedValue({}),
+    mockQuery: vi.fn().mockResolvedValue({ rows: [], rowCount: 1 }),
+    mockRelease: vi.fn(),
+    mockConnect: vi.fn(),
   }));
 
 vi.mock('@aws-sdk/client-bedrock-runtime', () => ({
@@ -21,20 +19,10 @@ vi.mock('@aws-sdk/client-bedrock-runtime', () => ({
   InvokeModelCommand: vi.fn().mockImplementation((input) => input),
 }));
 
-vi.mock('@aws-sdk/client-s3vectors', () => ({
-  S3VectorsClient: vi.fn().mockImplementation(() => ({
-    send: vi.fn().mockImplementation((cmd) => {
-      if (cmd.__type === 'put') return mockPutVectors(cmd);
-      return mockDeleteVectors(cmd);
-    }),
-  })),
-  PutVectorsCommand: vi.fn().mockImplementation((input) => ({ ...input, __type: 'put' })),
-  DeleteVectorsCommand: vi.fn().mockImplementation((input) => ({ ...input, __type: 'delete' })),
-}));
-
-vi.mock('@prisma/client', () => ({
-  PrismaClient: vi.fn().mockImplementation(() => ({
-    inventoryVectorKey: { findUnique: mockFindUnique, upsert: mockUpsert },
+vi.mock('pg', () => ({
+  Pool: vi.fn().mockImplementation(() => ({
+    connect: mockConnect,
+    query: mockQuery,
   })),
 }));
 
@@ -45,7 +33,7 @@ import {
 } from '../services/vector-processor.js';
 
 // ---------------------------------------------------------------------------
-// Existing tests
+// createResourceText
 // ---------------------------------------------------------------------------
 
 describe('createResourceText', () => {
@@ -112,6 +100,10 @@ describe('createResourceText', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// computeContentHash
+// ---------------------------------------------------------------------------
+
 describe('computeContentHash', () => {
   it('returns a 16-char hex string', () => {
     const hash = computeContentHash('some text');
@@ -129,16 +121,15 @@ describe('computeContentHash', () => {
 });
 
 // ---------------------------------------------------------------------------
-// New tests — processAccountVectors
+// processAccountVectors
 // ---------------------------------------------------------------------------
 
 describe('processAccountVectors', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.DATABASE_URL = 'postgresql://localhost:5432/test';
-    process.env.VECTOR_BUCKET_NAME = 'test-bucket';
-    process.env.VECTOR_INDEX_NAME = 'test-index';
-    process.env.USE_PG_INVENTORY = 'true';
+    // pool.query is used directly (not via connect) for UPDATE
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 1 });
   });
 
   it('returns 0 for empty resources array', async () => {
@@ -147,7 +138,7 @@ describe('processAccountVectors', () => {
     expect(mockInvokeModel).not.toHaveBeenCalled();
   });
 
-  it('embeds resources and calls PutVectors', async () => {
+  it('embeds resources and updates inventory_resources', async () => {
     const resources: Resource[] = [
       { resourceType: 'ec2_instances', resourceId: 'i-001', region: 'us-east-1', service: 'ec2', tags: {}, rawData: {} },
       { resourceType: 'ec2_instances', resourceId: 'i-002', region: 'us-east-1', service: 'ec2', tags: {}, rawData: {} },
@@ -157,7 +148,10 @@ describe('processAccountVectors', () => {
 
     expect(count).toBe(2);
     expect(mockInvokeModel).toHaveBeenCalledTimes(2);
-    expect(mockPutVectors).toHaveBeenCalled();
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE inventory_resources'),
+      expect.any(Array),
+    );
   });
 
   it('deduplicates resources with the same resourceId', async () => {
@@ -172,46 +166,27 @@ describe('processAccountVectors', () => {
     expect(mockInvokeModel).toHaveBeenCalledTimes(1);
   });
 
-  it('deletes stale keys when previous keys exist', async () => {
-    mockFindUnique.mockResolvedValueOnce({ vectorKeys: ['stale-key-1', 'stale-key-2'] });
-
+  it('passes tenantId, accountId, resourceType, resourceId to UPDATE', async () => {
     const resources: Resource[] = [
-      { resourceType: 'ec2_instances', resourceId: 'i-new', region: 'us-east-1', service: 'ec2', tags: {}, rawData: {} },
+      { resourceType: 'ec2_vpcs', resourceId: 'vpc-abc', region: 'ap-south-1', service: 'ec2', tags: {}, rawData: {} },
     ];
 
     await processAccountVectors(resources, 'acc-123', 'tenant-1');
 
-    expect(mockDeleteVectors).toHaveBeenCalledWith(
-      expect.objectContaining({ keys: expect.arrayContaining(['stale-key-1', 'stale-key-2']) }),
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE inventory_resources'),
+      expect.arrayContaining(['tenant-1', 'acc-123', 'ec2_vpcs', 'vpc-abc']),
     );
   });
 
-  it('saves new vector keys to PostgreSQL when USE_PG_INVENTORY=true', async () => {
-    const resources: Resource[] = [
-      { resourceType: 'ec2_instances', resourceId: 'i-001', region: 'us-east-1', service: 'ec2', tags: {}, rawData: {} },
-    ];
-
-    await processAccountVectors(resources, 'acc-123', 'tenant-1');
-
-    expect(mockUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { accountId: 'acc-123' },
-        update: expect.objectContaining({ vectorKeys: expect.any(Array) }),
-        create: expect.objectContaining({ accountId: 'acc-123' }),
-      }),
-    );
-  });
-
-  it('skips key tracking when USE_PG_INVENTORY=false', async () => {
-    process.env.USE_PG_INVENTORY = 'false';
+  it('returns 0 when no rows are updated (resource not yet in DB)', async () => {
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
 
     const resources: Resource[] = [
-      { resourceType: 'ec2_instances', resourceId: 'i-001', region: 'us-east-1', service: 'ec2', tags: {}, rawData: {} },
+      { resourceType: 'ec2_instances', resourceId: 'i-missing', region: 'us-east-1', service: 'ec2', tags: {}, rawData: {} },
     ];
 
-    await processAccountVectors(resources, 'acc-123', 'tenant-1');
-
-    expect(mockFindUnique).not.toHaveBeenCalled();
-    expect(mockUpsert).not.toHaveBeenCalled();
+    const count = await processAccountVectors(resources, 'acc-123', 'tenant-1');
+    expect(count).toBe(0);
   });
 });

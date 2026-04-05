@@ -6,6 +6,7 @@ import { runInventoryScan } from './services/scanner.js';
 import { writeResourcesToPg, saveSyncStatus } from './services/pg-writer.js';
 import { getAllTenants, getTenantAccounts } from './services/account-service.js';
 import { assumeRole } from './services/sts-service.js';
+import { processAccountVectors } from './services/vector-processor.js';
 import type { ScanConfig } from './types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -62,6 +63,12 @@ async function main() {
       console.log(`Found ${result.resources.length} resources in ${result.elapsedMs}ms`);
       if (result.errors?.length) console.warn('Errors:', result.errors);
       await writeResourcesToPg(result.resources, opts.tenantId, account.accountId, scanId);
+      try {
+        const vectorCount = await processAccountVectors(result.resources, account.accountId, opts.tenantId);
+        console.log(`Vectorized ${vectorCount} resources for ${account.accountId}`);
+      } catch (err) {
+        console.warn(`Vector processing failed for ${account.accountId} (non-fatal):`, err instanceof Error ? err.message : err);
+      }
     }
   } else {
     // Direct mode: use AWS default credential chain (respects AWS_PROFILE, ~/.aws, instance profile)
@@ -77,6 +84,12 @@ async function main() {
       const tenantId = process.env.TENANT_ID ?? 'local';
       await writeResourcesToPg(result.resources, tenantId, accountId, scanId);
       console.log(`Written ${result.resources.length} resources to PostgreSQL (tenant=${tenantId}, account=${accountId})`);
+      try {
+        const vectorCount = await processAccountVectors(result.resources, accountId, tenantId);
+        console.log(`Vectorized ${vectorCount} resources for ${accountId}`);
+      } catch (err) {
+        console.warn(`Vector processing failed (non-fatal):`, err instanceof Error ? err.message : err);
+      }
     }
   }
 
