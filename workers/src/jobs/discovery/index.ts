@@ -5,6 +5,7 @@ import { writeAuditLog } from './services/audit-service.js';
 import { assumeRole } from './services/sts-service.js';
 import { runInventoryScan } from './services/scanner.js';
 import { writeResourcesToPg, saveSyncStatus } from './services/pg-writer.js';
+import { processAccountVectors } from './services/vector-processor.js';
 import type { DiscoveryFanOutJob, DiscoveryScanJob } from './types.js';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -92,6 +93,7 @@ export async function register(boss: PgBoss): Promise<void> {
           totalResources += result.resources.length;
 
           await writeResourcesToPg(result.resources, tenantId, account.accountId, scanId);
+          await processAccountVectors(result.resources, account.accountId, tenantId);
           await updateAccountSyncStatus(tenantId, account.accountId, {
             lastSyncedAt: new Date().toISOString(),
             lastSyncStatus: (result.errors?.length ?? 0) > 0 ? 'partial' : 'success',
