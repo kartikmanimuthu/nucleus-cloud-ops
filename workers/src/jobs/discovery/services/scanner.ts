@@ -368,3 +368,170 @@ async function applyDetailEnrichment(
 
   return resources;
 }
+
+// ---------------------------------------------------------------------------
+// extractResourceIdentifiers — extract id/arn/name/state/tags from AWS response
+// ---------------------------------------------------------------------------
+
+export function extractResourceIdentifiers(
+  resource: Record<string, any>,
+  service: string,
+): { resourceId: string; resourceArn: string; name: string; state: string; tags: Record<string, string> } {
+  const identifiers = {
+    resourceId: '',
+    resourceArn: '',
+    name: '',
+    state: 'unknown',
+    tags: {} as Record<string, string>,
+  };
+
+  const idKeys = [
+    'InstanceId', 'DBInstanceIdentifier', 'DBClusterIdentifier', 'ClusterIdentifier',
+    'FunctionName', 'BucketName', 'Name',
+    'VolumeId', 'NetworkInterfaceId', 'VpcId', 'SubnetId', 'GroupId',
+    'KeyId', 'AutoScalingGroupName', 'LoadBalancerArn', 'TopicArn', 'QueueUrl',
+    'FileSystemId', 'NatGatewayId', 'DistributionId', 'TableName', 'StreamName',
+    'CacheClusterId', 'ReplicationGroupId', 'ClusterArn', 'ServiceArn', 'TaskArn',
+    'TransitGatewayId', 'TransitGatewayAttachmentId', 'VpcPeeringConnectionId',
+    'clusterArn', 'serviceArn',
+    'clusterName', 'serviceName',
+    'repositoryName',
+    'CertificateId', 'CertificateArn',
+    'RoleName', 'RoleId',
+    'UserName', 'UserId',
+    'id', 'name', 'Id',
+  ];
+
+  for (const key of idKeys) {
+    if (key in resource) {
+      identifiers.resourceId = resource[key];
+      break;
+    }
+  }
+
+  const arnKeys = [
+    'Arn', 'ARN', 'FunctionArn', 'DBInstanceArn', 'DBClusterArn',
+    'LoadBalancerArn', 'TopicArn', 'QueueArn', 'FileSystemArn',
+    'KeyArn', 'ClusterArn', 'ServiceArn', 'TaskArn', 'TableArn',
+    'TransitGatewayArn',
+    'clusterArn', 'serviceArn',
+    'CertificateArn',
+    'repositoryArn',
+  ];
+
+  for (const key of arnKeys) {
+    if (key in resource) {
+      identifiers.resourceArn = resource[key];
+      break;
+    }
+  }
+
+  const nameKeys = [
+    'Name', 'DBInstanceIdentifier', 'DBClusterIdentifier', 'FunctionName',
+    'BucketName', 'AutoScalingGroupName', 'LoadBalancerName', 'FileSystemId',
+    'TableName', 'TopicName', 'QueueName',
+    'clusterName', 'serviceName',
+    'repositoryName',
+    'DomainName',
+    'CertificateId',
+  ];
+
+  for (const key of nameKeys) {
+    if (key in resource) {
+      identifiers.name = resource[key];
+      break;
+    }
+  }
+
+  if (!identifiers.name) {
+    const tags = resource.Tags || resource.TagList || [];
+    if (Array.isArray(tags)) {
+      for (const tag of tags) {
+        if (typeof tag === 'object' && tag.Key === 'Name') {
+          identifiers.name = tag.Value || '';
+          break;
+        }
+      }
+    }
+  }
+
+  const state = resource.State ?? resource.DBInstanceStatus ?? resource.Status ?? resource.InstanceStatus ?? resource.status;
+  if (typeof state === 'object' && state !== null) {
+    identifiers.state = state.Name ?? state.Code ?? 'unknown';
+  } else if (typeof state === 'string') {
+    identifiers.state = state;
+  }
+
+  const rawTags = resource.Tags ?? resource.TagList ?? resource.tags ?? [];
+  if (Array.isArray(rawTags)) {
+    identifiers.tags = {};
+    for (const tag of rawTags) {
+      if (typeof tag === 'object' && 'Key' in tag) {
+        identifiers.tags[tag.Key] = tag.Value ?? '';
+      }
+    }
+  } else if (typeof rawTags === 'object') {
+    identifiers.tags = rawTags as Record<string, string>;
+  }
+
+  if (!identifiers.name) {
+    identifiers.name = identifiers.resourceId;
+  }
+
+  return identifiers;
+}
+
+// ---------------------------------------------------------------------------
+// normalizeResources — convert raw AWS response items to Resource[]
+// ---------------------------------------------------------------------------
+
+export function normalizeResources(
+  rawData: any,
+  service: string,
+  functionName: string,
+  region: string,
+): Resource[] {
+  if (!rawData) return [];
+
+  const items: any[] = Array.isArray(rawData) ? rawData : [rawData];
+  if (items.length === 0) return [];
+
+  const resourceType = `${service}_${functionName}`
+    .replace('describe_', '')
+    .replace('list_', '')
+    .replace('get_', '');
+
+  const resources: Resource[] = [];
+
+  for (const item of items) {
+    if (typeof item === 'string') {
+      const id = item.includes('/') ? item.split('/').pop()! : item.split(':').pop()!;
+      resources.push({
+        resourceType,
+        region,
+        service,
+        resourceId: id,
+        resourceArn: item.startsWith('arn:') ? item : '',
+        name: id,
+        state: 'unknown',
+        tags: {},
+        rawData: item,
+      });
+    } else if (typeof item === 'object' && item !== null) {
+      const ids = extractResourceIdentifiers(item, service);
+      resources.push({
+        resourceType,
+        region,
+        service,
+        resourceId: ids.resourceId,
+        resourceArn: ids.resourceArn,
+        name: ids.name,
+        state: ids.state,
+        tags: ids.tags,
+        rawData: item,
+      });
+    }
+  }
+
+  return resources;
+}

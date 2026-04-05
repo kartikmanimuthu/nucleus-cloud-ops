@@ -282,3 +282,204 @@ describe('scanner — applyEnrichments', () => {
     expect(enriched[0].Name).toBe('bucket1');
   });
 });
+
+describe('scanner — extractResourceIdentifiers', () => {
+  let extractResourceIdentifiers: typeof import('../services/scanner.js').extractResourceIdentifiers;
+
+  beforeEach(async () => {
+    const mod = await import('../services/scanner.js');
+    extractResourceIdentifiers = mod.extractResourceIdentifiers;
+  });
+
+  it('should extract EC2 instance identifiers', () => {
+    const resource = {
+      InstanceId: 'i-0abc123def456',
+      State: { Name: 'running' },
+      Tags: [{ Key: 'Name', Value: 'my-instance' }],
+    };
+    const ids = extractResourceIdentifiers(resource, 'ec2');
+    expect(ids.resourceId).toBe('i-0abc123def456');
+    expect(ids.state).toBe('running');
+    expect(ids.name).toBe('my-instance');
+    expect(ids.tags).toEqual({ Name: 'my-instance' });
+  });
+
+  it('should extract RDS instance identifiers', () => {
+    const resource = {
+      DBInstanceIdentifier: 'mydb',
+      DBInstanceArn: 'arn:aws:rds:us-east-1:123:db:mydb',
+      DBInstanceStatus: 'available',
+      TagList: [{ Key: 'Environment', Value: 'prod' }],
+    };
+    const ids = extractResourceIdentifiers(resource, 'rds');
+    expect(ids.resourceId).toBe('mydb');
+    expect(ids.resourceArn).toBe('arn:aws:rds:us-east-1:123:db:mydb');
+    expect(ids.state).toBe('available');
+    expect(ids.name).toBe('mydb');
+    expect(ids.tags).toEqual({ Environment: 'prod' });
+  });
+
+  it('should extract Lambda function identifiers', () => {
+    const resource = {
+      FunctionName: 'my-func',
+      FunctionArn: 'arn:aws:lambda:us-east-1:123:function:my-func',
+      Tags: [{ Key: 'Team', Value: 'platform' }],
+    };
+    const ids = extractResourceIdentifiers(resource, 'lambda');
+    expect(ids.resourceId).toBe('my-func');
+    expect(ids.resourceArn).toBe('arn:aws:lambda:us-east-1:123:function:my-func');
+    expect(ids.name).toBe('my-func');
+  });
+
+  it('should extract ECS cluster identifiers (camelCase)', () => {
+    const resource = {
+      clusterArn: 'arn:aws:ecs:us-east-1:123:cluster/my-cluster',
+      clusterName: 'my-cluster',
+      status: 'ACTIVE',
+    };
+    const ids = extractResourceIdentifiers(resource, 'ecs');
+    expect(ids.resourceId).toBe('arn:aws:ecs:us-east-1:123:cluster/my-cluster');
+    expect(ids.resourceArn).toBe('arn:aws:ecs:us-east-1:123:cluster/my-cluster');
+    expect(ids.name).toBe('my-cluster');
+    expect(ids.state).toBe('ACTIVE');
+  });
+
+  it('should extract S3 bucket identifiers', () => {
+    const resource = { Name: 'my-bucket', CreationDate: '2024-01-01T00:00:00Z' };
+    const ids = extractResourceIdentifiers(resource, 's3');
+    expect(ids.resourceId).toBe('my-bucket');
+    expect(ids.name).toBe('my-bucket');
+  });
+
+  it('should extract VPC identifiers', () => {
+    const resource = {
+      VpcId: 'vpc-123abc',
+      State: 'available',
+      Tags: [{ Key: 'Name', Value: 'main-vpc' }],
+    };
+    const ids = extractResourceIdentifiers(resource, 'ec2');
+    expect(ids.resourceId).toBe('vpc-123abc');
+    expect(ids.state).toBe('available');
+    expect(ids.name).toBe('main-vpc');
+  });
+
+  it('should extract CloudFront distribution identifiers', () => {
+    const resource = { Id: 'E1234567890', DomainName: 'd111111abcdef8.cloudfront.net', Status: 'Deployed' };
+    const ids = extractResourceIdentifiers(resource, 'cloudfront');
+    expect(ids.resourceId).toBe('E1234567890');
+    expect(ids.name).toBe('d111111abcdef8.cloudfront.net');
+    expect(ids.state).toBe('Deployed');
+  });
+
+  it('should extract ECR repository identifiers', () => {
+    const resource = {
+      repositoryName: 'my-repo',
+      repositoryArn: 'arn:aws:ecr:us-east-1:123:repository/my-repo',
+    };
+    const ids = extractResourceIdentifiers(resource, 'ecr');
+    expect(ids.resourceId).toBe('my-repo');
+    expect(ids.resourceArn).toBe('arn:aws:ecr:us-east-1:123:repository/my-repo');
+    expect(ids.name).toBe('my-repo');
+  });
+
+  it('should extract IAM role identifiers', () => {
+    const resource = {
+      RoleName: 'AdminRole',
+      RoleId: 'AROA1234567890',
+      Arn: 'arn:aws:iam::123:role/AdminRole',
+    };
+    const ids = extractResourceIdentifiers(resource, 'iam');
+    expect(ids.resourceId).toBe('AdminRole');
+    expect(ids.resourceArn).toBe('arn:aws:iam::123:role/AdminRole');
+    expect(ids.name).toBe('AdminRole');
+  });
+
+  it('should extract ACM certificate identifiers', () => {
+    const resource = {
+      CertificateArn: 'arn:aws:acm:us-east-1:123:certificate/abc-123',
+      DomainName: 'example.com',
+      CertificateId: 'abc-123',
+    };
+    const ids = extractResourceIdentifiers(resource, 'acm');
+    expect(ids.resourceId).toBe('abc-123');
+    expect(ids.resourceArn).toBe('arn:aws:acm:us-east-1:123:certificate/abc-123');
+    expect(ids.name).toBe('example.com');
+  });
+
+  it('should handle dict-style tags', () => {
+    const resource = { FunctionName: 'my-func', tags: { Team: 'platform', Env: 'prod' } };
+    const ids = extractResourceIdentifiers(resource, 'lambda');
+    expect(ids.tags).toEqual({ Team: 'platform', Env: 'prod' });
+  });
+
+  it('should default name to resourceId when no name key found', () => {
+    const resource = { KeyId: 'key-abc-123', KeyArn: 'arn:aws:kms:us-east-1:123:key/key-abc-123' };
+    const ids = extractResourceIdentifiers(resource, 'kms');
+    expect(ids.resourceId).toBe('key-abc-123');
+    expect(ids.name).toBe('key-abc-123');
+  });
+
+  it('should handle State as dict with Name key', () => {
+    const resource = { InstanceId: 'i-123', State: { Name: 'stopped', Code: 80 } };
+    const ids = extractResourceIdentifiers(resource, 'ec2');
+    expect(ids.state).toBe('stopped');
+  });
+});
+
+describe('scanner — normalizeResources', () => {
+  let normalizeResources: typeof import('../services/scanner.js').normalizeResources;
+
+  beforeEach(async () => {
+    const mod = await import('../services/scanner.js');
+    normalizeResources = mod.normalizeResources;
+  });
+
+  it('should normalize object items into Resource[]', () => {
+    const rawItems = [
+      { InstanceId: 'i-123', State: { Name: 'running' }, Tags: [{ Key: 'Name', Value: 'web' }] },
+    ];
+    const resources = normalizeResources(rawItems, 'ec2', 'describe_instances', 'us-east-1');
+    expect(resources).toHaveLength(1);
+    expect(resources[0].resourceType).toBe('ec2_instances');
+    expect(resources[0].resourceId).toBe('i-123');
+    expect(resources[0].region).toBe('us-east-1');
+    expect(resources[0].service).toBe('ec2');
+    expect(resources[0].state).toBe('running');
+    expect(resources[0].name).toBe('web');
+  });
+
+  it('should normalize string items (ARNs)', () => {
+    const rawItems = ['arn:aws:ecs:us-east-1:123:cluster/my-cluster'];
+    const resources = normalizeResources(rawItems, 'ecs', 'list_clusters', 'us-east-1');
+    expect(resources).toHaveLength(1);
+    expect(resources[0].resourceType).toBe('ecs_clusters');
+    expect(resources[0].resourceId).toBe('my-cluster');
+    expect(resources[0].resourceArn).toBe('arn:aws:ecs:us-east-1:123:cluster/my-cluster');
+  });
+
+  it('should normalize string items (names/URLs)', () => {
+    const rawItems = ['https://sqs.us-east-1.amazonaws.com/123/my-queue'];
+    const resources = normalizeResources(rawItems, 'sqs', 'list_queues', 'us-east-1');
+    expect(resources).toHaveLength(1);
+    expect(resources[0].resourceType).toBe('sqs_queues');
+    expect(resources[0].resourceId).toBe('my-queue');
+  });
+
+  it('should strip describe_/list_/get_ prefix from resourceType', () => {
+    expect(
+      normalizeResources([{ VpcId: 'vpc-1' }], 'ec2', 'describe_vpcs', 'us-east-1')[0].resourceType,
+    ).toBe('ec2_vpcs');
+    expect(
+      normalizeResources(['fn1'], 'lambda', 'list_functions', 'us-east-1')[0].resourceType,
+    ).toBe('lambda_functions');
+    expect(
+      normalizeResources([{ id: 'api1' }], 'apigateway', 'get_rest_apis', 'us-east-1')[0].resourceType,
+    ).toBe('apigateway_rest_apis');
+  });
+
+  it('should return empty array for null/undefined input', () => {
+    expect(normalizeResources(null as any, 'ec2', 'describe_vpcs', 'us-east-1')).toEqual([]);
+    expect(normalizeResources(undefined as any, 'ec2', 'describe_vpcs', 'us-east-1')).toEqual([]);
+    expect(normalizeResources([], 'ec2', 'describe_vpcs', 'us-east-1')).toEqual([]);
+  });
+});
