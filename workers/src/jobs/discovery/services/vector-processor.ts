@@ -103,3 +103,181 @@ export function createResourceText(resource: Resource): string {
 export function computeContentHash(text: string): string {
   return createHash('sha256').update(text).digest('hex').slice(0, 16);
 }
+
+// ---------------------------------------------------------------------------
+// Embedding helper
+// ---------------------------------------------------------------------------
+
+async function getEmbedding(text: string): Promise<number[]> {
+  const res = await getBedrock().send(
+    new InvokeModelCommand({
+      modelId: BEDROCK_MODEL_ID,
+      body: JSON.stringify({ inputText: text.slice(0, 8000) }),
+      contentType: 'application/json',
+      accept: 'application/json',
+    }),
+  );
+  return JSON.parse(new TextDecoder().decode(res.body)).embedding;
+}
+
+// ---------------------------------------------------------------------------
+// PG key tracking helpers
+// ---------------------------------------------------------------------------
+
+async function getPreviousVectorKeys(accountId: string): Promise<string[]> {
+  try {
+    const record = await getPrisma().inventoryVectorKey.findUnique({
+      where: { accountId },
+      select: { vectorKeys: true },
+    });
+    return record?.vectorKeys || [];
+  } catch (err) {
+    console.warn(`[vector-processor] Could not read previous keys for ${accountId}:`, err);
+    return [];
+  }
+}
+
+async function saveVectorKeys(accountId: string, keys: string[]): Promise<void> {
+  await getPrisma().inventoryVectorKey.upsert({
+    where: { accountId },
+    update: { vectorKeys: keys },
+    create: { accountId, vectorKeys: keys },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stale vector cleanup
+// ---------------------------------------------------------------------------
+
+async function deleteStaleVectors(staleKeys: string[]): Promise<void> {
+  if (!staleKeys.length) return;
+  console.log(`[vector-processor] Deleting ${staleKeys.length} stale vectors`);
+  for (let i = 0; i < staleKeys.length; i += DELETE_BATCH_SIZE) {
+    await getS3Vectors().send(
+      new DeleteVectorsCommand({
+        vectorBucketName: VECTOR_BUCKET_NAME,
+        indexName: VECTOR_INDEX_NAME,
+        keys: staleKeys.slice(i, i + DELETE_BATCH_SIZE),
+      }),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function processAccountVectors(
+  resources: Resource[],
+  accountId: string,
+  tenantId: string,
+): Promise<number> {
+  if (!resources.length) return 0;
+
+  const usePg = process.env.USE_PG_INVENTORY === 'true';
+
+  // Deduplicate input resources by resourceId before embedding
+  const seenIds = new Set<string>();
+  const uniqueResources = resources.filter((r) => {
+    if (!r.resourceId || seenIds.has(r.resourceId)) return false;
+    seenIds.add(r.resourceId);
+    return true;
+  });
+
+  // Fetch previous keys before processing (for stale cleanup)
+  const previousKeys = usePg ? await getPreviousVectorKeys(accountId) : [];
+
+  const vectorPayload: Array<{
+    key: string;
+    data: { float32: number[] };
+    metadata: Record<string, string>;
+  }> = [];
+
+  // Embed in batches of EMBEDDING_CONCURRENCY to respect Bedrock rate limits
+  for (let i = 0; i < uniqueResources.length; i += EMBEDDING_CONCURRENCY) {
+    const batch = uniqueResources.slice(i, i + EMBEDDING_CONCURRENCY);
+
+    const results = await Promise.all(
+      batch.map(async (resource) => {
+        if (!resource.resourceId) return null;
+
+        const text = createResourceText(resource);
+        if (!text) return null;
+
+        const contentHash = computeContentHash(text);
+
+        try {
+          const embedding = await getEmbedding(text);
+          return {
+            key: `${resource.resourceId}_${contentHash}`,
+            data: { float32: embedding },
+            metadata: {
+              resourceId: resource.resourceId,
+              resourceArn: resource.resourceArn || '',
+              resourceType: resource.resourceType || '',
+              name: resource.name || resource.resourceId,
+              region: resource.region || '',
+              accountId,
+              tenantId,
+              state: resource.state || '',
+              service: resource.service || '',
+              contentHash,
+              text_content: text.slice(0, 1000),
+              lastDiscoveredAt: new Date().toISOString(),
+            },
+          };
+        } catch (err) {
+          console.error(`[vector-processor] Failed embedding for ${resource.resourceId}:`, err);
+          return null;
+        }
+      }),
+    );
+
+    vectorPayload.push(...(results.filter(Boolean) as typeof vectorPayload));
+  }
+
+  if (!vectorPayload.length) {
+    console.warn(`[vector-processor] No vectors generated for account ${accountId}`);
+    return 0;
+  }
+
+  // Deduplicate by key
+  const seen = new Set<string>();
+  const deduped = vectorPayload.filter((v) => {
+    if (seen.has(v.key)) return false;
+    seen.add(v.key);
+    return true;
+  });
+
+  if (deduped.length < vectorPayload.length) {
+    console.warn(
+      `[vector-processor] Deduplicated ${vectorPayload.length - deduped.length} duplicate keys for ${accountId}`,
+    );
+  }
+
+  // Upsert to S3 Vectors in batches of VECTOR_BATCH_SIZE
+  for (let i = 0; i < deduped.length; i += VECTOR_BATCH_SIZE) {
+    const batch = deduped.slice(i, i + VECTOR_BATCH_SIZE);
+    await getS3Vectors().send(
+      new PutVectorsCommand({
+        vectorBucketName: VECTOR_BUCKET_NAME,
+        indexName: VECTOR_INDEX_NAME,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        vectors: batch as any,
+      }),
+    );
+  }
+
+  const newKeys = deduped.map((v) => v.key);
+
+  // Delete stale vectors and persist new keys (only when USE_PG_INVENTORY=true)
+  if (usePg) {
+    const newKeySet = new Set(newKeys);
+    const staleKeys = previousKeys.filter((k) => !newKeySet.has(k));
+    await deleteStaleVectors(staleKeys);
+    await saveVectorKeys(accountId, newKeys);
+  }
+
+  console.log(`[vector-processor] Ingested ${deduped.length} vectors for account ${accountId}`);
+  return deduped.length;
+}
