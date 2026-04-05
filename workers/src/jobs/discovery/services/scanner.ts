@@ -7,7 +7,6 @@ import type { ScanConfig, Resource, ScanResult, EnrichmentStep, AssumedCredentia
 
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 2000;
-const MAX_PAGES = 20; // cap pagination at 20 pages per service to avoid runaway scans
 const RETRYABLE_ERROR_NAMES = new Set(['ThrottlingException', 'RequestLimitExceeded', 'Throttling', 'TooManyRequestsException']);
 
 const CONCURRENT_REGIONS = parseInt(process.env.CONCURRENT_REGIONS || '5', 10);
@@ -145,7 +144,13 @@ export async function invokeService(
           response.nextToken ??
           undefined;
         pages++;
-      } while (nextToken && pages < MAX_PAGES);
+      } while (nextToken);
+
+      if (pages > 1) {
+        console.log(
+          `[discovery/scanner] ${scanConfig.service}.${scanConfig.function} in ${region}: scanned ${pages} pages, ${results.length} items`,
+        );
+      }
 
       return results;
     } catch (error) {
