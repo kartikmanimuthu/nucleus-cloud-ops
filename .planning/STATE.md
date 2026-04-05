@@ -114,10 +114,11 @@ None.
 | 260403-wqs | add preset/custom type segregation to custom_roles table and UI | 2026-04-03 | 41bda37 | [260403-wqs-add-preset-custom-type-segregation-to-cu](.planning/quick/260403-wqs-add-preset-custom-type-segregation-to-cu/) |
 | 260404-g74 | Add role editing for team members and pagination to both Team Members and Pending Invitations grids on the Settings Members page | 2026-04-04 | a16f820 | [260404-g74-add-role-editing-for-team-members-and-pa](.planning/quick/260404-g74-add-role-editing-for-team-members-and-pa/) |
 | 260405-o6h | add fulltext search for inventory module with metadata column and search_vector column | 2026-04-05 | 957de18 | [260405-o6h-add-fulltext-search-for-inventory-module](.planning/quick/260405-o6h-add-fulltext-search-for-inventory-module/) |
+| 260405-r0e | tenant isolation and postgres migration for aiops agent and agent-ops modules | 2026-04-05 | d1ab61f | [260405-r0e-tenant-isolation-and-postgres-migration-](./quick/260405-r0e-tenant-isolation-and-postgres-migration-/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-05 - Completed quick task 260405-o6h: add fulltext search for inventory module with metadata column and search_vector column
+Last activity: 2026-04-05 - Completed quick task 260405-r0e: tenant isolation and postgres migration for aiops agent and agent-ops modules
 Last session: 2026-04-05T12:04:40.057Z
 Stopped at: Completed quick task 260405-o6h: Add fulltext search for inventory module
 Resume file: None
