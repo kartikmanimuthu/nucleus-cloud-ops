@@ -3,18 +3,9 @@
   "version": "0.1.0",
   "description": "Enterprise-grade AWS Cloud Operations Platform with AI Ops & GenAI DevOps Agent built on AWS Bedrock for Multi-Account Management.",
   "author": "kartikmanimuthu@gmail.com",
-  "bin": {
-    "nucleus-cloud-ops": "bin/cdkStack.js"
-  },
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
     "test": "jest",
-    "cdk": "cdk",
-    "deploy:backend": "cdk deploy CostEfficientSchedulerStack --app \"npx ts-node --prefer-ts-exts bin/cdkStack.ts\"",
-    "destroy:backend": "cdk destroy CostEfficientSchedulerStack --app \"npx ts-node --prefer-ts-exts bin/cdkStack.ts\"",
-    "deploy:webui": "cdk deploy WebUIStack --app \"npx ts-node --prefer-ts-exts bin/cdkStack.ts\"",
-    "destroy:webui": "cdk destroy WebUIStack --app \"npx ts-node --prefer-ts-exts bin/cdkStack.ts\""
+    "build": "tsc"
   },
   "devDependencies": {
     "@aws-sdk/client-s3vectors": "^3.1019.0",
@@ -22,7 +13,6 @@
     "@types/aws-lambda": "^8.10.160",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.5.4",
-    "aws-cdk": "^2.1104.0",
     "esbuild": "^0.27.3",
     "jest": "^29.7.0",
     "prisma": "^5.22.0",
@@ -33,16 +23,12 @@
     "typescript": "~5.6.2"
   },
   "dependencies": {
-    "@aws-cdk/aws-s3tables-alpha": "^2.236.0-alpha.0",
     "@aws-sdk/client-bedrock-runtime": "^3.991.0",
     "@aws-sdk/client-dynamodb": "^3.821.0",
     "@aws-sdk/client-s3": "^3.991.0",
     "@aws-sdk/lib-dynamodb": "^3.821.0",
     "@prisma/client": "^5.22.0",
-    "aws-cdk-lib": "^2.236.0",
-    "cdk-s3-vectors": "^0.3.2",
     "cheerio": "^1.2.0",
-    "constructs": "^10.0.0",
     "dayjs": "^1.11.10",
     "dotenv": "^17.3.1",
     "jwt-decode": "^4.0.0",

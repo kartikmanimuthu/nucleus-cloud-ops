@@ -3,11 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { getBoss } from '@/lib/boss-client';
 import type { S3BucketConfig, ConfluenceConfig, BitbucketConfig } from '@/lib/knowledge-base/types';
-
-const sqs = new SQSClient({ region: process.env.AWS_REGION });
-const KB_SYNC_QUEUE_URL = process.env.KB_SYNC_QUEUE_URL!;
 
 const JOB_TYPE_MAP = {
   's3-bucket': 's3-sync',
@@ -37,17 +34,15 @@ export async function POST(
   // Mark as syncing immediately
   await KnowledgeBaseService.updateDataSource(kbId, dsId, { status: 'syncing' }, tenantId);
 
-  // Enqueue background job — pass old vector keys so Lambda can clean them up
-  await sqs.send(new SendMessageCommand({
-    QueueUrl: KB_SYNC_QUEUE_URL,
-    MessageBody: JSON.stringify({
-      type: jobType,
-      kbId,
-      dsId,
-      oldVectorKeys: ds.vectorKeys,
-      config: ds.config as S3BucketConfig | ConfluenceConfig | BitbucketConfig,
-    }),
-  }));
+  // Enqueue background job via pg-boss
+  const boss = await getBoss();
+  await boss.send('kb-sync', {
+    type: jobType,
+    kbId,
+    dsId,
+    oldVectorKeys: ds.vectorKeys,
+    config: ds.config as S3BucketConfig | ConfluenceConfig | BitbucketConfig,
+  });
 
   return NextResponse.json({ success: true, status: 'syncing' }, { status: 202 });
 }

@@ -1,0 +1,52 @@
+# Local development: postgres + workers
+# Usage: docker compose -f docker-compose.workers.yml up
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: nucleus
+      POSTGRES_USER: nucleus_admin
+      POSTGRES_PASSWORD: localdev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nucleus_admin -d nucleus"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  migrate:
+    image: node:20-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://nucleus_admin:localdev@postgres:5432/nucleus
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: npx prisma@5 migrate deploy --schema=./prisma/schema.prisma
+    restart: "no"
+
+  workers:
+    build:
+      context: .
+      dockerfile: workers/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://nucleus_admin:localdev@postgres:5432/nucleus
+      AWS_REGION: ap-south-1
+      APP_TABLE_NAME: nucleus-cloud-ops-app-table
+      AUDIT_TABLE_NAME: nucleus-cloud-ops-audit-table
+      USE_PG_SCHEDULES: "true"
+      USE_PG_KB: "true"
+      LOG_LEVEL: debug
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

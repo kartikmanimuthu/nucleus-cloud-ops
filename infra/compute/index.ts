@@ -1,8 +1,36 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
+import * as awsx from "@pulumi/awsx";
+import * as command from "@pulumi/command";
 import * as random from "@pulumi/random";
 import * as fs from "fs";
 import * as path from "path";
+import * as crypto from "crypto";
+
+// Hash a source directory recursively — used as a trigger so build commands
+// only re-run when source files actually change.
+function hashDirectory(dir: string): string {
+    const hash = crypto.createHash("sha256");
+    function walk(d: string) {
+        if (!fs.existsSync(d)) return;
+        const entries = fs.readdirSync(d, { withFileTypes: true })
+            .sort((a, b) => a.name.localeCompare(b.name));
+        for (const entry of entries) {
+            const full = path.join(d, entry.name);
+            if (entry.isDirectory()) {
+                if (["node_modules", "dist", ".next"].includes(entry.name)) continue;
+                walk(full);
+            } else {
+                hash.update(entry.name);
+                hash.update(fs.readFileSync(full));
+            }
+        }
+    }
+    walk(dir);
+    return hash.digest("hex");
+}
+
+const repoRoot = path.resolve(__dirname, "../..");
 
 // Account ID + region for resource name suffixes (no top-level await needed)
 const callerIdentity = aws.getCallerIdentityOutput({});
@@ -16,7 +44,6 @@ const subscriptionEmails = config.get("subscriptionEmails") ?? "";
 const crossAccountRoleName = config.get("crossAccountRoleName") ?? "NucleusAccess";
 const vectorBucketName = config.get("vectorBucketName") ?? "";
 const discoveryImageUri = config.get("discoveryImageUri") ?? "";
-const webUiImageUri = config.require("webUiImageUri");
 const nextauthSecret = config.requireSecret("nextauthSecret");
 const dbPassword = config.requireSecret("dbPassword");
 
@@ -371,22 +398,6 @@ new aws.sqs.QueuePolicy("vector-processing-queue-policy", {
     ),
 });
 
-// KBSync pair — buffers KB sync jobs
-const kbSyncDlq = new aws.sqs.Queue("kb-sync-dlq", {
-    name: "nucleus-cloud-ops-kb-sync-dlq",
-    messageRetentionSeconds: 1209600, // 14 days
-});
-
-const kbSyncQueue = new aws.sqs.Queue("kb-sync-queue", {
-    name: "nucleus-cloud-ops-kb-sync-queue",
-    visibilityTimeoutSeconds: 900,
-    receiveWaitTimeSeconds: 20,
-    redrivePolicy: kbSyncDlq.arn.apply(dlqArn => JSON.stringify({
-        deadLetterTargetArn: dlqArn,
-        maxReceiveCount: 3,
-    })),
-});
-
 // ============================================================================
 // CLOUDWATCH ALARMS
 // ============================================================================
@@ -606,126 +617,6 @@ const databaseUrl = pulumi.secret(
 
 
 // ============================================================================
-// SCHEDULER LAMBDA
-// ============================================================================
-
-// IAM Role for Scheduler Lambda
-const schedulerLambdaRole = new aws.iam.Role("scheduler-lambda-role", {
-    name: "nucleus-cloud-ops-lambda-role",
-    assumeRolePolicy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Principal: { Service: "lambda.amazonaws.com" },
-            Action: "sts:AssumeRole",
-        }],
-    }),
-    managedPolicyArns: [
-        "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-    ],
-});
-
-// Inline policy — DynamoDB access on app + audit tables
-new aws.iam.RolePolicy("scheduler-lambda-dynamodb-policy", {
-    role: schedulerLambdaRole.id,
-    policy: pulumi.all([appTable.arn, auditTable.arn]).apply(([appArn, auditArn]) =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: [
-                    "dynamodb:GetItem", "dynamodb:Scan", "dynamodb:Query",
-                    "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
-                    "dynamodb:BatchWriteItem",
-                ],
-                Resource: [
-                    appArn, `${appArn}/index/*`,
-                    auditArn, `${auditArn}/index/*`,
-                ],
-            }],
-        })
-    ),
-});
-
-// Inline policy — cross-account STS AssumeRole
-new aws.iam.RolePolicy("scheduler-lambda-sts-policy", {
-    role: schedulerLambdaRole.id,
-    policy: pulumi.output(crossAccountRoleName).apply(roleName =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: ["sts:AssumeRole"],
-                Resource: [
-                    `arn:aws:iam::*:role/${roleName}`,
-                    "arn:aws:iam::*:role/NucleusAccess-*",
-                ],
-            }],
-        })
-    ),
-});
-
-// Inline policy — SNS Publish
-new aws.iam.RolePolicy("scheduler-lambda-sns-policy", {
-    role: schedulerLambdaRole.id,
-    policy: snsTopic.arn.apply(topicArn =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: ["sns:Publish"],
-                Resource: [topicArn],
-            }],
-        })
-    ),
-});
-
-// Scheduler Lambda Function
-const schedulerLambda = new aws.lambda.Function("scheduler-lambda", {
-    name: "nucleus-cloud-ops-function",
-    role: schedulerLambdaRole.arn,
-    runtime: "nodejs20.x",
-    architectures: ["arm64"],
-    handler: "index.handler",
-    code: new pulumi.asset.FileArchive("../../lambda/scheduler/lambda.zip"),
-    timeout: 900,
-    memorySize: 1024,
-    environment: {
-        variables: {
-            APP_TABLE_NAME: appTable.name,
-            AUDIT_TABLE_NAME: auditTable.name,
-            CROSS_ACCOUNT_ROLE_ARN: schedulerLambdaRole.arn,
-            SCHEDULER_TAG: "cost-optimization-scheduler",
-            SNS_TOPIC_ARN: snsTopic.arn,
-            HUB_ACCOUNT_ID: accountId,
-            NEXT_PUBLIC_HUB_ACCOUNT_ID: accountId,
-            DATABASE_URL: databaseUrl,
-        },
-    },
-});
-
-// ============================================================================
-// EVENTBRIDGE RULE — Scheduler cron trigger
-// ============================================================================
-
-const schedulerRule = new aws.cloudwatch.EventRule("scheduler-trigger-rule", {
-    name: "nucleus-cloud-ops-rule",
-    scheduleExpression: "cron(0,30 * * * ? *)",
-});
-
-new aws.cloudwatch.EventTarget("scheduler-trigger-target", {
-    rule: schedulerRule.name,
-    arn: schedulerLambda.arn,
-});
-
-new aws.lambda.Permission("scheduler-eventbridge-permission", {
-    action: "lambda:InvokeFunction",
-    function: schedulerLambda.name,
-    principal: "events.amazonaws.com",
-    sourceArn: schedulerRule.arn,
-});
-
-// ============================================================================
 // VECTOR PROCESSOR LAMBDA
 // ============================================================================
 
@@ -833,6 +724,15 @@ new aws.iam.RolePolicy("vector-processor-sqs-policy", {
     ),
 });
 
+// Auto-build VectorProcessor Lambda — reruns when source changes
+const vectorSrcHash = hashDirectory(path.join(repoRoot, "lambda/vector_processor/src"));
+const buildVectorProcessor = new command.local.Command("build-vector-processor", {
+    create: `bash ${repoRoot}/infra/build-lambdas.sh --lambda=vector_processor`,
+    update: `bash ${repoRoot}/infra/build-lambdas.sh --lambda=vector_processor`,
+    triggers: [vectorSrcHash],
+    dir: repoRoot,
+});
+
 // VectorProcessor Lambda Function
 const vectorProcessorLambda = new aws.lambda.Function("vector-processor-lambda", {
     name: "nucleus-cloud-ops-vector-processor",
@@ -856,9 +756,7 @@ const vectorProcessorLambda = new aws.lambda.Function("vector-processor-lambda",
             DATABASE_URL: databaseUrl,
         },
     },
-});
-
-// SQS EventSourceMapping — VectorProcessor triggered by vectorProcessingQueue
+}, { dependsOn: [buildVectorProcessor] });
 new aws.lambda.EventSourceMapping("vector-processor-sqs-trigger", {
     eventSourceArn: vectorProcessingQueue.arn,
     functionName: vectorProcessorLambda.arn,
@@ -876,153 +774,6 @@ new aws.s3.BucketNotification("inventory-bucket-notification", {
         events: ["s3:ObjectCreated:*"],
         filterPrefix: "normalized/",
     }],
-});
-
-// ============================================================================
-// KB SYNC PROCESSOR LAMBDA
-// ============================================================================
-
-// IAM Role for KBSyncProcessor Lambda
-const kbSyncProcessorRole = new aws.iam.Role("kb-sync-processor-role", {
-    name: "nucleus-cloud-ops-kb-sync-processor-role",
-    assumeRolePolicy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Principal: { Service: "lambda.amazonaws.com" },
-            Action: "sts:AssumeRole",
-        }],
-    }),
-    managedPolicyArns: [
-        "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-    ],
-});
-
-// Inline policy — S3 read/write on kbStagingBucket
-new aws.iam.RolePolicy("kb-sync-processor-kb-staging-policy", {
-    role: kbSyncProcessorRole.id,
-    policy: pulumi.all([kbStagingBucket.arn]).apply(([bucketArn]) =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: [
-                    "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket",
-                ],
-                Resource: [bucketArn, `${bucketArn}/*`],
-            }],
-        })
-    ),
-});
-
-// Inline policy — S3 read on arbitrary buckets (s3-sync data source type)
-new aws.iam.RolePolicy("kb-sync-processor-s3-read-policy", {
-    role: kbSyncProcessorRole.id,
-    policy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Action: ["s3:GetObject", "s3:ListBucket"],
-            Resource: ["*"],
-        }],
-    }),
-});
-
-// Inline policy — DynamoDB read/write on appTable
-new aws.iam.RolePolicy("kb-sync-processor-dynamodb-policy", {
-    role: kbSyncProcessorRole.id,
-    policy: appTable.arn.apply(tableArn =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: [
-                    "dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan",
-                    "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
-                    "dynamodb:BatchWriteItem",
-                ],
-                Resource: [tableArn, `${tableArn}/index/*`],
-            }],
-        })
-    ),
-});
-
-// Inline policy — S3 Vectors permissions
-new aws.iam.RolePolicy("kb-sync-processor-s3vectors-policy", {
-    role: kbSyncProcessorRole.id,
-    policy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Action: [
-                "s3vectors:PutVectors",
-                "s3vectors:DeleteVectors",
-                "s3vectors:QueryVectors",
-            ],
-            Resource: ["*"],
-        }],
-    }),
-});
-
-// Inline policy — Bedrock embedding
-new aws.iam.RolePolicy("kb-sync-processor-bedrock-policy", {
-    role: kbSyncProcessorRole.id,
-    policy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Action: ["bedrock:InvokeModel"],
-            Resource: ["*"],
-        }],
-    }),
-});
-
-// Inline policy — SQS receive from kbSyncQueue
-new aws.iam.RolePolicy("kb-sync-processor-sqs-policy", {
-    role: kbSyncProcessorRole.id,
-    policy: kbSyncQueue.arn.apply(queueArn =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: [
-                    "sqs:ReceiveMessage",
-                    "sqs:DeleteMessage",
-                    "sqs:GetQueueAttributes",
-                ],
-                Resource: [queueArn],
-            }],
-        })
-    ),
-});
-
-// KBSyncProcessor Lambda Function
-const kbSyncProcessorLambda = new aws.lambda.Function("kb-sync-processor-lambda", {
-    name: "nucleus-cloud-ops-kb-sync-processor",
-    role: kbSyncProcessorRole.arn,
-    runtime: "nodejs20.x",
-    architectures: ["arm64"],
-    handler: "index.handler",
-    code: new pulumi.asset.FileArchive("../../lambda/kb_sync_processor/lambda.zip"),
-    timeout: 900,
-    memorySize: 1024,
-    environment: {
-        variables: {
-            APP_TABLE_NAME: appTable.name,
-            KB_VECTOR_BUCKET_NAME: vectorBucketName,  // placeholder — Phase 11
-            KB_VECTOR_INDEX_NAME: "knowledge-base-embeddings",
-            KB_STAGING_BUCKET_NAME: kbStagingBucket.bucket,
-            BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
-            DATABASE_URL: databaseUrl,
-        },
-    },
-});
-
-// SQS EventSourceMapping — KBSyncProcessor triggered by kbSyncQueue
-new aws.lambda.EventSourceMapping("kb-sync-processor-sqs-trigger", {
-    eventSourceArn: kbSyncQueue.arn,
-    functionName: kbSyncProcessorLambda.arn,
-    batchSize: 1,
 });
 
 // ============================================================================
@@ -1203,6 +954,20 @@ const ecrRepository = new aws.ecr.Repository("web-ui-ecr-repo", {
     forceDelete: false,
 });
 
+// WebUI Docker image — auto-built and pushed to ECR on source change.
+// Build context is repo root (not web-ui/) so Dockerfile.ecs can access ../prisma/.
+// awsx.ecr.Image tags with a unique digest per build, so Pulumi detects the change
+// and updates the ECS task definition automatically — no manual force-deploy needed.
+const webUiImage = new awsx.ecr.Image("web-ui-image", {
+    repositoryUrl: ecrRepository.repositoryUrl,
+    context: repoRoot,
+    dockerfile: path.join(repoRoot, "web-ui/Dockerfile.ecs"),
+    platform: "linux/arm64",
+    args: {
+        BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
+    },
+});
+
 // ECS Cluster
 const ecsCluster = new aws.ecs.Cluster("web-ui-ecs-cluster", {
     name: "nucleus-cloud-ops-ecs-cluster",
@@ -1305,21 +1070,6 @@ new aws.iam.RolePolicy("ecs-task-s3-policy", {
     ),
 });
 
-// 5c. SQS — SendMessage on kbSyncQueue
-new aws.iam.RolePolicy("ecs-task-sqs-policy", {
-    role: ecsTaskRole.id,
-    policy: kbSyncQueue.arn.apply(queueArn =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: ["sqs:SendMessage"],
-                Resource: [queueArn],
-            }],
-        })
-    ),
-});
-
 // 5d. Bedrock — InvokeModel
 new aws.iam.RolePolicy("ecs-task-bedrock-policy", {
     role: ecsTaskRole.id,
@@ -1411,26 +1161,25 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         identityPool.id,
         inventoryBucket.bucket,
         inventoryTable.name,
-        kbSyncQueue.url,
         kbStagingBucket.bucket,
         agentTempBucket.bucket,
         agentOpsTable.name,
-        schedulerLambda.arn,
         ecsTaskRole.arn,
         webUiLogGroup.name,
         accountId,
         nextauthSecret,
         databaseUrl,
+        webUiImage.imageUri,
     ]).apply(([
         appTableN, auditTableN, checkpointTableN, writesTableN,
         checkpointBucketN, chatHistoryTableN, memoryTableN, usersTeamsTableN,
         cognitoPoolId, cognitoClientId, cognitoClientSecret, identityPoolId,
-        inventoryBucketN, inventoryTableN, kbSyncQueueUrl, kbStagingBucketN,
-        agentTempBucketN, agentOpsTableN, schedulerLambdaArnVal, ecsTaskRoleArnVal,
-        webUiLogGroupN, acctId, nextauthSecretVal, databaseUrlVal,
+        inventoryBucketN, inventoryTableN, kbStagingBucketN,
+        agentTempBucketN, agentOpsTableN, ecsTaskRoleArnVal,
+        webUiLogGroupN, acctId, nextauthSecretVal, databaseUrlVal, imageUri,
     ]) => JSON.stringify([{
         name: "WebUIContainer",
-        image: webUiImageUri,
+        image: imageUri,
         essential: true,
         portMappings: [{ containerPort: 3000, hostPort: 3000, protocol: "tcp" }],
         logConfiguration: {
@@ -1481,7 +1230,6 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "COGNITO_APP_CLIENT_ID", value: cognitoClientId },
             { name: "COGNITO_APP_CLIENT_SECRET", value: cognitoClientSecret },
             { name: "DATA_DIR", value: "/tmp" },
-            { name: "SCHEDULER_LAMBDA_ARN", value: schedulerLambdaArnVal },
             { name: "EVENTBRIDGE_RULE_NAME", value: "nucleus-cloud-ops-rule" },
             { name: "AGENT_TEMP_BUCKET", value: agentTempBucketN },
             { name: "AGENT_OPS_TABLE_NAME", value: agentOpsTableN },
@@ -1492,7 +1240,6 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
             { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
             { name: "KB_VECTOR_INDEX_NAME", value: "knowledge-base-embeddings" },
-            { name: "KB_SYNC_QUEUE_URL", value: kbSyncQueueUrl },
             { name: "KB_STAGING_BUCKET_NAME", value: kbStagingBucketN },
             { name: "ASK_AI_GENERATION_MODEL", value: "global.anthropic.claude-sonnet-4-6" },
             { name: "LANGFUSE_ENABLED", value: "false" },
@@ -1609,12 +1356,12 @@ const httpListener = new aws.lb.Listener("http-listener", {
 // ECS FARGATE SERVICE + AUTO SCALING
 // ============================================================================
 
-// ECS Fargate Service — forceNewDeployment, circuit breaker with rollback, desiredCount 0
+// ECS Fargate Service — forceNewDeployment, circuit breaker with rollback
 const webUiService = new aws.ecs.Service("web-ui-service", {
     name: "nucleus-cloud-ops-web-ui-service",
     cluster: ecsCluster.arn,
     taskDefinition: webUiTaskDef.arn,
-    desiredCount: 0,  // safe start — scale up after smoke testing
+    desiredCount: 1,
     launchType: "FARGATE",
     forceNewDeployment: true,
     deploymentCircuitBreaker: {
@@ -1712,9 +1459,6 @@ export const inventoryBucketArn = inventoryBucket.arn;
 export const vectorProcessingQueueUrl = vectorProcessingQueue.url;
 export const vectorProcessingQueueArn = vectorProcessingQueue.arn;
 export const vectorProcessingDlqArn = vectorProcessingDlq.arn;
-export const kbSyncQueueUrl = kbSyncQueue.url;
-export const kbSyncQueueArn = kbSyncQueue.arn;
-export const kbSyncDlqArn = kbSyncDlq.arn;
 // Cognito exports
 export const cognitoUserPoolId = userPool.id;
 export const cognitoUserPoolArn = userPool.arn;
@@ -1723,13 +1467,11 @@ export const cognitoUserPoolClientSecret = pulumi.secret(userPoolClient.clientSe
 export const cognitoIdentityPoolId = identityPool.id;
 export const cognitoDomainPrefix = pulumi.interpolate`nucleus-cloud-ops-web-ui-auth-${accountId}`;
 
-// Scheduler Lambda + SNS exports
-export const schedulerLambdaArn = schedulerLambda.arn;
+// SNS exports
 export const snsTopicArn = snsTopic.arn;
 
-// VectorProcessor + KBSyncProcessor exports
+// VectorProcessor exports
 export const vectorProcessorArn = vectorProcessorLambda.arn;
-export const kbSyncProcessorArn = kbSyncProcessorLambda.arn;
 
 // Discovery ECS task exports
 export const discoveryTaskDefinitionArn = discoveryTaskDef.arn;
@@ -1757,24 +1499,8 @@ new aws.iam.RolePolicy("discovery-task-rds-connect-policy", {
     })),
 });
 
-new aws.iam.RolePolicy("scheduler-lambda-rds-connect-policy", {
-    role: schedulerLambdaRole.id,
-    policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
-    })),
-});
-
 new aws.iam.RolePolicy("vector-processor-rds-connect-policy", {
     role: vectorProcessorRole.id,
-    policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
-    })),
-});
-
-new aws.iam.RolePolicy("kb-sync-processor-rds-connect-policy", {
-    role: kbSyncProcessorRole.id,
     policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
         Version: "2012-10-17",
         Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
@@ -1932,6 +1658,255 @@ new aws.cloudwatch.EventTarget("discovery-trigger-target", {
 });
 
 // ============================================================================
+// PG-BOSS WORKERS ECS SERVICE
+// ============================================================================
+
+// ECR Repository — Workers container images
+const workersEcrRepo = new aws.ecr.Repository("workers-ecr-repo", {
+    name: "nucleus-cloud-ops-workers",
+    imageTagMutability: "MUTABLE",
+    forceDelete: false,
+});
+
+// Workers Docker image — auto-built and pushed to ECR on source change
+const workersImage = new awsx.ecr.Image("workers-image", {
+    repositoryUrl: workersEcrRepo.repositoryUrl,
+    context: repoRoot,
+    dockerfile: path.join(repoRoot, "workers/Dockerfile"),
+    platform: "linux/arm64",
+    args: {
+        BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
+    },
+});
+
+const workersLogGroup = new aws.cloudwatch.LogGroup("workers-log-group", {
+    name: "/ecs/nucleus-cloud-ops-workers",
+    retentionInDays: 7,
+});
+
+const workersTaskRole = new aws.iam.Role("workers-task-role", {
+    name: "nucleus-cloud-ops-workers-task-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "ecs-tasks.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+});
+
+new aws.iam.RolePolicy("workers-dynamodb-policy", {
+    role: workersTaskRole.id,
+    policy: pulumi.all([appTable.arn, auditTable.arn]).apply(([appArn, auditArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "dynamodb:GetItem", "dynamodb:Scan", "dynamodb:Query",
+                    "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
+                    "dynamodb:BatchWriteItem",
+                ],
+                Resource: [
+                    appArn, `${appArn}/index/*`,
+                    auditArn, `${auditArn}/index/*`,
+                ],
+            }],
+        })
+    ),
+});
+
+new aws.iam.RolePolicy("workers-sts-policy", {
+    role: workersTaskRole.id,
+    policy: pulumi.output(crossAccountRoleName).apply(roleName =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["sts:AssumeRole"],
+                Resource: [
+                    `arn:aws:iam::*:role/${roleName}`,
+                    "arn:aws:iam::*:role/NucleusAccess-*",
+                ],
+            }],
+        })
+    ),
+});
+
+new aws.iam.RolePolicy("workers-sns-policy", {
+    role: workersTaskRole.id,
+    policy: snsTopic.arn.apply(topicArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["sns:Publish"],
+                Resource: [topicArn],
+            }],
+        })
+    ),
+});
+
+new aws.iam.RolePolicy("workers-bedrock-policy", {
+    role: workersTaskRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: ["bedrock:InvokeModel"],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+new aws.iam.RolePolicy("workers-s3vectors-policy", {
+    role: workersTaskRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: [
+                "s3vectors:PutVectors",
+                "s3vectors:DeleteVectors",
+                "s3vectors:QueryVectors",
+            ],
+            Resource: ["*"],
+        }],
+    }),
+});
+
+new aws.iam.RolePolicy("workers-s3-policy", {
+    role: workersTaskRole.id,
+    policy: pulumi.all([kbStagingBucket.arn]).apply(([bucketArn]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                {
+                    Effect: "Allow",
+                    Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
+                    Resource: [bucketArn, `${bucketArn}/*`],
+                },
+                {
+                    Effect: "Allow",
+                    Action: ["s3:GetObject", "s3:ListBucket"],
+                    Resource: ["*"],
+                },
+            ],
+        })
+    ),
+});
+
+new aws.iam.RolePolicy("workers-logs-policy", {
+    role: workersTaskRole.id,
+    policy: workersLogGroup.arn.apply(logArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
+                Resource: [logArn, `${logArn}:*`],
+            }],
+        })
+    ),
+});
+
+new aws.iam.RolePolicy("workers-rds-connect-policy", {
+    role: workersTaskRole.id,
+    policy: postgresInstance.arn.apply(dbArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: ["rds-db:connect"],
+                Resource: [`${dbArn.replace(':rds:', ':rds-db:').replace(':db:', ':dbuser:')}/nucleus_admin`],
+            }],
+        })
+    ),
+});
+
+const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
+    family: "nucleus-cloud-ops-workers-task",
+    cpu: "512",
+    memory: "1024",
+    networkMode: "awsvpc",
+    requiresCompatibilities: ["FARGATE"],
+    executionRoleArn: ecsTaskExecutionRole.arn,
+    taskRoleArn: workersTaskRole.arn,
+    runtimePlatform: {
+        cpuArchitecture: "ARM64",
+        operatingSystemFamily: "LINUX",
+    },
+    containerDefinitions: pulumi.all([
+        appTable.name,
+        auditTable.name,
+        kbStagingBucket.bucket,
+        workersLogGroup.name,
+        databaseUrl,
+        snsTopic.arn,
+        workersImage.imageUri,
+    ]).apply(([
+        appTableN, auditTableN, kbStagingBucketN,
+        workersLogGroupN, databaseUrlVal, snsTopicArn, imageUri,
+    ]) => JSON.stringify([{
+        name: "WorkersContainer",
+        image: imageUri,
+        essential: true,
+        logConfiguration: {
+            logDriver: "awslogs",
+            options: {
+                "awslogs-group": workersLogGroupN,
+                "awslogs-region": region,
+                "awslogs-stream-prefix": "workers",
+            },
+        },
+        environment: [
+            { name: "NODE_ENV", value: "production" },
+            { name: "AWS_REGION", value: region },
+            { name: "DATABASE_URL", value: databaseUrlVal.includes("?") ? `${databaseUrlVal}&sslmode=no-verify` : `${databaseUrlVal}?sslmode=no-verify` },
+            { name: "APP_TABLE_NAME", value: appTableN },
+            { name: "AUDIT_TABLE_NAME", value: auditTableN },
+            { name: "SNS_TOPIC_ARN", value: snsTopicArn },
+            { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
+            { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
+            { name: "KB_VECTOR_INDEX_NAME", value: "knowledge-base-embeddings" },
+            { name: "KB_STAGING_BUCKET_NAME", value: kbStagingBucketN },
+            { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
+            { name: "USE_PG_SCHEDULES", value: "true" },
+            { name: "USE_PG_KB", value: "true" },
+            { name: "LOG_LEVEL", value: "info" },
+        ],
+    }])),
+});
+
+const workersSecurityGroup = new aws.ec2.SecurityGroup("workers-sg", {
+    name: "nucleus-cloud-ops-workers-sg",
+    description: "Security group for pg-boss workers - egress only",
+    vpcId: vpcId,
+    egress: [{
+        fromPort: 0,
+        toPort: 0,
+        protocol: "-1",
+        cidrBlocks: ["0.0.0.0/0"],
+        description: "Allow all outbound for AWS API calls + PostgreSQL",
+    }],
+});
+
+const workersService = new aws.ecs.Service("workers-service", {
+    name: "nucleus-cloud-ops-workers-service",
+    cluster: ecsCluster.arn,
+    taskDefinition: workersTaskDef.arn,
+    desiredCount: 1,
+    launchType: "FARGATE",
+    forceNewDeployment: true,
+    networkConfiguration: {
+        subnets: privateSubnetIds,
+        securityGroups: [workersSecurityGroup.id],
+        assignPublicIp: false,
+    },
+});
+
+// ============================================================================
 // PHASE 10 STACK OUTPUTS — ECS + ALB + CloudFront
 // ============================================================================
 
@@ -1941,6 +1916,10 @@ export const albArn = alb.arn;
 export const cloudFrontUrl = pulumi.interpolate`https://${cloudFrontDistribution.domainName}`;
 export const cloudFrontDistributionId = cloudFrontDistribution.id;
 export const originVerifySecretValue = pulumi.secret(originVerifySecret.result);
+
+// Workers ECS exports
+export const workersServiceName = workersService.name;
+export const workersEcrRepoUrl = workersEcrRepo.repositoryUrl;
 
 // ============================================================================
 // PHASE 11: S3 VECTORS + S3 TABLES — CloudFormation Stack Wrappers
