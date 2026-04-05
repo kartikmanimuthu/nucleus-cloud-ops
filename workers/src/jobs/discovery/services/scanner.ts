@@ -198,3 +198,173 @@ async function getCommandClass(service: string, commandName: string): Promise<an
   COMMAND_CACHE.set(cacheKey, CommandCls);
   return CommandCls;
 }
+
+// ---------------------------------------------------------------------------
+// applyEnrichments — generic enrichment engine
+// ---------------------------------------------------------------------------
+
+export async function applyEnrichments(
+  client: any,
+  service: string,
+  resources: any[],
+  enrichments: EnrichmentStep[],
+): Promise<any[]> {
+  let current = [...resources];
+
+  for (const enrichment of enrichments) {
+    try {
+      switch (enrichment.type) {
+        case 'tags':
+          current = await applyTagEnrichment(client, service, current, enrichment);
+          break;
+        case 'describe':
+          current = await applyDescribeEnrichment(client, service, current, enrichment);
+          break;
+        case 'detail':
+          current = await applyDetailEnrichment(client, service, current, enrichment);
+          break;
+      }
+    } catch (error) {
+      console.warn(
+        `[discovery/scanner] Enrichment ${enrichment.type}:${enrichment.method} failed for ${service}, continuing:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  return current;
+}
+
+async function applyTagEnrichment(
+  client: any,
+  service: string,
+  resources: any[],
+  enrichment: EnrichmentStep,
+): Promise<any[]> {
+  const { method, arnKey, nameKey, inputKey, batchSize } = enrichment;
+  const CommandClass = await getCommandClass(service, toCommandName(method));
+
+  if (batchSize && arnKey && inputKey) {
+    const arnMap = new Map<string, any>();
+    for (const r of resources) {
+      if (typeof r === 'object' && r[arnKey]) {
+        arnMap.set(r[arnKey], r);
+      }
+    }
+    const arns = Array.from(arnMap.keys());
+
+    for (let i = 0; i < arns.length; i += batchSize) {
+      const batch = arns.slice(i, i + batchSize);
+      try {
+        const command = new CommandClass({ [inputKey]: batch });
+        const response = await client.send(command);
+        const tagDescs = response.TagDescriptions || [];
+        for (const td of tagDescs) {
+          const arn = td.ResourceArn;
+          if (arn && arnMap.has(arn)) {
+            arnMap.get(arn).Tags = td.Tags || [];
+          }
+        }
+      } catch (error) {
+        console.warn(`[discovery/scanner] Batch tag enrichment failed for ${service}:`, error instanceof Error ? error.message : error);
+      }
+    }
+    return resources;
+  }
+
+  for (const resource of resources) {
+    if (typeof resource !== 'object') continue;
+    const key = arnKey ? resource[arnKey] : nameKey ? resource[nameKey] : null;
+    if (!key) continue;
+    try {
+      const paramKey = inputKey || (arnKey ? 'ResourceArn' : 'ResourceName');
+      const command = new CommandClass({ [paramKey]: key });
+      const response = await client.send(command);
+      const tags = response.Tags || response.TagList || response.TagSet || response.tags || [];
+      resource.Tags = Array.isArray(tags)
+        ? tags
+        : Object.entries(tags).map(([Key, Value]) => ({ Key, Value }));
+    } catch (error) {
+      console.warn(`[discovery/scanner] Tag fetch failed for ${key}:`, error instanceof Error ? error.message : error);
+    }
+  }
+
+  return resources;
+}
+
+async function applyDescribeEnrichment(
+  client: any,
+  service: string,
+  resources: any[],
+  enrichment: EnrichmentStep,
+): Promise<any[]> {
+  const { method, inputKey, resultKey, batchSize, idKey } = enrichment;
+  const CommandClass = await getCommandClass(service, toCommandName(method));
+
+  const ids: any[] = resources.map((r) => {
+    if (typeof r === 'string') return r;
+    if (idKey && r[idKey]) return r[idKey];
+    return r;
+  });
+
+  const allDescribed: any[] = [];
+  const chunkSize = batchSize || ids.length;
+
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const batch = ids.slice(i, i + chunkSize);
+    try {
+      if (!batchSize || batchSize === 1) {
+        for (const id of batch) {
+          const params = inputKey ? { [inputKey]: id } : {};
+          const command = new CommandClass(params);
+          const response = await client.send(command);
+          const result = resultKey ? response[resultKey] : response;
+          if (Array.isArray(result)) allDescribed.push(...result);
+          else if (result) allDescribed.push(result);
+        }
+      } else {
+        const params = inputKey ? { [inputKey]: batch } : {};
+        const command = new CommandClass(params);
+        const response = await client.send(command);
+        const result = resultKey ? response[resultKey] : response;
+        if (Array.isArray(result)) allDescribed.push(...result);
+        else if (result) allDescribed.push(result);
+      }
+    } catch (error) {
+      console.warn(`[discovery/scanner] Describe enrichment failed for ${service}.${method}:`, error instanceof Error ? error.message : error);
+    }
+  }
+
+  return allDescribed.length > 0 ? allDescribed : resources;
+}
+
+async function applyDetailEnrichment(
+  client: any,
+  service: string,
+  resources: any[],
+  enrichment: EnrichmentStep,
+): Promise<any[]> {
+  const { method, nameKey, arnKey, inputKey, mergeKey } = enrichment;
+  const CommandClass = await getCommandClass(service, toCommandName(method));
+
+  for (const resource of resources) {
+    if (typeof resource !== 'object') continue;
+    const key = nameKey ? resource[nameKey] : arnKey ? resource[arnKey] : null;
+    if (!key) continue;
+    try {
+      const paramKey = inputKey || 'ResourceName';
+      const command = new CommandClass({ [paramKey]: key });
+      const response = await client.send(command);
+      const { ResponseMetadata, ...data } = response;
+      if (mergeKey && data[mergeKey]) {
+        Object.assign(resource, data[mergeKey]);
+      } else {
+        Object.assign(resource, data);
+      }
+    } catch (error) {
+      console.warn(`[discovery/scanner] Detail enrichment failed for ${key}:`, error instanceof Error ? error.message : error);
+    }
+  }
+
+  return resources;
+}

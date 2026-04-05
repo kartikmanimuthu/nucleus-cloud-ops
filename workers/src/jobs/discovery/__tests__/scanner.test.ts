@@ -164,3 +164,121 @@ describe('scanner — invokeService', () => {
     expect(mockClient.send).toHaveBeenCalledTimes(1);
   });
 });
+
+import type { EnrichmentStep } from '../types.js';
+
+describe('scanner — applyEnrichments', () => {
+  let applyEnrichments: typeof import('../services/scanner.js').applyEnrichments;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const mod = await import('../services/scanner.js');
+    applyEnrichments = mod.applyEnrichments;
+  });
+
+  it('should apply tag enrichment per resource using arnKey', async () => {
+    const mockClient = {
+      send: vi.fn().mockResolvedValue({
+        TagList: [{ Key: 'Environment', Value: 'prod' }],
+      }),
+    };
+
+    const resources = [
+      { DBInstanceArn: 'arn:aws:rds:us-east-1:123:db:mydb', DBInstanceIdentifier: 'mydb' },
+    ];
+
+    const enrichments: EnrichmentStep[] = [
+      { type: 'tags', method: 'list_tags_for_resource', arnKey: 'DBInstanceArn' },
+    ];
+
+    const enriched = await applyEnrichments(mockClient as any, 'rds', resources, enrichments);
+
+    expect(mockClient.send).toHaveBeenCalledTimes(1);
+    expect(enriched[0].Tags).toBeDefined();
+  });
+
+  it('should apply tag enrichment in batches using batchSize', async () => {
+    const mockClient = {
+      send: vi.fn().mockResolvedValue({
+        TagDescriptions: [
+          { ResourceArn: 'arn:lb1', Tags: [{ Key: 'Name', Value: 'lb1' }] },
+          { ResourceArn: 'arn:lb2', Tags: [{ Key: 'Name', Value: 'lb2' }] },
+        ],
+      }),
+    };
+
+    const resources = [
+      { LoadBalancerArn: 'arn:lb1' },
+      { LoadBalancerArn: 'arn:lb2' },
+    ];
+
+    const enrichments: EnrichmentStep[] = [
+      { type: 'tags', method: 'describe_tags', arnKey: 'LoadBalancerArn', inputKey: 'ResourceArns', batchSize: 20 },
+    ];
+
+    const enriched = await applyEnrichments(mockClient as any, 'elbv2', resources, enrichments);
+
+    expect(mockClient.send).toHaveBeenCalledTimes(1);
+    expect(enriched).toHaveLength(2);
+  });
+
+  it('should apply describe enrichment and replace items', async () => {
+    const mockClient = {
+      send: vi.fn().mockResolvedValue({
+        clusters: [
+          { clusterArn: 'arn:cluster1', clusterName: 'cluster1', status: 'ACTIVE' },
+        ],
+      }),
+    };
+
+    const resources = ['arn:cluster1'];
+
+    const enrichments: EnrichmentStep[] = [
+      { type: 'describe', method: 'describe_clusters', inputKey: 'clusters', resultKey: 'clusters', batchSize: 100 },
+    ];
+
+    const enriched = await applyEnrichments(mockClient as any, 'ecs', resources, enrichments);
+
+    expect(enriched[0]).toHaveProperty('clusterName', 'cluster1');
+  });
+
+  it('should apply detail enrichment per resource', async () => {
+    const mockClient = {
+      send: vi.fn().mockResolvedValue({
+        LocationConstraint: 'us-west-2',
+      }),
+    };
+
+    const resources = [{ Name: 'my-bucket' }];
+
+    const enrichments: EnrichmentStep[] = [
+      { type: 'detail', method: 'get_bucket_location', nameKey: 'Name', inputKey: 'Bucket' },
+    ];
+
+    const enriched = await applyEnrichments(mockClient as any, 's3', resources, enrichments);
+
+    expect(enriched[0]).toHaveProperty('LocationConstraint', 'us-west-2');
+  });
+
+  it('should continue on enrichment error for individual resources', async () => {
+    const mockClient = {
+      send: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('NoSuchTagSet'))
+        .mockResolvedValueOnce({
+          TagSet: [{ Key: 'Name', Value: 'bucket2' }],
+        }),
+    };
+
+    const resources = [{ Name: 'bucket1' }, { Name: 'bucket2' }];
+
+    const enrichments: EnrichmentStep[] = [
+      { type: 'tags', method: 'get_bucket_tagging', nameKey: 'Name', inputKey: 'Bucket' },
+    ];
+
+    const enriched = await applyEnrichments(mockClient as any, 's3', resources, enrichments);
+
+    expect(enriched).toHaveLength(2);
+    expect(enriched[0].Name).toBe('bucket1');
+  });
+});
