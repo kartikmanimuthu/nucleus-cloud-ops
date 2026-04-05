@@ -535,3 +535,113 @@ export function normalizeResources(
 
   return resources;
 }
+
+import pLimit from 'p-limit';
+import { CUSTOM_SCANNERS } from './custom-scanners.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+// ---------------------------------------------------------------------------
+// createClient — create an AWS SDK v3 client for a service with credentials
+// ---------------------------------------------------------------------------
+
+export function createClient(
+  service: string,
+  region: string,
+  credentials: AssumedCredentials['credentials'],
+): any {
+  const ClientClass = SERVICE_REGISTRY[service];
+  if (!ClientClass) {
+    throw new Error(`Unknown service in SERVICE_REGISTRY: ${service}`);
+  }
+  return new ClientClass({
+    region,
+    credentials: {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      sessionToken: credentials.sessionToken,
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// loadScanConfigs — load scanfile.json
+// ---------------------------------------------------------------------------
+
+export function loadScanConfigs(scanfilePath?: string): ScanConfig[] {
+  const path = scanfilePath || join(dirname(fileURLToPath(import.meta.url)), '..', 'scanfile.json');
+  const raw = readFileSync(path, 'utf-8');
+  return JSON.parse(raw) as ScanConfig[];
+}
+
+// ---------------------------------------------------------------------------
+// runInventoryScan — orchestrator with p-limit concurrency
+// ---------------------------------------------------------------------------
+
+export async function runInventoryScan(
+  assumed: AssumedCredentials,
+  regions: string[],
+  scanConfigs: ScanConfig[],
+): Promise<ScanResult> {
+  const startMs = Date.now();
+  const regionLimit = pLimit(CONCURRENT_REGIONS);
+  const serviceLimit = pLimit(CONCURRENT_SERVICES);
+
+  const allResources: Resource[] = [];
+  const errors: string[] = [];
+
+  const overrideScanned = new Set<string>();
+
+  const regionTasks = regions.map((region) =>
+    regionLimit(async () => {
+      const serviceTasks = scanConfigs.map((config) =>
+        serviceLimit(async () => {
+          try {
+            if (config.constraints?.regionOverride) {
+              const overrideRegion = config.constraints.regionOverride;
+              const key = `${config.service}:${config.function}`;
+              if (region !== overrideRegion) return;
+              if (overrideScanned.has(key)) return;
+              overrideScanned.add(key);
+            }
+
+            const effectiveRegion = config.constraints?.regionOverride || region;
+            const client = createClient(config.service, effectiveRegion, assumed.credentials);
+
+            const customKey = `${config.service}:${config.function}`;
+            let rawItems: any[];
+
+            if (CUSTOM_SCANNERS[customKey]) {
+              rawItems = await CUSTOM_SCANNERS[customKey](client, effectiveRegion, config);
+            } else {
+              rawItems = await invokeService(client, effectiveRegion, config);
+              if (config.enrichments?.length) {
+                rawItems = await applyEnrichments(client, config.service, rawItems, config.enrichments);
+              }
+            }
+
+            const resources = normalizeResources(rawItems, config.service, config.function, effectiveRegion);
+            allResources.push(...resources);
+          } catch (error) {
+            const msg = `${config.service}.${config.function} in ${region}: ${error instanceof Error ? error.message : String(error)}`;
+            console.error(`[discovery/scanner] Error scanning ${msg}`);
+            errors.push(msg);
+          }
+        }),
+      );
+
+      await Promise.all(serviceTasks);
+    }),
+  );
+
+  await Promise.all(regionTasks);
+
+  return {
+    resources: allResources,
+    regionsScanned: regions.length,
+    servicesScanned: scanConfigs.length,
+    elapsedMs: Date.now() - startMs,
+    errors: errors.length > 0 ? errors : undefined,
+  };
+}

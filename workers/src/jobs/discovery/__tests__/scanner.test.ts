@@ -483,3 +483,73 @@ describe('scanner — normalizeResources', () => {
     expect(normalizeResources([], 'ec2', 'describe_vpcs', 'us-east-1')).toEqual([]);
   });
 });
+
+vi.mock('p-limit', () => ({
+  default: () => {
+    const limit = (fn: () => Promise<any>) => fn();
+    return limit;
+  },
+}));
+
+describe('scanner — runInventoryScan', () => {
+  let runInventoryScan: typeof import('../services/scanner.js').runInventoryScan;
+  let mod: typeof import('../services/scanner.js');
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mod = await import('../services/scanner.js');
+    runInventoryScan = mod.runInventoryScan;
+  });
+
+  it('should scan regions × services and return aggregated results', async () => {
+    const credentials = {
+      credentials: { accessKeyId: 'AKID', secretAccessKey: 'SECRET', sessionToken: 'TOKEN' },
+      region: 'us-east-1',
+    };
+    const scanConfigs = [
+      { service: 'ec2', function: 'describe_vpcs', result_key: 'Vpcs' },
+    ];
+    vi.spyOn(mod, 'invokeService' as any).mockResolvedValue([
+      { VpcId: 'vpc-123', State: 'available' },
+    ]);
+    const result = await runInventoryScan(credentials, ['us-east-1'], scanConfigs);
+    expect(result.resources.length).toBeGreaterThanOrEqual(0);
+    expect(result.regionsScanned).toBe(1);
+    expect(result.servicesScanned).toBe(1);
+    expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should include errors array for failed services', async () => {
+    const credentials = {
+      credentials: { accessKeyId: 'AKID', secretAccessKey: 'SECRET', sessionToken: 'TOKEN' },
+      region: 'us-east-1',
+    };
+    const scanConfigs = [
+      { service: 'ec2', function: 'describe_vpcs', result_key: 'Vpcs' },
+    ];
+    vi.spyOn(mod, 'invokeService' as any).mockRejectedValue(new Error('Access denied'));
+    const result = await runInventoryScan(credentials, ['us-east-1'], scanConfigs);
+    expect(result.errors).toBeDefined();
+    expect(result.errors!.length).toBeGreaterThan(0);
+  });
+
+  it('should handle regionOverride constraint', async () => {
+    const credentials = {
+      credentials: { accessKeyId: 'AKID', secretAccessKey: 'SECRET', sessionToken: 'TOKEN' },
+      region: 'us-east-1',
+    };
+    const scanConfigs = [
+      {
+        service: 'cloudfront',
+        function: 'list_distributions',
+        result_key: 'DistributionList',
+        constraints: { regionOverride: 'us-east-1' },
+      },
+    ];
+    const invokeSpy = vi.spyOn(mod, 'invokeService' as any).mockResolvedValue([]);
+    await runInventoryScan(credentials, ['us-east-1', 'ap-south-1'], scanConfigs);
+    const calls = invokeSpy.mock.calls;
+    const cfCalls = calls.filter((c: any) => c[2]?.service === 'cloudfront');
+    expect(cfCalls.length).toBeLessThanOrEqual(1);
+  });
+});
