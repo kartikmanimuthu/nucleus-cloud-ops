@@ -2,7 +2,7 @@
  * AgentOps MCP Settings API Route
  *
  * GET    /api/agent-ops/mcp-settings — Returns AgentOps-specific MCP config
- * PUT    /api/agent-ops/mcp-settings — Save AgentOps MCP config to DynamoDB
+ * PUT    /api/agent-ops/mcp-settings — Save AgentOps MCP config to tenant-scoped config store
  * DELETE /api/agent-ops/mcp-settings — Reset to defaults
  *
  * Uses a separate config key ('agent-ops-mcp-servers') so AgentOps MCP servers
@@ -18,16 +18,18 @@ import {
     jsonToServerConfigs,
 } from '@/lib/agent/mcp-config';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 const CONFIG_KEY = 'agent-ops-mcp-servers';
 
 export async function GET() {
     try {
+        const tenantId = await getSessionTenantId();
         let savedJson: MCPConfigJson | null = null;
         try {
-            savedJson = await TenantConfigService.getConfig<MCPConfigJson>(CONFIG_KEY);
+            savedJson = await TenantConfigService.getConfig<MCPConfigJson>(CONFIG_KEY, tenantId);
         } catch (dbError) {
-            console.warn('[API /agent-ops/mcp-settings] DynamoDB read failed, using defaults:', dbError);
+            console.warn('[API /agent-ops/mcp-settings] Config read failed, using defaults:', dbError);
         }
 
         const servers = mergeConfigs(savedJson);
@@ -49,6 +51,7 @@ export async function GET() {
 
 export async function PUT(req: Request) {
     try {
+        const tenantId = await getSessionTenantId();
         const body = await req.json();
         const config: MCPConfigJson = body.config;
 
@@ -68,7 +71,7 @@ export async function PUT(req: Request) {
             }
         }
 
-        await TenantConfigService.saveConfig(CONFIG_KEY, config);
+        await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);
         const servers = jsonToServerConfigs(config);
 
         console.log(`[API /agent-ops/mcp-settings] Saved config with ${Object.keys(config.mcpServers).length} servers`);
@@ -90,7 +93,8 @@ export async function PUT(req: Request) {
 
 export async function DELETE() {
     try {
-        await TenantConfigService.deleteConfig(CONFIG_KEY);
+        const tenantId = await getSessionTenantId();
+        await TenantConfigService.deleteConfig(CONFIG_KEY, tenantId);
 
         const servers = DEFAULT_MCP_SERVERS;
         const config = defaultsToJson();
