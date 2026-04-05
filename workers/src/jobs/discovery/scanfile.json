@@ -184,17 +184,20 @@
   {
     "service": "ssm",
     "function": "describe_parameters",
-    "result_key": "Parameters"
+    "result_key": "Parameters",
+    "parameters": { "MaxResults": 50 }
   },
   {
     "service": "iam",
     "function": "list_roles",
-    "result_key": "Roles"
+    "result_key": "Roles",
+    "parameters": { "MaxItems": 100 }
   },
   {
     "service": "iam",
     "function": "list_users",
-    "result_key": "Users"
+    "result_key": "Users",
+    "parameters": { "MaxItems": 100 }
   },
   {
     "service": "docdb",

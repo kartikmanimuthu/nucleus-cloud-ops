@@ -7,6 +7,7 @@ import type { ScanConfig, Resource, ScanResult, EnrichmentStep, AssumedCredentia
 
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 2000;
+const MAX_PAGES = 20; // cap pagination at 20 pages per service to avoid runaway scans
 const RETRYABLE_ERROR_NAMES = new Set(['ThrottlingException', 'RequestLimitExceeded', 'Throttling', 'TooManyRequestsException']);
 
 const CONCURRENT_REGIONS = parseInt(process.env.CONCURRENT_REGIONS || '5', 10);
@@ -126,6 +127,7 @@ export async function invokeService(
       const CommandClass = await getCommandClass(scanConfig.service, commandName);
       const results: any[] = [];
       let nextToken: string | undefined;
+      let pages = 0;
 
       do {
         const paginatedParams = { ...params, ...(nextToken ? { NextToken: nextToken } : {}) };
@@ -142,7 +144,8 @@ export async function invokeService(
           response.NextPageToken ??
           response.nextToken ??
           undefined;
-      } while (nextToken);
+        pages++;
+      } while (nextToken && pages < MAX_PAGES);
 
       return results;
     } catch (error) {
