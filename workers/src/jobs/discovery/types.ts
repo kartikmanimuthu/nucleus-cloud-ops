@@ -1,16 +1,27 @@
 // workers/src/jobs/discovery/types.ts
 
+// ---------------------------------------------------------------------------
+// Job payload types for discovery (discriminated union, matches kb-sync pattern)
+// ---------------------------------------------------------------------------
+
 export interface DiscoveryFanOutJob {
-  triggeredBy?: 'cron' | 'web-ui';
+  type: 'fan-out';
 }
 
 export interface DiscoveryScanJob {
+  type: 'scan';
   tenantId: string;
-  accountId?: string;       // if set, scan only this account
+  accountId?: string;
   triggeredBy: 'cron' | 'web-ui';
   userEmail?: string;
   correlationId?: string;
 }
+
+export type DiscoveryJob = DiscoveryFanOutJob | DiscoveryScanJob;
+
+// ---------------------------------------------------------------------------
+// Domain entities
+// ---------------------------------------------------------------------------
 
 export interface Account {
   id: string;
@@ -23,14 +34,21 @@ export interface Account {
   active: boolean;
 }
 
-export interface AssumedCredentials {
-  credentials: {
-    accessKeyId: string;
-    secretAccessKey: string;
-    sessionToken?: string;
-  };
+export interface Resource {
+  resourceType: string;
+  resourceId: string;
   region: string;
+  service: string;
+  name?: string;
+  state?: string;
+  resourceArn?: string;
+  tags: Record<string, string>;
+  rawData: unknown;
 }
+
+// ---------------------------------------------------------------------------
+// Scanfile schema
+// ---------------------------------------------------------------------------
 
 export interface EnrichmentStep {
   type: 'tags' | 'describe' | 'detail';
@@ -39,8 +57,8 @@ export interface EnrichmentStep {
   nameKey?: string;
   inputKey?: string;
   resultKey?: string;
-  batchSize?: number;
   idKey?: string;
+  batchSize?: number;
   mergeKey?: string;
 }
 
@@ -53,31 +71,22 @@ export interface ScanConstraints {
 export interface ScanConfig {
   service: string;
   function: string;
-  result_key?: string;
+  result_key: string;
   parameters?: Record<string, unknown>;
   enrichments?: EnrichmentStep[];
   constraints?: ScanConstraints;
 }
 
-export interface Resource {
-  resourceType: string;
-  resourceId: string;
-  resourceArn: string;
-  name: string;
-  region: string;
-  service: string;
-  state: string;
-  tags: Record<string, string>;
-  metadata?: Record<string, unknown>;
-  rawData?: unknown;
-}
+// ---------------------------------------------------------------------------
+// Scan results
+// ---------------------------------------------------------------------------
 
 export interface ScanResult {
   resources: Resource[];
   regionsScanned: number;
   servicesScanned: number;
   elapsedMs: number;
-  errors: string[];
+  errors?: string[];
 }
 
 export interface SyncStatus {
@@ -85,5 +94,21 @@ export interface SyncStatus {
   tenantId: string;
   totalResources: number;
   accountsSynced: number;
-  syncedAt: Date;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: string;
+  completedAt?: string;
+  errors?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// STS Credentials (shared shape with scheduler)
+// ---------------------------------------------------------------------------
+
+export interface AssumedCredentials {
+  credentials: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken: string;
+  };
+  region: string;
 }
