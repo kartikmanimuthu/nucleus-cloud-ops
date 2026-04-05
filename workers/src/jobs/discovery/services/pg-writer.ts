@@ -59,7 +59,7 @@ export async function writeResourcesToPg(
         const id = `res-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
         placeholders.push(
-          `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6}, $${paramIdx + 7}, $${paramIdx + 8}::jsonb, $${paramIdx + 9}::jsonb, NOW(), NOW())`,
+          `($${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}, $${paramIdx + 5}, $${paramIdx + 6}, $${paramIdx + 7}, $${paramIdx + 8}::jsonb, $${paramIdx + 9}::jsonb, $${paramIdx + 10}, NOW(), NOW())`,
         );
         params.push(
           id,
@@ -72,14 +72,15 @@ export async function writeResourcesToPg(
           r.state || null,
           tagsJson,
           metadataJson,
+          jobRunId,
         );
-        paramIdx += 10;
+        paramIdx += 11;
       }
 
       const sql = `
         INSERT INTO inventory_resources
           (id, "tenantId", "accountId", region, "resourceType", "resourceId",
-           name, status, tags, metadata, "discoveredAt", "updatedAt")
+           name, status, tags, metadata, "jobRunId", "discoveredAt", "updatedAt")
         VALUES ${placeholders.join(', ')}
         ON CONFLICT ("tenantId", "accountId", "resourceType", "resourceId")
         DO UPDATE SET
@@ -87,6 +88,8 @@ export async function writeResourcesToPg(
           status = EXCLUDED.status,
           tags = EXCLUDED.tags,
           metadata = EXCLUDED.metadata,
+          "jobRunId" = EXCLUDED."jobRunId",
+          "discoveredAt" = EXCLUDED."discoveredAt",
           "updatedAt" = NOW()
       `;
 
@@ -293,6 +296,76 @@ export function extractMetadata(resource: Resource): Record<string, unknown> {
 
   if (type === 'iam_users') {
     return pick(raw, { path: 'Path', createDate: 'CreateDate', passwordLastUsed: 'PasswordLastUsed' });
+  }
+
+  if (type === 'ec2_nat_gateways') {
+    return pick(raw, { natGatewayId: 'NatGatewayId', state: 'State', vpcId: 'VpcId', subnetId: 'SubnetId' });
+  }
+
+  if (type === 'ec2_addresses') {
+    return pick(raw, { publicIp: 'PublicIp', allocationId: 'AllocationId', instanceId: 'InstanceId', domain: 'Domain' });
+  }
+
+  if (type === 'ec2_network_interfaces') {
+    return pick(raw, {
+      networkInterfaceId: 'NetworkInterfaceId', status: 'Status',
+      vpcId: 'VpcId', subnetId: 'SubnetId', privateIpAddress: 'PrivateIpAddress',
+    });
+  }
+
+  if (type === 'sns_topics') {
+    return pick(raw, { topicArn: 'TopicArn' });
+  }
+
+  if (type === 'sqs_queues') {
+    return pick(raw, { queueUrl: 'QueueUrl' });
+  }
+
+  if (type === 'secretsmanager_secrets') {
+    return pick(raw, { arn: 'ARN', name: 'Name', lastChangedDate: 'LastChangedDate', rotationEnabled: 'RotationEnabled' });
+  }
+
+  if (type === 'efs_file_systems') {
+    return pick(raw, {
+      fileSystemId: 'FileSystemId', lifeCycleState: 'LifeCycleState',
+      numberOfMountTargets: 'NumberOfMountTargets', sizeInBytes: 'SizeInBytes',
+    });
+  }
+
+  if (type === 'ssm_parameters') {
+    return pick(raw, { name: 'Name', type: 'Type', lastModifiedDate: 'LastModifiedDate', version: 'Version' });
+  }
+
+  if (type === 'cloudwatch_alarms') {
+    return pick(raw, { alarmName: 'AlarmName', stateValue: 'StateValue', metricName: 'MetricName', namespace: 'Namespace' });
+  }
+
+  if (type === 'events_rules') {
+    return pick(raw, { name: 'Name', state: 'State', scheduleExpression: 'ScheduleExpression', eventPattern: 'EventPattern' });
+  }
+
+  if (type === 'codepipeline_pipelines') {
+    return pick(raw, { name: 'name', version: 'version' });
+  }
+
+  if (type === 'backup_backup_plans') {
+    return pick(raw, { backupPlanId: 'BackupPlanId', backupPlanName: 'BackupPlanName', versionId: 'VersionId' });
+  }
+
+  if (type === 'wafv2_web_acls') {
+    return pick(raw, { id: 'Id', name: 'Name', arn: 'ARN', scope: 'Scope' });
+  }
+
+  if (type === 'ec2_transit_gateways') {
+    return pick(raw, { transitGatewayId: 'TransitGatewayId', state: 'State', ownerId: 'OwnerId' });
+  }
+
+  if (type === 'ec2_transit_gateway_attachments') {
+    return pick(raw, { transitGatewayAttachmentId: 'TransitGatewayAttachmentId', state: 'State', resourceType: 'ResourceType' });
+  }
+
+  if (type === 'ec2_vpc_peering_connections') {
+    return pick(raw, { vpcPeeringConnectionId: 'VpcPeeringConnectionId', status: 'Status' });
   }
 
   return {};

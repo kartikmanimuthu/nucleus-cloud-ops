@@ -77,11 +77,13 @@ export async function updateAccountSyncStatus(
   try {
     await client.query(
       `UPDATE accounts
-       SET "connectionStatus" = $4,
-           "updatedAt" = NOW()
+       SET "connectionStatus" = $3,
+           "updatedAt" = $4,
+           "lastSyncedAt" = $5,
+           "lastSyncResourceCount" = $6
        WHERE "tenantId" = $1
          AND "accountId" = $2`,
-      [tenantId, accountId, new Date(status.lastSyncedAt), status.lastSyncStatus, status.lastSyncResourceCount],
+      [tenantId, accountId, status.lastSyncStatus, new Date(), new Date(status.lastSyncedAt), status.lastSyncResourceCount],
     );
   } catch (error) {
     console.error('[discovery/account] Error updating account sync status:', error);

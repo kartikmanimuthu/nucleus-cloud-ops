@@ -31,7 +31,7 @@ describe('register', () => {
   it('creates both queues', async () => {
     const { register } = await import('../index.js');
     await register(mockBoss as any);
-    expect(mockCreateQueue).toHaveBeenCalledWith('discovery-fan-out');
+    expect(mockCreateQueue).toHaveBeenCalledWith('discovery-fan-out', { retryLimit: 1, expireInMinutes: 5 });
     expect(mockCreateQueue).toHaveBeenCalledWith('discovery-scan');
   });
 

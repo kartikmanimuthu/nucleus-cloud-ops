@@ -120,12 +120,27 @@ export async function invokeService(
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const CommandClass = await getCommandClass(scanConfig.service, commandName);
-      const command = new CommandClass(params);
-      const response = await client.send(command);
+      const results: any[] = [];
+      let nextToken: string | undefined;
 
-      const items = response[scanConfig.result_key];
-      if (!items) return [];
-      return Array.isArray(items) ? items : [items];
+      do {
+        const paginatedParams = { ...params, ...(nextToken ? { NextToken: nextToken } : {}) };
+        const command = new CommandClass(paginatedParams);
+        const response = await client.send(command);
+
+        const items = response[scanConfig.result_key];
+        if (Array.isArray(items)) results.push(...items);
+        else if (items !== undefined && items !== null) results.push(items);
+
+        nextToken =
+          response.NextToken ??
+          response.Marker ??
+          response.NextPageToken ??
+          response.nextToken ??
+          undefined;
+      } while (nextToken);
+
+      return results;
     } catch (error) {
       if (isRetryable(error) && attempt < MAX_RETRIES) {
         const delayMs = BASE_RETRY_DELAY_MS * Math.pow(2, attempt);

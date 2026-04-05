@@ -18,7 +18,10 @@ function loadScanConfigs() {
 }
 
 export async function register(boss: PgBoss): Promise<void> {
-  await boss.createQueue('discovery-fan-out');
+  await boss.createQueue('discovery-fan-out', {
+    retryLimit: 1,
+    expireInMinutes: 5,
+  });
   await boss.createQueue('discovery-scan');
 
   // Daily cron at 2 AM UTC

@@ -59,10 +59,12 @@ model Account {
   regions          String[]
   active           Boolean  @default(true)
   description      String?
-  connectionStatus String   @default("unknown")
-  connectionError  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  connectionStatus       String   @default("unknown")
+  connectionError        String?
+  lastSyncedAt           DateTime?
+  lastSyncResourceCount  Int?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
   createdBy        String   @default("system")
   updatedBy        String   @default("system")
 
@@ -269,6 +271,7 @@ model InventoryResource {
   status       String?
   tags         Json     @default("{}")
   metadata     Json     @default("{}")
+  jobRunId     String?
   discoveredAt DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
