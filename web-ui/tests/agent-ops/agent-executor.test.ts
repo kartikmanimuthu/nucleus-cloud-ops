@@ -19,7 +19,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const {
     mockUpdateRunStatus,
     mockRecordEvent,
-    mockAgentOpsRunModelUpdate,
     mockMkdir,
     mockRm,
     mockCreateDynamicExecutorGraph,
@@ -29,7 +28,6 @@ const {
 } = vi.hoisted(() => ({
     mockUpdateRunStatus: vi.fn().mockResolvedValue(undefined),
     mockRecordEvent: vi.fn().mockResolvedValue(undefined),
-    mockAgentOpsRunModelUpdate: vi.fn().mockResolvedValue(undefined),
     mockMkdir: vi.fn().mockResolvedValue(undefined),
     mockRm: vi.fn().mockResolvedValue(undefined),
     mockCreateDynamicExecutorGraph: vi.fn(),
@@ -51,18 +49,6 @@ vi.mock('../../lib/agent-ops/agent-ops-service', () => ({
 
 vi.mock('../../lib/agent-ops/executor-graphs', () => ({
     createDynamicExecutorGraph: mockCreateDynamicExecutorGraph,
-}));
-
-vi.mock('../../lib/agent-ops/models/agent-ops-run', () => ({
-    AgentOpsRunModel: {
-        update: mockAgentOpsRunModelUpdate,
-    },
-}));
-
-vi.mock('../../lib/agent-ops/dynamoose-config', () => ({
-    default: {},
-    AGENT_OPS_TABLE_NAME: 'AgentOpsTable-test',
-    TTL_30_DAYS: () => Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
 }));
 
 vi.mock('fs/promises', () => ({
@@ -346,25 +332,43 @@ describe('sandbox cleanup', () => {
 // ---------------------------------------------------------------------------
 
 describe('toolsUsed grows monotonically', () => {
-    it('includes all tools from on_tool_start events in the completed result', async () => {
+    it('includes all tools from on_chat_model_end tool_calls in the completed result', async () => {
         const events = [
             {
-                event: 'on_tool_start',
-                name: 'list_buckets',
+                event: 'on_chat_model_end',
+                name: 'claude-3',
                 metadata: { langgraph_node: 'tools' },
-                data: { input: {} },
+                data: {
+                    output: {
+                        tool_calls: [{ name: 'list_buckets', args: {}, id: 'tc1' }],
+                        content: '',
+                        usage_metadata: { input_tokens: 100, output_tokens: 50 },
+                    },
+                },
             },
             {
-                event: 'on_tool_start',
-                name: 'get_aws_credentials',
+                event: 'on_chat_model_end',
+                name: 'claude-3',
                 metadata: { langgraph_node: 'tools' },
-                data: { input: {} },
+                data: {
+                    output: {
+                        tool_calls: [{ name: 'get_aws_credentials', args: {}, id: 'tc2' }],
+                        content: '',
+                        usage_metadata: { input_tokens: 50, output_tokens: 20 },
+                    },
+                },
             },
             {
-                event: 'on_tool_start',
-                name: 'execute_command',
+                event: 'on_chat_model_end',
+                name: 'claude-3',
                 metadata: { langgraph_node: 'tools' },
-                data: { input: {} },
+                data: {
+                    output: {
+                        tool_calls: [{ name: 'execute_command', args: {}, id: 'tc3' }],
+                        content: '',
+                        usage_metadata: { input_tokens: 50, output_tokens: 20 },
+                    },
+                },
             },
         ];
 
@@ -385,9 +389,30 @@ describe('toolsUsed grows monotonically', () => {
 
     it('deduplicates tools that appear multiple times', async () => {
         const events = [
-            { event: 'on_tool_start', name: 'list_buckets', metadata: { langgraph_node: 'tools' }, data: { input: {} } },
-            { event: 'on_tool_start', name: 'list_buckets', metadata: { langgraph_node: 'tools' }, data: { input: {} } },
-            { event: 'on_tool_start', name: 'list_buckets', metadata: { langgraph_node: 'tools' }, data: { input: {} } },
+            {
+                event: 'on_chat_model_end',
+                name: 'claude-3',
+                metadata: { langgraph_node: 'tools' },
+                data: {
+                    output: {
+                        tool_calls: [{ name: 'list_buckets', args: {}, id: 'tc1' }],
+                        content: '',
+                        usage_metadata: { input_tokens: 100, output_tokens: 50 },
+                    },
+                },
+            },
+            {
+                event: 'on_chat_model_end',
+                name: 'claude-3',
+                metadata: { langgraph_node: 'tools' },
+                data: {
+                    output: {
+                        tool_calls: [{ name: 'list_buckets', args: {}, id: 'tc2' }],
+                        content: '',
+                        usage_metadata: { input_tokens: 50, output_tokens: 20 },
+                    },
+                },
+            },
         ];
 
         const graph = makeFakeGraph(events);
@@ -405,12 +430,44 @@ describe('toolsUsed grows monotonically', () => {
         expect(listBucketsCount).toBe(1);
     });
 
-    it('toolsUsed count never decreases across sequential on_tool_start events', async () => {
-
+    it('toolsUsed count never decreases across sequential on_chat_model_end events', async () => {
         const events = [
-            { event: 'on_tool_start', name: 'tool_a', metadata: { langgraph_node: 'tools' }, data: { input: {} } },
-            { event: 'on_tool_start', name: 'tool_b', metadata: { langgraph_node: 'tools' }, data: { input: {} } },
-            { event: 'on_tool_start', name: 'tool_c', metadata: { langgraph_node: 'tools' }, data: { input: {} } },
+            {
+                event: 'on_chat_model_end',
+                name: 'claude-3',
+                metadata: { langgraph_node: 'tools' },
+                data: {
+                    output: {
+                        tool_calls: [{ name: 'tool_a', args: {}, id: 'tc1' }],
+                        content: '',
+                        usage_metadata: { input_tokens: 100, output_tokens: 50 },
+                    },
+                },
+            },
+            {
+                event: 'on_chat_model_end',
+                name: 'claude-3',
+                metadata: { langgraph_node: 'tools' },
+                data: {
+                    output: {
+                        tool_calls: [{ name: 'tool_b', args: {}, id: 'tc2' }],
+                        content: '',
+                        usage_metadata: { input_tokens: 50, output_tokens: 20 },
+                    },
+                },
+            },
+            {
+                event: 'on_chat_model_end',
+                name: 'claude-3',
+                metadata: { langgraph_node: 'tools' },
+                data: {
+                    output: {
+                        tool_calls: [{ name: 'tool_c', args: {}, id: 'tc3' }],
+                        content: '',
+                        usage_metadata: { input_tokens: 50, output_tokens: 20 },
+                    },
+                },
+            },
         ];
 
         const graph = makeFakeGraph(events);
@@ -438,12 +495,21 @@ describe('toolsUsed grows monotonically', () => {
                 metadata: { langgraph_node: 'generate' },
                 data: {
                     output: {
-                        tool_calls: [
-                            { name: 'read_file', args: { path: '/etc/config' }, id: 'tc1' },
-                            { name: 'web_search', args: { query: 'lambda limits' }, id: 'tc2' },
-                        ],
+                        tool_calls: [{ name: 'read_file', args: { path: '/etc/config' }, id: 'tc1' }],
                         content: '',
                         usage_metadata: { input_tokens: 100, output_tokens: 50 },
+                    },
+                },
+            },
+            {
+                event: 'on_chat_model_end',
+                name: 'claude-3',
+                metadata: { langgraph_node: 'generate' },
+                data: {
+                    output: {
+                        tool_calls: [{ name: 'web_search', args: { query: 'lambda limits' }, id: 'tc2' }],
+                        content: '',
+                        usage_metadata: { input_tokens: 50, output_tokens: 20 },
                     },
                 },
             },
