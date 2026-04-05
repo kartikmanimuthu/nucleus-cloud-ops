@@ -17,7 +17,8 @@ const region = process.env.AWS_REGION || 'ap-south-1';
 const VECTOR_BUCKET_NAME = process.env.VECTOR_BUCKET_NAME!;
 const VECTOR_INDEX_NAME = process.env.VECTOR_INDEX_NAME!;
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID || 'amazon.titan-embed-text-v2:0';
-const USE_PG_INVENTORY = process.env.USE_PG_INVENTORY === 'true';
+// USE_PG_INVENTORY is read at call time (not module load) so tests can override via process.env
+const getUsePgInventory = (): boolean => process.env.USE_PG_INVENTORY === 'true';
 
 // ---------------------------------------------------------------------------
 // Lazy clients
@@ -174,8 +175,6 @@ export async function processAccountVectors(
 ): Promise<number> {
   if (!resources.length) return 0;
 
-  const usePg = process.env.USE_PG_INVENTORY === 'true';
-
   // Deduplicate input resources by resourceId before embedding
   const seenIds = new Set<string>();
   const uniqueResources = resources.filter((r) => {
@@ -185,7 +184,7 @@ export async function processAccountVectors(
   });
 
   // Fetch previous keys before processing (for stale cleanup)
-  const previousKeys = usePg ? await getPreviousVectorKeys(accountId) : [];
+  const previousKeys = getUsePgInventory() ? await getPreviousVectorKeys(accountId) : [];
 
   const vectorPayload: Array<{
     key: string;
@@ -262,7 +261,7 @@ export async function processAccountVectors(
       new PutVectorsCommand({
         vectorBucketName: VECTOR_BUCKET_NAME,
         indexName: VECTOR_INDEX_NAME,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // S3 Vectors SDK types don't accept our well-typed payload directly — cast required
         vectors: batch as any,
       }),
     );
@@ -271,7 +270,7 @@ export async function processAccountVectors(
   const newKeys = deduped.map((v) => v.key);
 
   // Delete stale vectors and persist new keys (only when USE_PG_INVENTORY=true)
-  if (usePg) {
+  if (getUsePgInventory()) {
     const newKeySet = new Set(newKeys);
     const staleKeys = previousKeys.filter((k) => !newKeySet.has(k));
     await deleteStaleVectors(staleKeys);

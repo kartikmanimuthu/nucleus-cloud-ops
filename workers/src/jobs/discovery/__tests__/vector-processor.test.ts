@@ -181,7 +181,9 @@ describe('processAccountVectors', () => {
 
     await processAccountVectors(resources, 'acc-123', 'tenant-1');
 
-    expect(mockDeleteVectors).toHaveBeenCalled();
+    expect(mockDeleteVectors).toHaveBeenCalledWith(
+      expect.objectContaining({ keys: expect.arrayContaining(['stale-key-1', 'stale-key-2']) }),
+    );
   });
 
   it('saves new vector keys to PostgreSQL when USE_PG_INVENTORY=true', async () => {
