@@ -259,6 +259,7 @@ model DataSource {
 
 // InventoryResource — migrated from DynamoDB inventory scan results (KB-05)
 // Flat table with JSONB columns for tags and metadata (D-01, D-02, D-03, D-04)
+// search_vector is auto-populated via trigger (see 20260405_add_inventory_search_vector migration)
 // tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
 model InventoryResource {
   id           String   @id @default(cuid())
@@ -277,6 +278,7 @@ model InventoryResource {
 
   embedding    Unsupported("vector(1024)")?
   contentHash  String?
+  searchVector Unsupported("tsvector")?
 
   @@unique([tenantId, accountId, resourceType, resourceId])
   @@index([tenantId, resourceType])

@@ -7,6 +7,9 @@
  * Key improvement over DynamoDB path: listResources uses server-side WHERE/ILIKE/LIMIT/OFFSET
  * instead of fetching all records and filtering in memory.
  *
+ * Fulltext search: When searchTerm is provided, uses tsvector search_vector column with
+ * GIN index and ts_rank ordering instead of ILIKE on name only.
+ *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
 import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
@@ -62,17 +65,21 @@ export class InventoryPostgresRepository implements IInventoryRepository {
                 limit = 50,
             } = filters;
 
+            const skip = (page - 1) * limit;
+
+            // When searchTerm is provided, use raw SQL with tsvector fulltext search
+            if (searchTerm?.trim()) {
+                return this.listResourcesFulltext(
+                    tenantId, searchTerm.trim(), { accountId, region, resourceType }, skip, limit
+                );
+            }
+
+            // Standard Prisma path (no search term)
             const where: Record<string, unknown> = { tenantId };
 
             if (accountId) where.accountId = accountId;
             if (region) where.region = region;
             if (resourceType) where.resourceType = resourceType;
-
-            if (searchTerm?.trim()) {
-                where.name = { contains: searchTerm, mode: 'insensitive' };
-            }
-
-            const skip = (page - 1) * limit;
 
             const client = getTenantClient(tenantId);
             const [total, rows] = await Promise.all([
@@ -91,6 +98,74 @@ export class InventoryPostgresRepository implements IInventoryRepository {
             console.error('[InventoryPostgresRepository] Error in listResources:', error);
             throw new Error(`Failed to list resources: ${msg}`);
         }
+    }
+
+    /**
+     * Fulltext search path using search_vector @@ plainto_tsquery.
+     * Results ranked by ts_rank (relevance), then discoveredAt desc.
+     * All parameters are positional ($1, $2, ...) — never interpolated.
+     */
+    private async listResourcesFulltext(
+        tenantId: string,
+        searchTerm: string,
+        filters: { accountId?: string; region?: string; resourceType?: string },
+        skip: number,
+        limit: number,
+    ): Promise<InventoryPage> {
+        const client = getTenantClient(tenantId);
+        const params: unknown[] = [tenantId, searchTerm];
+        let whereClause = `WHERE "tenantId" = $1 AND search_vector @@ plainto_tsquery('english', $2)`;
+
+        if (filters.accountId) {
+            params.push(filters.accountId);
+            whereClause += ` AND "accountId" = $${params.length}`;
+        }
+        if (filters.region) {
+            params.push(filters.region);
+            whereClause += ` AND region = $${params.length}`;
+        }
+        if (filters.resourceType) {
+            params.push(filters.resourceType);
+            whereClause += ` AND "resourceType" = $${params.length}`;
+        }
+
+        // Count query
+        const countSql = `SELECT COUNT(*)::int AS total FROM inventory_resources ${whereClause}`;
+        const countResult = await client.$queryRawUnsafe<[{ total: number }]>(countSql, ...params);
+        const total = countResult[0]?.total ?? 0;
+
+        // Data query with ts_rank ordering
+        params.push(limit, skip);
+        const limitParam = `$${params.length - 1}`;
+        const offsetParam = `$${params.length}`;
+
+        const dataSql = `
+            SELECT id, "tenantId", "accountId", region, "resourceType", "resourceId",
+                   name, status, tags, metadata, "discoveredAt", "updatedAt"
+            FROM inventory_resources
+            ${whereClause}
+            ORDER BY ts_rank(search_vector, plainto_tsquery('english', $2)) DESC, "discoveredAt" DESC
+            LIMIT ${limitParam} OFFSET ${offsetParam}
+        `;
+
+        const rows = await client.$queryRawUnsafe<
+            Array<{
+                id: string;
+                tenantId: string;
+                accountId: string;
+                region: string;
+                resourceType: string;
+                resourceId: string;
+                name: string | null;
+                status: string | null;
+                tags: unknown;
+                metadata: unknown;
+                discoveredAt: Date;
+                updatedAt: Date;
+            }>
+        >(dataSql, ...params);
+
+        return { resources: rows.map(transformRow), total };
     }
 
     async getResource(
