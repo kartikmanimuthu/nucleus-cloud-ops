@@ -239,6 +239,55 @@ export async function createAuditLog(entry: {
 }
 
 /**
+ * Get a single schedule by ID for a tenant.
+ * Replaces DynamoDB GSI3 fetchScheduleById query used in partial scans.
+ * Multi-tenant safety: WHERE tenant_id = $1 on every query.
+ */
+export async function getScheduleById(scheduleId: string, tenantId: string): Promise<Schedule | null> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        const result = await client.query(
+            `SELECT "scheduleId",
+                    "tenantId",
+                    "accountId",
+                    name,
+                    description,
+                    starttime,
+                    endtime,
+                    timezone,
+                    days,
+                    active,
+                    resources,
+                    "createdAt",
+                    "updatedAt"
+             FROM schedules
+             WHERE "tenantId" = $1
+               AND "scheduleId" = $2
+             LIMIT 1`,
+            [tenantId, scheduleId]
+        );
+
+        if (result.rows.length === 0) {
+            logger.debug(`[pg-service] Schedule ${scheduleId} not found for tenant ${tenantId}`);
+            return null;
+        }
+
+        const row = result.rows[0];
+        return {
+            ...row,
+            type: 'schedule' as const,
+            days: row.days || [],
+            resources: row.resources || [],
+        };
+    } catch (error) {
+        logger.error('[pg-service] Error fetching schedule by ID from PostgreSQL', error);
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+/**
  * Get execution history for a schedule from PostgreSQL.
  * Replaces DynamoDB pk=EXEC#tenantId#scheduleId query.
  */

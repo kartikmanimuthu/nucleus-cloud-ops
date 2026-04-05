@@ -12,6 +12,7 @@ import {
 import {
     getActiveTenants,
     getSchedules as getSchedulesPg,
+    getScheduleById as getScheduleByIdPg,
     getAccounts as getAccountsPg,
     logExecution as logExecutionPg,
 } from './pg-service.js';
@@ -223,8 +224,10 @@ export async function runPartialScan(
     logger.setContext({ executionId, mode: 'partial', scheduleId, user: userEmail || 'system' });
     logger.info(`Starting partial scan for schedule: ${scheduleId}`);
 
-    // Fetch the specific schedule
-    const schedule = await fetchScheduleById(scheduleId, event.tenantId);
+    // Fetch the specific schedule — use PostgreSQL when USE_PG_SCHEDULES=true
+    const schedule = USE_PG_SCHEDULES
+        ? await getScheduleByIdPg(scheduleId, event.tenantId)
+        : await fetchScheduleById(scheduleId, event.tenantId);
     if (!schedule) {
         // Log audit for schedule not found error
         await createAuditLog({
