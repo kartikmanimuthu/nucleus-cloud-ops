@@ -47,7 +47,7 @@ processAccountVectors(
 4. **Deduplication** — keys deduplicated by `${resourceId}_${contentHash}` before writing to S3 Vectors (prevents `ValidationException` on duplicate keys in a batch).
 5. **S3 Vectors upsert** — batches of 20 via `PutVectorsCommand`.
 6. **Stale key cleanup** — previous keys fetched from PostgreSQL (`inventory_vector_keys` table), keys no longer present in current sync deleted via `DeleteVectorsCommand` in batches of 500.
-7. **Key persistence** — new keys saved to PostgreSQL via `inventoryVectorKey.upsert`. `USE_PG_INVENTORY=false` skips this (DynamoDB fallback path removed — this migration targets PG-only).
+7. **Key persistence** — new keys saved to PostgreSQL via `inventoryVectorKey.upsert`. When `USE_PG_INVENTORY=false`, key tracking and stale cleanup are both skipped (vectors are still written, but no cleanup of stale keys from previous syncs).
 
 ### Environment Variables
 
