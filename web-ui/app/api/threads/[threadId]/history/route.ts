@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCheckpointer } from '@/lib/agent/agent-shared';
 import { getChatHistory } from '@/lib/agent/persistence';
-import { getSessionUserId } from '@/lib/auth-session';
+import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
 
 interface HistoryMessage {
@@ -120,10 +120,14 @@ export async function GET(
         const { threadId } = await params;
         if (!threadId) return NextResponse.json({ error: 'Thread ID is required' }, { status: 400 });
 
-        // DynamoDB chat history first
-        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
+        // DynamoDB/PG chat history first
+        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE || process.env.USE_PG_LANGGRAPH === 'true') {
             let sessionUserId: string;
-            try { sessionUserId = await getSessionUserId(); } catch {
+            let sessionTenantId: string;
+            try {
+                sessionUserId = await getSessionUserId();
+                sessionTenantId = await getSessionTenantId();
+            } catch {
                 return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
             }
             // Allow reading another user's thread by passing ownerUserId as a query param
@@ -132,7 +136,7 @@ export async function GET(
             const userId = ownerUserId ?? sessionUserId;
             try {
                 const chatHistory = await getChatHistory();
-                const msgs = await chatHistory.getMessages(userId, threadId);
+                const msgs = await chatHistory.getMessages(sessionTenantId, userId, threadId);
                 if (msgs.length > 0) {
                     const converted = msgs.map((m, i) => convertPlainMessage(m, i)).filter(Boolean) as HistoryMessage[];
                     return NextResponse.json({ messages: mergeToolResults(converted) });

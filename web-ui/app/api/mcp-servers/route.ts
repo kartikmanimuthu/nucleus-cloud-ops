@@ -15,17 +15,25 @@ import {
     jsonToServerConfigs,
 } from '@/lib/agent/mcp-config';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getSessionTenantId } from '@/lib/auth-session';
 
 const CONFIG_KEY = 'mcp-servers';
 
 export async function GET() {
+    let tenantId: string;
     try {
-        // Attempt to load user config from DynamoDB
+        tenantId = await getSessionTenantId();
+    } catch {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    try {
+        // Attempt to load user config from storage
         let savedJson: MCPConfigJson | null = null;
         try {
-            savedJson = await TenantConfigService.getConfig<MCPConfigJson>(CONFIG_KEY);
+            savedJson = await TenantConfigService.getConfig<MCPConfigJson>(CONFIG_KEY, tenantId);
         } catch (dbError) {
-            console.warn('[API /mcp-servers] DynamoDB read failed, using defaults:', dbError);
+            console.warn('[API /mcp-servers] Config read failed, using defaults:', dbError);
         }
 
         // Merge saved config with defaults
@@ -49,6 +57,13 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+    let tenantId: string;
+    try {
+        tenantId = await getSessionTenantId();
+    } catch {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     try {
         const body = await req.json();
         const config: MCPConfigJson = body.config;
@@ -70,8 +85,7 @@ export async function PUT(req: Request) {
             }
         }
 
-        // Save to DynamoDB
-        await TenantConfigService.saveConfig(CONFIG_KEY, config);
+        await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);
 
         // Return the resolved server list
         const servers = jsonToServerConfigs(config);
@@ -94,9 +108,15 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE() {
+    let tenantId: string;
     try {
-        // Delete custom config, reverting to defaults
-        await TenantConfigService.deleteConfig(CONFIG_KEY);
+        tenantId = await getSessionTenantId();
+    } catch {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    try {
+        await TenantConfigService.deleteConfig(CONFIG_KEY, tenantId);
 
         const servers = DEFAULT_MCP_SERVERS;
         const config = defaultsToJson();

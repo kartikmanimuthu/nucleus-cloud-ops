@@ -24,7 +24,7 @@ const nextConfig = {
     // Disable ESLint during builds to bypass compilation errors
     ignoreDuringBuilds: true,
   },
-  serverExternalPackages: ['aws-sdk'],
+  serverExternalPackages: ['aws-sdk', 'dynamoose'],
 };
 
 export default withMDX(nextConfig);
