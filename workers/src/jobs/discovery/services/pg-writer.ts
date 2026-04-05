@@ -126,7 +126,8 @@ export async function saveSyncStatus(
 // ---------------------------------------------------------------------------
 
 export function extractMetadata(resource: Resource): Record<string, unknown> {
-  const raw = (resource.rawData || {}) as Record<string, any>;
+  // rawData can be a string (e.g. ECS cluster ARNs from list_clusters) — guard against non-objects
+  const raw = (resource.rawData && typeof resource.rawData === 'object' ? resource.rawData : {}) as Record<string, any>;
   const type = resource.resourceType;
 
   if (type === 'ec2_instances') {

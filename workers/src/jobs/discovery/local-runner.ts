@@ -64,20 +64,20 @@ async function main() {
       await writeResourcesToPg(result.resources, opts.tenantId, account.accountId, scanId);
     }
   } else {
-    // Direct mode: use current AWS credentials
+    // Direct mode: use AWS default credential chain (respects AWS_PROFILE, ~/.aws, instance profile)
     const regions = opts.regions ?? [process.env.AWS_REGION ?? 'ap-south-1'];
-    const fakeCredentials = {
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
-        sessionToken: process.env.AWS_SESSION_TOKEN ?? '',
-      },
-      region: regions[0],
-    };
+    // Pass undefined credentials so createClient uses the SDK default chain
+    const defaultCredentials = { credentials: undefined as any, region: regions[0] };
     console.log(`Direct mode: scanning regions ${regions.join(', ')}`);
-    const result = await runInventoryScan(fakeCredentials, regions, scanConfigs);
+    const result = await runInventoryScan(defaultCredentials, regions, scanConfigs);
     console.log(`Found ${result.resources.length} resources in ${result.elapsedMs}ms`);
     if (result.errors?.length) console.warn('Errors:', result.errors);
+    if (result.resources.length > 0 && process.env.DATABASE_URL) {
+      const accountId = process.env.AWS_ACCOUNT_ID ?? 'local';
+      const tenantId = process.env.TENANT_ID ?? 'local';
+      await writeResourcesToPg(result.resources, tenantId, accountId, scanId);
+      console.log(`Written ${result.resources.length} resources to PostgreSQL (tenant=${tenantId}, account=${accountId})`);
+    }
   }
 
   console.log('Done.');

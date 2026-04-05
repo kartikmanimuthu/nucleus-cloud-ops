@@ -77,11 +77,15 @@ export const SERVICE_REGISTRY: Record<string, new (config: any) => any> = {
 // toCommandName — converts snake_case function to PascalCase + "Command"
 // ---------------------------------------------------------------------------
 
+// AWS SDK v3 keeps only "DB" fully uppercase in command names.
+// All other acronyms (NAT, VPC, ACL, etc.) are title-cased.
+const UPPERCASE_WORDS = new Set(['db']);
+
 export function toCommandName(fn: string): string {
   return (
     fn
       .split('_')
-      .map((w) => w[0].toUpperCase() + w.slice(1))
+      .map((w) => UPPERCASE_WORDS.has(w.toLowerCase()) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1))
       .join('') + 'Command'
   );
 }
@@ -564,20 +568,23 @@ import { dirname, join } from 'path';
 export function createClient(
   service: string,
   region: string,
-  credentials: AssumedCredentials['credentials'],
+  credentials?: AssumedCredentials['credentials'],
 ): any {
   const ClientClass = SERVICE_REGISTRY[service];
   if (!ClientClass) {
     throw new Error(`Unknown service in SERVICE_REGISTRY: ${service}`);
   }
-  return new ClientClass({
-    region,
-    credentials: {
+  const config: Record<string, unknown> = { region };
+  // Only pass explicit credentials when provided (assumed role).
+  // When undefined, the SDK uses the default credential chain (env vars, ~/.aws, instance profile).
+  if (credentials?.accessKeyId) {
+    config.credentials = {
       accessKeyId: credentials.accessKeyId,
       secretAccessKey: credentials.secretAccessKey,
       sessionToken: credentials.sessionToken,
-    },
-  });
+    };
+  }
+  return new ClientClass(config);
 }
 
 // ---------------------------------------------------------------------------
