@@ -118,7 +118,7 @@ None.
 | 260405-r0e | tenant isolation and postgres migration for aiops agent and agent-ops modules | 2026-04-05 | d1ab61f | [260405-r0e-tenant-isolation-and-postgres-migration-](./quick/260405-r0e-tenant-isolation-and-postgres-migration-/) |
 | 260405-r9g | migrate knowledge base module from DynamoDB to PostgreSQL with tenant isolation | 2026-04-05 | 8eff2ff | [260405-r9g-migrate-knowledge-base-module-from-dynam](./quick/260405-r9g-migrate-knowledge-base-module-from-dynam/) |
 | 260405-rce | migrate channels module from DynamoDB to PostgreSQL with tenant isolation | 2026-04-05 | 2f5a2b8 | [260405-rce-migrate-channels-module-from-dynamodb-to](./quick/260405-rce-migrate-channels-module-from-dynamodb-to/) |
-| 260406-rm8 | Remove the old user modules implementation as we are currently moved to RBAC implementation | 2026-04-06 | — | [260406-rm8-remove-the-old-user-modules-implementati](./quick/260406-rm8-remove-the-old-user-modules-implementati/) |
+| 260406-rm8 | Remove the old user modules implementation as we are currently moved to RBAC implementation | 2026-04-06 | d314c52 | [260406-rm8-remove-the-old-user-modules-implementati](./quick/260406-rm8-remove-the-old-user-modules-implementati/) |
 
 ## Session Continuity
 
