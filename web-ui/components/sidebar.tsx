@@ -48,7 +48,7 @@ const navigation = [
   { name: "Inventory Discovery", href: "/app/inventory", icon: Database },
   { name: "Knowledge Base", href: "/app/knowledge-base", icon: BookOpen },
   { name: "Audit Logs", href: "/app/audit", icon: Activity },
-  { name: "Users", href: "/app/admin/users", icon: Users },
+  { name: "Users", href: "/app/settings/members", icon: Users },
   { name: "Settings", href: "/app/settings", icon: Settings },
 ]
 
