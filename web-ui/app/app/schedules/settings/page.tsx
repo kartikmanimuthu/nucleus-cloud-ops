@@ -9,14 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
 import { ArrowLeft, Clock, RefreshCw, Save, AlertCircle, CheckCircle2, Loader2, Play } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 
 interface SchedulerSettings {
-  scheduleExpression: string
-  scheduleInterval: number
-  ruleName: string
-  ruleState: string
-  lastModified?: string
+  intervalMinutes: number
+  cronExpression: string
+  status: string
+  source: string
 }
 
 const intervalOptions = [
@@ -29,7 +27,7 @@ const intervalOptions = [
 export default function SchedulerSettingsPage() {
   const router = useRouter()
   const { toast } = useToast()
-  
+
   const [settings, setSettings] = useState<SchedulerSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -38,20 +36,19 @@ export default function SchedulerSettingsPage() {
   const [selectedInterval, setSelectedInterval] = useState<string>("30")
   const [hasChanges, setHasChanges] = useState(false)
 
-  // Fetch current settings
   const fetchSettings = async () => {
     try {
       setLoading(true)
       setError(null)
       const response = await fetch("/api/scheduler/settings")
       const data = await response.json()
-      
+
       if (!response.ok) {
         throw new Error(data.error || "Failed to fetch scheduler settings")
       }
-      
+
       setSettings(data.data)
-      setSelectedInterval(data.data.scheduleInterval?.toString() || "30")
+      setSelectedInterval(data.data.intervalMinutes?.toString() || "30")
     } catch (err) {
       console.error("Error fetching scheduler settings:", err)
       setError(err instanceof Error ? err.message : "Failed to load settings")
@@ -64,34 +61,32 @@ export default function SchedulerSettingsPage() {
     fetchSettings()
   }, [])
 
-  // Track changes
   useEffect(() => {
     if (settings) {
-      setHasChanges(parseInt(selectedInterval) !== settings.scheduleInterval)
+      setHasChanges(parseInt(selectedInterval) !== settings.intervalMinutes)
     }
   }, [selectedInterval, settings])
 
-  // Save settings
   const handleSave = async () => {
     try {
       setSaving(true)
       setError(null)
-      
+
       const response = await fetch("/api/scheduler/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scheduleInterval: parseInt(selectedInterval) })
       })
-      
+
       const data = await response.json()
-      
+
       if (!response.ok) {
         throw new Error(data.error || "Failed to update scheduler settings")
       }
-      
+
       setSettings(data.data)
       setHasChanges(false)
-      
+
       toast({
         title: "Settings Updated",
         description: `Scheduler will now run every ${selectedInterval} minutes`,
@@ -109,23 +104,22 @@ export default function SchedulerSettingsPage() {
     }
   }
 
-  // Execute full scan now
   const handleExecuteNow = async () => {
     try {
       setExecuting(true)
       setError(null)
-      
+
       const response = await fetch("/api/scheduler/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" }
       })
-      
+
       const data = await response.json()
-      
+
       if (!response.ok) {
         throw new Error(data.error || "Failed to execute full scan")
       }
-      
+
       toast({
         title: "Full Scan Triggered",
         description: "Execution has started in the background. It may take a few minutes to complete.",
@@ -147,15 +141,6 @@ export default function SchedulerSettingsPage() {
     return intervalOptions.find(opt => opt.value === interval)?.description || ""
   }
 
-  const formatCronExpression = (expression: string) => {
-    // Parse cron expression and return human-readable format
-    if (expression.includes("0/5")) return "Every 5 minutes"
-    if (expression.includes("0,15,30,45")) return "Every 15 minutes"
-    if (expression.includes("0,30")) return "Every 30 minutes"
-    if (expression.includes("30 *") || expression.includes("0 *")) return "Every hour"
-    return expression
-  }
-
   return (
     <div className="flex-1 space-y-6 p-4 md:p-8 pt-6 bg-background">
       {/* Header */}
@@ -175,9 +160,9 @@ export default function SchedulerSettingsPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="default" 
-            onClick={handleExecuteNow} 
+          <Button
+            variant="default"
+            onClick={handleExecuteNow}
             disabled={executing || loading}
           >
             {executing ? (
@@ -235,32 +220,18 @@ export default function SchedulerSettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Rule Name</Label>
+                <Label className="text-sm text-muted-foreground">Scheduler Engine</Label>
                 <p className="font-mono text-sm bg-muted px-3 py-2 rounded-md">
-                  {settings.ruleName}
+                  {settings.source}
                 </p>
               </div>
-              
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Status</Label>
-                <div>
-                  <Badge variant={settings.ruleState === "ENABLED" ? "default" : "secondary"}>
-                    {settings.ruleState}
-                  </Badge>
-                </div>
-              </div>
-              
+
               <div className="space-y-2">
                 <Label className="text-sm text-muted-foreground">Current Schedule</Label>
-                <p className="font-medium">{formatCronExpression(settings.scheduleExpression)}</p>
+                <p className="font-medium">Every {settings.intervalMinutes} minutes</p>
                 <p className="text-xs text-muted-foreground font-mono">
-                  {settings.scheduleExpression}
+                  {settings.cronExpression}
                 </p>
-              </div>
-              
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Current Interval</Label>
-                <p className="font-medium">{settings.scheduleInterval} minutes</p>
               </div>
             </CardContent>
           </Card>
@@ -302,14 +273,14 @@ export default function SchedulerSettingsPage() {
                 <Alert>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    You have unsaved changes. The scheduler will be updated from {settings.scheduleInterval} minutes to {selectedInterval} minutes.
+                    You have unsaved changes. The scheduler will be updated from {settings.intervalMinutes} minutes to {selectedInterval} minutes.
                   </AlertDescription>
                 </Alert>
               )}
 
-              <Button 
-                className="w-full" 
-                onClick={handleSave} 
+              <Button
+                className="w-full"
+                onClick={handleSave}
                 disabled={saving || !hasChanges}
               >
                 {saving ? (
@@ -336,21 +307,22 @@ export default function SchedulerSettingsPage() {
         </CardHeader>
         <CardContent className="prose prose-sm dark:prose-invert max-w-none">
           <p className="text-muted-foreground">
-            The scheduler is triggered by an AWS EventBridge rule at the configured interval. 
-            When triggered, it evaluates all active schedules and performs start/stop operations 
-            on resources based on their configured time windows.
+            The scheduler is triggered by a pg-boss recurring job at the configured interval.
+            When triggered, it evaluates all active schedules and performs start/stop operations
+            on resources based on their configured time windows. Each tenant has an independent
+            cron schedule stored in their configuration.
           </p>
           <div className="grid gap-4 md:grid-cols-2 mt-4">
             <div className="bg-muted/50 p-4 rounded-lg">
               <h4 className="font-medium mb-2">Lower Intervals (5-15 min)</h4>
               <p className="text-sm text-muted-foreground">
-                Provides more precise timing for start/stop operations but may incur slightly higher costs due to more frequent Lambda invocations.
+                Provides more precise timing for start/stop operations but increases database load due to more frequent job processing.
               </p>
             </div>
             <div className="bg-muted/50 p-4 rounded-lg">
               <h4 className="font-medium mb-2">Higher Intervals (30-60 min)</h4>
               <p className="text-sm text-muted-foreground">
-                More cost-effective with fewer invocations, but timing for start/stop operations may vary by up to the interval duration.
+                More efficient with fewer job executions, but timing for start/stop operations may vary by up to the interval duration.
               </p>
             </div>
           </div>

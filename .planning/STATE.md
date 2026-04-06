@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: "Completed quick-260405-rce: migrate channels module MCP settings tenant isolation"
-last_updated: "2026-04-05T14:18:35.093Z"
-last_activity: 2026-04-03
+stopped_at: "Completed quick-260406-rju: per-tenant scheduler cron configuration with pg-boss replacing EventBridge"
+last_updated: "2026-04-06T00:00:00.000Z"
+last_activity: 2026-04-06
 progress:
   total_phases: 10
   completed_phases: 10
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-03)
 Phase: 18 (Accounts & Scheduler Isolation) — EXECUTING
 Plan: 2 of 2
 Status: Phase complete — ready for verification
-Last activity: 2026-04-03
+Last activity: 2026-04-06
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -81,6 +81,8 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 21-audit-settings-regression-tests]: Mock at service layer for static-class routes; mock at repo/service-object layer for direct-call routes
 - [Phase 21-audit-settings-regression-tests]: audit-logs.test.ts: session-error path returns 500 with AuditService never called — proves no unscoped data path
 - [Phase 21-audit-settings-regression-tests]: Repos with cross-tenant methods mock both getTenantClient and getPrismaClient; isolation assertions only cover tenant-scoped methods
+- [260406-rju]: Scheduler settings backed by TenantConfigService (key: scheduler-cron) — no EventBridge dependency
+- [260406-rju]: Per-tenant pg-boss queues (scheduler-scan:<tenantId>) registered on workers startup; scheduler-reschedule queue handles live interval changes
 
 ### Pending Todos
 
@@ -119,11 +121,11 @@ None.
 | 260405-r9g | migrate knowledge base module from DynamoDB to PostgreSQL with tenant isolation | 2026-04-05 | 8eff2ff | [260405-r9g-migrate-knowledge-base-module-from-dynam](./quick/260405-r9g-migrate-knowledge-base-module-from-dynam/) |
 | 260405-rce | migrate channels module from DynamoDB to PostgreSQL with tenant isolation | 2026-04-05 | 2f5a2b8 | [260405-rce-migrate-channels-module-from-dynamodb-to](./quick/260405-rce-migrate-channels-module-from-dynamodb-to/) |
 | 260406-rm8 | Remove the old user modules implementation as we are currently moved to RBAC implementation | 2026-04-06 | d314c52 | [260406-rm8-remove-the-old-user-modules-implementati](./quick/260406-rm8-remove-the-old-user-modules-implementati/) |
-| 260406-rju | per-tenant scheduler cron configuration — settings UI + API + workers per-tenant scheduling | 2026-04-06 | df03ae9 | [260406-rju-per-tenant-scheduler-cron-configuration-](./quick/260406-rju-per-tenant-scheduler-cron-configuration-/) |
+| 260406-rju | Per-tenant scheduler cron configuration with pg-boss replacing EventBridge | 2026-04-06 | — | [260406-rju-per-tenant-scheduler-cron-configuration-](.planning/quick/260406-rju-per-tenant-scheduler-cron-configuration-/) |
 
 ## Session Continuity
 
 Last activity: 2026-04-06 - Completed quick task 260406-rju: per-tenant scheduler cron configuration with pg-boss replacing EventBridge
-Last session: 2026-04-06T14:54:00Z
-Stopped at: Completed quick task 260406-rju: Per-tenant scheduler cron configuration
+Last session: 2026-04-06T00:00:00.000Z
+Stopped at: Completed quick-260406-rju: per-tenant scheduler cron configuration with pg-boss replacing EventBridge
 Resume file: None

@@ -7,21 +7,22 @@ import { getSessionTenantId } from "@/lib/auth-session";
 import { getBoss } from "@/lib/boss-client";
 
 export async function POST() {
-    // Check authorization - execute action on Schedule subject
     const authError = await authorize('execute', 'Schedule');
     if (authError) return authError;
 
     try {
         console.log(`[API] Execute Now (Full Scan) triggered`);
 
-        // Get user session
         const session = await getServerSession(authOptions);
         const userEmail = session?.user?.email;
         const tenantId = await getSessionTenantId();
 
+        if (!tenantId) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+        }
+
         const executionTime = new Date().toISOString();
 
-        // Enqueue full scan job via pg-boss (fire-and-forget)
         try {
             const payload = {
                 triggeredBy: 'web-ui',
@@ -29,17 +30,17 @@ export async function POST() {
                 tenantId,
             };
 
-            console.log(`[API] Enqueuing scheduler-scan job for full scan with payload:`, payload);
+            // Send to per-tenant queue (matches workers/src/jobs/scheduler/index.ts registration)
+            const queueName = `scheduler-scan:${tenantId}`;
+            console.log(`[API] Enqueuing job to ${queueName}`, payload);
 
             const boss = await getBoss();
-            await boss.send('scheduler-scan', payload);
+            await boss.send(queueName, payload);
 
         } catch (enqueueError) {
             console.error(`[API] Job enqueue failed:`, enqueueError);
-
             const errorMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
 
-            // Log audit entry for failure
             await AuditService.logUserAction({
                 action: "Execute Full Scan",
                 resourceType: "scheduler",
@@ -53,16 +54,11 @@ export async function POST() {
             });
 
             return NextResponse.json(
-                {
-                    success: false,
-                    error: errorMessage,
-                    message: "Failed to enqueue scan job"
-                },
+                { success: false, error: errorMessage, message: "Failed to enqueue scan job" },
                 { status: 500 }
             );
         }
 
-        // Log successful audit entry (Triggered only)
         await AuditService.logUserAction({
             action: "Execute Full Scan",
             resourceType: "scheduler",
@@ -86,9 +82,6 @@ export async function POST() {
     } catch (error) {
         console.error("[API] Error executing full scan:", error);
         const errorMessage = error instanceof Error ? error.message : "Failed to execute full scan";
-        return NextResponse.json(
-            { error: errorMessage },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }
