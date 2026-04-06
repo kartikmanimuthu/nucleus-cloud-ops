@@ -109,7 +109,7 @@ export async function register(boss: PgBoss): Promise<void> {
         }
       }
 
-      await saveSyncStatus(scanId, tenantId, totalResources, accountsSynced);
+      await saveSyncStatus(scanId, totalResources, accountsSynced);
 
       const duration = Date.now() - startedAt;
       const status = errors.length > 0 && accountsSynced === 0 ? 'failed' : 'completed';

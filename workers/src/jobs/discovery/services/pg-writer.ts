@@ -95,7 +95,6 @@ export async function writeResourcesToPg(
 
 export async function saveSyncStatus(
   scanId: string,
-  tenantId: string,
   totalResources: number,
   accountsSynced: number,
 ): Promise<void> {
