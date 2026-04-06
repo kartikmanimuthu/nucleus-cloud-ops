@@ -53,6 +53,16 @@ vi.mock('@/lib/auth-options', () => ({
     authOptions: {},
 }));
 
+vi.mock('@/lib/auth-session', () => ({
+    getSessionTenantId: vi.fn().mockResolvedValue('tenant-test'),
+    getSessionUserId: vi.fn().mockResolvedValue('user-test'),
+}));
+
+const { mockBossSend } = vi.hoisted(() => ({ mockBossSend: vi.fn() }));
+vi.mock('@/lib/boss-client', () => ({
+    getBoss: vi.fn().mockResolvedValue({ send: mockBossSend }),
+}));
+
 const { mockLambdaSend } = vi.hoisted(() => ({
     mockLambdaSend: vi.fn(),
 }));
@@ -251,6 +261,7 @@ describe('PUT /api/schedules/[scheduleId]', () => {
     beforeEach(() => { vi.clearAllMocks(); });
 
     it('returns 200 with updated schedule', async () => {
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
         vi.mocked(ScheduleService.updateSchedule).mockResolvedValue(makeSchedule({ name: 'Updated' }) as any);
         const req = makeRequest('http://localhost/api/schedules/sched-1', {
             method: 'PUT', body: JSON.stringify({ name: 'Updated' }),
@@ -262,6 +273,7 @@ describe('PUT /api/schedules/[scheduleId]', () => {
     });
 
     it('returns 500 on error', async () => {
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
         vi.mocked(ScheduleService.updateSchedule).mockRejectedValue(new Error('fail'));
         const req = makeRequest('http://localhost/api/schedules/sched-1', {
             method: 'PUT', body: JSON.stringify({ name: 'X' }),
@@ -275,6 +287,7 @@ describe('DELETE /api/schedules/[scheduleId]', () => {
     beforeEach(() => { vi.clearAllMocks(); });
 
     it('returns 200 with { success: true }', async () => {
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
         vi.mocked(ScheduleService.deleteSchedule).mockResolvedValue(undefined);
         const req = makeRequest('http://localhost/api/schedules/sched-1', { method: 'DELETE' });
         const res = await singleDELETE(req, asyncParams({ scheduleId: 'sched-1' }) as any);
@@ -284,6 +297,7 @@ describe('DELETE /api/schedules/[scheduleId]', () => {
     });
 
     it('returns 500 on error', async () => {
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
         vi.mocked(ScheduleService.deleteSchedule).mockRejectedValue(new Error('fail'));
         const req = makeRequest('http://localhost/api/schedules/sched-1', { method: 'DELETE' });
         const res = await singleDELETE(req, asyncParams({ scheduleId: 'sched-1' }) as any);
@@ -295,6 +309,7 @@ describe('POST /api/schedules/[scheduleId]/toggle', () => {
     beforeEach(() => { vi.clearAllMocks(); });
 
     it('returns 200 with { success, data, message }', async () => {
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
         vi.mocked(ScheduleService.toggleScheduleStatus).mockResolvedValue(makeSchedule({ active: false }) as any);
         const req = makeRequest('http://localhost/api/schedules/sched-1/toggle', { method: 'POST' });
         const res = await togglePOST(req, asyncParams({ scheduleId: 'sched-1' }) as any);
@@ -305,13 +320,15 @@ describe('POST /api/schedules/[scheduleId]/toggle', () => {
     });
 
     it('returns 404 when schedule not found', async () => {
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(null);
         vi.mocked(ScheduleService.toggleScheduleStatus).mockRejectedValue(new Error('Schedule not found'));
         const req = makeRequest('http://localhost/api/schedules/sched-1/toggle', { method: 'POST' });
         const res = await togglePOST(req, asyncParams({ scheduleId: 'sched-1' }) as any);
-        expect(res.status).toBe(404);
+        expect(res.status).toBe(403); // pre-flight returns 403 when schedule not found
     });
 
     it('returns 500 on unexpected error', async () => {
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
         vi.mocked(ScheduleService.toggleScheduleStatus).mockRejectedValue(new Error('Unexpected'));
         const req = makeRequest('http://localhost/api/schedules/sched-1/toggle', { method: 'POST' });
         const res = await togglePOST(req, asyncParams({ scheduleId: 'sched-1' }) as any);
@@ -401,10 +418,7 @@ describe('POST /api/schedules/[scheduleId]/execute', () => {
     it('returns 200 on successful Lambda invocation', async () => {
         vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
         vi.mocked(ScheduleService.updateSchedule).mockResolvedValue(makeSchedule() as any);
-        mockLambdaSend.mockResolvedValue({
-            Payload: Buffer.from(JSON.stringify({ resourcesFailed: 0 })),
-            FunctionError: undefined,
-        });
+        mockBossSend.mockResolvedValue(undefined);
         const req = makeRequest('http://localhost/api/schedules/sched-1/execute', { method: 'POST' });
         const res = await executePOST(req, asyncParams({ scheduleId: 'sched-1' }) as any);
         const body = await res.json();
@@ -413,16 +427,15 @@ describe('POST /api/schedules/[scheduleId]/execute', () => {
         expect(body.executionStatus).toBe('success');
     });
 
-    it('returns 200 with failed status when Lambda invocation throws', async () => {
+    it('returns 500 when pg-boss enqueue fails', async () => {
         vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
         vi.mocked(ScheduleService.updateSchedule).mockResolvedValue(makeSchedule() as any);
         vi.mocked(ScheduleExecutionService.logExecution).mockResolvedValue({} as any);
-        mockLambdaSend.mockRejectedValue(new Error('Lambda timeout'));
+        mockBossSend.mockRejectedValue(new Error('pg-boss timeout'));
         const req = makeRequest('http://localhost/api/schedules/sched-1/execute', { method: 'POST' });
         const res = await executePOST(req, asyncParams({ scheduleId: 'sched-1' }) as any);
         const body = await res.json();
-        expect(res.status).toBe(200);
+        expect(res.status).toBe(500);
         expect(body.success).toBe(false);
-        expect(body.executionStatus).toBe('failed');
     });
 });
