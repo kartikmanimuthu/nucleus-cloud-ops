@@ -119,10 +119,11 @@ None.
 | 260405-r9g | migrate knowledge base module from DynamoDB to PostgreSQL with tenant isolation | 2026-04-05 | 8eff2ff | [260405-r9g-migrate-knowledge-base-module-from-dynam](./quick/260405-r9g-migrate-knowledge-base-module-from-dynam/) |
 | 260405-rce | migrate channels module from DynamoDB to PostgreSQL with tenant isolation | 2026-04-05 | 2f5a2b8 | [260405-rce-migrate-channels-module-from-dynamodb-to](./quick/260405-rce-migrate-channels-module-from-dynamodb-to/) |
 | 260406-rm8 | Remove the old user modules implementation as we are currently moved to RBAC implementation | 2026-04-06 | d314c52 | [260406-rm8-remove-the-old-user-modules-implementati](./quick/260406-rm8-remove-the-old-user-modules-implementati/) |
+| 260406-rju | per-tenant scheduler cron configuration — settings UI + API + workers per-tenant scheduling | 2026-04-06 | df03ae9 | [260406-rju-per-tenant-scheduler-cron-configuration-](./quick/260406-rju-per-tenant-scheduler-cron-configuration-/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-06 - Completed quick task 260406-rm8: Remove the old user modules implementation as we are currently moved to RBAC implementation
-Last session: 2026-04-05T14:18:35.089Z
-Stopped at: Completed quick-260405-rce: migrate channels module MCP settings tenant isolation
+Last activity: 2026-04-06 - Completed quick task 260406-rju: per-tenant scheduler cron configuration with pg-boss replacing EventBridge
+Last session: 2026-04-06T14:54:00Z
+Stopped at: Completed quick task 260406-rju: Per-tenant scheduler cron configuration
 Resume file: None

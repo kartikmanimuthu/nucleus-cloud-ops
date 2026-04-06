@@ -336,3 +336,33 @@ export async function closePool(): Promise<void> {
         logger.debug('[pg-service] Connection pool closed');
     }
 }
+
+/**
+ * Default scheduler cron expression — every 30 minutes.
+ */
+export const DEFAULT_SCHEDULER_CRON = '*/30 * * * *';
+
+/**
+ * Get the scheduler cron expression for a tenant.
+ * Reads from tenant_configs where configKey = 'scheduler_cron'.
+ * Falls back to DEFAULT_SCHEDULER_CRON if not configured.
+ */
+export async function getTenantSchedulerCron(tenantId: string): Promise<string> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        const result = await client.query(
+            `SELECT data FROM tenant_configs WHERE "tenantId" = $1 AND "configKey" = 'scheduler_cron' LIMIT 1`,
+            [tenantId]
+        );
+        if (result.rows.length > 0) {
+            const data = result.rows[0].data as { cron?: string };
+            return data?.cron || DEFAULT_SCHEDULER_CRON;
+        }
+        return DEFAULT_SCHEDULER_CRON;
+    } catch (error) {
+        logger.error('[pg-service] Error fetching tenant scheduler cron', error);
+        return DEFAULT_SCHEDULER_CRON;
+    } finally {
+        client.release();
+    }
+}
