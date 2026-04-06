@@ -23,7 +23,9 @@ export async function register(boss: PgBoss): Promise<void> {
     retryLimit: 1,
     expireInMinutes: 5,
   });
-  await boss.createQueue('discovery-scan');
+  await boss.createQueue('discovery-scan', {
+    expireInMinutes: 30,
+  });
 
   // Daily cron at 2 AM UTC
   await boss.schedule('discovery-fan-out', '0 2 * * *', {}, { tz: 'UTC' });
