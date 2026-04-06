@@ -18,21 +18,12 @@ export async function GET(req: NextRequest) {
 
         const prisma = getPrismaClient();
 
-        const syncStatuses = await prisma.$queryRaw<Array<{
-            scanId: string;
-            tenantId: string;
-            totalResources: number;
-            accountsSynced: number;
-            completedAt: Date;
-        }>>`
-            SELECT "scanId", "tenantId", "totalResources", "accountsSynced", "completedAt"
-            FROM inventory_sync_status
-            WHERE "tenantId" = ${tenantId}
-            ORDER BY "completedAt" DESC
-            LIMIT 10
-        `;
+        const syncStatuses = await prisma.inventorySyncStatus.findMany({
+            orderBy: { syncedAt: 'desc' },
+            take: 10,
+        });
 
-        console.log(`API - GET /api/discovery/status - Fetched sync status for tenant ${tenantId}`);
+        console.log(`API - GET /api/discovery/status - Fetched sync status`);
 
         return NextResponse.json({ success: true, data: syncStatuses });
     } catch (error) {
