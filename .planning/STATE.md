@@ -122,6 +122,7 @@ None.
 | 260405-rce | migrate channels module from DynamoDB to PostgreSQL with tenant isolation | 2026-04-05 | 2f5a2b8 | [260405-rce-migrate-channels-module-from-dynamodb-to](./quick/260405-rce-migrate-channels-module-from-dynamodb-to/) |
 | 260406-rm8 | Remove the old user modules implementation as we are currently moved to RBAC implementation | 2026-04-06 | d314c52 | [260406-rm8-remove-the-old-user-modules-implementati](./quick/260406-rm8-remove-the-old-user-modules-implementati/) |
 | 260406-rju | Per-tenant scheduler cron configuration with pg-boss replacing EventBridge | 2026-04-06 | — | [260406-rju-per-tenant-scheduler-cron-configuration-](.planning/quick/260406-rju-per-tenant-scheduler-cron-configuration-/) |
+| 260406-vff | add logging for inventory discovery worker similar like scheduler pattern | 2026-04-06 | b53bb95 | [260406-vff-add-logging-for-inventory-discovery-work](./quick/260406-vff-add-logging-for-inventory-discovery-work/) |
 
 ## Session Continuity
 

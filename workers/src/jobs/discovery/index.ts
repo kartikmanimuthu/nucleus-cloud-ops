@@ -35,7 +35,7 @@ export async function register(boss: PgBoss): Promise<void> {
     'discovery-fan-out',
     { batchSize: 1 },
     async ([job]) => {
-      console.log(`[discovery] Fan-out triggered by job ${job.id}`);
+      console.log('[discovery] Fan-out triggered', { jobId: job.id });
       const tenants = await getAllTenants();
       for (const tenant of tenants) {
         await boss.send(
@@ -50,7 +50,7 @@ export async function register(boss: PgBoss): Promise<void> {
           }
         );
       }
-      console.log(`[discovery] Fan-out sent ${tenants.length} scan jobs`);
+      console.log('[discovery] Fan-out complete', { tenantCount: tenants.length });
     }
   );
 
@@ -64,7 +64,7 @@ export async function register(boss: PgBoss): Promise<void> {
       const startedAt = Date.now();
       const scanConfigs = loadScanConfigs();
 
-      console.log(`[discovery] Starting scan for tenant ${tenantId}`, { scanId, triggeredBy });
+      console.log('[discovery] Starting scan', { jobId: job.id, tenantId, scanId, triggeredBy });
 
       await writeAuditLog({
         tenantId,
@@ -88,6 +88,8 @@ export async function register(boss: PgBoss): Promise<void> {
 
       for (const account of targetAccounts) {
         try {
+          console.log('[discovery] Scanning account', { tenantId, accountId: account.accountId, regions: account.regions });
+
           const credentials = await assumeRole(account.roleArn, account.accountId, account.regions?.[0] ?? 'ap-south-1', account.externalId);
           const regions = Array.isArray(account.regions) ? account.regions : [account.regions];
 
@@ -104,10 +106,17 @@ export async function register(boss: PgBoss): Promise<void> {
 
           accountsSynced++;
           if (result.errors?.length) errors.push(...result.errors);
+
+          console.log('[discovery] Account scan complete', {
+            tenantId,
+            accountId: account.accountId,
+            resourceCount: result.resources.length,
+            hasErrors: (result.errors?.length ?? 0) > 0,
+          });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           errors.push(`Account ${account.accountId}: ${msg}`);
-          console.error(`[discovery] Account ${account.accountId} failed:`, err);
+          console.error('[discovery] Account scan failed', { tenantId, accountId: account.accountId, error: msg });
         }
       }
 
@@ -127,8 +136,8 @@ export async function register(boss: PgBoss): Promise<void> {
         metadata: { scanId, totalResources, accountsSynced, duration, errors },
       });
 
-      console.log(`[discovery] Scan ${status} for tenant ${tenantId}`, {
-        scanId, totalResources, accountsSynced, duration,
+      console.log(`[discovery] Scan ${status}`, {
+        tenantId, scanId, totalResources, accountsSynced, duration, errorCount: errors.length,
       });
 
       if (errors.length > 0 && accountsSynced === 0) {
@@ -137,5 +146,5 @@ export async function register(boss: PgBoss): Promise<void> {
     }
   );
 
-  console.log('[discovery] Registered discovery-fan-out + discovery-scan jobs');
+  console.log('[discovery] Registered queues', { queues: ['discovery-fan-out', 'discovery-scan'], cron: '0 2 * * *' });
 }
