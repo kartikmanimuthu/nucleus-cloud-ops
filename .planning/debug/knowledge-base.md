@@ -27,3 +27,11 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Fix:** In PUT handler, moved body parsing after getSchedule and used existing.id (UUID) instead of scheduleId (name) for both updateData.id and the updateSchedule call. Applied same fix to DELETE handler. Updated two tests that needed getSchedule mocked before the error path could be reached.
 - **Files changed:** web-ui/app/api/schedules/[scheduleId]/route.ts, web-ui/app/api/schedules/schedules-api.test.ts
 ---
+
+## kb-sync-datasource-not-populating — dual-write bug causes vectorCount/vectorKeys to never save
+- **Date:** 2026-04-06
+- **Error patterns:** data_sources, vectorCount, vectorKeys, not populated, kb-sync, DynamoDB, USE_PG_KB, lastSyncError, error detail
+- **Root cause:** updateDS/updateKBVectorCount in vector-store.ts always called DynamoDB even when USE_PG_KB=true. DDB write threw (no local table), aborting the success path after PG write — vectorCount/vectorKeys never saved. Additionally, missing lastErrorMessage/lastErrorDetail columns meant error stack traces were silently dropped.
+- **Fix:** Changed dual-write to use else branch (PG xor DDB). Added migration + Prisma schema for lastErrorMessage/lastErrorDetail. Worker now captures full stack trace into lastErrorDetail. Repository, types, and UI updated to surface the new columns.
+- **Files changed:** workers/src/jobs/kb-sync/lib/vector-store.ts, workers/src/jobs/kb-sync/index.ts, prisma/schema.prisma, prisma/migrations/20260406_add_datasource_error_columns/migration.sql, web-ui/lib/db/repositories/data-source/postgres.ts, web-ui/lib/knowledge-base/types.ts, web-ui/app/app/knowledge-base/[kbId]/page.tsx
+---
