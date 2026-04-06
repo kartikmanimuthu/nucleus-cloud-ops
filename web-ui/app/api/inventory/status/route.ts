@@ -45,27 +45,18 @@ export async function GET(request: NextRequest) {
         const accountId = searchParams.get('accountId');
         const tenantId = await getSessionTenantId();
 
-        // Latest sync from inventory_sync_status table
+        // Latest sync from inventory_sync_status table (no tenantId column — global scan metadata)
         const prisma = getPrismaClient();
-        const syncRows = await prisma.$queryRaw<Array<{
-            scanId: string;
-            totalResources: number;
-            accountsSynced: number;
-            completedAt: Date;
-        }>>`
-            SELECT "scanId", "totalResources", "accountsSynced", "completedAt"
-            FROM inventory_sync_status
-            WHERE "tenantId" = ${tenantId}
-            ORDER BY "completedAt" DESC
-            LIMIT 1
-        `;
+        const latestSyncRow = await prisma.inventorySyncStatus.findFirst({
+            orderBy: { syncedAt: 'desc' },
+        });
 
-        const latestSync = syncRows[0] ? {
-            scanId: syncRows[0].scanId,
-            totalResources: syncRows[0].totalResources,
-            accountsSynced: syncRows[0].accountsSynced,
-            syncedAt: syncRows[0].completedAt.toISOString(),
-            status: 'completed',
+        const latestSync = latestSyncRow ? {
+            scanId: latestSyncRow.scanId,
+            totalResources: latestSyncRow.totalResources,
+            accountsSynced: latestSyncRow.accountsSynced,
+            syncedAt: latestSyncRow.syncedAt.toISOString(),
+            status: latestSyncRow.status,
         } : null;
 
         // Account-level sync status from accounts table
