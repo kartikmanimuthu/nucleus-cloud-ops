@@ -52,11 +52,17 @@ export async function register(boss: PgBoss): Promise<void> {
 
           console.log('[kb-sync] Job complete', { jobId: job.id, type: job.data.type, kbId, dsId, vectorCount: vectorKeys.length });
         } catch (err) {
-          console.error('[kb-sync] Job failed', { jobId: job.id, type: job.data.type, kbId, dsId, error: err instanceof Error ? err.message : String(err) });
+          const shortMessage = err instanceof Error ? err.message : 'Sync failed';
+          const fullDetail = err instanceof Error
+            ? `${err.message}\n${err.stack ?? ''}`
+            : String(err);
+          console.error('[kb-sync] Job failed', { jobId: job.id, type: job.data.type, kbId, dsId, error: shortMessage });
           try {
             await updateDS(kbId, dsId, {
               status: 'error',
-              lastSyncError: err instanceof Error ? err.message : 'Sync failed',
+              lastSyncError: shortMessage,
+              lastErrorMessage: shortMessage,
+              lastErrorDetail: fullDetail,
             });
           } catch (e) {
             console.error('[kb-sync] Status update failed', { jobId: job.id, kbId, dsId, error: e instanceof Error ? e.message : String(e) });

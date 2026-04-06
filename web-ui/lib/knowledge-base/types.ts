@@ -43,6 +43,8 @@ export interface DataSource {
   vectorKeys: string[];
   lastSyncAt?: string;
   lastSyncError?: string;
+  lastErrorMessage?: string;
+  lastErrorDetail?: string;
   createdAt: string;
   updatedAt: string;
 }

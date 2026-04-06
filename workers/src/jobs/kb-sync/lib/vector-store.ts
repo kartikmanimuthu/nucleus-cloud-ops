@@ -98,6 +98,8 @@ export async function updateDSPg(kbId: string, dsId: string, updates: Record<str
       ...(updates.vectorKeys !== undefined ? { vectorKeys: { set: updates.vectorKeys as string[] } } : {}),
       ...(updates.lastSyncAt !== undefined ? { lastSyncAt: updates.lastSyncAt ? new Date(updates.lastSyncAt as string) : null } : {}),
       ...(updates.lastSyncError !== undefined ? { lastSyncError: updates.lastSyncError as string | null } : {}),
+      ...(updates.lastErrorMessage !== undefined ? { lastErrorMessage: updates.lastErrorMessage as string | null } : {}),
+      ...(updates.lastErrorDetail !== undefined ? { lastErrorDetail: updates.lastErrorDetail as string | null } : {}),
       updatedAt: new Date(),
     },
   });
@@ -124,11 +126,17 @@ export async function getDataSource(kbId: string, dsId: string) {
 }
 
 export async function updateDS(kbId: string, dsId: string, updates: Record<string, unknown>) {
-  if (USE_PG_KB) await updateDSPg(kbId, dsId, updates);
-  await updateDSDdb(kbId, dsId, updates);
+  if (USE_PG_KB) {
+    await updateDSPg(kbId, dsId, updates);
+  } else {
+    await updateDSDdb(kbId, dsId, updates);
+  }
 }
 
 export async function updateKBVectorCount(kbId: string, delta: number) {
-  if (USE_PG_KB) await updateKBVectorCountPg(kbId, delta);
-  await updateKBVectorCountDdb(kbId, delta);
+  if (USE_PG_KB) {
+    await updateKBVectorCountPg(kbId, delta);
+  } else {
+    await updateKBVectorCountDdb(kbId, delta);
+  }
 }
