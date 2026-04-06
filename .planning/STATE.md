@@ -123,10 +123,11 @@ None.
 | 260406-rm8 | Remove the old user modules implementation as we are currently moved to RBAC implementation | 2026-04-06 | d314c52 | [260406-rm8-remove-the-old-user-modules-implementati](./quick/260406-rm8-remove-the-old-user-modules-implementati/) |
 | 260406-rju | Per-tenant scheduler cron configuration with pg-boss replacing EventBridge | 2026-04-06 | — | [260406-rju-per-tenant-scheduler-cron-configuration-](.planning/quick/260406-rju-per-tenant-scheduler-cron-configuration-/) |
 | 260406-vff | add logging for inventory discovery worker similar like scheduler pattern | 2026-04-06 | d70da12 | [260406-vff-add-logging-for-inventory-discovery-work](./quick/260406-vff-add-logging-for-inventory-discovery-work/) |
+| 260406-wz6 | Move Members and Roles from Settings to dedicated Users & Permissions sidebar section | 2026-04-06 | 8a85bd5 | [260406-wz6-move-members-and-roles-from-settings-to-](./quick/260406-wz6-move-members-and-roles-from-settings-to-/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-06 - Completed quick task 260406-rju: per-tenant scheduler cron configuration with pg-boss replacing EventBridge
+Last activity: 2026-04-06 - Completed quick task 260406-wz6: Move Members and Roles from Settings to dedicated Users & Permissions sidebar section
 Last session: 2026-04-06T00:00:00.000Z
 Stopped at: Completed quick-260406-rju: per-tenant scheduler cron configuration with pg-boss replacing EventBridge
 Resume file: None
