@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { AuditService } from '@/lib/audit-service';
 import { randomUUID } from 'crypto';
 import { getSessionTenantId } from '@/lib/auth-session';
-
-const eventBridgeClient = new EventBridgeClient({
-    region: process.env.AWS_REGION || 'ap-south-1',
-});
+import { getBoss } from '@/lib/boss-client';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 
 /**
  * POST /api/inventory/sync
- * Trigger manual discovery sync for a specific account or all accounts via EventBridge
+ * Trigger manual discovery sync for a specific account or all accounts via pg-boss.
  */
 export async function POST(request: NextRequest) {
     try {
@@ -18,6 +16,8 @@ export async function POST(request: NextRequest) {
         const accountId = body.accountId as string | undefined;
         const scanId = randomUUID();
         const tenantId = await getSessionTenantId();
+        const session = await getServerSession(authOptions);
+        const userEmail = session?.user?.email ?? '';
 
         // Log scan initiation
         await AuditService.logResourceAction({
@@ -33,31 +33,30 @@ export async function POST(request: NextRequest) {
             source: 'web-ui',
             metadata: {
                 accountId: accountId || 'ALL',
-                scanId
+                scanId,
+            },
+        });
+
+        const boss = await getBoss();
+        const jobId = await boss.send(
+            'discovery-scan',
+            {
+                type: 'scan' as const,
+                tenantId,
+                accountId,
+                triggeredBy: 'web-ui' as const,
+                userEmail,
+            },
+            {
+                singletonKey: `tenant:${tenantId}`,
+                expireInHours: 2,
+                retryLimit: 2,
+                retryDelay: 60,
+                retryBackoff: true,
             }
-        });
+        );
 
-        const command = new PutEventsCommand({
-            Entries: [
-                {
-                    Source: 'nucleus.app',
-                    DetailType: 'StartDiscovery',
-                    Detail: JSON.stringify({
-                        scanId,
-                        accountId,
-                        tenantId,
-                    }),
-                    EventBusName: 'default',
-                },
-            ],
-        });
-
-        const result = await eventBridgeClient.send(command);
-
-        if (result.FailedEntryCount && result.FailedEntryCount > 0) {
-            const failures = result.Entries?.filter(e => e.ErrorCode).map(e => `${e.ErrorCode}: ${e.ErrorMessage}`).join(', ') || 'Unknown error';
-
-            // Log failure
+        if (!jobId) {
             await AuditService.logResourceAction({
                 action: 'scan_failed',
                 resourceType: 'discovery',
@@ -65,27 +64,28 @@ export async function POST(request: NextRequest) {
                 resourceName: accountId ? `Scan ${accountId}` : 'Full Scan',
                 status: 'error',
                 tenantId,
-                details: `Failed to trigger EventBridge event: ${failures}`,
+                details: 'Failed to enqueue discovery job: pg-boss returned null (job may already be queued)',
                 source: 'web-ui',
                 metadata: {
                     accountId: accountId || 'ALL',
                     scanId,
-                    failures
-                }
+                },
             });
 
             return NextResponse.json(
-                { error: `Failed to trigger discovery event: ${failures}` },
+                { error: 'Failed to trigger discovery: job already queued or enqueue failed' },
                 { status: 500 }
             );
         }
+
+        console.log(`API - POST /api/inventory/sync - Triggered scan for tenant ${tenantId}`, { jobId, scanId, accountId });
 
         return NextResponse.json({
             success: true,
             message: accountId
                 ? `Discovery sync triggered for account ${accountId}`
                 : 'Discovery sync triggered for all accounts',
-            eventId: result.Entries?.[0]?.EventId,
+            jobId,
             scanId,
             startedAt: new Date().toISOString(),
         });
@@ -98,4 +98,3 @@ export async function POST(request: NextRequest) {
         );
     }
 }
-
