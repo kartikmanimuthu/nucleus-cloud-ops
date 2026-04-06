@@ -103,16 +103,14 @@ export async function saveSyncStatus(
   try {
     await client.query(
       `INSERT INTO inventory_sync_status
-         ("scanId", "tenantId", "totalResources", "accountsSynced", "completedAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, NOW(), NOW())
-       ON CONFLICT ("tenantId")
+         ("scanId", "totalResources", "accountsSynced", "syncedAt", "createdAt")
+       VALUES ($1, $2, $3, NOW(), NOW())
+       ON CONFLICT ("scanId")
        DO UPDATE SET
-         "scanId" = EXCLUDED."scanId",
          "totalResources" = EXCLUDED."totalResources",
          "accountsSynced" = EXCLUDED."accountsSynced",
-         "completedAt" = NOW(),
-         "updatedAt" = NOW()`,
-      [scanId, tenantId, totalResources, accountsSynced],
+         "syncedAt" = NOW()`,
+      [scanId, totalResources, accountsSynced],
     );
   } catch (error) {
     console.error('[discovery/pg-writer] Error saving sync status:', error);
