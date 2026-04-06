@@ -33,6 +33,7 @@ import {
   Server,
   ChevronLeft,
   ChevronRight,
+  Filter,
 } from "lucide-react";
 import { AuditLogsTable } from "@/components/audit/audit-logs-table";
 import { AuditLogsChart } from "@/components/audit/audit-logs-chart";
@@ -459,6 +460,10 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
 
             <Button variant="outline" onClick={clearFilters} disabled={loading}>
               Reset Filters
+            </Button>
+            <Button onClick={handleRefresh} disabled={loading}>
+              <Filter className="mr-2 h-4 w-4" />
+              Apply Filters
             </Button>
           </div>
         </CardContent>
