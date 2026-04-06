@@ -80,17 +80,13 @@ export async function GET(request: NextRequest) {
                 select: {
                     accountId: true,
                     name: true,
-                    lastSyncedAt: true,
-                    lastSyncResourceCount: true,
                     active: true,
                 },
             });
             accounts = accs.map(acc => ({
                 accountId: acc.accountId,
                 accountName: acc.name,
-                lastSyncedAt: acc.lastSyncedAt?.toISOString(),
-                lastSyncStatus: acc.lastSyncedAt ? 'success' : 'never',
-                lastSyncResourceCount: acc.lastSyncResourceCount ?? undefined,
+                lastSyncStatus: 'never' as const,
                 syncEnabled: acc.active,
             }));
         }
