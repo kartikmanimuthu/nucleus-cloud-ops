@@ -19,3 +19,11 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Fix:** Added getScheduleById to pg-service.ts; imported it in scheduler-service.ts; gated the lookup with USE_PG_SCHEDULES ? getScheduleByIdPg(...) : fetchScheduleById(...), mirroring the existing pattern in runFullScan.
 - **Files changed:** workers/src/jobs/scheduler/services/pg-service.ts, workers/src/jobs/scheduler/services/scheduler-service.ts
 ---
+
+## schedule-update-p2025 — PUT/DELETE route passes schedule name instead of UUID to postgres repository
+- **Date:** 2026-04-06
+- **Error patterns:** P2025, Record to update not found, scheduleId, tenantId_scheduleId, updateSchedule, STX_Data_Archive_Schedule, 500
+- **Root cause:** PUT and DELETE route handlers in app/api/schedules/[scheduleId]/route.ts passed the raw URL param (schedule name) directly to ScheduleService.updateSchedule/deleteSchedule. The postgres repository's updateSchedule uses a tenantId_scheduleId composite unique key expecting a sched-* UUID — a name string never matches, causing Prisma P2025. The pre-flight getSchedule call already resolved the name to the full record (including the UUID as .id) but the route discarded it.
+- **Fix:** In PUT handler, moved body parsing after getSchedule and used existing.id (UUID) instead of scheduleId (name) for both updateData.id and the updateSchedule call. Applied same fix to DELETE handler. Updated two tests that needed getSchedule mocked before the error path could be reached.
+- **Files changed:** web-ui/app/api/schedules/[scheduleId]/route.ts, web-ui/app/api/schedules/schedules-api.test.ts
+---
