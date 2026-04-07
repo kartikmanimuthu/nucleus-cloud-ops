@@ -129,10 +129,11 @@ export async function invokeService(
       const CommandClass = await getCommandClass(scanConfig.service, commandName);
       const results: any[] = [];
       let nextToken: string | undefined;
+      let tokenInputKey: string | undefined;
       let pages = 0;
 
       do {
-        const paginatedParams = { ...params, ...(nextToken ? { NextToken: nextToken } : {}) };
+        const paginatedParams = { ...params, ...(nextToken && tokenInputKey ? { [tokenInputKey]: nextToken } : {}) };
         const command = new CommandClass(paginatedParams);
         const response = await client.send(command);
 
@@ -140,12 +141,25 @@ export async function invokeService(
         if (Array.isArray(items)) results.push(...items);
         else if (items !== undefined && items !== null) results.push(items);
 
-        nextToken =
-          response.NextToken ??
-          response.Marker ??
-          response.NextPageToken ??
-          response.nextToken ??
-          undefined;
+        // Detect which pagination field the API uses and mirror it back as the input key
+        if (response.NextToken !== undefined) {
+          nextToken = response.NextToken;
+          tokenInputKey = 'NextToken';
+        } else if (response.Marker !== undefined) {
+          nextToken = response.Marker;
+          tokenInputKey = 'Marker';
+        } else if (response.NextMarker !== undefined) {
+          nextToken = response.NextMarker;
+          tokenInputKey = 'Marker';
+        } else if (response.NextPageToken !== undefined) {
+          nextToken = response.NextPageToken;
+          tokenInputKey = 'NextPageToken';
+        } else if (response.nextToken !== undefined) {
+          nextToken = response.nextToken;
+          tokenInputKey = 'nextToken';
+        } else {
+          nextToken = undefined;
+        }
         pages++;
       } while (nextToken);
 
