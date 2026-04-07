@@ -33,18 +33,22 @@ export async function register(boss: PgBoss): Promise<void> {
 
   // discovery-scan uses 'stately' policy: only 1 job per singletonKey per state (created OR active).
   // This prevents fan-out from piling up duplicate scan jobs for the same tenant.
-  // Policy can't be changed via updateQueue, so we migrate from 'standard' → 'stately' on first run.
+  // Policy can't be changed via updateQueue, so we update it directly via SQL on first run.
   const existingQueue = await boss.getQueue('discovery-scan');
-  if (existingQueue && existingQueue.policy !== 'stately') {
+  if (!existingQueue) {
+    await boss.createQueue('discovery-scan', {
+      name: 'discovery-scan',
+      policy: 'stately',
+      expireInSeconds: 1800,
+    });
+  } else if (existingQueue.policy !== 'stately') {
     log.info('Migrating discovery-scan queue to stately policy', { oldPolicy: existingQueue.policy });
-    await boss.purgeQueue('discovery-scan');
-    await boss.deleteQueue('discovery-scan');
+    const db = boss.getDb();
+    // Clear all non-completed jobs so stately dedup starts clean
+    await db.executeSql(`DELETE FROM pgboss.job WHERE name = 'discovery-scan' AND state NOT IN ('completed')`, []);
+    // Update policy directly — updateQueue() doesn't support policy changes
+    await db.executeSql(`UPDATE pgboss.queue SET policy = 'stately', updated_on = now() WHERE name = 'discovery-scan'`, []);
   }
-  await boss.createQueue('discovery-scan', {
-    name: 'discovery-scan',
-    policy: 'stately',
-    expireInSeconds: 1800, // 30 min — zombie active jobs auto-expire and release singletonKey
-  });
   await boss.updateQueue('discovery-scan', {
     name: 'discovery-scan',
     expireInSeconds: 1800,
