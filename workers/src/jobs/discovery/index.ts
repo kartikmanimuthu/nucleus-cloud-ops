@@ -10,6 +10,9 @@ import type { DiscoveryFanOutJob, DiscoveryScanJob } from './types.js';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { createLogger } from '../../lib/logger.js';
+
+const log = createLogger('discovery');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -19,12 +22,19 @@ function loadScanConfigs() {
 }
 
 export async function register(boss: PgBoss): Promise<void> {
-  await boss.createQueue('discovery-fan-out', {
+  // createQueue uses ON CONFLICT DO NOTHING — expiry options are silently ignored on existing queues.
+  // Always follow with updateQueue so expire_seconds is enforced even after worker restarts.
+  await boss.createQueue('discovery-fan-out');
+  await boss.updateQueue('discovery-fan-out', {
+    name: 'discovery-fan-out',
     retryLimit: 1,
-    expireInMinutes: 5,
+    expireInSeconds: 300, // 5 min — fan-out is fast
   });
-  await boss.createQueue('discovery-scan', {
-    expireInMinutes: 30,
+
+  await boss.createQueue('discovery-scan');
+  await boss.updateQueue('discovery-scan', {
+    name: 'discovery-scan',
+    expireInSeconds: 1800, // 30 min — zombie active jobs auto-expire and release singletonKey
   });
 
   // Daily cron at 2 AM UTC
@@ -35,7 +45,7 @@ export async function register(boss: PgBoss): Promise<void> {
     'discovery-fan-out',
     { batchSize: 1 },
     async ([job]) => {
-      console.log('[discovery] Fan-out triggered', { jobId: job.id });
+      log.info('Fan-out triggered', { jobId: job.id });
       const tenants = await getAllTenants();
       for (const tenant of tenants) {
         await boss.send(
@@ -50,7 +60,7 @@ export async function register(boss: PgBoss): Promise<void> {
           }
         );
       }
-      console.log('[discovery] Fan-out complete', { tenantCount: tenants.length });
+      log.info('Fan-out complete', { tenantCount: tenants.length });
     }
   );
 
@@ -64,7 +74,7 @@ export async function register(boss: PgBoss): Promise<void> {
       const startedAt = Date.now();
       const scanConfigs = loadScanConfigs();
 
-      console.log('[discovery] Starting scan', { jobId: job.id, tenantId, scanId, triggeredBy });
+      log.info('Starting scan', { jobId: job.id, tenantId, scanId, triggeredBy });
 
       await writeAuditLog({
         tenantId,
@@ -88,7 +98,7 @@ export async function register(boss: PgBoss): Promise<void> {
 
       for (const account of targetAccounts) {
         try {
-          console.log('[discovery] Scanning account', { tenantId, accountId: account.accountId, regions: account.regions });
+          log.debug('Scanning account', { tenantId, accountId: account.accountId, regions: account.regions });
 
           const credentials = await assumeRole(account.roleArn, account.accountId, account.regions?.[0] ?? 'ap-south-1', account.externalId);
           const regions = Array.isArray(account.regions) ? account.regions : [account.regions];
@@ -107,7 +117,7 @@ export async function register(boss: PgBoss): Promise<void> {
           accountsSynced++;
           if (result.errors?.length) errors.push(...result.errors);
 
-          console.log('[discovery] Account scan complete', {
+          log.info('Account scan complete', {
             tenantId,
             accountId: account.accountId,
             resourceCount: result.resources.length,
@@ -116,11 +126,11 @@ export async function register(boss: PgBoss): Promise<void> {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           errors.push(`Account ${account.accountId}: ${msg}`);
-          console.error('[discovery] Account scan failed', { tenantId, accountId: account.accountId, error: msg });
+          log.error('Account scan failed', { tenantId, accountId: account.accountId, error: msg });
         }
       }
 
-      await saveSyncStatus(scanId, totalResources, accountsSynced);
+      await saveSyncStatus(scanId, totalResources, accountsSynced, tenantId);
 
       const duration = Date.now() - startedAt;
       const status = errors.length > 0 && accountsSynced === 0 ? 'failed' : 'completed';
@@ -136,9 +146,15 @@ export async function register(boss: PgBoss): Promise<void> {
         metadata: { scanId, totalResources, accountsSynced, duration, errors },
       });
 
-      console.log(`[discovery] Scan ${status}`, {
-        tenantId, scanId, totalResources, accountsSynced, duration, errorCount: errors.length,
-      });
+      if (status === 'failed') {
+        log.error('Scan failed', {
+          tenantId, scanId, totalResources, accountsSynced, duration, errorCount: errors.length,
+        });
+      } else {
+        log.info('Scan completed', {
+          tenantId, scanId, totalResources, accountsSynced, duration, errorCount: errors.length,
+        });
+      }
 
       if (errors.length > 0 && accountsSynced === 0) {
         throw new Error(`All accounts failed: ${errors.join('; ')}`);
@@ -146,5 +162,5 @@ export async function register(boss: PgBoss): Promise<void> {
     }
   );
 
-  console.log('[discovery] Registered queues', { queues: ['discovery-fan-out', 'discovery-scan'], cron: '0 2 * * *' });
+  log.info('Registered queues', { queues: ['discovery-fan-out', 'discovery-scan'], cron: '0 2 * * *' });
 }

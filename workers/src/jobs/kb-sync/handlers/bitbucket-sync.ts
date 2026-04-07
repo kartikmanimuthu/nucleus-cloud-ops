@@ -2,6 +2,9 @@ import { parseContent, isSupportedKey, getMime } from '../lib/parsing.js';
 import { chunkText } from '../lib/chunking.js';
 import { embedAndStore } from '../lib/embedding.js';
 import type { BitbucketSyncJob } from '../types.js';
+import { createLogger } from '../../../lib/logger.js';
+
+const log = createLogger('kb-sync/bitbucket');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -87,7 +90,7 @@ async function bbScrapeRepo(
       const text = await parseContent(Buffer.from(content, 'utf-8'), getMime(fileName), fileName);
       const keys = await embedAndStore({ chunks: chunkText(text, fileName), kbId: job.kbId, dsId: job.dsId, sourceType: 'bitbucket', docName: fileName, extra: { bitbucketRepo: `${workspace}/${repoSlug}`, bitbucketPath: clean } });
       allKeys.push(...keys);
-    } catch (e) { console.error(`[KB Sync] BB skip ${fp}:`, e); }
+    } catch (e) { log.warn('Skipping file', { path: fp, error: e instanceof Error ? e.message : String(e) }); }
   }
   return allKeys;
 }
@@ -103,7 +106,7 @@ export async function handleBitbucketSync(job: BitbucketSyncJob): Promise<string
   const auth = 'Basic ' + Buffer.from(`${email}:${apiToken}`).toString('base64');
 
   const repos = repoSlug ? [repoSlug] : await bbListWorkspaceRepos(apiBase, auth, workspace, project);
-  console.log(`[KB Sync] Bitbucket: ${repos.length} repo(s) to scrape in workspace=${workspace}`);
+  log.info('Repos to scrape', { count: repos.length, workspace });
 
   const allKeys: string[] = [];
   for (const slug of repos) {

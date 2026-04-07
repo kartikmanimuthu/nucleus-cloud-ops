@@ -1,5 +1,8 @@
 // workers/src/jobs/discovery/services/scanner.ts
 import type { ScanConfig, Resource, ScanResult, EnrichmentStep, AssumedCredentials } from '../types.js';
+import { createLogger } from '../../../lib/logger.js';
+
+const log = createLogger('discovery/scanner');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -147,18 +150,14 @@ export async function invokeService(
       } while (nextToken);
 
       if (pages > 1) {
-        console.log(
-          `[discovery/scanner] ${scanConfig.service}.${scanConfig.function} in ${region}: scanned ${pages} pages, ${results.length} items`,
-        );
+        log.debug('Paginated scan', { service: scanConfig.service, function: scanConfig.function, region, pages, items: results.length });
       }
 
       return results;
     } catch (error) {
       if (isRetryable(error) && attempt < MAX_RETRIES) {
         const delayMs = BASE_RETRY_DELAY_MS * Math.pow(2, attempt);
-        console.warn(
-          `[discovery/scanner] Throttled on ${scanConfig.service}.${scanConfig.function} in ${region}, retrying in ${delayMs}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
-        );
+        log.warn('Throttled, retrying', { service: scanConfig.service, function: scanConfig.function, region, attempt: attempt + 1, maxRetries: MAX_RETRIES, delayMs });
         await sleep(delayMs);
         continue;
       }
@@ -252,10 +251,7 @@ export async function applyEnrichments(
           break;
       }
     } catch (error) {
-      console.warn(
-        `[discovery/scanner] Enrichment ${enrichment.type}:${enrichment.method} failed for ${service}, continuing:`,
-        error instanceof Error ? error.message : error,
-      );
+      log.warn('Enrichment failed', { type: enrichment.type, method: enrichment.method, service, error: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -293,7 +289,7 @@ async function applyTagEnrichment(
           }
         }
       } catch (error) {
-        console.warn(`[discovery/scanner] Batch tag enrichment failed for ${service}:`, error instanceof Error ? error.message : error);
+        log.warn('Batch tag enrichment failed', { service, error: error instanceof Error ? error.message : String(error) });
       }
     }
     return resources;
@@ -312,7 +308,7 @@ async function applyTagEnrichment(
         ? tags
         : Object.entries(tags).map(([Key, Value]) => ({ Key, Value }));
     } catch (error) {
-      console.warn(`[discovery/scanner] Tag fetch failed for ${key}:`, error instanceof Error ? error.message : error);
+      log.warn('Tag fetch failed', { key, error: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -358,7 +354,7 @@ async function applyDescribeEnrichment(
         else if (result) allDescribed.push(result);
       }
     } catch (error) {
-      console.warn(`[discovery/scanner] Describe enrichment failed for ${service}.${method}:`, error instanceof Error ? error.message : error);
+      log.warn('Describe enrichment failed', { service, method, error: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -389,7 +385,7 @@ async function applyDetailEnrichment(
         Object.assign(resource, data);
       }
     } catch (error) {
-      console.warn(`[discovery/scanner] Detail enrichment failed for ${key}:`, error instanceof Error ? error.message : error);
+      log.warn('Detail enrichment failed', { key, error: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -655,7 +651,7 @@ export async function runInventoryScan(
             allResources.push(...resources);
           } catch (error) {
             const msg = `${config.service}.${config.function} in ${region}: ${error instanceof Error ? error.message : String(error)}`;
-            console.error(`[discovery/scanner] Error scanning ${msg}`);
+            log.error('Scan error', { service: config.service, function: config.function, region, error: msg });
             errors.push(msg);
           }
         }),

@@ -1,6 +1,9 @@
 // workers/src/jobs/discovery/services/audit-service.ts
 import type { PoolClient } from 'pg';
 import { getPool } from './db.js';
+import { createLogger } from '../../../lib/logger.js';
+
+const log = createLogger('discovery/audit');
 
 export async function writeAuditLog(entry: {
   tenantId: string;
@@ -38,7 +41,7 @@ export async function writeAuditLog(entry: {
       ],
     );
   } catch (error) {
-    console.error('[discovery/audit] Error writing audit log:', error);
+    log.error('Error writing audit log', { error: error instanceof Error ? error.message : String(error) });
     // Non-fatal — don't throw
   } finally {
     client.release();

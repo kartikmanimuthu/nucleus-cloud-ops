@@ -6,6 +6,9 @@ import { handleBitbucketSync } from './handlers/bitbucket-sync.js';
 import { getDataSource, updateDS, updateKBVectorCount } from './lib/vector-store.js';
 import { deleteOldVectors } from './lib/embedding.js';
 import type { KBSyncJob } from './types.js';
+import { createLogger } from '../../lib/logger.js';
+
+const log = createLogger('kb-sync');
 
 export async function register(boss: PgBoss): Promise<void> {
   // Create queue first (required in pg-boss v10 before work)
@@ -19,7 +22,7 @@ export async function register(boss: PgBoss): Promise<void> {
       for (const job of jobs) {
         const { kbId, dsId } = job.data;
 
-        console.log('[kb-sync] Processing job', { jobId: job.id, type: job.data.type, kbId, dsId });
+        log.info('Processing job', { jobId: job.id, type: job.data.type, kbId, dsId });
 
         const ds = await getDataSource(kbId, dsId);
         const oldVectorCount = (ds?.vectorCount as number) || 0;
@@ -50,13 +53,13 @@ export async function register(boss: PgBoss): Promise<void> {
           });
           await updateKBVectorCount(kbId, vectorKeys.length);
 
-          console.log('[kb-sync] Job complete', { jobId: job.id, type: job.data.type, kbId, dsId, vectorCount: vectorKeys.length });
+          log.info('Job complete', { jobId: job.id, type: job.data.type, kbId, dsId, vectorCount: vectorKeys.length });
         } catch (err) {
           const shortMessage = err instanceof Error ? err.message : 'Sync failed';
           const fullDetail = err instanceof Error
             ? `${err.message}\n${err.stack ?? ''}`
             : String(err);
-          console.error('[kb-sync] Job failed', { jobId: job.id, type: job.data.type, kbId, dsId, error: shortMessage });
+          log.error('Job failed', { jobId: job.id, type: job.data.type, kbId, dsId, error: shortMessage });
           try {
             await updateDS(kbId, dsId, {
               status: 'error',
@@ -65,7 +68,7 @@ export async function register(boss: PgBoss): Promise<void> {
               lastErrorDetail: fullDetail,
             });
           } catch (e) {
-            console.error('[kb-sync] Status update failed', { jobId: job.id, kbId, dsId, error: e instanceof Error ? e.message : String(e) });
+            log.error('Status update failed', { jobId: job.id, kbId, dsId, error: e instanceof Error ? e.message : String(e) });
           }
           throw err; // Re-throw so pg-boss retries
         }
@@ -73,5 +76,5 @@ export async function register(boss: PgBoss): Promise<void> {
     },
   );
 
-  console.log('[kb-sync] Registered queues', { queues: ['kb-sync'], batchSize: 3 });
+  log.info('Registered queues', { queues: ['kb-sync'], batchSize: 3 });
 }

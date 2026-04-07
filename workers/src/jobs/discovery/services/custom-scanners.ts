@@ -1,5 +1,9 @@
 // workers/src/jobs/discovery/services/custom-scanners.ts
 import type { ScanConfig } from '../types.js';
+import { Scope } from '@aws-sdk/client-wafv2';
+import { createLogger } from '../../../lib/logger.js';
+
+const log = createLogger('discovery/custom');
 
 type CustomScannerFn = (client: any, region: string, config: ScanConfig) => Promise<any[]>;
 
@@ -74,10 +78,7 @@ async function ecsServicesDeep(
           allServices.push(svc);
         }
       } catch (error) {
-        console.error(
-          `[discovery/custom] Error describing ECS services in ${clusterArn}:`,
-          error instanceof Error ? error.message : error,
-        );
+        log.error('ECS describe failed', { clusterArn, error: error instanceof Error ? error.message : String(error) });
       }
     }
   }
@@ -97,9 +98,9 @@ async function wafv2Deep(
   const { ListWebACLsCommand } = await import('@aws-sdk/client-wafv2');
   const allAcls: any[] = [];
 
-  const scopes = ['REGIONAL'];
+  const scopes: Scope[] = [Scope.REGIONAL];
   if (region === 'us-east-1') {
-    scopes.push('CLOUDFRONT');
+    scopes.push(Scope.CLOUDFRONT);
   }
 
   for (const scope of scopes) {
@@ -110,10 +111,7 @@ async function wafv2Deep(
         allAcls.push(acl);
       }
     } catch (error) {
-      console.warn(
-        `[discovery/custom] WAFv2 list_web_acls scope=${scope} region=${region}:`,
-        error instanceof Error ? error.message : error,
-      );
+        log.warn('WAFv2 list failed', { scope, region, error: error instanceof Error ? error.message : String(error) });
     }
   }
 

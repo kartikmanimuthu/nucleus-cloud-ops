@@ -1,6 +1,9 @@
 import { chunkText } from '../lib/chunking.js';
 import { embedAndStore } from '../lib/embedding.js';
 import type { ConfluenceSyncJob } from '../types.js';
+import { createLogger } from '../../../lib/logger.js';
+
+const log = createLogger('kb-sync/confluence');
 
 // ---------------------------------------------------------------------------
 // SSRF guard
@@ -101,7 +104,7 @@ export async function handleConfluenceSync(job: ConfluenceSyncJob): Promise<stri
     return true;
   });
 
-  console.log(`[KB Sync] Confluence: ${pages.length} pages to ingest`);
+  log.info('Pages to ingest', { count: pages.length });
 
   const allKeys: string[] = [];
   for (const page of pages) {

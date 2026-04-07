@@ -2,6 +2,9 @@
 import type { PoolClient } from 'pg';
 import type { Account } from '../types.js';
 import { getPool } from './db.js';
+import { createLogger } from '../../../lib/logger.js';
+
+const log = createLogger('discovery/account');
 
 /**
  * Get all active tenants. Used by fan-out handler.
@@ -14,7 +17,7 @@ export async function getAllTenants(): Promise<Array<{ id: string; name: string 
     );
     return result.rows;
   } catch (error) {
-    console.error('[discovery/account-service] Error fetching active tenants', error);
+    log.error('Error fetching active tenants', { error: error instanceof Error ? error.message : String(error) });
     throw error;  // re-throw so pg-boss retries the fan-out job
   } finally {
     client.release();
@@ -37,7 +40,7 @@ export async function getTenantAccounts(tenantId: string): Promise<Account[]> {
     );
     return result.rows;
   } catch (error) {
-    console.error('[discovery/account] Error fetching tenant accounts:', error);
+    log.error('Error fetching tenant accounts', { tenantId, error: error instanceof Error ? error.message : String(error) });
     throw error;
   } finally {
     client.release();
@@ -69,7 +72,7 @@ export async function updateAccountSyncStatus(
       [tenantId, accountId, status.lastSyncStatus, new Date(), new Date(status.lastSyncedAt), status.lastSyncResourceCount],
     );
   } catch (error) {
-    console.error('[discovery/account] Error updating account sync status:', error);
+    log.error('Error updating account sync status', { tenantId, accountId, error: error instanceof Error ? error.message : String(error) });
     // Non-fatal — don't throw
   } finally {
     client.release();

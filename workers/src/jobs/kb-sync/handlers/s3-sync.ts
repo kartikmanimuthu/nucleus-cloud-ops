@@ -3,6 +3,9 @@ import { parseContent, isSupportedKey, getMime } from '../lib/parsing.js';
 import { chunkText } from '../lib/chunking.js';
 import { embedAndStore } from '../lib/embedding.js';
 import type { S3SyncJob } from '../types.js';
+import { createLogger } from '../../../lib/logger.js';
+
+const log = createLogger('kb-sync/s3');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -34,7 +37,7 @@ export async function handleS3Sync(job: S3SyncJob): Promise<string[]> {
       const kbChunks = chunkText(text, fileName);
       const keys = await embedAndStore({ chunks: kbChunks, kbId: job.kbId, dsId: job.dsId, sourceType: 's3-bucket', docName: fileName, extra: { s3Key: obj.Key! } });
       allKeys.push(...keys);
-    } catch (e) { console.error(`[KB Sync] S3 skip ${obj.Key}:`, e); }
+    } catch (e) { log.warn('Skipping S3 object', { key: obj.Key, error: e instanceof Error ? e.message : String(e) }); }
   }
   return allKeys;
 }

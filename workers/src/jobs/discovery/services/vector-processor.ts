@@ -3,6 +3,9 @@ import { createHash } from 'crypto';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import type { Resource } from '../types.js';
 import { getPool } from './db.js';
+import { createLogger } from '../../../lib/logger.js';
+
+const log = createLogger('discovery/vectors');
 
 // ---------------------------------------------------------------------------
 // Config
@@ -152,12 +155,12 @@ export async function processAccountVectors(
 
           if (result.rowCount && result.rowCount > 0) updated++;
         } catch (err) {
-          console.error(`[vector-processor] Failed embedding for ${resource.resourceId}:`, err);
+          log.error('Embedding failed', { resourceId: resource.resourceId, error: err instanceof Error ? err.message : String(err) });
         }
       }),
     );
   }
 
-  console.log(`[vector-processor] Updated ${updated}/${uniqueResources.length} embeddings for account ${accountId}`);
+  log.info('Embeddings updated', { updated, total: uniqueResources.length, accountId });
   return updated;
 }
