@@ -124,10 +124,11 @@ None.
 | 260406-rju | Per-tenant scheduler cron configuration with pg-boss replacing EventBridge | 2026-04-06 | — | [260406-rju-per-tenant-scheduler-cron-configuration-](.planning/quick/260406-rju-per-tenant-scheduler-cron-configuration-/) |
 | 260406-vff | add logging for inventory discovery worker similar like scheduler pattern | 2026-04-06 | d70da12 | [260406-vff-add-logging-for-inventory-discovery-work](./quick/260406-vff-add-logging-for-inventory-discovery-work/) |
 | 260406-wz6 | Move Members and Roles from Settings to dedicated Users & Permissions sidebar section | 2026-04-06 | 8a85bd5 | [260406-wz6-move-members-and-roles-from-settings-to-](./quick/260406-wz6-move-members-and-roles-from-settings-to-/) |
+| 260407-dqr | Refactor logging to industry-standard log levels in kb-sync and discovery jobs | 2026-04-07 | 8943881 | [260407-dqr-refactor-logging-to-industry-standard-lo](./quick/260407-dqr-refactor-logging-to-industry-standard-lo/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-06 - Completed quick task 260406-wz6: Move Members and Roles from Settings to dedicated Users & Permissions sidebar section
+Last activity: 2026-04-07 - Completed quick task 260407-dqr: Refactor logging to industry-standard log levels in kb-sync and discovery jobs
 Last session: 2026-04-07T04:38:40.785Z
 Stopped at: Completed quick 260407-dqr-PLAN.md
 Resume file: None
