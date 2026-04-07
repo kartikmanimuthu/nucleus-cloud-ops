@@ -126,10 +126,11 @@ None.
 | 260406-wz6 | Move Members and Roles from Settings to dedicated Users & Permissions sidebar section | 2026-04-06 | 8a85bd5 | [260406-wz6-move-members-and-roles-from-settings-to-](./quick/260406-wz6-move-members-and-roles-from-settings-to-/) |
 | 260407-dqr | Refactor logging to industry-standard log levels in kb-sync and discovery jobs | 2026-04-07 | 8943881 | [260407-dqr-refactor-logging-to-industry-standard-lo](./quick/260407-dqr-refactor-logging-to-industry-standard-lo/) |
 | 260408-1ew | Remove S3 Vectors, store KB embeddings in PostgreSQL pgvector | 2026-04-07 | ddd638e | [260408-1ew-remove-s3-vectors-implementation-store-k](./quick/260408-1ew-remove-s3-vectors-implementation-store-k/) |
+| 260408-1mm | Fix inventory discovery worker reliability — singletonKey silent drops, expiry blocking, status persistence | 2026-04-07 | — | [260408-1mm-fix-inventory-discovery-worker-job-not-t](./quick/260408-1mm-fix-inventory-discovery-worker-job-not-t/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-07 - Completed quick task 260408-1ew: Remove S3 Vectors, store KB embeddings in PostgreSQL pgvector
+Last activity: 2026-04-07 - Completed quick task 260408-1mm: Fix inventory discovery worker reliability
 Last session: 2026-04-07T19:56:30.110Z
 Stopped at: Completed quick 260408-1ew-PLAN.md
 Resume file: None
