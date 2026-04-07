@@ -31,10 +31,22 @@ export async function register(boss: PgBoss): Promise<void> {
     expireInSeconds: 300, // 5 min — fan-out is fast
   });
 
-  await boss.createQueue('discovery-scan');
+  // discovery-scan uses 'stately' policy: only 1 job per singletonKey per state (created OR active).
+  // This prevents fan-out from piling up duplicate scan jobs for the same tenant.
+  // Policy can't be changed via updateQueue, so we migrate from 'standard' → 'stately' on first run.
+  const existingQueue = await boss.getQueue('discovery-scan');
+  if (existingQueue && existingQueue.policy !== 'stately') {
+    log.info('Migrating discovery-scan queue to stately policy', { oldPolicy: existingQueue.policy });
+    await boss.deleteQueue('discovery-scan');
+  }
+  await boss.createQueue('discovery-scan', {
+    name: 'discovery-scan',
+    policy: 'stately',
+    expireInSeconds: 1800, // 30 min — zombie active jobs auto-expire and release singletonKey
+  });
   await boss.updateQueue('discovery-scan', {
     name: 'discovery-scan',
-    expireInSeconds: 1800, // 30 min — zombie active jobs auto-expire and release singletonKey
+    expireInSeconds: 1800,
   });
 
   // Every 5 minutes
