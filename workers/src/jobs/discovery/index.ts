@@ -37,6 +37,7 @@ export async function register(boss: PgBoss): Promise<void> {
   const existingQueue = await boss.getQueue('discovery-scan');
   if (existingQueue && existingQueue.policy !== 'stately') {
     log.info('Migrating discovery-scan queue to stately policy', { oldPolicy: existingQueue.policy });
+    await boss.purgeQueue('discovery-scan');
     await boss.deleteQueue('discovery-scan');
   }
   await boss.createQueue('discovery-scan', {
