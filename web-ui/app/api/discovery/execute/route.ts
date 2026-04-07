@@ -32,12 +32,18 @@ export async function POST(req: NextRequest) {
             },
             {
                 singletonKey: `tenant:${tenantId}`,
-                expireInHours: 2,
                 retryLimit: 2,
                 retryDelay: 60,
                 retryBackoff: true,
             }
         );
+
+        if (!jobId) {
+            return NextResponse.json(
+                { success: false, error: 'A scan is already queued or running for this tenant' },
+                { status: 409 }
+            );
+        }
 
         console.log(`API - POST /api/discovery/execute - Triggered scan for tenant ${tenantId}`, { jobId, accountId });
 

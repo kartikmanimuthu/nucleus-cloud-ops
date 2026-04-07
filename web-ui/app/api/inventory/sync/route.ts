@@ -49,7 +49,6 @@ export async function POST(request: NextRequest) {
             },
             {
                 singletonKey: `tenant:${tenantId}`,
-                expireInMinutes: 30,
                 retryLimit: 2,
                 retryDelay: 60,
                 retryBackoff: true,
