@@ -8,6 +8,7 @@ const LEVEL_PRIORITY: Record<LogLevel, number> = {
 };
 
 const currentLevel: LogLevel = (process.env.LOG_LEVEL?.toLowerCase() as LogLevel) || 'debug';
+const serviceName: string = process.env.SERVICE_NAME || 'workers';
 
 export interface Logger {
     debug(message: string, meta?: Record<string, unknown>): void;
@@ -24,7 +25,7 @@ export function createLogger(module: string): Logger {
     function formatLog(level: LogLevel, message: string, meta?: Record<string, unknown>): string {
         const ts = new Date().toISOString();
         const metaStr = meta ? ' ' + JSON.stringify(meta) : '';
-        return `${ts} [${level.toUpperCase()}] [${module}] ${message}${metaStr}`;
+        return `${ts} [${level.toUpperCase()}] [${serviceName}:${module}] ${message}${metaStr}`;
     }
 
     return {
