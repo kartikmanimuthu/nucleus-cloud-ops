@@ -37,8 +37,8 @@ export async function register(boss: PgBoss): Promise<void> {
     expireInSeconds: 1800, // 30 min — zombie active jobs auto-expire and release singletonKey
   });
 
-  // Daily cron at 2 AM UTC
-  await boss.schedule('discovery-fan-out', '0 2 * * *', {}, { tz: 'UTC' });
+  // Every 5 minutes
+  await boss.schedule('discovery-fan-out', '*/5 * * * *', {}, { tz: 'UTC' });
 
   // Fan-out: one discovery-scan job per tenant
   await boss.work<DiscoveryFanOutJob>(
@@ -48,17 +48,21 @@ export async function register(boss: PgBoss): Promise<void> {
       log.info('Fan-out triggered', { jobId: job.id });
       const tenants = await getAllTenants();
       for (const tenant of tenants) {
-        await boss.send(
+        const jobId = await boss.send(
           'discovery-scan',
           { type: 'scan', tenantId: tenant.id, triggeredBy: 'cron' } satisfies DiscoveryScanJob,
           {
             singletonKey: `tenant:${tenant.id}`,
-            expireInHours: 2,
             retryLimit: 2,
             retryDelay: 60,
             retryBackoff: true,
           }
         );
+        if (jobId === null) {
+          log.warn('Scan job already queued or active, skipping', { tenantId: tenant.id });
+        } else {
+          log.debug('Scan job enqueued', { tenantId: tenant.id, jobId });
+        }
       }
       log.info('Fan-out complete', { tenantCount: tenants.length });
     }
@@ -130,10 +134,10 @@ export async function register(boss: PgBoss): Promise<void> {
         }
       }
 
-      await saveSyncStatus(scanId, totalResources, accountsSynced, tenantId);
-
       const duration = Date.now() - startedAt;
       const status = errors.length > 0 && accountsSynced === 0 ? 'failed' : 'completed';
+
+      await saveSyncStatus(scanId, totalResources, accountsSynced, tenantId, status);
 
       await writeAuditLog({
         tenantId,
@@ -162,5 +166,5 @@ export async function register(boss: PgBoss): Promise<void> {
     }
   );
 
-  log.info('Registered queues', { queues: ['discovery-fan-out', 'discovery-scan'], cron: '0 2 * * *' });
+  log.info('Registered queues', { queues: ['discovery-fan-out', 'discovery-scan'], cron: '*/5 * * * *' });
 }

@@ -101,20 +101,22 @@ export async function saveSyncStatus(
   totalResources: number,
   accountsSynced: number,
   tenantId: string,
+  status: string,
 ): Promise<void> {
   const client: PoolClient = await getPool().connect();
   try {
     const id = `sync-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     await client.query(
       `INSERT INTO inventory_sync_status
-         (id, "scanId", "tenantId", "totalResources", "accountsSynced", "syncedAt", "createdAt")
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+         (id, "scanId", "tenantId", "totalResources", "accountsSynced", status, "syncedAt", "createdAt")
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
        ON CONFLICT ("scanId")
        DO UPDATE SET
          "totalResources" = EXCLUDED."totalResources",
          "accountsSynced" = EXCLUDED."accountsSynced",
+         status = EXCLUDED.status,
          "syncedAt" = NOW()`,
-      [id, scanId, tenantId, totalResources, accountsSynced],
+      [id, scanId, tenantId, totalResources, accountsSynced, status],
     );
   } catch (error) {
     log.error('Failed saving sync status', { scanId, error: error instanceof Error ? error.message : String(error) });
