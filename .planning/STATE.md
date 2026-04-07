@@ -129,7 +129,7 @@ None.
 
 ## Session Continuity
 
-Last activity: 2026-04-07 - Completed quick task 260407-dqr: Refactor logging to industry-standard log levels in kb-sync and discovery jobs
+Last activity: 2026-04-07 - Completed quick task 260408-1ew: Remove S3 Vectors, store KB embeddings in PostgreSQL pgvector
 Last session: 2026-04-07T19:56:30.110Z
 Stopped at: Completed quick 260408-1ew-PLAN.md
 Resume file: None
