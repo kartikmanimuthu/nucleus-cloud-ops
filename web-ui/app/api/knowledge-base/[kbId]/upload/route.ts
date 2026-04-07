@@ -61,7 +61,7 @@ export async function POST(
 
   // Enqueue background job via pg-boss
   const boss = await getBoss();
-  await boss.send('kb-sync', { type: 'file-upload', kbId, dsId: ds.id, stagingKey, fileName: file.name, mimeType: file.type });
+  await boss.send('kb-sync', { type: 'file-upload', kbId, dsId: ds.id, tenantId, stagingKey, fileName: file.name, mimeType: file.type });
 
   return NextResponse.json({ dataSource: ds }, { status: 202 });
 }

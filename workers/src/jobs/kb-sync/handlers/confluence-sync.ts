@@ -110,7 +110,7 @@ export async function handleConfluenceSync(job: ConfluenceSyncJob): Promise<stri
   for (const page of pages) {
     const text = page.body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text) continue;
-    const keys = await embedAndStore({ chunks: chunkText(text, page.title), kbId: job.kbId, dsId: job.dsId, sourceType: 'confluence', docName: page.title, docId: page.id, extra: { confluencePageId: page.id } });
+    const keys = await embedAndStore({ chunks: chunkText(text, page.title), kbId: job.kbId, dsId: job.dsId, sourceType: 'confluence', docName: page.title, tenantId: job.tenantId, docId: page.id, extra: { confluencePageId: page.id } });
     allKeys.push(...keys);
   }
   return allKeys;

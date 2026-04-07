@@ -8,6 +8,7 @@ export interface BaseJob {
   type: JobType;
   kbId: string;
   dsId: string;
+  tenantId: string;
   oldVectorKeys?: string[];
 }
 

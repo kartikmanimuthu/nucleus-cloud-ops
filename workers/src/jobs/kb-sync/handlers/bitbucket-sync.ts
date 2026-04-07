@@ -88,7 +88,7 @@ async function bbScrapeRepo(
       const content = await r.text();
       const fileName = clean.split('/').pop() || clean;
       const text = await parseContent(Buffer.from(content, 'utf-8'), getMime(fileName), fileName);
-      const keys = await embedAndStore({ chunks: chunkText(text, fileName), kbId: job.kbId, dsId: job.dsId, sourceType: 'bitbucket', docName: fileName, extra: { bitbucketRepo: `${workspace}/${repoSlug}`, bitbucketPath: clean } });
+      const keys = await embedAndStore({ chunks: chunkText(text, fileName), kbId: job.kbId, dsId: job.dsId, sourceType: 'bitbucket', docName: fileName, tenantId: job.tenantId, extra: { bitbucketRepo: `${workspace}/${repoSlug}`, bitbucketPath: clean } });
       allKeys.push(...keys);
     } catch (e) { log.warn('Skipping file', { path: fp, error: e instanceof Error ? e.message : String(e) }); }
   }

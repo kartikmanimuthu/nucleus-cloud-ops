@@ -8,8 +8,10 @@ import type { FileUploadJob } from '../types.js';
 // Clients & config
 // ---------------------------------------------------------------------------
 
-const region = process.env.AWS_REGION || 'ap-south-1';
-const s3 = new S3Client({ region });
+// Use KB_STAGING_BUCKET_REGION when the staging bucket lives in a different
+// region than the general AWS_REGION (e.g. bucket in us-east-1, workers in ap-south-1).
+const stagingRegion = process.env.KB_STAGING_BUCKET_REGION || process.env.AWS_REGION || 'us-east-1';
+const s3 = new S3Client({ region: stagingRegion });
 const STAGING_BUCKET = process.env.KB_STAGING_BUCKET_NAME!;
 
 // ---------------------------------------------------------------------------
@@ -23,5 +25,5 @@ export async function handleFileUpload(job: FileUploadJob): Promise<string[]> {
   const buffer = Buffer.concat(chunks);
   const text = await parseContent(buffer, job.mimeType, job.fileName);
   const kbChunks = chunkText(text, job.fileName);
-  return embedAndStore({ chunks: kbChunks, kbId: job.kbId, dsId: job.dsId, sourceType: 'file-upload', docName: job.fileName });
+  return embedAndStore({ chunks: kbChunks, kbId: job.kbId, dsId: job.dsId, sourceType: 'file-upload', docName: job.fileName, tenantId: job.tenantId });
 }

@@ -1,5 +1,5 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import { S3VectorsClient, PutVectorsCommand, DeleteVectorsCommand } from '@aws-sdk/client-s3vectors';
+import { Pool } from 'pg';
 import type { Chunk } from './chunking.js';
 
 // ---------------------------------------------------------------------------
@@ -8,14 +8,29 @@ import type { Chunk } from './chunking.js';
 
 const region = process.env.AWS_REGION || 'ap-south-1';
 const bedrock = new BedrockRuntimeClient({ region });
-const s3vectors = new S3VectorsClient({ region });
-
-const KB_VECTOR_BUCKET = process.env.KB_VECTOR_BUCKET_NAME!;
-const KB_VECTOR_INDEX = process.env.KB_VECTOR_INDEX_NAME!;
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID || 'amazon.titan-embed-text-v2:0';
 
 export const EMBEDDING_CONCURRENCY = 5;
 export const VECTOR_BATCH_SIZE = 20;
+
+// ---------------------------------------------------------------------------
+// pg Pool (lazy init — same pattern as discovery/services/db.ts)
+// ---------------------------------------------------------------------------
+
+let _pool: Pool | null = null;
+function getPool(): Pool {
+  if (!_pool) {
+    const DATABASE_URL = process.env.DATABASE_URL;
+    if (!DATABASE_URL) throw new Error('DATABASE_URL is required for kb-sync embedding');
+    _pool = new Pool({
+      connectionString: DATABASE_URL,
+      max: 3,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 5000,
+    });
+  }
+  return _pool;
+}
 
 // ---------------------------------------------------------------------------
 // Embedding
@@ -31,54 +46,69 @@ export async function getEmbedding(text: string): Promise<number[]> {
   return JSON.parse(new TextDecoder().decode(res.body)).embedding;
 }
 
+// ---------------------------------------------------------------------------
+// Store chunks as vectors in PostgreSQL (pgvector)
+// ---------------------------------------------------------------------------
+
 export async function embedAndStore(params: {
   chunks: Chunk[];
   kbId: string;
   dsId: string;
   sourceType: string;
   docName: string;
+  tenantId: string;
   docId?: string;
   extra?: Record<string, string>;
 }): Promise<string[]> {
-  const { chunks, kbId, dsId, sourceType, docName, docId = '', extra = {} } = params;
+  const { chunks, kbId, dsId, sourceType, docName, tenantId, docId = '', extra = {} } = params;
   const keys: string[] = [];
 
   for (let i = 0; i < chunks.length; i += EMBEDDING_CONCURRENCY) {
     const batch = chunks.slice(i, i + EMBEDDING_CONCURRENCY);
     const embeddings = await Promise.all(batch.map((c) => getEmbedding(c.text)));
 
-    const vectors = batch.map((chunk, j) => ({
-      key: `kb_${kbId}_${dsId}_${docId}_${chunk.index}_${chunk.contentHash}`,
-      data: { float32: embeddings[j] },
-      metadata: {
-        knowledgeBaseId: kbId,
-        dataSourceId: dsId,
-        sourceType,
-        documentName: docName,
-        chunkIndex: String(chunk.index),
-        totalChunks: String(chunk.total),
-        contentHash: chunk.contentHash,
-        text_content: chunk.text.slice(0, 500),
-        ...extra,
-      },
-    }));
+    const pool = getPool();
+    for (let j = 0; j < batch.length; j++) {
+      const chunk = batch[j];
+      const vectorKey = `kb_${kbId}_${dsId}_${docId}_${chunk.index}_${chunk.contentHash}`;
+      const vectorLiteral = `[${embeddings[j].join(',')}]`;
+      const metadata = JSON.stringify(extra);
 
-    for (let b = 0; b < vectors.length; b += VECTOR_BATCH_SIZE) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await s3vectors.send(new PutVectorsCommand({ vectorBucketName: KB_VECTOR_BUCKET, indexName: KB_VECTOR_INDEX, vectors: vectors.slice(b, b + VECTOR_BATCH_SIZE) as any }));
+      await pool.query(
+        `INSERT INTO kb_document_chunks
+           ("id", "tenantId", "knowledgeBaseId", "dataSourceId", "vectorKey",
+            "documentName", "sourceType", "chunkIndex", "totalChunks",
+            "contentHash", "textContent", "metadata", "embedding")
+         VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::vector)
+         ON CONFLICT ("vectorKey") DO UPDATE SET
+           "textContent" = EXCLUDED."textContent",
+           "embedding" = EXCLUDED."embedding",
+           "contentHash" = EXCLUDED."contentHash",
+           "metadata" = EXCLUDED."metadata"`,
+        [
+          tenantId, kbId, dsId, vectorKey,
+          docName, sourceType, chunk.index, chunk.total,
+          chunk.contentHash, chunk.text.slice(0, 2000), metadata, vectorLiteral,
+        ],
+      );
+      keys.push(vectorKey);
     }
-    keys.push(...vectors.map((v) => v.key));
   }
   return keys;
 }
 
+// ---------------------------------------------------------------------------
+// Delete vectors from PostgreSQL
+// ---------------------------------------------------------------------------
+
 export async function deleteOldVectors(keys: string[]): Promise<void> {
   if (!keys?.length) return;
+  const pool = getPool();
   for (let i = 0; i < keys.length; i += 500) {
-    await s3vectors.send(new DeleteVectorsCommand({
-      vectorBucketName: KB_VECTOR_BUCKET,
-      indexName: KB_VECTOR_INDEX,
-      keys: keys.slice(i, i + 500),
-    }));
+    const batch = keys.slice(i, i + 500);
+    await pool.query(
+      `DELETE FROM kb_document_chunks WHERE "vectorKey" = ANY($1::text[])`,
+      [batch],
+    );
   }
 }

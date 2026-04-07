@@ -35,7 +35,7 @@ export async function handleS3Sync(job: S3SyncJob): Promise<string[]> {
       const fileName = obj.Key!.split('/').pop() || obj.Key!;
       const text = await parseContent(buf, getMime(obj.Key!), fileName);
       const kbChunks = chunkText(text, fileName);
-      const keys = await embedAndStore({ chunks: kbChunks, kbId: job.kbId, dsId: job.dsId, sourceType: 's3-bucket', docName: fileName, extra: { s3Key: obj.Key! } });
+      const keys = await embedAndStore({ chunks: kbChunks, kbId: job.kbId, dsId: job.dsId, sourceType: 's3-bucket', docName: fileName, tenantId: job.tenantId, extra: { s3Key: obj.Key! } });
       allKeys.push(...keys);
     } catch (e) { log.warn('Skipping S3 object', { key: obj.Key, error: e instanceof Error ? e.message : String(e) }); }
   }
