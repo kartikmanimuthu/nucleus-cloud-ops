@@ -115,14 +115,6 @@ const s3Endpoint = new aws.ec2.VpcEndpoint("nucleus-endpoint-s3", {
     tags: { Name: "nucleus-endpoint-s3" },
 });
 
-const dynamoEndpoint = new aws.ec2.VpcEndpoint("nucleus-endpoint-dynamodb", {
-    vpcId: vpc.vpcId,
-    serviceName: pulumi.interpolate`com.amazonaws.${region}.dynamodb`,
-    vpcEndpointType: "Gateway",
-    routeTableIds: endpointRouteTableIds,
-    tags: { Name: "nucleus-endpoint-dynamodb" },
-});
-
 // ============================================================================
 // SUBNET GROUPS
 // Both use Database tier subnets — matching CDK networkingStack.ts exactly.
@@ -137,12 +129,6 @@ const dbSubnetGroup = new aws.rds.SubnetGroup("nucleus-db-subnet-group", {
     tags: { Name: "nucleus-db-subnet-group" },
 });
 
-const cacheSubnetGroup = new aws.elasticache.SubnetGroup("nucleus-cache-subnet-group", {
-    name: "nucleus-cache-subnet-group",
-    description: "Subnet group for ElastiCache clusters",
-    subnetIds: databaseSubnetIds,
-});
-
 // ============================================================================
 // STACK OUTPUTS — match CDK CfnOutput keys exactly
 // ============================================================================
@@ -155,4 +141,3 @@ export { databaseSubnetIds };
 export { intraSubnetIds };
 export const availabilityZones = pulumi.output(["us-east-1a", "us-east-1b"]);
 export const dbSubnetGroupName = dbSubnetGroup.name;
-export const cacheSubnetGroupName = cacheSubnetGroup.name;
