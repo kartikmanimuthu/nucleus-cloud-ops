@@ -43,7 +43,6 @@ const appUrl = config.get("appUrl") ?? "https://placeholder.cloudfront.net";
 const subscriptionEmails = config.get("subscriptionEmails") ?? "";
 const crossAccountRoleName = config.get("crossAccountRoleName") ?? "NucleusAccess";
 const vectorBucketName = config.get("vectorBucketName") ?? "";
-const discoveryImageUri = config.get("discoveryImageUri") ?? "";
 const nextauthSecret = config.requireSecret("nextauthSecret");
 const dbPassword = config.requireSecret("dbPassword");
 
@@ -777,6 +776,8 @@ new aws.s3.BucketNotification("inventory-bucket-notification", {
 });
 
 // ============================================================================
+<<<<<<< HEAD
+=======
 // DISCOVERY ECS TASK DEFINITION + IAM + SECURITY GROUP + EVENTBRIDGE RULE
 // ============================================================================
 
@@ -955,8 +956,7 @@ const ecrRepository = new aws.ecr.Repository("web-ui-ecr-repo", {
     forceDelete: false,
 });
 
-// WebUI Docker image — auto-built and pushed to ECR on source change.
-// Build context is repo root (not web-ui/) so Dockerfile.ecs can access ../prisma/.
+<<<<<<< HEAD
 // Explicit source hash — combines web-ui/ + prisma/ so any change to either
 // produces a new imageTag, forcing a Docker rebuild + new ECS task definition revision.
 const webUiSrcHash = crypto.createHash("sha256")
@@ -964,12 +964,22 @@ const webUiSrcHash = crypto.createHash("sha256")
     .update(hashDirectory(path.join(repoRoot, "prisma")))
     .digest("hex")
     .substring(0, 12);
+
+=======
+// WebUI Docker image — auto-built and pushed to ECR on source change.
+// Build context is repo root (not web-ui/) so Dockerfile.ecs can access ../prisma/.
+// awsx.ecr.Image tags with a unique digest per build, so Pulumi detects the change
+// and updates the ECS task definition automatically — no manual force-deploy needed.
+>>>>>>> origin/master-v1
 const webUiImage = new awsx.ecr.Image("web-ui-image", {
     repositoryUrl: ecrRepository.repositoryUrl,
     context: repoRoot,
     dockerfile: path.join(repoRoot, "web-ui/Dockerfile.ecs"),
     platform: "linux/arm64",
+<<<<<<< HEAD
     imageTag: webUiSrcHash,
+=======
+>>>>>>> origin/master-v1
     args: {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
@@ -1479,12 +1489,15 @@ export const snsTopicArn = snsTopic.arn;
 
 // VectorProcessor exports
 export const vectorProcessorArn = vectorProcessorLambda.arn;
+<<<<<<< HEAD
+=======
 
 // Discovery ECS task exports
 export const discoveryTaskDefinitionArn = discoveryTaskDef.arn;
 export const discoveryTaskRoleArn = discoveryTaskRole.arn;
 export const discoveryExecutionRoleArn = discoveryExecutionRole.arn;
 export const discoverySecurityGroupId = discoverySecurityGroup.id;
+>>>>>>> origin/master-v1
 
 // ============================================================================
 // RDS POSTGRESQL — IAM rds-db:connect policies
@@ -1498,6 +1511,8 @@ new aws.iam.RolePolicy("ecs-task-rds-connect-policy", {
     })),
 });
 
+<<<<<<< HEAD
+=======
 new aws.iam.RolePolicy("discovery-task-rds-connect-policy", {
     role: discoveryTaskRole.id,
     policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
@@ -1505,6 +1520,8 @@ new aws.iam.RolePolicy("discovery-task-rds-connect-policy", {
         Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
     })),
 });
+
+>>>>>>> origin/master-v1
 new aws.iam.RolePolicy("vector-processor-rds-connect-policy", {
     role: vectorProcessorRole.id,
     policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
