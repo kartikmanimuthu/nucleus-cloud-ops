@@ -128,10 +128,11 @@ None.
 | 260408-1ew | Remove S3 Vectors, store KB embeddings in PostgreSQL pgvector | 2026-04-07 | ddd638e | [260408-1ew-remove-s3-vectors-implementation-store-k](./quick/260408-1ew-remove-s3-vectors-implementation-store-k/) |
 | 260408-1mm | Fix inventory discovery worker reliability — singletonKey silent drops, expiry blocking, status persistence | 2026-04-07 | — | [260408-1mm-fix-inventory-discovery-worker-job-not-t](./quick/260408-1mm-fix-inventory-discovery-worker-job-not-t/) |
 | 260408-32q | Fix discovery scanner stuck — not scanning all AWS account resources | 2026-04-07 | — | [260408-32q-fix-discovery-scanner-stuck-not-scanning](./quick/260408-32q-fix-discovery-scanner-stuck-not-scanning/) |
+| 260408-nhh | Remove DynamoDB dead code and feature flags from agent persistence — PostgreSQL only | 2026-04-08 | 519c9a8 | [260408-nhh-remove-dynamodb-dead-code-and-feature-fl](./quick/260408-nhh-remove-dynamodb-dead-code-and-feature-fl/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-07 - Completed quick task 260408-32q: Fix discovery scanner stuck — not scanning all AWS account resources
+Last activity: 2026-04-08 - Completed quick task 260408-nhh: Remove DynamoDB dead code and feature flags from agent persistence — PostgreSQL only
 Last session: 2026-04-07T19:56:30.110Z
 Stopped at: Completed quick 260408-1ew-PLAN.md
 Resume file: None
