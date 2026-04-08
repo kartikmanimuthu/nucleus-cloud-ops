@@ -260,7 +260,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
               )}
               Execute Now
             </Button>
-            <Link href={`/schedules/${encodeURIComponent(schedule.name)}/edit`}>
+            <Link href={`/app/schedules/${encodeURIComponent(schedule.id)}/edit`}>
               <Button>
                 <Edit className="h-4 w-4 mr-2" />
                 Edit Schedule
