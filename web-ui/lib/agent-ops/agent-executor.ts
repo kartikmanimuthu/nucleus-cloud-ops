@@ -4,8 +4,8 @@
  * Key capabilities:
  * - Isolated sandbox per run (prevents file-tool collisions)
  * - AbortController-based cancel/stop via run-manager
- * - DynamoDB checkpointer (short-term state) + store (long-term memory)
- * - Full LangGraph event streaming → DynamoDB event log
+ * - PostgreSQL checkpointer (short-term state) + store (long-term memory)
+ * - Full LangGraph event streaming → PostgreSQL event log
  * - Clarification (awaiting_input) and interrupt (tool approval) support
  */
 

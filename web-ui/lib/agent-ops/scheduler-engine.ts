@@ -1,113 +1,63 @@
 /**
- * Scheduler Engine — In-process cron scheduler (singleton via globalThis).
+ * Scheduler Engine — pg-boss-based cron scheduler.
  *
- * On startup: loads all active tasks from DDB and registers croner jobs.
- * On tick: acquires execution lock → creates run → fire-and-forget executeAgentRun.
+ * On startup: workers load all active tasks from PostgreSQL and register pg-boss schedules.
+ * On tick: worker triggers execution via HTTP POST to the trigger endpoint.
+ *
+ * Web-ui side (this file) is producer-only: schedule/unschedule via getBoss().
+ * The workers process handles actual job execution.
  */
 
-import { Cron } from 'croner';
 import type { ScheduledTask } from './types';
+import { getBoss } from '../boss-client';
 
-const g = globalThis as typeof globalThis & {
-    _schedulerJobs?: Map<string, Cron>;
-    _schedulerInitialized?: boolean;
-};
+const QUEUE_PREFIX = 'agent-ops-task';
 
-function getJobs(): Map<string, Cron> {
-    if (!g._schedulerJobs) g._schedulerJobs = new Map();
-    return g._schedulerJobs;
+function queueName(taskId: string): string {
+    return `${QUEUE_PREFIX}:${taskId}`;
 }
 
+/**
+ * No-op — workers handle startup registration now.
+ * Kept for backward compatibility with callers.
+ */
 export async function initializeScheduler(): Promise<void> {
-    if (g._schedulerInitialized) return;
-    g._schedulerInitialized = true;
+    // Workers process loads active tasks and registers pg-boss schedules on startup.
+    // Web-ui only uses registerTask/unregisterTask for on-demand schedule changes.
+}
 
-    console.log('[Scheduler] Initializing...');
+export async function registerTask(task: ScheduledTask): Promise<void> {
+    const boss = await getBoss();
+    const queue = queueName(task.taskId);
+
+    await boss.createQueue(queue);
+
+    // Remove existing schedule before re-registering (idempotent)
+    try { await boss.unschedule(queue); } catch { /* no existing schedule */ }
+
+    await boss.schedule(queue, task.cronExpression, {
+        taskId: task.taskId,
+        tenantId: task.tenantId,
+    }, { tz: task.timezone });
+
+    console.log(`[Scheduler] Registered task ${task.taskId} via pg-boss (${task.cronExpression} ${task.timezone})`);
+}
+
+export async function unregisterTask(taskId: string): Promise<void> {
+    const boss = await getBoss();
+    const queue = queueName(taskId);
+
     try {
-        const { listAllActiveTasks } = await import('./scheduled-task-service');
-        const tasks = await listAllActiveTasks();
-        for (const task of tasks) {
-            registerTask(task);
-        }
-        console.log(`[Scheduler] Registered ${tasks.length} active tasks`);
-    } catch (err) {
-        console.error('[Scheduler] Init failed:', err);
+        await boss.unschedule(queue);
+        console.log(`[Scheduler] Unregistered task ${taskId}`);
+    } catch {
+        // Queue/schedule may not exist — safe to ignore
     }
 }
 
-export function registerTask(task: ScheduledTask): void {
-    unregisterTask(task.taskId);
-    try {
-        const job = new Cron(
-            task.cronExpression,
-            { timezone: task.timezone, protect: true },
-            () => handleTick(task, new Date().toISOString())
-        );
-        getJobs().set(task.taskId, job);
-        console.log(`[Scheduler] Registered task ${task.taskId} (${task.cronExpression} ${task.timezone})`);
-    } catch (err) {
-        console.error(`[Scheduler] Failed to register task ${task.taskId}:`, err);
-    }
-}
-
-export function unregisterTask(taskId: string): void {
-    const job = getJobs().get(taskId);
-    if (job) {
-        job.stop();
-        getJobs().delete(taskId);
-    }
-}
-
-async function handleTick(task: ScheduledTask, scheduledAt: string): Promise<void> {
-    console.log(`[Scheduler] Tick: task=${task.taskId} scheduledAt=${scheduledAt}`);
-    try {
-        const { tryAcquireExecutionLock, updateLastRun } = await import('./scheduled-task-service');
-        const { agentOpsService } = await import('./agent-ops-service');
-        const { executeAgentRun } = await import('./agent-executor');
-        const { notifyScheduledRunResult } = await import('./scheduled-notifier');
-
-        const locked = await tryAcquireExecutionLock(task.taskId, scheduledAt);
-        if (!locked) {
-            console.log(`[Scheduler] Lock not acquired for task ${task.taskId} — skipping (duplicate)`);
-            return;
-        }
-
-        const run = await agentOpsService.createRun({
-            tenantId: task.tenantId,
-            source: 'scheduled',
-            taskDescription: task.description,
-            mode: task.mode,
-            autoApprove: task.autoApprove,
-            model: task.model,
-            accountId: task.accountId,
-            accountName: task.accountName,
-            mcpServerIds: task.mcpServerIds,
-            trigger: { taskId: task.taskId, taskName: task.name, scheduledAt },
-        });
-
-        // Fire-and-forget
-        executeAgentRun(run)
-            .then(async () => {
-                const freshRun = await agentOpsService.getRun(task.tenantId, run.runId);
-                const status = freshRun?.status ?? 'completed';
-                await updateLastRun(task.tenantId, task.taskId, run.runId, status);
-                if (freshRun) await notifyScheduledRunResult(task, freshRun);
-            })
-            .catch(async (err) => {
-                console.error(`[Scheduler] Run ${run.runId} failed:`, err);
-                await updateLastRun(task.tenantId, task.taskId, run.runId, 'failed');
-            });
-
-    } catch (err) {
-        console.error(`[Scheduler] handleTick error for task ${task.taskId}:`, err);
-    }
-}
-
+/**
+ * No-op — pg-boss handles cleanup via the workers process.
+ */
 export function shutdownScheduler(): void {
-    for (const [taskId, job] of getJobs()) {
-        job.stop();
-        console.log(`[Scheduler] Stopped task ${taskId}`);
-    }
-    getJobs().clear();
-    g._schedulerInitialized = false;
+    // pg-boss lifecycle managed by the workers process
 }

@@ -131,7 +131,7 @@ export function extractJiraCommentText(comment: JiraWebhookPayload['comment']): 
  *
  * @param authHeader - Authorization or x-webhook-secret header value
  * @param querySecret - Secret from ?secret= query param (native webhooks)
- * @param webhookSecretOverride - Webhook secret from DynamoDB; falls back to JIRA_WEBHOOK_SECRET env var
+ * @param webhookSecretOverride - Webhook secret from tenant config; falls back to JIRA_WEBHOOK_SECRET env var
  */
 export function verifyJiraSecret(
     authHeader: string | null,
@@ -140,7 +140,7 @@ export function verifyJiraSecret(
 ): boolean {
     const expectedSecret = webhookSecretOverride || process.env.JIRA_WEBHOOK_SECRET || '';
     if (!expectedSecret) {
-        console.error('[JiraValidator] Webhook secret not configured (no DynamoDB value or JIRA_WEBHOOK_SECRET env var)');
+        console.error('[JiraValidator] Webhook secret not configured (no tenant config value or JIRA_WEBHOOK_SECRET env var)');
         return false;
     }
 

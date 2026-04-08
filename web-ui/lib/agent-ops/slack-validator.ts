@@ -29,7 +29,7 @@ export interface SlackSlashCommandPayload {
  * @param body - Raw URL-encoded request body
  * @param timestamp - x-slack-request-timestamp header value
  * @param signature - x-slack-signature header value (v0=<hex>)
- * @param signingSecretOverride - Signing secret from DynamoDB; falls back to SLACK_SIGNING_SECRET env var
+ * @param signingSecretOverride - Signing secret from tenant config; falls back to SLACK_SIGNING_SECRET env var
  */
 export function verifySlackSignature(
     body: string,
@@ -39,7 +39,7 @@ export function verifySlackSignature(
 ): boolean {
     const secret = signingSecretOverride || process.env.SLACK_SIGNING_SECRET || '';
     if (!secret) {
-        console.error('[SlackValidator] Signing secret not configured (no DynamoDB value or SLACK_SIGNING_SECRET env var)');
+        console.error('[SlackValidator] Signing secret not configured (no tenant config value or SLACK_SIGNING_SECRET env var)');
         return false;
     }
 
