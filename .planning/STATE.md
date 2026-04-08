@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: Horizontal Worker Architecture
-status: defining_requirements
+status: roadmap_ready
 stopped_at: null
 last_updated: "2026-04-08T00:00:00.000Z"
 last_activity: 2026-04-08
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-08)
 
 **Core value:** Multi-tenant SaaS cloud ops platform with dual auth, custom RBAC, tenant isolation, invitations, org switching, and branding
-**Current focus:** Defining requirements for v5.0 Horizontal Worker Architecture
+**Current focus:** v5.0 Horizontal Worker Architecture — WORKER_ARCH env-driven execution strategy for pg-boss jobs
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 22 (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-04-08 — Milestone v5.0 started
+Status: Roadmap ready — awaiting phase planning
+Last activity: 2026-04-08 — Roadmap created for v5.0
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -130,10 +130,11 @@ None.
 | 260408-32q | Fix discovery scanner stuck — not scanning all AWS account resources | 2026-04-07 | — | [260408-32q-fix-discovery-scanner-stuck-not-scanning](./quick/260408-32q-fix-discovery-scanner-stuck-not-scanning/) |
 | 260408-nhh | Remove DynamoDB dead code and feature flags from agent persistence — PostgreSQL only | 2026-04-08 | 519c9a8 | [260408-nhh-remove-dynamodb-dead-code-and-feature-fl](./quick/260408-nhh-remove-dynamodb-dead-code-and-feature-fl/) |
 | 260408-stg | Fix back button navigation across all modules to prevent 404 errors | 2026-04-08 | — | [260408-stg-fix-back-button-navigation-across-all-mo](./quick/260408-stg-fix-back-button-navigation-across-all-mo/) |
+| 260408-t9s | Remove DynamoDB dependencies from agent-ops module, use PostgreSQL only, agent-ops scheduled tasks should use pg-boss | 2026-04-08 | f192312 | [260408-t9s-remove-dynamodb-dependencies-from-agent-](./quick/260408-t9s-remove-dynamodb-dependencies-from-agent-/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-08 - Completed quick task 260408-stg: Fix back button navigation across all modules to prevent 404 errors
-Last session: 2026-04-07T19:56:30.110Z
-Stopped at: Completed quick 260408-1ew-PLAN.md
+Last activity: 2026-04-08 - Completed quick task 260408-t9s: Remove DynamoDB from agent-ops, migrate scheduler to pg-boss
+Last session: 2026-04-08T00:00:00.000Z
+Stopped at: Roadmap written — ready for /gsd:plan-phase 22
 Resume file: None
