@@ -45,9 +45,10 @@ export async function GET(request: NextRequest) {
         const accountId = searchParams.get('accountId');
         const tenantId = await getSessionTenantId();
 
-        // Latest sync from inventory_sync_status table (no tenantId column — global scan metadata)
+        // Latest sync from inventory_sync_status table — scoped to this tenant
         const prisma = getPrismaClient();
         const latestSyncRow = await prisma.inventorySyncStatus.findFirst({
+            where: { tenantId },
             orderBy: { syncedAt: 'desc' },
         });
 

@@ -55,7 +55,7 @@ const navigation = [
 ]
 
 const usersAndPermissionsNav = [
-  { name: "Users", href: "/app/settings/members", icon: Users },
+  { name: "Members", href: "/app/settings/members", icon: Users },
   { name: "Roles & Permissions", href: "/app/settings/roles", icon: Shield },
 ]
 
@@ -154,7 +154,7 @@ export function Sidebar() {
             >
               <span className="flex items-center">
                 <UserCog className="h-4 w-4 mr-2" />
-                Users & Permissions
+                Members & Permissions
               </span>
               <ChevronDown
                 className={cn(

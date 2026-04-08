@@ -58,6 +58,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
             const {
                 tenantId,
                 accountId,
+                accountIds,
                 region,
                 resourceType,
                 searchTerm,
@@ -70,7 +71,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
             // When searchTerm is provided, use raw SQL with tsvector fulltext search
             if (searchTerm?.trim()) {
                 return this.listResourcesFulltext(
-                    tenantId, searchTerm.trim(), { accountId, region, resourceType }, skip, limit
+                    tenantId, searchTerm.trim(), { accountId, accountIds, region, resourceType }, skip, limit
                 );
             }
 
@@ -78,6 +79,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
             const where: Record<string, unknown> = { tenantId };
 
             if (accountId) where.accountId = accountId;
+            else if (accountIds?.length) where.accountId = { in: accountIds };
             if (region) where.region = region;
             if (resourceType) where.resourceType = resourceType;
 
@@ -108,17 +110,20 @@ export class InventoryPostgresRepository implements IInventoryRepository {
     private async listResourcesFulltext(
         tenantId: string,
         searchTerm: string,
-        filters: { accountId?: string; region?: string; resourceType?: string },
+        filters: { accountId?: string; accountIds?: string[]; region?: string; resourceType?: string },
         skip: number,
         limit: number,
     ): Promise<InventoryPage> {
         const client = getTenantClient(tenantId);
         const params: unknown[] = [tenantId, searchTerm];
-        let whereClause = `WHERE "tenantId" = $1 AND search_vector @@ plainto_tsquery('english', $2)`;
+        let whereClause = `WHERE "tenantId" = $1 AND "searchVector" @@ plainto_tsquery('english', $2)`;
 
         if (filters.accountId) {
             params.push(filters.accountId);
             whereClause += ` AND "accountId" = $${params.length}`;
+        } else if (filters.accountIds?.length) {
+            params.push(filters.accountIds);
+            whereClause += ` AND "accountId" = ANY($${params.length})`;
         }
         if (filters.region) {
             params.push(filters.region);
@@ -144,7 +149,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
                    name, status, tags, metadata, "discoveredAt", "updatedAt"
             FROM inventory_resources
             ${whereClause}
-            ORDER BY ts_rank(search_vector, plainto_tsquery('english', $2)) DESC, "discoveredAt" DESC
+            ORDER BY ts_rank("searchVector", plainto_tsquery('english', $2)) DESC, "discoveredAt" DESC
             LIMIT ${limitParam} OFFSET ${offsetParam}
         `;
 

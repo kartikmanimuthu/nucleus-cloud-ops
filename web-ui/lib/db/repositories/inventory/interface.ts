@@ -24,6 +24,7 @@ export interface InventoryResource {
 export interface InventoryFilters {
     tenantId: string;
     accountId?: string;
+    accountIds?: string[];
     region?: string;
     resourceType?: string;
     searchTerm?: string;
