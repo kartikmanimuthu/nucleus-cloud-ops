@@ -120,8 +120,8 @@ export async function GET(
         const { threadId } = await params;
         if (!threadId) return NextResponse.json({ error: 'Thread ID is required' }, { status: 400 });
 
-        // DynamoDB/PG chat history first
-        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE || process.env.USE_PG_LANGGRAPH === 'true') {
+        // Chat history lookup
+        {
             let sessionUserId: string;
             let sessionTenantId: string;
             try {
