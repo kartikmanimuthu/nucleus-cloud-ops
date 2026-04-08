@@ -4,6 +4,9 @@
 FROM public.ecr.aws/docker/library/node:20.9.0-slim AS builder
 WORKDIR /app
 
+# Install openssl required by Prisma client generation
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
 # Copy package files
 COPY workers/package*.json ./
 
@@ -14,8 +17,11 @@ RUN npm ci && npm cache clean --force
 COPY workers/ .
 COPY prisma/ ./prisma/
 
+# Remove prisma/.env to avoid conflict with root .env during generate
+RUN rm -f prisma/.env
+
 # Generate Prisma client
-RUN npx prisma@5 generate --schema=./prisma/schema.prisma
+RUN npx prisma@6 generate --schema=./prisma/schema.prisma
 
 # Build TypeScript
 RUN npm run build

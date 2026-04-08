@@ -90,11 +90,18 @@ async function main() {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`Account ${account.accountId}: ${msg}`);
         console.error(`Account scan failed for ${account.accountId}:`, msg);
+
+        await updateAccountSyncStatus(opts.tenantId, account.accountId, {
+          lastSyncedAt: new Date().toISOString(),
+          lastSyncStatus: 'error',
+          lastSyncResourceCount: 0,
+          lastSyncError: msg,
+        });
       }
     }
 
     const status = errors.length > 0 && accountsSynced === 0 ? 'failed' : 'completed';
-    await saveSyncStatus(scanId, totalResources, accountsSynced, opts.tenantId, status);
+    await saveSyncStatus(scanId, totalResources, accountsSynced, opts.tenantId, status, errors);
     console.log(`Sync status saved: ${status} — ${totalResources} resources across ${accountsSynced} accounts`);
   } else {
     // Direct mode: use AWS default credential chain (respects AWS_PROFILE, ~/.aws, instance profile)

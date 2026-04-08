@@ -89,11 +89,11 @@ describe('pg-writer', () => {
 
   describe('saveSyncStatus', () => {
     it('should upsert sync status row', async () => {
-      await saveSyncStatus('scan-123', 'tenant-1', 500, 3);
+      await saveSyncStatus('scan-123', 500, 3, 'tenant-1', 'completed', ['Account 123: timeout']);
 
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining('inventory_sync_status'),
-        expect.arrayContaining(['scan-123', 'tenant-1', 500, 3]),
+        expect.arrayContaining(['scan-123', 'tenant-1', 500, 3, 'completed', ['Account 123: timeout']]),
       );
       expect(mockRelease).toHaveBeenCalled();
     });

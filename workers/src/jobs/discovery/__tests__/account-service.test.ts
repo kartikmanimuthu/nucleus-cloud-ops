@@ -84,7 +84,7 @@ describe('account-service', () => {
   });
 
   describe('updateAccountSyncStatus', () => {
-    it('should update sync status fields on the account', async () => {
+    it('should update sync status fields on the account with derived connectionStatus', async () => {
       mockQuery.mockResolvedValueOnce({ rowCount: 1 });
 
       await updateAccountSyncStatus('tenant-1', '123456789012', {
@@ -98,12 +98,38 @@ describe('account-service', () => {
         expect.arrayContaining([
           'tenant-1',
           '123456789012',
+          'connected',  // derived from success → connected
+          null,         // no error
           expect.any(Date),
-          'success',
+          expect.any(Date),
           150,
         ]),
       );
       expect(mockRelease).toHaveBeenCalled();
+    });
+
+    it('should set connectionStatus to error when sync fails', async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+
+      await updateAccountSyncStatus('tenant-1', '123456789012', {
+        lastSyncedAt: '2026-04-05T02:30:00Z',
+        lastSyncStatus: 'error',
+        lastSyncResourceCount: 0,
+        lastSyncError: 'AssumeRole failed',
+      });
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE accounts'),
+        expect.arrayContaining([
+          'tenant-1',
+          '123456789012',
+          'error',           // derived from error → error
+          'AssumeRole failed',
+          expect.any(Date),
+          expect.any(Date),
+          0,
+        ]),
+      );
     });
 
     it('should not throw on update error (non-fatal)', async () => {

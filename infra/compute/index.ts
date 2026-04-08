@@ -786,15 +786,20 @@ const ecrRepository = new aws.ecr.Repository("web-ui-ecr-repo", {
     forceDelete: false,
 });
 
-// WebUI Docker image — auto-built and pushed to ECR on source change.
-// Build context is repo root (not web-ui/) so Dockerfile.ecs can access ../prisma/.
-// awsx.ecr.Image tags with a unique digest per build, so Pulumi detects the change
-// and updates the ECS task definition automatically — no manual force-deploy needed.
+// Explicit source hash — combines web-ui/ + prisma/ so any change to either
+// produces a new imageTag, forcing a Docker rebuild + new ECS task definition revision.
+const webUiSrcHash = crypto.createHash("sha256")
+    .update(hashDirectory(path.join(repoRoot, "web-ui")))
+    .update(hashDirectory(path.join(repoRoot, "prisma")))
+    .digest("hex")
+    .substring(0, 12);
+
 const webUiImage = new awsx.ecr.Image("web-ui-image", {
     repositoryUrl: ecrRepository.repositoryUrl,
     context: repoRoot,
     dockerfile: path.join(repoRoot, "web-ui/Dockerfile.ecs"),
     platform: "linux/arm64",
+    imageTag: webUiSrcHash,
     args: {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
@@ -1305,26 +1310,12 @@ export const snsTopicArn = snsTopic.arn;
 // VectorProcessor exports
 export const vectorProcessorArn = vectorProcessorLambda.arn;
 
-// Discovery ECS task exports
-export const discoveryTaskDefinitionArn = discoveryTaskDef.arn;
-export const discoveryTaskRoleArn = discoveryTaskRole.arn;
-export const discoveryExecutionRoleArn = discoveryExecutionRole.arn;
-export const discoverySecurityGroupId = discoverySecurityGroup.id;
-
 // ============================================================================
 // RDS POSTGRESQL — IAM rds-db:connect policies
 // ============================================================================
 
 new aws.iam.RolePolicy("ecs-task-rds-connect-policy", {
     role: ecsTaskRole.id,
-    policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
-    })),
-});
-
-new aws.iam.RolePolicy("discovery-task-rds-connect-policy", {
-    role: discoveryTaskRole.id,
     policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
         Version: "2012-10-17",
         Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
@@ -1408,88 +1399,6 @@ const cloudFrontDistribution = new aws.cloudfront.Distribution("web-ui-cloudfron
 });
 
 // ============================================================================
-// DISCOVERY EVENTBRIDGE SCHEDULER (deferred from Phase 9 — needs cluster ARN)
-// ============================================================================
-
-// Scheduler IAM Role — allows EventBridge Scheduler to run ECS tasks
-const discoverySchedulerRole = new aws.iam.Role("discovery-scheduler-role", {
-    name: "nucleus-cloud-ops-discovery-scheduler-role",
-    assumeRolePolicy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Principal: { Service: "scheduler.amazonaws.com" },
-            Action: "sts:AssumeRole",
-        }],
-    }),
-});
-
-new aws.iam.RolePolicy("discovery-scheduler-ecs-policy", {
-    role: discoverySchedulerRole.id,
-    policy: pulumi.all([
-        discoveryTaskDef.arn,
-        discoveryExecutionRole.arn,
-        discoveryTaskRole.arn,
-    ]).apply(([taskDefArn, execRoleArn, taskRoleArn]) =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [
-                {
-                    Effect: "Allow",
-                    Action: ["ecs:RunTask"],
-                    Resource: [taskDefArn],
-                },
-                {
-                    Effect: "Allow",
-                    Action: ["iam:PassRole"],
-                    Resource: [execRoleArn, taskRoleArn],
-                },
-            ],
-        })
-    ),
-});
-
-// Daily Discovery Schedule — 2AM UTC
-const dailyDiscoverySchedule = new aws.scheduler.Schedule("daily-discovery-schedule", {
-    name: "nucleus-cloud-ops-daily-discovery",
-    description: "Runs AWS resource discovery daily at 2:00 AM UTC",
-    scheduleExpression: "cron(0 2 * * ? *)",
-    flexibleTimeWindow: { mode: "OFF" },
-    state: "ENABLED",
-    target: {
-        arn: ecsCluster.arn,
-        roleArn: discoverySchedulerRole.arn,
-        ecsParameters: {
-            taskDefinitionArn: discoveryTaskDef.arn,
-            launchType: "FARGATE",
-            taskCount: 1,
-            networkConfiguration: {
-                subnets: privateSubnetIds,
-                securityGroups: [discoverySecurityGroup.id],
-                assignPublicIp: false,
-            },
-        },
-    },
-});
-
-// Wire on-demand StartDiscovery rule to ECS cluster (deferred from Phase 9)
-new aws.cloudwatch.EventTarget("discovery-trigger-target", {
-    rule: discoveryTriggerRule.name,
-    arn: ecsCluster.arn,
-    roleArn: discoverySchedulerRole.arn,  // reuse same role — has ecs:RunTask + iam:PassRole
-    ecsTarget: {
-        taskDefinitionArn: discoveryTaskDef.arn,
-        launchType: "FARGATE",
-        taskCount: 1,
-        networkConfiguration: {
-            subnets: privateSubnetIds,
-            securityGroups: [discoverySecurityGroup.id],
-            assignPublicIp: false,
-        },
-    },
-});
-
-// ============================================================================
 // PG-BOSS WORKERS ECS SERVICE
 // ============================================================================
 
@@ -1500,12 +1409,20 @@ const workersEcrRepo = new aws.ecr.Repository("workers-ecr-repo", {
     forceDelete: false,
 });
 
+// Explicit source hash — combines workers/ + prisma/ so any change forces a rebuild.
+const workersSrcHash = crypto.createHash("sha256")
+    .update(hashDirectory(path.join(repoRoot, "workers")))
+    .update(hashDirectory(path.join(repoRoot, "prisma")))
+    .digest("hex")
+    .substring(0, 12);
+
 // Workers Docker image — auto-built and pushed to ECR on source change
 const workersImage = new awsx.ecr.Image("workers-image", {
     repositoryUrl: workersEcrRepo.repositoryUrl,
     context: repoRoot,
     dockerfile: path.join(repoRoot, "workers/Dockerfile"),
     platform: "linux/arm64",
+    imageTag: workersSrcHash,
     args: {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
@@ -1604,22 +1521,6 @@ new aws.iam.RolePolicy("workers-s3vectors-policy", {
                 "s3vectors:QueryVectors",
             ],
             Resource: ["*"],
-        }],
-    }),
-});
-
-// STS AssumeRole — discovery worker cross-account scanning
-new aws.iam.RolePolicy("workers-sts-policy", {
-    role: workersTaskRole.id,
-    policy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Action: ["sts:AssumeRole"],
-            Resource: [
-                `arn:aws:iam::*:role/NucleusAccess`,
-                "arn:aws:iam::*:role/NucleusAccess-*",
-            ],
         }],
     }),
 });

@@ -334,6 +334,7 @@ model InventorySyncStatus {
   totalResources  Int      @default(0)
   accountsSynced  Int      @default(0)
   status          String   @default("completed")
+  errors          String[] @default([])
   syncedAt        DateTime @default(now())
   createdAt       DateTime @default(now())
 

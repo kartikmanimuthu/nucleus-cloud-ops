@@ -148,13 +148,20 @@ export async function register(boss: PgBoss): Promise<void> {
           const msg = err instanceof Error ? err.message : String(err);
           errors.push(`Account ${account.accountId}: ${msg}`);
           log.error('Account scan failed', { tenantId, accountId: account.accountId, error: msg });
+
+          await updateAccountSyncStatus(tenantId, account.accountId, {
+            lastSyncedAt: new Date().toISOString(),
+            lastSyncStatus: 'error',
+            lastSyncResourceCount: 0,
+            lastSyncError: msg,
+          });
         }
       }
 
       const duration = Date.now() - startedAt;
       const status = errors.length > 0 && accountsSynced === 0 ? 'failed' : 'completed';
 
-      await saveSyncStatus(scanId, totalResources, accountsSynced, tenantId, status);
+      await saveSyncStatus(scanId, totalResources, accountsSynced, tenantId, status, errors);
 
       await writeAuditLog({
         tenantId,

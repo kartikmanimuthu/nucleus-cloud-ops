@@ -236,7 +236,7 @@ export default function InventoryPage() {
     useEffect(() => {
         const fetchAccounts = async () => {
             try {
-                const result = await ClientAccountService.getAccounts({ statusFilter: "active", limit: 1000 });
+                const result = await ClientAccountService.getAccounts({ statusFilter: "active", connectionFilter: "connected", limit: 1000 });
                 setAccounts(result.accounts);
             } catch (error) {
                 console.error("Failed to fetch accounts:", error);

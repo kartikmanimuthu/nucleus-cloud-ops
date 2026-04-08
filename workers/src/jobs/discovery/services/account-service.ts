@@ -49,6 +49,8 @@ export async function getTenantAccounts(tenantId: string): Promise<Account[]> {
 
 /**
  * Update account sync status after a discovery scan.
+ * connectionStatus is derived: success/partial → 'connected', error → 'error'.
+ * lastSyncStatus is stored as-is for audit/display purposes.
  */
 export async function updateAccountSyncStatus(
   tenantId: string,
@@ -57,19 +59,24 @@ export async function updateAccountSyncStatus(
     lastSyncedAt: string;
     lastSyncStatus: string;
     lastSyncResourceCount: number;
+    lastSyncError?: string;
   },
 ): Promise<void> {
   const client: PoolClient = await getPool().connect();
   try {
+    // Derive connectionStatus from sync result
+    const connectionStatus = status.lastSyncStatus === 'error' ? 'error' : 'connected';
+
     await client.query(
       `UPDATE accounts
        SET "connectionStatus" = $3,
-           "updatedAt" = $4,
-           "lastSyncedAt" = $5,
-           "lastSyncResourceCount" = $6
+           "connectionError" = $4,
+           "updatedAt" = $5,
+           "lastSyncedAt" = $6,
+           "lastSyncResourceCount" = $7
        WHERE "tenantId" = $1
          AND "accountId" = $2`,
-      [tenantId, accountId, status.lastSyncStatus, new Date(), new Date(status.lastSyncedAt), status.lastSyncResourceCount],
+      [tenantId, accountId, connectionStatus, status.lastSyncError || null, new Date(), new Date(status.lastSyncedAt), status.lastSyncResourceCount],
     );
   } catch (error) {
     log.error('Error updating account sync status', { tenantId, accountId, error: error instanceof Error ? error.message : String(error) });
