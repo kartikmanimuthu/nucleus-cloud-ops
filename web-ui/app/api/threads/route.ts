@@ -22,7 +22,7 @@ export async function GET() {
         }
 
         const { threadStore } = await import('@/lib/store/thread-store');
-        return NextResponse.json(await threadStore.listThreads());
+        return NextResponse.json(await threadStore.listThreads(tenantId));
     } catch (error) {
         return NextResponse.json({ error: 'Failed to fetch threads' }, { status: 500 });
     }
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
         }
 
         const { threadStore } = await import('@/lib/store/thread-store');
-        return NextResponse.json(await threadStore.createThread(id, title, model));
+        return NextResponse.json(await threadStore.createThread(id, title, model, tenantId, userId));
     } catch (error) {
         return NextResponse.json({ error: 'Failed to create thread' }, { status: 500 });
     }

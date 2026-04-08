@@ -98,9 +98,13 @@ export async function POST(req: Request) {
             ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content.slice(0, 60) : "New Conversation")
             : "New Chat";
 
-        // PG mode: session metadata is implicitly created when messages are persisted
-        // via chatHistory.addMessages() in the finally block — no eager seeding needed.
-        console.log(`[Chat API] Session metadata will be seeded on first message persist for thread ${threadId}`);
+        // Eagerly create session metadata so the thread appears in the sidebar immediately
+        try {
+            const { threadStore } = await import('@/lib/store/thread-store');
+            await threadStore.createThread(threadId, title, model, resolvedTenantId, resolvedUserId);
+        } catch (e) {
+            console.warn('[Chat API] Failed to seed session metadata:', e);
+        }
 
         console.log(`\n🚀 [API] New Request Started`);
         console.log(`   Thread ID:    ${threadId}`);
