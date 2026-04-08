@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: verifying
-stopped_at: Completed quick 260408-1ew-PLAN.md
-last_updated: "2026-04-07T19:56:30.114Z"
-last_activity: 2026-04-06
+milestone: v5.0
+milestone_name: Horizontal Worker Architecture
+status: defining_requirements
+stopped_at: null
+last_updated: "2026-04-08T00:00:00.000Z"
+last_activity: 2026-04-08
 progress:
-  total_phases: 10
-  completed_phases: 10
-  total_plans: 26
-  completed_plans: 26
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-03)
+See: .planning/PROJECT.md (updated 2026-04-08)
 
 **Core value:** Multi-tenant SaaS cloud ops platform with dual auth, custom RBAC, tenant isolation, invitations, org switching, and branding
-**Current focus:** Phase 18 — Accounts & Scheduler Isolation
+**Current focus:** Defining requirements for v5.0 Horizontal Worker Architecture
 
 ## Current Position
 
-Phase: 18 (Accounts & Scheduler Isolation) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-04-06
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-08 — Milestone v5.0 started
 
 Progress: [░░░░░░░░░░] 0%
 

@@ -8,9 +8,17 @@ AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops age
 
 A fully operational multi-tenant cloud ops SaaS: every user authenticates via Cognito or email/password, every query is tenant-scoped, every action is role-checked, and tenants can self-service onboard, invite members, switch orgs, and configure branding.
 
-## Current Milestone: v5.0 (TBD)
+## Current Milestone: v5.0 Horizontal Worker Architecture
 
-**Status:** Planning — run `/gsd:new-milestone` to define next milestone goals.
+**Goal:** Add a WORKER_ARCH env-driven execution strategy so pg-boss jobs can either run in-process (vertical, current behavior) or dispatch to ephemeral ECS Fargate tasks (horizontal, production-grade).
+
+**Target features:**
+- Generic JobExecutor abstraction that pg-boss job handlers delegate to
+- VerticalExecutor: runs job handler in-process (current behavior, default)
+- HorizontalExecutor: launches an ECS RunTask per job, passes job data via environment/overrides, container processes and exits
+- WORKER_ARCH env variable switches between "vertical" and "horizontal"
+- All 3 existing jobs (scheduler, discovery, kb-sync) wired through the abstraction with zero behavior change in vertical mode
+- ECS task definition + Pulumi infra for the ephemeral worker containers
 
 ## Current State
 
@@ -55,7 +63,12 @@ A fully operational multi-tenant cloud ops SaaS: every user authenticates via Co
 
 ### Active — v5.0
 
-- [ ] TBD — run `/gsd:new-milestone` to define next milestone goals
+- [ ] Generic JobExecutor abstraction with vertical/horizontal strategy
+- [ ] VerticalExecutor: in-process job execution (current behavior)
+- [ ] HorizontalExecutor: ECS RunTask dispatch per job
+- [ ] WORKER_ARCH env variable to switch execution strategy
+- [ ] All 3 jobs (scheduler, discovery, kb-sync) wired through abstraction
+- [ ] ECS task definition + Pulumi infra for ephemeral worker containers
 
 ### Out of Scope
 
@@ -132,4 +145,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-02 after v3.0 milestone*
+*Last updated: 2026-04-08 after v5.0 milestone start*
