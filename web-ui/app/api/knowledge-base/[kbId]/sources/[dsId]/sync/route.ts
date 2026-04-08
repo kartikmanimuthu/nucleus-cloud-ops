@@ -40,6 +40,7 @@ export async function POST(
     type: jobType,
     kbId,
     dsId,
+    tenantId,
     oldVectorKeys: ds.vectorKeys,
     config: ds.config as S3BucketConfig | ConfluenceConfig | BitbucketConfig,
   });

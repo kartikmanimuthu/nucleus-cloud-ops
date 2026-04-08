@@ -43,15 +43,16 @@ export async function PUT(
         const tenantId = await getSessionTenantId();
 
         const body = await request.json();
-        const updateData = { ...body, id: scheduleId, updatedBy };
 
-        // Pre-flight ownership check (D-03)
+        // Pre-flight ownership check (D-03) — also resolves name → UUID
         const existing = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
         if (!existing) {
             return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
         }
 
-        const updatedSchedule = await ScheduleService.updateSchedule(scheduleId, updateData, undefined, tenantId);
+        // Use the resolved UUID (existing.id), not the URL param which may be a name
+        const updateData = { ...body, id: existing.id, updatedBy };
+        const updatedSchedule = await ScheduleService.updateSchedule(existing.id, updateData, undefined, tenantId);
 
         return NextResponse.json(updatedSchedule);
     } catch (error) {
@@ -80,7 +81,8 @@ export async function DELETE(
             return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
         }
 
-        await ScheduleService.deleteSchedule(scheduleId, undefined, deletedBy, tenantId);
+        // Use the resolved UUID (existing.id), not the URL param which may be a name
+        await ScheduleService.deleteSchedule(existing.id, undefined, deletedBy, tenantId);
 
         return NextResponse.json({ success: true });
     } catch (error) {

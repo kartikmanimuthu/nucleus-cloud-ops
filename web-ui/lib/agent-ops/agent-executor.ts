@@ -15,7 +15,6 @@ import { HumanMessage } from '@langchain/core/messages';
 import { createDynamicExecutorGraph } from './executor-graphs';
 import { agentOpsService } from './agent-ops-service';
 import { getMCPManager } from '../agent/mcp-manager';
-import { AgentOpsRunModel } from './models/agent-ops-run';
 import { postClarificationToSlack, postApprovalRequestToSlack } from './slack-notifier';
 import { postClarificationToJira } from './jira-notifier';
 import { registerRun, cleanupRun, isAborted } from './run-manager';
@@ -301,10 +300,6 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
         await agentOpsService.updateRunStatus(tenantId, runId, 'completed', {
             result: { summary: resultSummary, toolsUsed: Array.from(toolsUsed), iterations: iterationCount },
         });
-        await AgentOpsRunModel.update(
-            { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
-            { durationMs }
-        );
         await agentOpsService.recordEvent({
             runId, tenantId, eventType: 'final', node: '__end__',
             content: resultSummary.slice(0, 5000),
@@ -652,10 +647,6 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
         await agentOpsService.updateRunStatus(tenantId, runId, 'completed', {
             result: { summary: typeof resultSummary === 'string' ? resultSummary : JSON.stringify(resultSummary), toolsUsed: Array.from(toolsUsed), iterations: iterationCount },
         });
-        await AgentOpsRunModel.update(
-            { PK: `TENANT#${tenantId}`, SK: `RUN#${runId}` },
-            { durationMs }
-        );
         await agentOpsService.recordEvent({
             runId, tenantId, eventType: 'final', node: '__end__',
             content: (typeof resultSummary === 'string' ? resultSummary : JSON.stringify(resultSummary)).slice(0, 5000),

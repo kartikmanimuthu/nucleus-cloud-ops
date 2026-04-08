@@ -2,8 +2,7 @@
  * IKnowledgeBaseRepository
  *
  * Contract for knowledge base persistence.
- * Implemented by KnowledgeBaseDynamoRepository and KnowledgeBasePostgresRepository.
- * The feature flag USE_PG_KB controls which implementation is active.
+ * Implemented by KnowledgeBasePostgresRepository.
  */
 import type { KnowledgeBase, CreateKBInput } from '@/lib/knowledge-base/types';
 

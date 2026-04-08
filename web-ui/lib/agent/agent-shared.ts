@@ -2,8 +2,7 @@ import { BaseMessage, AIMessage, HumanMessage, ToolMessage } from "@langchain/co
 import { StateGraphArgs } from "@langchain/langgraph";
 import { FileSaver } from "./file-saver";
 import { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
-import { getCheckpointer as getDynamoCheckpointer, getMemoryStore } from "./persistence";
-import type { DynamoDBStore } from "@farukada/aws-langgraph-dynamodb-ts";
+import { getCheckpointer as getPersistenceCheckpointer, getMemoryStore as getPersistenceMemoryStore } from "./persistence";
 
 
 // --- Components & Interfaces ---
@@ -445,11 +444,12 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
     // Connect credential-sensitive servers for ALL selected accounts
     const scopedInstanceIds: string[] = [];
     if (credentialServerConfigs.length > 0 && effectiveAccounts.length > 0) {
-        const { getAccountFromDynamoDB, assumeRoleForAccount } = await import('./aws-credentials-tool');
+        const { assumeRoleForAccount } = await import('./aws-credentials-tool');
+        const { AccountService } = await import('../account-service');
 
         for (const accountCtx of effectiveAccounts) {
             try {
-                const account = await getAccountFromDynamoDB(accountCtx.accountId);
+                const account = await AccountService.getAccount(accountCtx.accountId, tenantId!);
                 if (!account || !account.roleArn) {
                     console.warn(`[getActiveMCPTools] Account ${accountCtx.accountId} not found or missing roleArn — skipping`);
                     continue;
@@ -481,36 +481,23 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
 }
 
 // --- State Definition ---
-// Shared checkpointer for the session (backed by DynamoDB or file system)
-// Usage of globalThis ensures the checkpointer survives Next.js hot reloads in dev mode
-const globalForCheckpointer = globalThis as unknown as {
-    checkpointer: BaseCheckpointSaver | undefined;
-    checkpointerPromise: Promise<BaseCheckpointSaver> | undefined;
-};
-
-async function initCheckpointer(): Promise<BaseCheckpointSaver> {
-    if (process.env.DYNAMODB_CHECKPOINT_TABLE && process.env.DYNAMODB_WRITES_TABLE) {
-        console.log("Using DynamoDB Checkpointer:", process.env.DYNAMODB_CHECKPOINT_TABLE, process.env.DYNAMODB_WRITES_TABLE);
-        return getDynamoCheckpointer();
-    }
-    console.log("Using FileSystem Checkpointer");
-    return new FileSaver();
-}
+// Delegate to persistence.ts which is the single source of truth for all LangGraph persistence.
+// persistence.ts respects USE_PG_LANGGRAPH feature flag and uses globalThis for singleton safety.
 
 export async function getCheckpointer(): Promise<BaseCheckpointSaver> {
-    if (globalForCheckpointer.checkpointer) return globalForCheckpointer.checkpointer;
-    if (!globalForCheckpointer.checkpointerPromise) {
-        globalForCheckpointer.checkpointerPromise = initCheckpointer().then(cp => {
-            globalForCheckpointer.checkpointer = cp;
-            return cp;
-        });
+    // When neither PG nor DynamoDB is configured, fall back to file-based saver
+    const usePg = process.env.USE_PG_LANGGRAPH === 'true';
+    const hasDynamo = !!(process.env.DYNAMODB_CHECKPOINT_TABLE && process.env.DYNAMODB_WRITES_TABLE);
+    const hasDatabase = !!(process.env.DATABASE_URL);
+
+    if (!usePg && !hasDynamo && !hasDatabase) {
+        console.log("Using FileSystem Checkpointer (no DB configured)");
+        return new FileSaver();
     }
-    return globalForCheckpointer.checkpointerPromise;
+
+    return getPersistenceCheckpointer();
 }
 
-export async function getStore(): Promise<DynamoDBStore | undefined> {
-    if (process.env.DYNAMODB_MEMORY_TABLE) {
-        return getMemoryStore();
-    }
-    return undefined;
+export async function getStore() {
+    return getPersistenceMemoryStore();
 }

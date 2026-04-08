@@ -107,7 +107,7 @@ function ViewDialog({ ds, open, onClose }: { ds: DataSource; open: boolean; onCl
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Status</span>
-            <StatusBadge status={ds.status} error={ds.lastSyncError} />
+            <StatusBadge status={ds.status} error={ds.lastErrorMessage ?? ds.lastSyncError} />
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Vectors</span>
@@ -129,9 +129,14 @@ function ViewDialog({ ds, open, onClose }: { ds: DataSource; open: boolean; onCl
               ))}
             </div>
           )}
-          {ds.lastSyncError && (
-            <div className="border-t pt-3">
-              <p className="text-xs text-destructive">{ds.lastSyncError}</p>
+          {(ds.lastErrorMessage || ds.lastSyncError) && (
+            <div className="border-t pt-3 space-y-1">
+              <p className="text-xs font-medium text-destructive">{ds.lastErrorMessage ?? ds.lastSyncError}</p>
+              {ds.lastErrorDetail && (
+                <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-y-auto bg-muted/40 rounded p-2">
+                  {ds.lastErrorDetail}
+                </pre>
+              )}
             </div>
           )}
         </div>
@@ -499,7 +504,7 @@ export default function KnowledgeBaseDetailPage() {
                     </div>
 
                     {/* Status */}
-                    <StatusBadge status={ds.status} error={ds.lastSyncError} />
+                    <StatusBadge status={ds.status} error={ds.lastErrorMessage ?? ds.lastSyncError} />
 
                     {/* Actions */}
                     <div className="flex items-center gap-1 shrink-0">

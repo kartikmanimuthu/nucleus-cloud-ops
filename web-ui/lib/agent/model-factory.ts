@@ -14,8 +14,8 @@ import {
     editFileTool,
     globTool,
     grepTool,
-    getAwsCredentialsTool,
-    listAwsAccountsTool,
+    createGetAwsCredentialsTool,
+    createListAwsAccountsTool,
     writeFileToS3Tool,
     getFileFromS3Tool,
 } from "./tools";
@@ -118,6 +118,11 @@ export function createMemoryTools(tenantId: string, userId: string) {
 export async function assembleTools(options: AssembleToolsOptions = {}) {
     const { includeS3Tools = false, includeMemoryTools = false, userId, mcpServerIds, tenantId, accounts } = options;
 
+    const effectiveTenantId = tenantId || 'default';
+    if (!tenantId) {
+        console.warn('[ModelFactory] assembleTools called without tenantId — falling back to "default". This may return cross-tenant data.');
+    }
+
     const memoryTools = (includeMemoryTools && tenantId && userId) ? createMemoryTools(tenantId, userId) : [];
 
     const customTools = [
@@ -128,8 +133,8 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
         editFileTool,
         globTool,
         grepTool,
-        getAwsCredentialsTool,
-        listAwsAccountsTool,
+        createGetAwsCredentialsTool(effectiveTenantId),
+        createListAwsAccountsTool(effectiveTenantId),
         ...(includeS3Tools ? [writeFileToS3Tool, getFileFromS3Tool] : []),
         ...memoryTools,
     ];

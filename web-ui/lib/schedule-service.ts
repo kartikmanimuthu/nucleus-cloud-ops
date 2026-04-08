@@ -90,20 +90,6 @@ export class ScheduleService {
                 const pgRepo = new SchedulePostgresRepository();
                 result = await pgRepo.createSchedule(schedule, tenantId);
 
-                // Dual-write: also write to DynamoDB (non-fatal)
-                if (process.env.DUAL_WRITE_SCHEDULES === 'true') {
-                    try {
-                        // eslint-disable-next-line @typescript-eslint/no-require-imports
-                        const { ScheduleDynamoRepository } = require('@/lib/db/repositories/schedule/dynamo');
-                        const dynamoRepo = new ScheduleDynamoRepository();
-                        await dynamoRepo.createSchedule(schedule, tenantId);
-                    } catch (dualWriteErr) {
-                        console.warn(
-                            'ScheduleService - DynamoDB dual-write failed (non-fatal):',
-                            dualWriteErr
-                        );
-                    }
-                }
             } else {
                 const repo = getScheduleRepository();
                 result = await repo.createSchedule(schedule, tenantId);
@@ -165,19 +151,6 @@ export class ScheduleService {
                 const pgRepo = new SchedulePostgresRepository();
                 result = await pgRepo.updateSchedule(scheduleId, updates, tenantId, accountId);
 
-                if (process.env.DUAL_WRITE_SCHEDULES === 'true') {
-                    try {
-                        // eslint-disable-next-line @typescript-eslint/no-require-imports
-                        const { ScheduleDynamoRepository } = require('@/lib/db/repositories/schedule/dynamo');
-                        const dynamoRepo = new ScheduleDynamoRepository();
-                        await dynamoRepo.updateSchedule(scheduleId, updates, tenantId, accountId);
-                    } catch (dualWriteErr) {
-                        console.warn(
-                            'ScheduleService - DynamoDB dual-write update failed (non-fatal):',
-                            dualWriteErr
-                        );
-                    }
-                }
             } else {
                 const repo = getScheduleRepository();
                 result = await repo.updateSchedule(scheduleId, updates, tenantId, accountId);
@@ -224,19 +197,6 @@ export class ScheduleService {
                 const pgRepo = new SchedulePostgresRepository();
                 await pgRepo.deleteSchedule(idOrName, tenantId, accountId);
 
-                if (process.env.DUAL_WRITE_SCHEDULES === 'true') {
-                    try {
-                        // eslint-disable-next-line @typescript-eslint/no-require-imports
-                        const { ScheduleDynamoRepository } = require('@/lib/db/repositories/schedule/dynamo');
-                        const dynamoRepo = new ScheduleDynamoRepository();
-                        await dynamoRepo.deleteSchedule(idOrName, tenantId, accountId);
-                    } catch (dualWriteErr) {
-                        console.warn(
-                            'ScheduleService - DynamoDB dual-write delete failed (non-fatal):',
-                            dualWriteErr
-                        );
-                    }
-                }
             } else {
                 const repo = getScheduleRepository();
                 await repo.deleteSchedule(idOrName, tenantId, accountId);

@@ -1,134 +1,114 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
-import { PrismaClient } from '@prisma/client';
+import { Pool, type PoolClient } from 'pg';
 
 // ---------------------------------------------------------------------------
-// Clients & config
+// Config
 // ---------------------------------------------------------------------------
 
-const region = process.env.AWS_REGION || 'ap-south-1';
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
-const APP_TABLE = process.env.APP_TABLE_NAME!;
-
-export const USE_PG_KB = process.env.USE_PG_KB === 'true';
 export const DEFAULT_TENANT = process.env.DEFAULT_TENANT_ID || 'org-default';
 
 // ---------------------------------------------------------------------------
-// Prisma lazy init
+// pg Pool lazy init (matches scheduler/discovery pattern — no Prisma)
 // ---------------------------------------------------------------------------
 
-let _prisma: PrismaClient | null = null;
-function getPrisma(): PrismaClient {
-  if (!_prisma) {
-    _prisma = new PrismaClient({
-      datasources: { db: { url: process.env.DATABASE_URL } },
-      log: ['warn', 'error'],
+let _pool: Pool | null = null;
+export function getPool(): Pool {
+  if (!_pool) {
+    const DATABASE_URL = process.env.DATABASE_URL;
+    if (!DATABASE_URL) throw new Error('DATABASE_URL is required for kb-sync PG mode');
+    _pool = new Pool({
+      connectionString: DATABASE_URL,
+      max: 3,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 5000,
     });
   }
-  return _prisma;
+  return _pool;
 }
 
 // ---------------------------------------------------------------------------
-// DynamoDB PK/SK builders
-// ---------------------------------------------------------------------------
-
-function kbPK(kbId: string) { return `KB#${kbId}`; }
-function dsSK(dsId: string) { return `DATASOURCE#${dsId}`; }
-function tenantPK(tenantId: string) { return `TENANT#${tenantId}`; }
-function kbSK(kbId: string) { return `KB#${kbId}`; }
-
-// ---------------------------------------------------------------------------
-// DynamoDB helpers
-// ---------------------------------------------------------------------------
-
-async function getDataSourceDdb(kbId: string, dsId: string) {
-  const res = await ddb.send(new GetCommand({ TableName: APP_TABLE, Key: { pk: kbPK(kbId), sk: dsSK(dsId) } }));
-  return res.Item;
-}
-
-async function updateDSDdb(kbId: string, dsId: string, updates: Record<string, unknown>) {
-  const parts = ['#updatedAt = :updatedAt'];
-  const names: Record<string, string> = { '#updatedAt': 'updatedAt' };
-  const vals: Record<string, unknown> = { ':updatedAt': new Date().toISOString() };
-  for (const [k, v] of Object.entries(updates)) {
-    parts.push(`#${k} = :${k}`);
-    names[`#${k}`] = k;
-    vals[`:${k}`] = v;
-  }
-  await ddb.send(new UpdateCommand({
-    TableName: APP_TABLE,
-    Key: { pk: kbPK(kbId), sk: dsSK(dsId) },
-    UpdateExpression: `SET ${parts.join(', ')}`,
-    ExpressionAttributeNames: names,
-    ExpressionAttributeValues: vals,
-  }));
-}
-
-async function updateKBVectorCountDdb(kbId: string, delta: number) {
-  if (delta === 0) return;
-  await ddb.send(new UpdateCommand({
-    TableName: APP_TABLE,
-    Key: { pk: tenantPK(DEFAULT_TENANT), sk: kbSK(kbId) },
-    UpdateExpression: 'SET vectorCount = if_not_exists(vectorCount, :zero) + :delta, updatedAt = :now',
-    ExpressionAttributeValues: { ':delta': delta, ':zero': 0, ':now': new Date().toISOString() },
-  }));
-}
-
-// ---------------------------------------------------------------------------
-// PostgreSQL helpers
-// ---------------------------------------------------------------------------
-
-export async function getDataSourcePg(kbId: string, dsId: string) {
-  const ds = await getPrisma().dataSource.findFirst({
-    where: { id: dsId, knowledgeBaseId: kbId },
-  });
-  return ds ? {
-    vectorCount: ds.vectorCount,
-    vectorKeys: ds.vectorKeys,
-    status: ds.status,
-  } : null;
-}
-
-export async function updateDSPg(kbId: string, dsId: string, updates: Record<string, unknown>) {
-  await getPrisma().dataSource.updateMany({
-    where: { id: dsId, knowledgeBaseId: kbId },
-    data: {
-      ...(updates.status !== undefined ? { status: updates.status as string } : {}),
-      ...(updates.vectorCount !== undefined ? { vectorCount: updates.vectorCount as number } : {}),
-      ...(updates.vectorKeys !== undefined ? { vectorKeys: { set: updates.vectorKeys as string[] } } : {}),
-      ...(updates.lastSyncAt !== undefined ? { lastSyncAt: updates.lastSyncAt ? new Date(updates.lastSyncAt as string) : null } : {}),
-      ...(updates.lastSyncError !== undefined ? { lastSyncError: updates.lastSyncError as string | null } : {}),
-      updatedAt: new Date(),
-    },
-  });
-}
-
-export async function updateKBVectorCountPg(kbId: string, delta: number) {
-  if (delta === 0) return;
-  await getPrisma().knowledgeBase.updateMany({
-    where: { id: kbId },
-    data: {
-      vectorCount: { increment: delta },
-      updatedAt: new Date(),
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Public dual-write functions
+// PostgreSQL helpers (raw pg — no Prisma dependency)
 // ---------------------------------------------------------------------------
 
 export async function getDataSource(kbId: string, dsId: string) {
-  if (USE_PG_KB) return getDataSourcePg(kbId, dsId);
-  return getDataSourceDdb(kbId, dsId);
+  const client: PoolClient = await getPool().connect();
+  try {
+    const result = await client.query(
+      `SELECT "vectorCount", "vectorKeys", status
+       FROM data_sources
+       WHERE id = $1 AND "knowledgeBaseId" = $2
+       LIMIT 1`,
+      [dsId, kbId]
+    );
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+    return {
+      vectorCount: row.vectorCount as number,
+      vectorKeys: row.vectorKeys as string[],
+      status: row.status as string,
+    };
+  } finally {
+    client.release();
+  }
 }
 
 export async function updateDS(kbId: string, dsId: string, updates: Record<string, unknown>) {
-  if (USE_PG_KB) await updateDSPg(kbId, dsId, updates);
-  await updateDSDdb(kbId, dsId, updates);
+  const setClauses: string[] = ['"updatedAt" = NOW()'];
+  const values: unknown[] = [];
+  let paramIdx = 1;
+
+  const fieldMap: Record<string, string> = {
+    status: 'status',
+    vectorCount: '"vectorCount"',
+    lastSyncAt: '"lastSyncAt"',
+    lastSyncError: '"lastSyncError"',
+    lastErrorMessage: '"lastErrorMessage"',
+    lastErrorDetail: '"lastErrorDetail"',
+  };
+
+  for (const [key, col] of Object.entries(fieldMap)) {
+    if (updates[key] !== undefined) {
+      setClauses.push(`${col} = $${paramIdx}`);
+      if (key === 'lastSyncAt' && updates[key]) {
+        values.push(new Date(updates[key] as string));
+      } else {
+        values.push(updates[key]);
+      }
+      paramIdx++;
+    }
+  }
+
+  // vectorKeys needs special handling (text array)
+  if (updates.vectorKeys !== undefined) {
+    setClauses.push(`"vectorKeys" = $${paramIdx}`);
+    values.push(updates.vectorKeys as string[]);
+    paramIdx++;
+  }
+
+  values.push(dsId, kbId);
+
+  const client: PoolClient = await getPool().connect();
+  try {
+    await client.query(
+      `UPDATE data_sources SET ${setClauses.join(', ')}
+       WHERE id = $${paramIdx} AND "knowledgeBaseId" = $${paramIdx + 1}`,
+      values
+    );
+  } finally {
+    client.release();
+  }
 }
 
 export async function updateKBVectorCount(kbId: string, delta: number) {
-  if (USE_PG_KB) await updateKBVectorCountPg(kbId, delta);
-  await updateKBVectorCountDdb(kbId, delta);
+  if (delta === 0) return;
+  const client: PoolClient = await getPool().connect();
+  try {
+    await client.query(
+      `UPDATE knowledge_bases
+       SET "vectorCount" = COALESCE("vectorCount", 0) + $1, "updatedAt" = NOW()
+       WHERE id = $2`,
+      [delta, kbId]
+    );
+  } finally {
+    client.release();
+  }
 }

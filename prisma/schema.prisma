@@ -59,10 +59,12 @@ model Account {
   regions          String[]
   active           Boolean  @default(true)
   description      String?
-  connectionStatus String   @default("unknown")
-  connectionError  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  connectionStatus       String   @default("unknown")
+  connectionError        String?
+  lastSyncedAt           DateTime?
+  lastSyncResourceCount  Int?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
   createdBy        String   @default("system")
   updatedBy        String   @default("system")
 
@@ -243,9 +245,11 @@ model DataSource {
   config          Json      @default("{}")
   vectorCount     Int       @default(0)
   vectorKeys      String[]  @default([])
-  lastSyncAt      DateTime?
-  lastSyncError   String?
-  createdAt       DateTime  @default(now())
+  lastSyncAt          DateTime?
+  lastSyncError       String?   // user-friendly short error message
+  lastErrorMessage    String?   // user-friendly short error message (alias for UI display)
+  lastErrorDetail     String?   // full error message + stack trace
+  createdAt           DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
@@ -255,8 +259,35 @@ model DataSource {
   @@map("data_sources")
 }
 
+// KbDocumentChunk — stores document chunk embeddings for KB semantic search
+// Replaces S3 Vectors knowledge-base-embeddings index
+// Uses pgvector for similarity search (same pattern as inventory_resources.embedding)
+// tenantId scopes all queries; knowledgeBaseId + dataSourceId link to parent entities
+model KbDocumentChunk {
+  id              String   @id @default(cuid())
+  tenantId        String
+  knowledgeBaseId String
+  dataSourceId    String
+  vectorKey       String   @unique  // e.g. kb_{kbId}_{dsId}_{docId}_{chunkIdx}_{hash}
+  documentName    String
+  sourceType      String
+  chunkIndex      Int
+  totalChunks     Int
+  contentHash     String
+  textContent     String   // chunk text (up to ~2000 chars)
+  metadata        Json     @default("{}")  // extra metadata (s3Key, confluencePageId, etc.)
+  embedding       Unsupported("vector(1024)")
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, knowledgeBaseId])
+  @@index([tenantId, dataSourceId])
+  @@index([vectorKey])
+  @@map("kb_document_chunks")
+}
+
 // InventoryResource — migrated from DynamoDB inventory scan results (KB-05)
 // Flat table with JSONB columns for tags and metadata (D-01, D-02, D-03, D-04)
+// search_vector is auto-populated via trigger (see 20260405_add_inventory_search_vector migration)
 // tenantId is a plain string (no FK to tenants) for zero-downtime migration compatibility
 model InventoryResource {
   id           String   @id @default(cuid())
@@ -269,11 +300,13 @@ model InventoryResource {
   status       String?
   tags         Json     @default("{}")
   metadata     Json     @default("{}")
+  jobRunId     String?
   discoveredAt DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   embedding    Unsupported("vector(1024)")?
   contentHash  String?
+  searchVector Unsupported("tsvector")?
 
   @@unique([tenantId, accountId, resourceType, resourceId])
   @@index([tenantId, resourceType])
@@ -297,13 +330,16 @@ model InventoryVectorKey {
 model InventorySyncStatus {
   id              String   @id @default(cuid())
   scanId          String   @unique
+  tenantId        String   @default("")
   totalResources  Int      @default(0)
   accountsSynced  Int      @default(0)
   status          String   @default("completed")
+  errors          String[] @default([])
   syncedAt        DateTime @default(now())
   createdAt       DateTime @default(now())
 
   @@index([syncedAt])
+  @@index([tenantId, syncedAt])
   @@map("inventory_sync_status")
 }
 

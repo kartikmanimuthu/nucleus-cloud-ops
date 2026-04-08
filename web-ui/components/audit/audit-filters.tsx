@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Card,
   CardContent,
@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
+import { X, ChevronDown, ChevronUp } from "lucide-react";
 import {
   Activity,
   AlertTriangle,
@@ -35,6 +35,7 @@ interface AuditFiltersProps {
 }
 
 export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const [correlationId, setCorrelationId] = useState("");
   const [executionId, setExecutionId] = useState("");
   const [ipAddress, setIpAddress] = useState("");
@@ -122,13 +123,25 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Advanced Filters</CardTitle>
-        <CardDescription>
-          Apply additional filters to narrow down the audit log results
-        </CardDescription>
+      <CardHeader
+        className="cursor-pointer select-none"
+        onClick={() => setIsExpanded((v) => !v)}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base">Advanced Filters</CardTitle>
+            <CardDescription>
+              Apply additional filters to narrow down the audit log results
+            </CardDescription>
+          </div>
+          {isExpanded ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      {isExpanded && <CardContent className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="correlationId">Correlation ID</Label>
@@ -230,7 +243,7 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
           </Button>
           <Button onClick={applyFilters}>Apply Filters</Button>
         </div>
-      </CardContent>
+      </CardContent>}
     </Card>
   );
 }

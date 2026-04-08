@@ -1,22 +1,14 @@
 /**
  * Knowledge Base Embedder
  *
- * Text chunking, Bedrock embedding (Titan v2), and S3 Vectors store/delete
- * for the knowledge-base-embeddings index.
- *
- * Patterns adapted from:
- *   - web-ui/app/api/ask-ai/route.ts  (getEmbedding)
- *   - lambda/vector_processor/src/index.ts  (PutVectorsCommand batching)
+ * Text chunking, Bedrock embedding (Titan v2), and pgvector store/delete
+ * for the kb_document_chunks table.
  */
 
 import { createHash } from 'crypto';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import {
-  S3VectorsClient,
-  PutVectorsCommand,
-  DeleteVectorsCommand,
-} from '@aws-sdk/client-s3vectors';
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
+import { getPrismaClient } from '@/lib/db/pg-config';
 import type { KBChunk, VectorMetadata } from './types';
 
 // ---------------------------------------------------------------------------
@@ -25,10 +17,6 @@ import type { KBChunk, VectorMetadata } from './types';
 
 const EMBEDDING_MODEL_ID =
   process.env.BEDROCK_MODEL_ID || 'amazon.titan-embed-text-v2:0';
-const KB_VECTOR_BUCKET_NAME =
-  process.env.KB_VECTOR_BUCKET_NAME || process.env.VECTOR_BUCKET_NAME || '';
-const KB_VECTOR_INDEX_NAME =
-  process.env.KB_VECTOR_INDEX_NAME || 'knowledge-base-embeddings';
 const AWS_REGION = process.env.AWS_REGION || 'ap-south-1';
 
 const CHUNK_SIZE = 1500;
@@ -52,17 +40,6 @@ function getBedrockClient(): BedrockRuntimeClient {
     });
   }
   return _bedrockClient;
-}
-
-let _s3VectorsClient: S3VectorsClient | null = null;
-function getS3VectorsClient(): S3VectorsClient {
-  if (!_s3VectorsClient) {
-    _s3VectorsClient = new S3VectorsClient({
-      region: AWS_REGION,
-      credentials: credentialProvider,
-    });
-  }
-  return _s3VectorsClient;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,8 +69,6 @@ export function chunkText(text: string, documentName: string): KBChunk[] {
 
   const total = overlapped.length;
   return overlapped.map((rawChunk, idx) => ({
-    // Hash is computed on raw content BEFORE the prefix — ensures dedup is
-    // stable across renames and re-uploads with different chunk counts.
     contentHash: computeContentHash(rawChunk),
     text: `Document: ${documentName} | Chunk ${idx + 1}/${total}\n\n${rawChunk}`,
     index: idx,
@@ -180,11 +155,11 @@ export function computeContentHash(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Store chunks as vectors
+// Store chunks as vectors in PostgreSQL (pgvector)
 // ---------------------------------------------------------------------------
 
 /**
- * Embed all chunks and write them to the knowledge-base-embeddings S3 Vectors index.
+ * Embed all chunks and write them to the kb_document_chunks table via pgvector.
  * Returns the vector keys that were written.
  */
 export async function embedAndStoreChunks(params: {
@@ -193,14 +168,13 @@ export async function embedAndStoreChunks(params: {
   dataSourceId: string;
   sourceType: string;
   documentName: string;
+  tenantId: string;
   extraMetadata?: Partial<VectorMetadata>;
 }): Promise<string[]> {
-  const { chunks, knowledgeBaseId, dataSourceId, sourceType, documentName, extraMetadata } =
+  const { chunks, knowledgeBaseId, dataSourceId, sourceType, documentName, tenantId, extraMetadata } =
     params;
 
-  if (!KB_VECTOR_BUCKET_NAME) {
-    throw new Error('KB_VECTOR_BUCKET_NAME (or VECTOR_BUCKET_NAME) is not configured');
-  }
+  const prisma = getPrismaClient();
 
   // 1. Generate embeddings with concurrency limit
   const embeddings: number[][] = [];
@@ -212,50 +186,39 @@ export async function embedAndStoreChunks(params: {
     embeddings.push(...batchEmbeddings);
   }
 
-  // 2. Build vector records
-  const vectors = chunks.map((chunk, idx) => {
-    // Use the pre-computed hash from chunkText() — it was computed on raw text
-    // (before the document-name prefix) so it is stable across renames/re-uploads.
-    const contentHash = chunk.contentHash;
-    const key = `kb_${knowledgeBaseId}_${dataSourceId}_${chunk.index}_${contentHash}`;
-
-    const metadata: Record<string, string> = {
-      knowledgeBaseId,
-      dataSourceId,
-      sourceType,
-      documentName,
-      chunkIndex: String(chunk.index),
-      totalChunks: String(chunk.total),
-      contentHash,
-      text_content: chunk.text.slice(0, 500),
-      ...(extraMetadata?.s3Key && { s3Key: extraMetadata.s3Key }),
-      ...(extraMetadata?.confluencePageId && {
-        confluencePageId: extraMetadata.confluencePageId,
-      }),
-      ...(extraMetadata?.bitbucketRepo && { bitbucketRepo: extraMetadata.bitbucketRepo }),
-      ...(extraMetadata?.bitbucketPath && { bitbucketPath: extraMetadata.bitbucketPath }),
-    };
-
-    return { key, data: { float32: embeddings[idx] }, metadata };
-  });
-
-  // 3. Write in batches of VECTOR_BATCH_SIZE
+  // 2. Insert into kb_document_chunks with ON CONFLICT upsert
   const keys: string[] = [];
-  for (let i = 0; i < vectors.length; i += VECTOR_BATCH_SIZE) {
-    const batch = vectors.slice(i, i + VECTOR_BATCH_SIZE);
-    await getS3VectorsClient().send(
-      new PutVectorsCommand({
-        vectorBucketName: KB_VECTOR_BUCKET_NAME,
-        indexName: KB_VECTOR_INDEX_NAME,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        vectors: batch as any,
-      }),
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const contentHash = chunk.contentHash;
+    const vectorKey = `kb_${knowledgeBaseId}_${dataSourceId}_${chunk.index}_${contentHash}`;
+    const vectorLiteral = `[${embeddings[i].join(',')}]`;
+    const metadata: Record<string, string> = {};
+    if (extraMetadata?.s3Key) metadata.s3Key = extraMetadata.s3Key;
+    if (extraMetadata?.confluencePageId) metadata.confluencePageId = extraMetadata.confluencePageId;
+    if (extraMetadata?.bitbucketRepo) metadata.bitbucketRepo = extraMetadata.bitbucketRepo;
+    if (extraMetadata?.bitbucketPath) metadata.bitbucketPath = extraMetadata.bitbucketPath;
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO kb_document_chunks
+         ("id", "tenantId", "knowledgeBaseId", "dataSourceId", "vectorKey",
+          "documentName", "sourceType", "chunkIndex", "totalChunks",
+          "contentHash", "textContent", "metadata", "embedding")
+       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::vector)
+       ON CONFLICT ("vectorKey") DO UPDATE SET
+         "textContent" = EXCLUDED."textContent",
+         "embedding" = EXCLUDED."embedding",
+         "contentHash" = EXCLUDED."contentHash",
+         "metadata" = EXCLUDED."metadata"`,
+      tenantId, knowledgeBaseId, dataSourceId, vectorKey,
+      documentName, sourceType, chunk.index, chunk.total,
+      contentHash, chunk.text.slice(0, 2000), JSON.stringify(metadata), vectorLiteral,
     );
-    keys.push(...batch.map((v) => v.key));
+    keys.push(vectorKey);
   }
 
   console.log(
-    `[KBEmbedder] Stored ${keys.length} vectors for "${documentName}" in ${KB_VECTOR_INDEX_NAME}`,
+    `[KBEmbedder] Stored ${keys.length} vectors for "${documentName}" in kb_document_chunks`,
   );
   return keys;
 }
@@ -265,29 +228,24 @@ export async function embedAndStoreChunks(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Delete vectors by their keys from the knowledge-base-embeddings index.
+ * Delete vectors by their keys from the kb_document_chunks table.
  */
 export async function deleteVectors(vectorKeys: string[]): Promise<void> {
   if (!vectorKeys.length) return;
 
-  if (!KB_VECTOR_BUCKET_NAME) {
-    throw new Error('KB_VECTOR_BUCKET_NAME (or VECTOR_BUCKET_NAME) is not configured');
-  }
+  const prisma = getPrismaClient();
 
   // Delete in batches of VECTOR_BATCH_SIZE
   for (let i = 0; i < vectorKeys.length; i += VECTOR_BATCH_SIZE) {
     const batch = vectorKeys.slice(i, i + VECTOR_BATCH_SIZE);
-    await getS3VectorsClient().send(
-      new DeleteVectorsCommand({
-        vectorBucketName: KB_VECTOR_BUCKET_NAME,
-        indexName: KB_VECTOR_INDEX_NAME,
-        keys: batch,
-      }),
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM kb_document_chunks WHERE "vectorKey" = ANY($1::text[])`,
+      batch,
     );
   }
 
   console.log(
-    `[KBEmbedder] Deleted ${vectorKeys.length} vectors from ${KB_VECTOR_INDEX_NAME}`,
+    `[KBEmbedder] Deleted ${vectorKeys.length} vectors from kb_document_chunks`,
   );
 }
 

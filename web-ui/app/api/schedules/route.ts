@@ -62,12 +62,13 @@ export async function POST(request: NextRequest) {
     const authError = await authorize('create', 'Schedule');
     if (authError) return authError;
 
+    let tenantId: string | undefined;
     try {
         console.log('API - Creating new schedule');
 
         const session = await getServerSession(authOptions);
         const createdBy = session?.user?.email || 'api-user';
-        const tenantId = await getSessionTenantId();
+        tenantId = await getSessionTenantId();
 
         const body = await request.json();
 

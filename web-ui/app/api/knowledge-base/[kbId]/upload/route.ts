@@ -3,18 +3,16 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
+import { getBoss } from '@/lib/boss-client';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const SUPPORTED_MIME = new Set(['application/pdf', 'text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/yaml', 'application/x-yaml']);
 const SUPPORTED_EXT = new Set(['pdf', 'md', 'txt', 'csv', 'json', 'yaml', 'yml']);
 
-const sqs = new SQSClient({ region: process.env.AWS_REGION });
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
-const KB_SYNC_QUEUE_URL = process.env.KB_SYNC_QUEUE_URL!;
 const KB_STAGING_BUCKET = process.env.KB_STAGING_BUCKET_NAME!;
 
 function isSupportedFile(mimeType: string, fileName: string): boolean {
@@ -61,11 +59,9 @@ export async function POST(
   await KnowledgeBaseService.updateDataSource(kbId, ds.id, { status: 'syncing' }, tenantId);
   await KnowledgeBaseService.updateDataSourceCount(kbId, 1, tenantId);
 
-  // Enqueue background job
-  await sqs.send(new SendMessageCommand({
-    QueueUrl: KB_SYNC_QUEUE_URL,
-    MessageBody: JSON.stringify({ type: 'file-upload', kbId, dsId: ds.id, stagingKey, fileName: file.name, mimeType: file.type }),
-  }));
+  // Enqueue background job via pg-boss
+  const boss = await getBoss();
+  await boss.send('kb-sync', { type: 'file-upload', kbId, dsId: ds.id, tenantId, stagingKey, fileName: file.name, mimeType: file.type });
 
   return NextResponse.json({ dataSource: ds }, { status: 202 });
 }

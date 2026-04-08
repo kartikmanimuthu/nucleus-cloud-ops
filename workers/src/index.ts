@@ -1,6 +1,7 @@
 import { createBoss } from './boss.js';
 import { register as registerSchedulerJobs } from './jobs/scheduler/index.js';
 import { register as registerKbSyncJobs } from './jobs/kb-sync/index.js';
+import { register as registerDiscoveryJobs } from './jobs/discovery/index.js';
 
 const boss = createBoss();
 
@@ -16,6 +17,7 @@ async function main() {
 
   await registerSchedulerJobs(boss);
   await registerKbSyncJobs(boss);
+  await registerDiscoveryJobs(boss);
 
   console.log('[workers] All jobs registered. Waiting for work...');
 

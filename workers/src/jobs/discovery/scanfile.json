@@ -1,0 +1,254 @@
+[
+  {
+    "service": "ec2",
+    "function": "describe_instances",
+    "result_key": "Reservations"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_vpcs",
+    "result_key": "Vpcs",
+    "enrichments": [
+      { "type": "tags", "method": "describe_vpcs", "idKey": "VpcId", "inputKey": "VpcIds", "batchSize": 200 }
+    ]
+  },
+  {
+    "service": "ec2",
+    "function": "describe_subnets",
+    "result_key": "Subnets"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_security_groups",
+    "result_key": "SecurityGroups"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_volumes",
+    "result_key": "Volumes"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_nat_gateways",
+    "result_key": "NatGateways"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_addresses",
+    "result_key": "Addresses"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_network_interfaces",
+    "result_key": "NetworkInterfaces"
+  },
+  {
+    "service": "rds",
+    "function": "describe_db_instances",
+    "result_key": "DBInstances",
+    "enrichments": [
+      { "type": "tags", "method": "list_tags_for_resource", "arnKey": "DBInstanceArn" }
+    ]
+  },
+  {
+    "service": "rds",
+    "function": "describe_db_clusters",
+    "result_key": "DBClusters",
+    "enrichments": [
+      { "type": "tags", "method": "list_tags_for_resource", "arnKey": "DBClusterArn" }
+    ]
+  },
+  {
+    "service": "ecs",
+    "function": "list_clusters",
+    "result_key": "clusterArns",
+    "enrichments": [
+      { "type": "describe", "method": "describe_clusters", "inputKey": "clusters", "resultKey": "clusters", "batchSize": 100 },
+      { "type": "tags", "method": "list_tags_for_resource", "arnKey": "clusterArn" }
+    ]
+  },
+  {
+    "service": "ecs",
+    "function": "list_services",
+    "result_key": "serviceArns"
+  },
+  {
+    "service": "autoscaling",
+    "function": "describe_auto_scaling_groups",
+    "result_key": "AutoScalingGroups"
+  },
+  {
+    "service": "lambda",
+    "function": "list_functions",
+    "result_key": "Functions",
+    "enrichments": [
+      { "type": "tags", "method": "list_tags", "arnKey": "FunctionArn", "inputKey": "Resource" }
+    ]
+  },
+  {
+    "service": "s3",
+    "function": "list_buckets",
+    "result_key": "Buckets",
+    "enrichments": [
+      { "type": "tags", "method": "get_bucket_tagging", "nameKey": "Name", "inputKey": "Bucket" },
+      { "type": "detail", "method": "get_bucket_location", "nameKey": "Name", "inputKey": "Bucket" }
+    ],
+    "constraints": { "regionFilter": true }
+  },
+  {
+    "service": "dynamodb",
+    "function": "list_tables",
+    "result_key": "TableNames",
+    "enrichments": [
+      { "type": "describe", "method": "describe_table", "inputKey": "TableName", "resultKey": "Table" },
+      { "type": "tags", "method": "list_tags_of_resource", "arnKey": "TableArn", "inputKey": "ResourceArn" }
+    ]
+  },
+  {
+    "service": "elbv2",
+    "function": "describe_load_balancers",
+    "result_key": "LoadBalancers",
+    "enrichments": [
+      { "type": "tags", "method": "describe_tags", "arnKey": "LoadBalancerArn", "inputKey": "ResourceArns", "batchSize": 20 }
+    ]
+  },
+  {
+    "service": "elasticache",
+    "function": "describe_cache_clusters",
+    "result_key": "CacheClusters"
+  },
+  {
+    "service": "sns",
+    "function": "list_topics",
+    "result_key": "Topics"
+  },
+  {
+    "service": "sqs",
+    "function": "list_queues",
+    "result_key": "QueueUrls"
+  },
+  {
+    "service": "kms",
+    "function": "list_keys",
+    "result_key": "Keys",
+    "enrichments": [
+      { "type": "describe", "method": "describe_key", "inputKey": "KeyId", "resultKey": "KeyMetadata", "idKey": "KeyId" },
+      { "type": "tags", "method": "list_resource_tags", "idKey": "KeyId", "inputKey": "KeyId" }
+    ]
+  },
+  {
+    "service": "secretsmanager",
+    "function": "list_secrets",
+    "result_key": "SecretList"
+  },
+  {
+    "service": "efs",
+    "function": "describe_file_systems",
+    "result_key": "FileSystems"
+  },
+  {
+    "service": "cloudfront",
+    "function": "list_distributions",
+    "result_key": "DistributionList",
+    "constraints": { "regionOverride": "us-east-1" }
+  },
+  {
+    "service": "acm",
+    "function": "list_certificates",
+    "result_key": "CertificateSummaryList",
+    "enrichments": [
+      { "type": "tags", "method": "list_tags_for_certificate", "arnKey": "CertificateArn" }
+    ]
+  },
+  {
+    "service": "ecr",
+    "function": "describe_repositories",
+    "result_key": "repositories",
+    "enrichments": [
+      { "type": "tags", "method": "list_tags_for_resource", "arnKey": "repositoryArn", "inputKey": "resourceArn" }
+    ]
+  },
+  {
+    "service": "apigateway",
+    "function": "get_rest_apis",
+    "result_key": "items",
+    "enrichments": [
+      { "type": "tags", "method": "get_tags", "arnKey": "_computedArn", "inputKey": "resourceArn" }
+    ]
+  },
+  {
+    "service": "codepipeline",
+    "function": "list_pipelines",
+    "result_key": "pipelines"
+  },
+  {
+    "service": "ssm",
+    "function": "describe_parameters",
+    "result_key": "Parameters",
+    "parameters": { "MaxResults": 50 }
+  },
+  {
+    "service": "iam",
+    "function": "list_roles",
+    "result_key": "Roles",
+    "parameters": { "MaxItems": 100 }
+  },
+  {
+    "service": "iam",
+    "function": "list_users",
+    "result_key": "Users",
+    "parameters": { "MaxItems": 100 }
+  },
+  {
+    "service": "docdb",
+    "function": "describe_db_clusters",
+    "result_key": "DBClusters",
+    "enrichments": [
+      { "type": "tags", "method": "list_tags_for_resource", "arnKey": "DBClusterArn" }
+    ]
+  },
+  {
+    "service": "eks",
+    "function": "list_clusters",
+    "result_key": "clusters",
+    "enrichments": [
+      { "type": "describe", "method": "describe_cluster", "inputKey": "name", "resultKey": "cluster" }
+    ]
+  },
+  {
+    "service": "cloudwatch",
+    "function": "describe_alarms",
+    "result_key": "MetricAlarms"
+  },
+  {
+    "service": "events",
+    "function": "list_rules",
+    "result_key": "Rules"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_transit_gateways",
+    "result_key": "TransitGateways"
+  },
+  {
+    "service": "backup",
+    "function": "list_backup_plans",
+    "result_key": "BackupPlansList"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_transit_gateway_attachments",
+    "result_key": "TransitGatewayAttachments"
+  },
+  {
+    "service": "ec2",
+    "function": "describe_vpc_peering_connections",
+    "result_key": "VpcPeeringConnections"
+  },
+  {
+    "service": "wafv2",
+    "function": "list_web_acls",
+    "result_key": "WebACLs",
+    "constraints": { "scopes": ["REGIONAL", "CLOUDFRONT"] }
+  }
+]

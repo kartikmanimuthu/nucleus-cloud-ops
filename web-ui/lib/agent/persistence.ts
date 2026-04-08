@@ -25,6 +25,7 @@ import {
 } from "@farukada/aws-langgraph-dynamodb-ts";
 import { BedrockEmbeddings } from "@langchain/aws";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
 import { getPrismaClient } from "@/lib/db/pg-config";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -250,7 +251,18 @@ async function initPersistence(): Promise<PersistenceInstances> {
     // Wrap in ChatHistoryInterface adapter (metadata not supported by DynamoDB backend)
     // tenantId is accepted for interface compatibility but DynamoDB backend is single-tenant
     const chatHistory: ChatHistoryInterface = {
-        addMessages: (_tenantId, userId, threadId, messages) => dynamoHistory.addMessages(userId, threadId, messages),
+        addMessages: (_tenantId, userId, threadId, messages) => {
+            // DynamoDB backend expects BaseMessage instances, not plain objects
+            const baseMessages = messages.map(m => {
+                switch (m.role) {
+                    case 'human': case 'user': return new HumanMessage(m.content);
+                    case 'ai': case 'assistant': return new AIMessage(m.content);
+                    case 'tool': return new ToolMessage({ content: m.content, tool_call_id: (m.metadata?.tool_call_id as string) ?? '' });
+                    default: return new SystemMessage(m.content);
+                }
+            });
+            return dynamoHistory.addMessages(userId, threadId, baseMessages);
+        },
         getMessages: (_tenantId, userId, threadId) => dynamoHistory.getMessages(userId, threadId),
         clearMessages: (_tenantId, userId, threadId) => dynamoHistory.clearMessages(userId, threadId),
     };

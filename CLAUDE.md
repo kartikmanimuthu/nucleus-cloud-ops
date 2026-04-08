@@ -91,6 +91,26 @@ nucleus-cloud-ops/
 - **Agent**: LangGraph `StateGraph` for all agent workflows
 - **API**: Next.js API routes in `web-ui/app/api/`
 
+## Workers (pg-boss)
+
+Background job processing has moved from AWS Lambda to pg-boss workers running in a single Node.js process.
+
+```
+workers/
+├── src/
+│   ├── jobs/
+│   │   ├── scheduler/    # Resource start/stop scheduling
+│   │   ├── discovery/    # Multi-account resource scanning
+│   │   └── kb-sync/      # Knowledge base sync (S3, Bitbucket, Confluence)
+│   └── lib/
+│       └── logger.ts     # Structured logger (createLogger, LOG_LEVEL env var)
+└── package.json          # pg-boss ^10.1.5
+```
+
+- Workers use `createLogger('service-name')` from `workers/src/lib/logger.ts` — not raw console
+- pg-boss also used in web-ui (`pg-boss` ^10.4.2) for job submission
+- Per-tenant cron scheduling configured via `GET/PUT /api/settings/scheduler`
+
 ## Agent Architecture
 
 The AI agent lives in `web-ui/lib/agent/`. Key patterns:
@@ -105,7 +125,7 @@ The AI agent lives in `web-ui/lib/agent/`. Key patterns:
 - **DO NOT** modify `infra/networking/index.ts` or `infra/compute/index.ts` without running `pulumi preview --stack prod` first
 - **DynamoDB single-table design** — consult `docs/schema-design.md` before adding entities
 - **Never hardcode AWS credentials** — all cross-account ops use STS AssumeRole
-- **Git**: main branch is `master`; active feature work on `agent-ops-implementation`
+- **Git**: main branch is `master-v1`; active feature work on `pg-boss-migration`
 - **Audit log** every action that modifies AWS resources (existing pattern in `lib/agent/`)
 
 ## DynamoDB Single-Table Patterns
@@ -391,7 +411,7 @@ cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod
 
 **DynamoDB to PostgreSQL Migration**
 
-Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL. This includes business data tables (single-table design NucleusAppTable, audit, inventory, agent ops, RBAC), LangGraph persistence tables (checkpoints, writes, chat history, memory), and the potentially-unused AgentConversationsTable. The migration uses Drizzle ORM with a repository pattern and per-entity feature flags for zero-downtime cutover. Local development uses Docker Compose; cloud PostgreSQL (RDS or Aurora) will be decided later.
+Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL. This includes business data tables (single-table design NucleusAppTable, audit, inventory, agent ops, RBAC), LangGraph persistence tables (checkpoints, writes, chat history, memory), and the potentially-unused AgentConversationsTable. The migration uses Prisma ORM with a repository pattern. DynamoDB has been fully removed — all USE_PG_* flags are true and DynamoDB repos/dynamoose models have been deleted.
 
 **Core Value:** Every DynamoDB table is migrated to PostgreSQL with full test coverage (unit + E2E) and verified data migration scripts, enabling server-side filtering, real transactions, relational joins, and proper pagination across the entire platform.
 
@@ -399,7 +419,7 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 
 - **AWS Profile**: All migration scripts use `AWS_PROFILE=PLATFORM-ADMIN` for DynamoDB access
 - **Zero downtime**: Feature flags per entity enable instant rollback; DynamoDB tables never deleted during migration
-- **Lambda cold starts**: Drizzle ORM chosen over Prisma specifically for Lambda bundle size (~50KB vs 2-4MB)
+- **ORM**: Prisma ORM with repository pattern; schema at `prisma/schema.prisma`
 - **Python Lambda**: Discovery Lambda stays Python; add psycopg2 for PostgreSQL access (no TypeScript rewrite)
 - **Multi-tenant safety**: Every PostgreSQL query must include `WHERE tenant_id = $1` -- enforce in repository layer
 - **Dual-write for high-risk**: Schedules + Audit phase should dual-write to both backends during validation period
@@ -541,7 +561,8 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - Default status 200 for success, 500 for server errors, 403 for auth errors
 - `console.log` for operation start: `'API - GET /api/accounts - Fetching accounts'`
 - `console.error` for caught errors: `'API - Error fetching accounts:', error`
-- No structured logging library — raw console
+- Web-ui API routes: raw `console.log`/`console.error` (no structured logging)
+- Workers: use `createLogger('service-name')` from `workers/src/lib/logger.ts` — supports LOG_LEVEL env var
 - Always `getDynamoDBDocumentClient()` from `@/lib/aws-config` — never instantiate DynamoDB directly
 - Always `@aws-sdk/lib-dynamodb` (DocumentClient) — never raw DynamoDB client
 - Cross-account calls via `STSClient + AssumeRoleCommand` — never hardcode credentials
@@ -558,8 +579,8 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 ## Pattern Overview
 - Next.js App Router serves both UI pages and REST API routes from a single ECS Fargate container
 - AI agent runs server-side inside the Next.js process using LangGraph StateGraph — no separate agent service
-- AWS Lambda functions handle async/scheduled work (resource scheduling, discovery, vector processing, KB sync)
-- All persistent state lives in DynamoDB (single-table design) or S3; no relational database
+- pg-boss workers handle async/scheduled work (resource scheduling, discovery, KB sync); vector processing remains in Lambda
+- All persistent state lives in PostgreSQL (via Prisma ORM) or S3; DynamoDB has been fully removed
 - Cross-account AWS operations use STS AssumeRole exclusively — no hardcoded credentials
 - Pulumi manages all AWS infrastructure: two stacks (`infra/networking` → `infra/compute`)
 ## Layers

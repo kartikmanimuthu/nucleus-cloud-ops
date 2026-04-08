@@ -1,133 +1,205 @@
 # External Integrations
 
-**Analysis Date:** 2026-03-26
+**Analysis Date:** 2026-04-08
 
 ## Cloud Services (AWS)
 
 **Compute:**
-- ECS Fargate - Hosts web-UI container and discovery Lambda runner; defined in `lib/computeStack.ts`
-- AWS Lambda - Four functions: scheduler (`lambda/scheduler/`), discovery (`lambda/discovery/`), vector_processor (`lambda/vector_processor/`), kb_sync_processor (`lambda/kb_sync_processor/`)
-- AWS Lambda Web Adapter (`public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4`) - Enables response streaming from Next.js container
+- ECS Fargate — Hosts web-ui container and workers container (pg-boss job processor); defined in `infra/compute/index.ts`
+- AWS Lambda — Two active functions: scheduler (`lambda/scheduler/`), kb_sync_processor (`lambda/kb_sync_processor/`)
+- AWS Lambda Web Adapter (`public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4`) — Enables response streaming from Next.js container on ECS (`web-ui/Dockerfile`)
 
 **Networking:**
-- VPC + Subnets + NAT Gateways - Defined in `lib/networkingStack.ts`
-- Application Load Balancer - Front-end for ECS service; `lib/computeStack.ts`
-- AWS CloudFront - CDN in front of ALB and S3; `lib/computeStack.ts`, `lib/webUIStack.ts`
-- AWS ACM - TLS certificates; optional custom domain; `lib/computeStack.ts`
+- VPC + Subnets + NAT Gateways — Defined in `infra/networking/index.ts`
+- Application Load Balancer — Front-end for ECS service; `infra/compute/index.ts`
+- AWS CloudFront — CDN in front of ALB and S3; `infra/compute/index.ts`
+- AWS ACM — TLS certificates; optional custom domain
 
 **Storage:**
-- Amazon S3 - Normalized inventory data (`normalized/` prefix triggers SQS), checkpoint bucket, KB sync documents; `lib/computeStack.ts`
-- S3 Tables (Apache Iceberg, `@aws-cdk/aws-s3tables-alpha`) - Iceberg table format for inventory; `lib/computeStack.ts`
-- S3 Vectors (`cdk-s3-vectors`, `@aws-sdk/client-s3vectors`) - Vector index for semantic search (Ask AI); `lib/computeStack.ts`, `lambda/kb_sync_processor/`, `lambda/vector_processor/`
+- Amazon S3 — Normalized inventory data (`normalized/` prefix triggers SQS), checkpoint bucket, KB sync documents
+  - Env var: `CHECKPOINT_S3_BUCKET`
+  - Client: `@aws-sdk/client-s3` in `web-ui/lib/agent/tools.ts`
+- S3 Vectors (`@aws-sdk/client-s3vectors`) — Vector index for semantic search (Ask AI, knowledge base embeddings)
+  - Used in: `web-ui/lib/knowledge-base/embedder.ts`, `web-ui/app/api/ask-ai/route.ts`
+  - Env vars: `KB_VECTOR_BUCKET_NAME`, `VECTOR_BUCKET_NAME`
 
 **Messaging / Eventing:**
-- Amazon SQS - Queue + DLQ triggered from S3 `normalized/` prefix; feeds vector_processor Lambda; `lib/computeStack.ts`
-- Amazon EventBridge - Scheduled rules (every 30 min) trigger scheduler Lambda; `lib/cdkStack.ts`; env var `EVENTBRIDGE_RULE_NAME`
-- Amazon SNS - Email subscription alerts for scheduler events; `lib/cdkStack.ts`; env var `SUBSCRIPTION_EMAILS`
-
-**Database:**
-- Amazon DynamoDB - Single-table design (`NucleusAppTable`) + audit table (`NucleusAuditTable`); checkpoint tables for LangGraph agent state; schema documented in `docs/schema-design.md`
-  - Client: `@aws-sdk/lib-dynamodb` (DocumentClient) + `dynamoose` ORM
-  - Tables (env vars): `APP_TABLE_NAME`, `AUDIT_TABLE_NAME`, `DYNAMODB_USERS_TEAMS_TABLE`, `DYNAMODB_CHECKPOINT_TABLE`, `DYNAMODB_WRITES_TABLE`, `DYNAMODB_CHAT_HISTORY_TABLE`, `DYNAMODB_MEMORY_TABLE`
+- Amazon SQS (`@aws-sdk/client-sqs`) — Queue + DLQ triggered from S3 `normalized/` prefix; feeds vector processing
+- Amazon EventBridge (`@aws-sdk/client-eventbridge`) — Scheduled rules trigger scheduler Lambda; env var `EVENTBRIDGE_RULE_NAME`
+- Amazon SNS (`@aws-sdk/client-sns`) — Email subscription alerts for scheduler events; env var `SUBSCRIPTION_EMAILS`
 
 **AI / ML:**
-- AWS Bedrock (`@aws-sdk/client-bedrock-runtime`, `@langchain/aws`, `@ai-sdk/amazon-bedrock`) - LLM inference; Claude 4.5 Sonnet model via `ChatBedrockConverse`; Titan v2 embeddings (1024-dim) for vector search
-  - Used in: `web-ui/lib/agent/model-factory.ts`, `lambda/kb_sync_processor/src/`, `lambda/vector_processor/src/`
+- AWS Bedrock (`@aws-sdk/client-bedrock-runtime`, `@langchain/aws`, `@ai-sdk/amazon-bedrock`) — LLM inference via Claude 4.5 Sonnet model through `ChatBedrockConverse`; Titan v2 embeddings (1024-dim) for vector search
+  - Model factory: `web-ui/lib/agent/model-factory.ts`
+  - Embedder: `web-ui/lib/knowledge-base/embedder.ts` (model: `amazon.titan-embed-text-v2:0`)
+  - Workers: `workers/src/jobs/kb-sync/` (embedding during KB sync)
 
 **Identity / Access:**
-- AWS STS (`@aws-sdk/client-sts`) - Cross-account role assumption (`CrossAccountRoleForCostOptimizationScheduler`) for all multi-account resource operations; env var `AWS_USE_STS=true`
-- AWS IAM - Lambda execution roles, cross-account policies; `lib/computeStack.ts`, `lib/cdkStack.ts`
-- Amazon Cognito (`@aws-sdk/client-cognito-identity-provider`) - User pool + identity pool; env vars `COGNITO_USER_POOL_ID`, `COGNITO_USER_POOL_CLIENT_ID`, `COGNITO_DOMAIN`, `COGNITO_ISSUER`, `COGNITO_IDENTITY_POOL_ID`
+- AWS STS (`@aws-sdk/client-sts`) — Cross-account role assumption for all multi-account resource operations
+  - Used in: `web-ui/lib/account-service.ts`, `web-ui/lib/agent/aws-credentials-tool.ts`
+  - Env var: `AWS_USE_STS=true`
+- AWS IAM — Lambda execution roles, cross-account policies; `infra/compute/index.ts`
+- Amazon Cognito (`@aws-sdk/client-cognito-identity-provider`) — User pool for identity management
+  - Client singleton: `web-ui/lib/cognito-client.ts`
+  - Env vars: `COGNITO_USER_POOL_ID`, `COGNITO_USER_POOL_CLIENT_ID`, `COGNITO_DOMAIN`, `COGNITO_ISSUER`, `COGNITO_IDENTITY_POOL_ID`, `COGNITO_APP_CLIENT_SECRET`
 
-**Resource Discovery & Scheduling:**
-- Amazon EC2 (`@aws-sdk/client-ec2`) - Instance start/stop; inventory discovery
-- Amazon ECS (`@aws-sdk/client-ecs`) - Service scaling (desired count)
-- Amazon RDS (`@aws-sdk/client-rds`) - DB instance start/stop
-- Amazon Auto Scaling (`@aws-sdk/client-auto-scaling`) - Group min/max/desired capacity
-- Amazon CloudWatch (`@aws-sdk/client-cloudwatch`) - Metrics + alarms; DLQ depth alarm; `lib/computeStack.ts`
+**Resource Discovery & Scheduling (AWS SDK v3 clients):**
+- Amazon EC2 (`@aws-sdk/client-ec2`) — Instance start/stop, inventory discovery
+- Amazon ECS (`@aws-sdk/client-ecs`) — Service scaling (desired count)
+- Amazon RDS (`@aws-sdk/client-rds`) — DB instance start/stop
+- Amazon Auto Scaling (`@aws-sdk/client-auto-scaling`) — Group min/max/desired capacity
+- Amazon CloudWatch (`@aws-sdk/client-cloudwatch`) — Metrics + alarms
+- Used in: `web-ui/lib/account-service.ts`, `web-ui/lib/agent/sandbox.ts`, `lambda/scheduler/src/`, `workers/src/jobs/`
 
-**Data / Glue / Iceberg:**
-- AWS Glue (via `pyiceberg[s3fs,glue]`) - Iceberg catalog for discovery Lambda; `lambda/discovery/requirements.txt`
+**Workers-specific AWS clients (extended discovery):**
+- `@aws-sdk/client-acm` — Certificate discovery
+- `@aws-sdk/client-api-gateway` — API Gateway discovery
+- `@aws-sdk/client-backup` — Backup discovery
+- `@aws-sdk/client-cloudfront` — CloudFront distribution discovery
+- `@aws-sdk/client-codepipeline` — Pipeline discovery
+- `@aws-sdk/client-ecr` — Container registry discovery
+- `@aws-sdk/client-efs` — EFS filesystem discovery
+- `@aws-sdk/client-eks` — Kubernetes cluster discovery
+- `@aws-sdk/client-elastic-load-balancing-v2` — ALB/NLB discovery
+- `@aws-sdk/client-elasticache` — ElastiCache discovery
+- `@aws-sdk/client-iam` — IAM resource discovery
+- `@aws-sdk/client-kms` — KMS key discovery
+- `@aws-sdk/client-secrets-manager` — Secrets Manager discovery
+- `@aws-sdk/client-ssm` — Systems Manager parameter discovery
+- `@aws-sdk/client-wafv2` — WAF discovery
+- All in: `workers/package.json`
 
 ## APIs & Third-party Services
 
 **Knowledge Base / Document Sources:**
-- Atlassian Confluence - KB sync source; `lambda/kb_sync_processor/src/` (`dev:confluence` mode)
-  - Auth: env var `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
-- Bitbucket - KB sync source; `lambda/kb_sync_processor/src/` (`dev:bitbucket` mode)
+- Atlassian Confluence — KB sync source; `lambda/kb_sync_processor/src/` (`dev:confluence` mode)
+  - Auth: env vars `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
+- Bitbucket — KB sync source; `lambda/kb_sync_processor/src/` (`dev:bitbucket` mode)
   - Auth: shared Atlassian API token
 
-**Observability:**
-- Langfuse - LLM trace logging for agent calls; optional but integrated
-  - Package: `langfuse-langchain` ^3.38.6 in web-ui
-  - Config: `web-ui/lib/agent/langfuse-config.ts`
-  - Self-hosted locally via `docker-compose.langfuse.yml` (PostgreSQL 16 + ClickHouse 24.12 + Redis + MinIO + Langfuse server)
-  - Env vars: `LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
+**Anthropic (direct):**
+- `@ai-sdk/anthropic` ^2.0.56 — Alternative LLM provider alongside Bedrock
+  - Used via Vercel AI SDK in `web-ui/`
 
-## Auth Providers
+## Auth & Identity
 
 **Primary Auth:**
-- NextAuth.js ^4.24.11 - Session management, route protection via `web-ui/middleware.ts`
-  - Config: `web-ui/app/api/auth/` (implied by `withAuth` middleware)
+- NextAuth.js ^4.24.11 — Session management with database sessions (not JWT)
+  - Adapter: `@auth/prisma-adapter` ^2.11.1 — Prisma-backed session storage
+  - Config: `web-ui/app/api/auth/` routes
+  - Session helper: `web-ui/lib/auth-session.ts`
   - Env vars: `NEXTAUTH_URL`, `NEXTAUTH_SECRET`
 
 **Identity Provider:**
-- Amazon Cognito - OAuth2/OIDC provider backed by Cognito User Pool
+- Amazon Cognito — OAuth2/OIDC provider backed by Cognito User Pool
+  - Client: `web-ui/lib/cognito-client.ts` (singleton `getCognitoClient()`)
   - OIDC issuer: `https://cognito-idp.<region>.amazonaws.com/<pool-id>`
-  - Env vars: `COGNITO_ISSUER`, `COGNITO_DOMAIN`, `COGNITO_APP_CLIENT_ID`, `COGNITO_APP_CLIENT_SECRET`
+
+**Credentials Auth:**
+- `bcryptjs` ^3.0.3 — Password hashing for direct credentials login (dual auth: Cognito + Credentials)
+  - Model: `AuthUser.passwordHash` in `prisma/schema.prisma`
 
 **Authorization:**
-- CASL (`@casl/ability` ^6.8.0, `@casl/react` ^5.0.1) - RBAC ability definitions; `web-ui/lib/rbac/`
+- Custom RBAC system — Per-module permissions with custom roles per tenant
+  - Location: `web-ui/lib/rbac/`
+  - Model: `CustomRole` + `UserTenantRole` in `prisma/schema.prisma`
+  - Tenant isolation: `getTenantClient()` middleware in `web-ui/lib/db/pg-config.ts`
+
+## Databases & Storage
+
+**Primary Application Database:**
+- PostgreSQL — All application entities via Prisma ORM
+  - Schema: `prisma/schema.prisma` (30+ models including Tenant, Account, Schedule, AuditLog, KnowledgeBase, InventoryResource, AgentOpsRun, ChatMessage, AgentMemory, auth tables)
+  - Client singleton: `web-ui/lib/db/pg-config.ts` (`getPrismaClient()`, `getTenantClient()`)
+  - Repository pattern: `web-ui/lib/db/repositories/` (12 domain repositories)
+  - Repository factory: `web-ui/lib/db/repository-factory.ts`
+  - Extensions: pgvector (1024-dim embeddings on `InventoryResource`, `AgentMemory`), tsvector (full-text search on `InventoryResource`)
+  - Connection: `DATABASE_URL` env var; ECS uses `connection_limit=10`, Lambda uses `connection_limit=3`
+  - Local dev: Docker Compose PostgreSQL (`npm run db:start`)
+
+**Job Queue:**
+- pg-boss (PostgreSQL-backed) — Distributed job queue for background processing
+  - Config: `workers/src/boss.ts` (retry 3x, 30s delay, exponential backoff, 4h expiry, 7-day delete)
+  - Three job types: scheduler (`workers/src/jobs/scheduler/`), discovery (`workers/src/jobs/discovery/`), kb-sync (`workers/src/jobs/kb-sync/`)
+  - Entry point: `workers/src/index.ts`
+
+**Legacy DynamoDB (still referenced):**
+- Amazon DynamoDB — Single-table design tables still referenced in code alongside PostgreSQL
+  - Client: `web-ui/lib/aws-config.ts` (`getDynamoDBDocumentClient()`)
+  - ORM: `dynamoose` ^4.1.5 (serverExternalPackages)
+  - Tables (env vars): `APP_TABLE_NAME`, `AUDIT_TABLE_NAME`, `DYNAMODB_USERS_TEAMS_TABLE`, `DYNAMODB_CHECKPOINT_TABLE`, `DYNAMODB_WRITES_TABLE`, `DYNAMODB_CHAT_HISTORY_TABLE`, `DYNAMODB_MEMORY_TABLE`
+
+**Agent Checkpointing:**
+- PostgreSQL via `@langchain/langgraph-checkpoint-postgres` ^1.0.1 — Primary LangGraph checkpointer (when `USE_PG_LANGGRAPH=true`)
+- DynamoDB via `@farukada/aws-langgraph-dynamodb-ts` ^0.1.0 — Legacy checkpointer (feature-flagged)
+- Both managed in: `web-ui/lib/agent/persistence.ts`
+
+**Deep Agent Persistence (optional):**
+- MongoDB / AWS DocumentDB — LangGraph MongoDB checkpointer for deep-agent
+  - Packages: `mongodb` ^7.1.0, `@langchain/langgraph-checkpoint-mongodb` ^1.2.0
+  - Client: `web-ui/lib/db/mongo-client.ts`, `web-ui/lib/deep-agent/db/safe-mongo-saver.ts`
+  - Env vars: `MONGODB_URI`, `MONGODB_DB_NAME` (commented out by default in `.env.local.example`)
+
+**Object Storage:**
+- Amazon S3 — Normalized inventory JSON, vector processor payloads, KB documents, checkpoint offload
+  - Env var: `CHECKPOINT_S3_BUCKET`
+
+**Vector Store:**
+- Amazon S3 Vectors — Semantic embeddings for inventory Ask AI and knowledge base search
+  - Client: `@aws-sdk/client-s3vectors`
+  - Embedder: `web-ui/lib/knowledge-base/embedder.ts`
+
+## Observability
+
+**LLM Tracing:**
+- Langfuse — LLM trace logging for agent calls; feature-flagged via `LANGFUSE_ENABLED`
+  - Package: `langfuse-langchain` ^3.38.6
+  - Config: `web-ui/lib/agent/langfuse-config.ts` (dynamic import, zero overhead when disabled)
+  - Env vars: `LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
+
+**Logging:**
+- `console.log` / `console.error` — Raw console logging throughout (no structured logging library)
+- Workers prefix log lines with `[workers]` and service name for job disambiguation
+
+**Monitoring:**
+- Amazon CloudWatch — Lambda metrics, DLQ depth alarms
+  - Defined in: `infra/compute/index.ts`
 
 ## Notifications / Webhooks
 
 **Slack:**
-- Slack incoming webhooks / API - Agent Ops notifications and alerts
-  - Files: `web-ui/lib/agent-ops/slack-notifier.ts`, `web-ui/lib/agent-ops/slack-validator.ts`
+- Slack incoming webhooks / API — Agent Ops notifications and alerts
   - Env var: `SLACK_SIGNING_SECRET`
 
 **Jira:**
-- Atlassian Jira REST API - Issue creation and webhook callbacks from CI/CD events
-  - Files: `web-ui/lib/agent-ops/jira-notifier.ts`, `web-ui/lib/agent-ops/jira-validator.ts`
+- Atlassian Jira REST API — Issue creation and webhook callbacks
   - Env vars: `JIRA_WEBHOOK_SECRET`, `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
 
 **SNS Email:**
-- Amazon SNS email subscriptions - Scheduler action alerts; env var `SUBSCRIPTION_EMAILS`
+- Amazon SNS email subscriptions — Scheduler action alerts
+  - Env var: `SUBSCRIPTION_EMAILS`
 
-## Data Stores
+## Environment Configuration
 
-**Primary Application Database:**
-- Amazon DynamoDB (single-table) - All application entities (accounts, schedules, resources, agent ops)
-  - Env vars: `APP_TABLE_NAME` (default: `nucleus-app-app-table`), `AUDIT_TABLE_NAME`
+**Required env vars (web-ui):**
+- `DATABASE_URL` — PostgreSQL connection string
+- `AWS_REGION` — AWS region
+- `NEXTAUTH_SECRET` — NextAuth session encryption
+- `COGNITO_USER_POOL_ID` — Cognito user pool
+- `COGNITO_USER_POOL_CLIENT_ID` — Cognito app client
 
-**Agent Checkpointing:**
-- Amazon DynamoDB - LangGraph checkpoint tables for fast-agent and planning-agent
-  - Env vars: `DYNAMODB_CHECKPOINT_TABLE`, `DYNAMODB_WRITES_TABLE`
-  - Client: `@farukada/aws-langgraph-dynamodb-ts` ^0.1.0
+**Required env vars (workers):**
+- `DATABASE_URL` — PostgreSQL connection string (shared with pg-boss)
 
-**Deep Agent Persistence (optional):**
-- MongoDB / AWS DocumentDB - LangGraph MongoDB checkpointer for deep-agent
-  - Package: `mongodb` ^7.1.0, `@langchain/langgraph-checkpoint-mongodb` ^1.2.0
-  - Env vars: `MONGODB_URI`, `MONGODB_DB_NAME` (commented out by default)
+**Required env vars (lambda/scheduler):**
+- `DATABASE_URL` — PostgreSQL connection string (`connection_limit=3`)
 
-**Object Storage:**
-- Amazon S3 - Normalized inventory JSON, vector processor payloads, KB documents, CDK Lambda assets
-  - Env var: `CHECKPOINT_S3_BUCKET`
-
-**Vector Store:**
-- Amazon S3 Vectors - Semantic embeddings for inventory Ask AI feature
-  - Packages: `cdk-s3-vectors`, `@aws-sdk/client-s3vectors`
-
-**Iceberg Tables:**
-- Amazon S3 Tables (Apache Iceberg) - Columnar inventory data storage
-  - Package: `@aws-cdk/aws-s3tables-alpha`, `pyiceberg[s3fs,glue]`
-
-**Local Dev Observability (Docker Compose):**
-- PostgreSQL 16 - Langfuse metadata/auth store (`docker-compose.langfuse.yml`)
-- ClickHouse 24.12 - Langfuse trace analytics store (`docker-compose.langfuse.yml`)
-- Redis - Langfuse queue/cache (`docker-compose.langfuse.yml`)
-- MinIO - Langfuse local S3-compatible blob store (`docker-compose.langfuse.yml`)
+**Secrets location:**
+- `.env.local` (web-ui, gitignored)
+- `.env` (workers, root — gitignored)
+- Pulumi secrets encrypted via KMS (`awskms://alias/pulumi-secrets`)
+- ECS task definitions inject env vars at runtime from Pulumi config
 
 ---
 
-*Integration audit: 2026-03-26*
+*Integration audit: 2026-04-08*

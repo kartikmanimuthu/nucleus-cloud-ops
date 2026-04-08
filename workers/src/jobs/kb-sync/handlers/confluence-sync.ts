@@ -1,6 +1,9 @@
 import { chunkText } from '../lib/chunking.js';
 import { embedAndStore } from '../lib/embedding.js';
 import type { ConfluenceSyncJob } from '../types.js';
+import { createLogger } from '../../../lib/logger.js';
+
+const log = createLogger('kb-sync/confluence');
 
 // ---------------------------------------------------------------------------
 // SSRF guard
@@ -101,13 +104,13 @@ export async function handleConfluenceSync(job: ConfluenceSyncJob): Promise<stri
     return true;
   });
 
-  console.log(`[KB Sync] Confluence: ${pages.length} pages to ingest`);
+  log.info('Pages to ingest', { count: pages.length });
 
   const allKeys: string[] = [];
   for (const page of pages) {
     const text = page.body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text) continue;
-    const keys = await embedAndStore({ chunks: chunkText(text, page.title), kbId: job.kbId, dsId: job.dsId, sourceType: 'confluence', docName: page.title, docId: page.id, extra: { confluencePageId: page.id } });
+    const keys = await embedAndStore({ chunks: chunkText(text, page.title), kbId: job.kbId, dsId: job.dsId, sourceType: 'confluence', docName: page.title, tenantId: job.tenantId, docId: page.id, extra: { confluencePageId: page.id } });
     allKeys.push(...keys);
   }
   return allKeys;

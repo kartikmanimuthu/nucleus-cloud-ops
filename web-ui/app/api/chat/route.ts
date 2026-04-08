@@ -98,7 +98,11 @@ export async function POST(req: Request) {
             ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content.slice(0, 60) : "New Conversation")
             : "New Chat";
 
-        if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
+        if (process.env.USE_PG_LANGGRAPH === 'true') {
+            // PG mode: session metadata is implicitly created when messages are persisted
+            // via chatHistory.addMessages() in the finally block — no eager seeding needed.
+            console.log(`[Chat API] PG mode — session metadata will be seeded on first message persist for thread ${threadId}`);
+        } else if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
             // Eagerly create session metadata so the thread appears in the sidebar immediately
             try {
                 const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb');
@@ -319,8 +323,8 @@ export async function POST(req: Request) {
             const lastMsg = result.messages[result.messages.length - 1];
             let content = lastMsg.content;
 
-            // Persist NEW messages from this turn to DynamoDB chat history (non-streaming path)
-            if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
+            // Persist NEW messages from this turn to chat history (non-streaming path)
+            if (process.env.DYNAMODB_CHAT_HISTORY_TABLE || process.env.USE_PG_LANGGRAPH === 'true') {
                 try {
                     const allMessages: BaseMessage[] = result.messages ?? [];
                     const newMessages = allMessages.slice(preRunMessageCount);
@@ -684,8 +688,8 @@ function processStream(
                 }
             } finally {
 
-                // Persist NEW messages from this turn to DynamoDB chat history
-                if (process.env.DYNAMODB_CHAT_HISTORY_TABLE && threadId && graph && config && resolvedUserId) {
+                // Persist NEW messages from this turn to chat history
+                if ((process.env.DYNAMODB_CHAT_HISTORY_TABLE || process.env.USE_PG_LANGGRAPH === 'true') && threadId && graph && config && resolvedUserId) {
                     try {
                         const finalState = await graph.getState(config);
                         const allMessages: BaseMessage[] = finalState?.values?.messages ?? [];

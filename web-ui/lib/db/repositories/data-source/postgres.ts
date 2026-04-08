@@ -22,6 +22,8 @@ function rowToDS(row: {
     vectorKeys: string[];
     lastSyncAt: Date | null;
     lastSyncError: string | null;
+    lastErrorMessage: string | null;
+    lastErrorDetail: string | null;
     createdAt: Date;
     updatedAt: Date;
 }): DataSource {
@@ -36,6 +38,8 @@ function rowToDS(row: {
         vectorKeys: row.vectorKeys,
         lastSyncAt: row.lastSyncAt?.toISOString(),
         lastSyncError: row.lastSyncError ?? undefined,
+        lastErrorMessage: row.lastErrorMessage ?? undefined,
+        lastErrorDetail: row.lastErrorDetail ?? undefined,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
     };
@@ -99,6 +103,8 @@ export class DataSourcePostgresRepository implements IDataSourceRepository {
                 'vectorKeys',
                 'lastSyncAt',
                 'lastSyncError',
+                'lastErrorMessage',
+                'lastErrorDetail',
             ] as const;
 
             const data: Record<string, unknown> = {};
