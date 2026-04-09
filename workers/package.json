@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx --env-file=.env --watch src/index.ts",
     "start": "node --env-file=.env dist/index.js",
+    "start:job-runner": "node --env-file=.env dist/job-runner.js",
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
