@@ -25,8 +25,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
-    getAwsCredentialsTool,
-    listAwsAccountsTool,
+    createGetAwsCredentialsTool,
+    createListAwsAccountsTool,
 } from '../agent/tools';
 import { getActiveMCPTools } from '../agent/agent-shared';
 import { getMongoClient } from './db/mongo-client';
@@ -163,6 +163,8 @@ export async function createDeepAgentGraph(config: DeepAgentConfig) {
     }
 
     // --- Tools ---
+    const getAwsCredentialsTool = createGetAwsCredentialsTool(tenantId);
+    const listAwsAccountsTool = createListAwsAccountsTool(tenantId);
     const baseTools = [
         getAwsCredentialsTool,
         listAwsAccountsTool,

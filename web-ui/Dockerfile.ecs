@@ -36,7 +36,10 @@ ENV NEXT_PUBLIC_AUDIT_TABLE_NAME=NucleusAuditTable
 ENV NEXT_PUBLIC_AWS_USE_STS=true
 
 # Generate Prisma client before building (required for @prisma/client to initialize)
-RUN npx prisma@5 generate --schema=./prisma/schema.prisma
+# In this Docker context, web-ui/ contents are copied directly into /app/ (not /app/web-ui/),
+# so patch the schema output path from ../web-ui/node_modules to ../node_modules before generating.
+RUN sed -i 's|"../web-ui/node_modules/.prisma/client"|"../node_modules/.prisma/client"|' ./prisma/schema.prisma && \
+    npx prisma@5 generate --schema=./prisma/schema.prisma
 
 # Build the application
 RUN npm run build
@@ -99,6 +102,11 @@ COPY --from=builder /app/package.json ./package.json
 # This places server.js and necessary node_modules in /app
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+
+# Copy generated Prisma client (not included in standalone output)
+# prisma generate outputs to /app/node_modules/.prisma/client (after sed patch above)
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
 
 
 # Create symbolic link for cache

@@ -63,7 +63,6 @@ const databaseSubnetIds = networking.requireOutput("databaseSubnetIds") as pulum
 const intraSubnetIds = networking.requireOutput("intraSubnetIds") as pulumi.Output<string[]>;
 const availabilityZones = networking.requireOutput("availabilityZones") as pulumi.Output<string[]>;
 const dbSubnetGroupName = networking.requireOutput("dbSubnetGroupName") as pulumi.Output<string>;
-const cacheSubnetGroupName = networking.requireOutput("cacheSubnetGroupName") as pulumi.Output<string>;
 
 // ============================================================================
 // DYNAMODB TABLES
@@ -725,6 +724,16 @@ new aws.iam.RolePolicy("vector-processor-sqs-policy", {
 
 // Auto-build VectorProcessor Lambda — reruns when source changes
 const vectorSrcHash = hashDirectory(path.join(repoRoot, "lambda/vector_processor/src"));
+const vectorZipPath = path.join(repoRoot, "lambda/vector_processor/lambda.zip");
+// FileArchive hashes the zip at program-eval time (before Pulumi resource ordering),
+// so we must ensure the zip exists synchronously before declaring the Function resource.
+if (!fs.existsSync(vectorZipPath)) {
+    const { execSync } = require("child_process");
+    execSync(`bash ${repoRoot}/infra/build-lambdas.sh --lambda=vector_processor`, {
+        cwd: repoRoot,
+        stdio: "inherit",
+    });
+}
 const buildVectorProcessor = new command.local.Command("build-vector-processor", {
     create: `bash ${repoRoot}/infra/build-lambdas.sh --lambda=vector_processor`,
     update: `bash ${repoRoot}/infra/build-lambdas.sh --lambda=vector_processor`,
@@ -739,7 +748,7 @@ const vectorProcessorLambda = new aws.lambda.Function("vector-processor-lambda",
     runtime: "nodejs20.x",
     architectures: ["arm64"],
     handler: "index.handler",
-    code: new pulumi.asset.FileArchive("../../lambda/vector_processor/lambda.zip"),
+    code: new pulumi.asset.FileArchive(vectorZipPath),
     timeout: 900,
     memorySize: 1024,
     reservedConcurrentExecutions: 10,

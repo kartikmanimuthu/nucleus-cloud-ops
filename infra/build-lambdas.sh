@@ -24,13 +24,7 @@ build_vector_processor() {
         --external:@aws-sdk/client-s3 \
         --external:@aws-sdk/client-bedrock-runtime \
         --external:@aws-sdk/client-dynamodb \
-        --external:@aws-sdk/lib-dynamodb \
-        --external:@prisma/client \
-        --external:.prisma/client
-    mkdir -p lambda/vector_processor/dist/node_modules/@prisma
-    mkdir -p lambda/vector_processor/dist/node_modules/.prisma
-    cp -r node_modules/@prisma/client lambda/vector_processor/dist/node_modules/@prisma/
-    cp -r node_modules/.prisma/client lambda/vector_processor/dist/node_modules/.prisma/
+        --external:@aws-sdk/lib-dynamodb
     cd lambda/vector_processor/dist && zip -r ../lambda.zip . && cd ..
     echo "    Done: lambda/vector_processor/lambda.zip"
 }

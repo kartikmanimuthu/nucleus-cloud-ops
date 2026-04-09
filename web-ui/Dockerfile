@@ -70,6 +70,9 @@ COPY --from=builder /app/.next/static ./.next/static
 # Copy production node_modules from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 
+# Copy generated Prisma client from builder (prisma generate runs there, not in deps)
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
 # Create symbolic link for cache
 RUN ln -sf /tmp/cache ./.next/cache
 

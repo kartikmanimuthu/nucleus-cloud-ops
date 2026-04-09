@@ -8,9 +8,6 @@ import { handleBitbucketSync } from './handlers/bitbucket-sync.js';
 import { getDataSource, updateDS, updateKBVectorCount } from './lib/vector-store.js';
 import { deleteOldVectors } from './lib/embedding.js';
 import type { KBSyncJob } from './types.js';
-import { createLogger } from '../../lib/logger.js';
-
-const log = createLogger('kb-sync');
 
 const log = createLogger('kb-sync');
 
@@ -69,6 +66,8 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
         try {
           await executor.execute(JOB_NAME, job.data);
         } catch (err) {
+          const shortMessage = err instanceof Error ? err.message.slice(0, 200) : String(err);
+          const fullDetail = err instanceof Error ? (err.stack ?? err.message) : String(err);
           log.error(`Error ${job.data.type}`, { kbId: job.data.kbId, dsId: job.data.dsId, error: String(err) });
           try {
             await updateDS(job.data.kbId, job.data.dsId, {

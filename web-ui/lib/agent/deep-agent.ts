@@ -11,8 +11,8 @@ import {
     globTool,
     grepTool,
     webSearchTool,
-    getAwsCredentialsTool,
-    listAwsAccountsTool,
+    createGetAwsCredentialsTool,
+    createListAwsAccountsTool,
 } from "./tools";
 import { getSkillContent } from "./skills/skill-loader";
 import {
@@ -105,6 +105,8 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
     }
 
     // All tools available to the orchestrator agent
+    const getAwsCredentialsTool = createGetAwsCredentialsTool(tenantId);
+    const listAwsAccountsTool = createListAwsAccountsTool(tenantId);
     const allTools = [
         executeCommandTool,
         // readFileTool,
