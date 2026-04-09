@@ -22,8 +22,8 @@ async function loadActiveTasks(): Promise<Array<{ taskId: string; tenantId: stri
     const { PrismaClient } = await import('@prisma/client');
     const prisma = new PrismaClient();
     try {
-        const tasks = await prisma.agentOpsScheduledTask.findMany({
-            where: { taskStatus: 'active', deletedAt: null },
+        const tasks = await prisma.scheduledTask.findMany({
+            where: { taskStatus: 'active' },
             select: { taskId: true, tenantId: true, cronExpression: true, timezone: true },
         });
         return tasks;
