@@ -12,6 +12,7 @@
 
 import { BedrockEmbeddings } from "@langchain/aws";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
 import { getPrismaClient } from "@/lib/db/pg-config";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
