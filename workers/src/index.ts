@@ -3,6 +3,8 @@ import { createExecutor } from './executor/index.js';
 import { createLogger } from './lib/logger.js';
 import { register as registerSchedulerJobs } from './jobs/scheduler/index.js';
 import { register as registerKbSyncJobs } from './jobs/kb-sync/index.js';
+import { register as registerDiscoveryJobs } from './jobs/discovery/index.js';
+import { register as registerAgentOpsJobs } from './jobs/agent-ops-scheduler/index.js';
 
 const log = createLogger('workers');
 const boss = createBoss();
@@ -20,6 +22,8 @@ async function main() {
 
   await registerSchedulerJobs(boss, executor);
   await registerKbSyncJobs(boss, executor);
+  await registerDiscoveryJobs(boss, executor);
+  await registerAgentOpsJobs(boss, executor);
 
   log.info('All jobs registered. Waiting for work...');
 

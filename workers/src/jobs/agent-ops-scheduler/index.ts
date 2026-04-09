@@ -1,5 +1,6 @@
 import type PgBoss from 'pg-boss';
 import { createLogger } from '../../lib/logger.js';
+import type { JobExecutor } from '../../executor/index.js';
 
 const log = createLogger('agent-ops-scheduler');
 
@@ -7,7 +8,7 @@ const QUEUE_PREFIX = 'agent-ops-task';
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'internal-worker-key';
 const WEB_UI_BASE_URL = process.env.WEB_UI_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 
-interface TaskTickData {
+export interface TaskTickData {
     taskId: string;
     tenantId: string;
 }
@@ -31,8 +32,8 @@ async function loadActiveTasks(): Promise<Array<{ taskId: string; tenantId: stri
     }
 }
 
-async function handleTick(boss: PgBoss, job: PgBoss.Job<TaskTickData>): Promise<void> {
-    const { taskId, tenantId } = job.data;
+export async function handleAgentOpsTick(jobData: unknown): Promise<void> {
+    const { taskId, tenantId } = jobData as TaskTickData;
     log.info(`Tick: task=${taskId} tenant=${tenantId}`);
 
     try {
@@ -59,12 +60,13 @@ async function handleTick(boss: PgBoss, job: PgBoss.Job<TaskTickData>): Promise<
     }
 }
 
-export async function register(boss: PgBoss): Promise<void> {
+export async function register(boss: PgBoss, executor: JobExecutor): Promise<void> {
     const tasks = await loadActiveTasks();
 
     for (const task of tasks) {
         const queue = queueName(task.taskId);
         await boss.createQueue(queue);
+        executor.registerHandler?.(queue, handleAgentOpsTick);
         await boss.schedule(queue, task.cronExpression, {
             taskId: task.taskId,
             tenantId: task.tenantId,
@@ -72,7 +74,7 @@ export async function register(boss: PgBoss): Promise<void> {
 
         await boss.work(queue, { batchSize: 1 }, async (jobs: PgBoss.Job<TaskTickData>[]) => {
             for (const job of jobs) {
-                await handleTick(boss, job);
+                await executor.execute(queue, job.data);
             }
         });
     }
