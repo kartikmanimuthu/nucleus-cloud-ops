@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: Horizontal Worker Architecture
-status: verifying
-stopped_at: Phase 23 context gathered
-last_updated: "2026-04-09T04:42:53.964Z"
+status: executing
+stopped_at: Completed 23-01-PLAN.md
+last_updated: "2026-04-09T05:11:27.804Z"
 last_activity: 2026-04-09
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-08)
 
 **Core value:** Multi-tenant SaaS cloud ops platform with dual auth, custom RBAC, tenant isolation, invitations, org switching, and branding
-**Current focus:** v5.0 Horizontal Worker Architecture — WORKER_ARCH env-driven execution strategy for pg-boss jobs
+**Current focus:** Phase 23 — job-wiring-runner-entrypoint
 
 ## Current Position
 
-Phase: 23
-Plan: Not started
-Status: All plans complete — ready for verification
+Phase: 23 (job-wiring-runner-entrypoint) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-04-09
 
 Progress: [░░░░░░░░░░] 0%
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 21-audit-settings-regression-tests P02 | 18 | 2 tasks | 10 files |
 | Phase 22-executor-abstraction-foundation P01 | 4 | 2 tasks | 8 files |
 | Phase 22-executor-abstraction-foundation P02 | 12 | 2 tasks | 5 files |
+| Phase 23-job-wiring-runner-entrypoint P01 | 156 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 22-executor-abstraction-foundation]: VerticalExecutor propagates handler errors without wrapping — pg-boss retryLimit handles retries at queue level
 - [Phase 22-executor-abstraction-foundation]: register(boss, executor) — executor passed as second param, not imported globally, keeps job modules testable
 - [Phase 22-executor-abstraction-foundation]: Error handling stays in boss.work callback for kb-sync (updateDS on failure) — executor.execute only runs the happy path
+- [Phase 23-job-wiring-runner-entrypoint]: Discovery fan-out stays as direct boss.work — calls boss.send() for orchestration; only discovery-scan delegates through executor
+- [Phase 23-job-wiring-runner-entrypoint]: handleAgentOpsTick drops boss param — HTTP POST only, old handleTick(boss, job) signature was unnecessary
 
 ### Pending Todos
 
@@ -142,6 +145,6 @@ None.
 ## Session Continuity
 
 Last activity: 2026-04-09 - Executing Phase 22: Executor Abstraction Foundation
-Last session: 2026-04-09T04:42:53.959Z
-Stopped at: Phase 23 context gathered
-Resume file: .planning/phases/23-job-wiring-runner-entrypoint/23-CONTEXT.md
+Last session: 2026-04-09T05:11:27.801Z
+Stopped at: Completed 23-01-PLAN.md
+Resume file: None

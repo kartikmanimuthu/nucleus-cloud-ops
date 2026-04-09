@@ -69,9 +69,9 @@ Plans:
   2. Discovery job (fan-out + per-tenant scan) triggers via pg-boss and executes through the executor abstraction in vertical mode
   3. KB sync job (all 4 sub-types: file-upload, s3-sync, confluence-sync, bitbucket-sync) executes through the abstraction in vertical mode
   4. Running `node dist/job-runner.js --job <name> --data '<json>'` executes the correct handler and exits 0 on success, non-zero on failure
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
-- [ ] 23-01-PLAN.md — Wire discovery + agent-ops-scheduler through executor, register in entrypoint
+- [x] 23-01-PLAN.md — Wire discovery + agent-ops-scheduler through executor, register in entrypoint
 - [ ] 23-02-PLAN.md — Standalone job-runner.ts entrypoint + export handlers
 
 ### Phase 24: Horizontal Executor + Infra
@@ -103,5 +103,5 @@ Plans:
 | 20. Knowledge Base & Channels Isolation | v4.0 | 2/2 | Complete | 2026-04-03 |
 | 21. Audit, Settings & Regression Tests | v4.0 | 3/3 | Complete | 2026-04-03 |
 | 22. Executor Abstraction Foundation | v5.0 | 1/2 | Complete    | 2026-04-09 |
-| 23. Job Wiring + Runner Entrypoint | v5.0 | 0/? | Not started | - |
+| 23. Job Wiring + Runner Entrypoint | v5.0 | 1/2 | In Progress|  |
 | 24. Horizontal Executor + Infra | v5.0 | 0/? | Not started | - |
