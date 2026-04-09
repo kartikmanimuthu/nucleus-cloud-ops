@@ -40,7 +40,7 @@ See [archive](milestones/v4.0-ROADMAP.md) for full phase details.
 
 ### v5.0 Horizontal Worker Architecture
 
-- [ ] **Phase 22: Executor Abstraction Foundation** - JobExecutor interface + VerticalExecutor with WORKER_ARCH env switching
+- [x] **Phase 22: Executor Abstraction Foundation** - JobExecutor interface + VerticalExecutor with WORKER_ARCH env switching (completed 2026-04-09)
 - [ ] **Phase 23: Job Wiring + Runner Entrypoint** - All 3 jobs delegate through abstraction; standalone job-runner.ts entrypoint
 - [ ] **Phase 24: Horizontal Executor + Infra** - HorizontalExecutor ECS RunTask dispatch + Pulumi task definition and IAM
 
@@ -55,7 +55,7 @@ See [archive](milestones/v4.0-ROADMAP.md) for full phase details.
   2. Worker starts with WORKER_ARCH=horizontal and selects a strategy without crashing (stub acceptable at this phase)
   3. VerticalExecutor.execute(jobName, jobData) invokes the registered handler in-process and returns
   4. All existing job behavior is unchanged when WORKER_ARCH=vertical — zero regression on scheduler, discovery, kb-sync
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 22-01-PLAN.md — Executor module: JobExecutor interface, VerticalExecutor, HorizontalExecutor stub, factory, tests
 - [ ] 22-02-PLAN.md — Wire executor into entrypoint and all 4 job register() functions
@@ -96,6 +96,6 @@ Plans:
 | 19. Inventory & Agent Ops Isolation | v4.0 | 2/2 | Complete | 2026-04-03 |
 | 20. Knowledge Base & Channels Isolation | v4.0 | 2/2 | Complete | 2026-04-03 |
 | 21. Audit, Settings & Regression Tests | v4.0 | 3/3 | Complete | 2026-04-03 |
-| 22. Executor Abstraction Foundation | v5.0 | 1/2 | In Progress | - |
+| 22. Executor Abstraction Foundation | v5.0 | 1/2 | Complete    | 2026-04-09 |
 | 23. Job Wiring + Runner Entrypoint | v5.0 | 0/? | Not started | - |
 | 24. Horizontal Executor + Infra | v5.0 | 0/? | Not started | - |
