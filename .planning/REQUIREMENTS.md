@@ -52,23 +52,23 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EXEC-01 | — | Pending |
-| EXEC-02 | — | Pending |
-| EXEC-03 | — | Pending |
-| EXEC-04 | — | Pending |
-| WIRE-01 | — | Pending |
-| WIRE-02 | — | Pending |
-| WIRE-03 | — | Pending |
-| WIRE-04 | — | Pending |
-| INFRA-01 | — | Pending |
-| INFRA-02 | — | Pending |
-| INFRA-03 | — | Pending |
+| EXEC-01 | Phase 22 | Pending |
+| EXEC-02 | Phase 22 | Pending |
+| EXEC-03 | Phase 22 | Pending |
+| EXEC-04 | Phase 24 | Pending |
+| WIRE-01 | Phase 23 | Pending |
+| WIRE-02 | Phase 23 | Pending |
+| WIRE-03 | Phase 23 | Pending |
+| WIRE-04 | Phase 23 | Pending |
+| INFRA-01 | Phase 24 | Pending |
+| INFRA-02 | Phase 24 | Pending |
+| INFRA-03 | Phase 24 | Pending |
 
 **Coverage:**
 - v5.0 requirements: 11 total
-- Mapped to phases: 0
-- Unmapped: 11 ⚠️
+- Mapped to phases: 11
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-08*
-*Last updated: 2026-04-08 after initial definition*
+*Last updated: 2026-04-08 — traceability mapped after roadmap creation*
