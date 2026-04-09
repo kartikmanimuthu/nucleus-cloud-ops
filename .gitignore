@@ -1,3 +1,7 @@
+
+# distribution
+/dist
+
 # Kiro CLI
 .kiro/chats
 

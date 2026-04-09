@@ -1,5 +1,17 @@
 # Milestones
 
+## v5.0 Horizontal Worker Architecture (Shipped: 2026-04-09)
+
+**Phases completed:** 3 phases, 6 plans, 4 tasks
+
+**Key accomplishments:**
+
+- JobExecutor interface + VerticalExecutor (Map-based in-process dispatch) + HorizontalExecutor (no-op stub) + createExecutor factory, with 7 passing unit tests.
+- Executor wired into workers entrypoint and both job register() functions updated to accept JobExecutor, route boss.work callbacks through executor.execute(), and use structured logging.
+- One-liner:
+
+---
+
 ## v3.0 Multi-Tenancy (Shipped: 2026-04-01)
 
 **Phases completed:** 6 phases (12–17), 18 plans
@@ -16,6 +28,7 @@
 - Org switcher in sidebar (multi-org dropdown, single-org static display), tenant settings (display name, timezone, notifications, logo upload via S3 presigned URLs)
 
 **Known deferrals:**
+
 - ADMIN-01–07: Super Admin Panel → v4.0
 - SUSP-01–04: Tenant Suspension → v4.0
 

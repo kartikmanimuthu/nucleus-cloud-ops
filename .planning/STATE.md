@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: Horizontal Worker Architecture
 status: executing
-stopped_at: Completed 22-01-PLAN.md
-last_updated: "2026-04-09T03:57:19.957Z"
+stopped_at: Completed 23-02-PLAN.md
+last_updated: "2026-04-09T09:21:04.600Z"
 last_activity: 2026-04-09
 progress:
   total_phases: 3
-  completed_phases: 0
-  total_plans: 2
-  completed_plans: 1
+  completed_phases: 3
+  total_plans: 6
+  completed_plans: 6
   percent: 0
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-08)
 
 **Core value:** Multi-tenant SaaS cloud ops platform with dual auth, custom RBAC, tenant isolation, invitations, org switching, and branding
-**Current focus:** v5.0 Horizontal Worker Architecture — WORKER_ARCH env-driven execution strategy for pg-boss jobs
+**Current focus:** Phase 24 — horizontal-executor-infra
 
 ## Current Position
 
-Phase: 22 (Executor Abstraction Foundation) — EXECUTING
-Plan: 1 of 2
-Status: Wave 1 complete — executing wave 2
+Phase: 24
+Plan: Not started
+Status: Executing Phase 24
 Last activity: 2026-04-09
 
 Progress: [░░░░░░░░░░] 0%
@@ -59,6 +59,9 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 21-audit-settings-regression-tests P03 | 8 | 2 tasks | 6 files |
 | Phase 21-audit-settings-regression-tests P02 | 18 | 2 tasks | 10 files |
 | Phase 22-executor-abstraction-foundation P01 | 4 | 2 tasks | 8 files |
+| Phase 22-executor-abstraction-foundation P02 | 12 | 2 tasks | 5 files |
+| Phase 23-job-wiring-runner-entrypoint P01 | 156 | 2 tasks | 3 files |
+| Phase 23-job-wiring-runner-entrypoint P02 | 10 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -86,6 +89,16 @@ See PROJECT.md Key Decisions table for full log.
 - [260406-rju]: Per-tenant pg-boss queues (scheduler-scan:<tenantId>) registered on workers startup; scheduler-reschedule queue handles live interval changes
 - [Phase 22-executor-abstraction-foundation]: registerHandler? optional on JobExecutor interface — avoids forcing HorizontalExecutor to implement it and lets job files call it without importing VerticalExecutor directly
 - [Phase 22-executor-abstraction-foundation]: VerticalExecutor propagates handler errors without wrapping — pg-boss retryLimit handles retries at queue level
+
+- [260406-rju]: Scheduler settings backed by TenantConfigService (key: scheduler-cron) — no EventBridge dependency
+- [260406-rju]: Per-tenant pg-boss queues (scheduler-scan:<tenantId>) registered on workers startup; scheduler-reschedule queue handles live interval changes
+- [Phase 22-executor-abstraction-foundation]: registerHandler? optional on JobExecutor interface — avoids forcing HorizontalExecutor to implement it and lets job files call it without importing VerticalExecutor directly
+- [Phase 22-executor-abstraction-foundation]: VerticalExecutor propagates handler errors without wrapping — pg-boss retryLimit handles retries at queue level
+- [Phase 22-executor-abstraction-foundation]: register(boss, executor) — executor passed as second param, not imported globally, keeps job modules testable
+- [Phase 22-executor-abstraction-foundation]: Error handling stays in boss.work callback for kb-sync (updateDS on failure) — executor.execute only runs the happy path
+- [Phase 23-job-wiring-runner-entrypoint]: Discovery fan-out stays as direct boss.work — calls boss.send() for orchestration; only discovery-scan delegates through executor
+- [Phase 23-job-wiring-runner-entrypoint]: handleAgentOpsTick drops boss param — HTTP POST only, old handleTick(boss, job) signature was unnecessary
+- [Phase 23-job-wiring-runner-entrypoint]: Manual process.argv parsing in job-runner — zero extra dependencies for 2 CLI args
 
 ### Pending Todos
 
@@ -138,6 +151,6 @@ None.
 ## Session Continuity
 
 Last activity: 2026-04-09 - Executing Phase 22: Executor Abstraction Foundation
-Last session: 2026-04-09T03:57:19.953Z
-Stopped at: Completed 22-01-PLAN.md
-Resume file: .planning/phases/22-executor-abstraction-foundation/22-CONTEXT.md
+Last session: 2026-04-09T05:14:43.127Z
+Stopped at: Completed 23-02-PLAN.md
+Resume file: None

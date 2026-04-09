@@ -7,6 +7,12 @@ generator client {
   binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
 }
 
+generator clientWorkers {
+  provider      = "prisma-client-js"
+  output        = "../workers/node_modules/.prisma/client"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
