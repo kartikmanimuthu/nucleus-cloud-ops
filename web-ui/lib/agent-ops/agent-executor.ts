@@ -135,7 +135,7 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
             }
 
             try {
-                const processed = await processLangGraphEvent(runId, event, toolsUsed);
+                const processed = await processLangGraphEvent(runId, tenantId, event, toolsUsed);
                 if (processed) {
                     iterationCount += processed.iterationDelta || 0;
                     totalInputTokens += processed.inputTokens || 0;
@@ -352,6 +352,7 @@ interface EventProcessingResult {
 
 async function processLangGraphEvent(
     runId: string,
+    tenantId: string,
     event: any,
     toolsUsed: Set<string>
 ): Promise<EventProcessingResult> {
@@ -562,7 +563,7 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
                 break;
             }
             try {
-                const processed = await processLangGraphEvent(runId, event, toolsUsed);
+                const processed = await processLangGraphEvent(runId, tenantId, event, toolsUsed);
                 if (processed) {
                     iterationCount += processed.iterationDelta || 0;
                     totalInputTokens += processed.inputTokens || 0;
