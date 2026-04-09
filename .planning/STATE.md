@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v4.0
-milestone_name: Tenant Isolation Hardening
-status: in_progress
-stopped_at: Phase 21 complete — v4.0 milestone complete
-last_updated: "2026-04-03"
-last_activity: 2026-04-03
+milestone: v1.0
+milestone_name: milestone
+status: verifying
+stopped_at: Completed 22-01-PLAN.md
+last_updated: "2026-04-09T03:57:19.957Z"
+last_activity: 2026-04-09
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  total_phases: 11
+  completed_phases: 10
+  total_plans: 26
+  completed_plans: 27
+  percent: 0
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-03)
 Phase: 18 (Accounts & Scheduler Isolation) — EXECUTING
 Plan: 2 of 2
 Status: Phase complete — ready for verification
-Last activity: 2026-04-03
+Last activity: 2026-04-09
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 21-audit-settings-regression-tests P01 | 10 | 2 tasks | 6 files |
 | Phase 21-audit-settings-regression-tests P03 | 8 | 2 tasks | 6 files |
 | Phase 21-audit-settings-regression-tests P02 | 18 | 2 tasks | 10 files |
+| Phase 22-executor-abstraction-foundation P01 | 4 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,8 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 21-audit-settings-regression-tests]: Mock at service layer for static-class routes; mock at repo/service-object layer for direct-call routes
 - [Phase 21-audit-settings-regression-tests]: audit-logs.test.ts: session-error path returns 500 with AuditService never called — proves no unscoped data path
 - [Phase 21-audit-settings-regression-tests]: Repos with cross-tenant methods mock both getTenantClient and getPrismaClient; isolation assertions only cover tenant-scoped methods
+- [Phase 22-executor-abstraction-foundation]: registerHandler? optional on JobExecutor interface — avoids forcing HorizontalExecutor to implement it and lets job files call it without importing VerticalExecutor directly
+- [Phase 22-executor-abstraction-foundation]: VerticalExecutor propagates handler errors without wrapping — pg-boss retryLimit handles retries at queue level
 
 ### Pending Todos
 
@@ -117,6 +120,6 @@ None.
 ## Session Continuity
 
 Last activity: 2026-04-04 - Completed quick task 260404-g74: Add role editing for team members and pagination to both Team Members and Pending Invitations grids on the Settings Members page
-Last session: 2026-04-03T21:22:04.473Z
-Stopped at: Completed 21-02-PLAN.md
+Last session: 2026-04-09T03:57:19.953Z
+Stopped at: Completed 22-01-PLAN.md
 Resume file: None
