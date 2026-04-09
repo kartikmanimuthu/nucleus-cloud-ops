@@ -103,5 +103,5 @@ Plans:
 | 20. Knowledge Base & Channels Isolation | v4.0 | 2/2 | Complete | 2026-04-03 |
 | 21. Audit, Settings & Regression Tests | v4.0 | 3/3 | Complete | 2026-04-03 |
 | 22. Executor Abstraction Foundation | v5.0 | 1/2 | Complete    | 2026-04-09 |
-| 23. Job Wiring + Runner Entrypoint | v5.0 | 2/2 | Complete   | 2026-04-09 |
+| 23. Job Wiring + Runner Entrypoint | v5.0 | 2/2 | Complete    | 2026-04-09 |
 | 24. Horizontal Executor + Infra | v5.0 | 0/? | Not started | - |
