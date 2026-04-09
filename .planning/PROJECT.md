@@ -8,7 +8,7 @@ AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops age
 
 A fully operational multi-tenant cloud ops SaaS: every user authenticates via Cognito or email/password, every query is tenant-scoped, every action is role-checked, and tenants can self-service onboard, invite members, switch orgs, and configure branding.
 
-## Current Milestone: v5.0 Horizontal Worker Architecture
+## Current Milestone: v6.0 (TBD)
 
 **Goal:** Add a WORKER_ARCH env-driven execution strategy so pg-boss jobs can either run in-process (vertical, current behavior) or dispatch to ephemeral ECS Fargate tasks (horizontal, production-grade).
 
@@ -22,7 +22,7 @@ A fully operational multi-tenant cloud ops SaaS: every user authenticates via Co
 
 ## Current State
 
-**v4.0 Tenant Isolation Hardening shipped 2026-04-03.** All 4 phases (18–21), 9 plans complete. Every PostgreSQL CRUD operation across all modules is correctly scoped to the active tenant via `getTenantClient()`. 10 repository test files + 6 cross-tenant API isolation test files added as regression coverage.
+**v5.0 Horizontal Worker Architecture shipped 2026-04-09.** All 3 phases (22–24), 6 plans complete. Workers now have a pluggable JobExecutor abstraction — WORKER_ARCH=vertical runs jobs in-process (default), WORKER_ARCH=horizontal dispatches each job to an ephemeral ECS Fargate task via RunTask. All 3 jobs (scheduler, discovery, kb-sync) wired through the abstraction. Pulumi provisions the ephemeral task definition, CloudWatch log group, and IAM dispatch policy.
 
 ## Requirements
 
@@ -61,14 +61,16 @@ A fully operational multi-tenant cloud ops SaaS: every user authenticates via Co
 - ✓ Full AuditService call site sweep — all writes include tenantId — v4.0
 - ✓ Regression tests: 10 repo test files + 6 cross-tenant API isolation tests — v4.0
 
-### Active — v5.0
+### Validated — v5.0
 
-- [ ] Generic JobExecutor abstraction with vertical/horizontal strategy
-- [ ] VerticalExecutor: in-process job execution (current behavior)
-- [ ] HorizontalExecutor: ECS RunTask dispatch per job
-- [ ] WORKER_ARCH env variable to switch execution strategy
-- [ ] All 3 jobs (scheduler, discovery, kb-sync) wired through abstraction
-- [ ] ECS task definition + Pulumi infra for ephemeral worker containers
+- ✓ Generic JobExecutor abstraction with vertical/horizontal strategy — EXEC-01, EXEC-02
+- ✓ VerticalExecutor: in-process job execution (current behavior, zero regression) — EXEC-03
+- ✓ HorizontalExecutor: ECS RunTask dispatch per job with exponential backoff polling — EXEC-04
+- ✓ All 3 jobs (scheduler, discovery, kb-sync) wired through abstraction — WIRE-01, WIRE-02, WIRE-03
+- ✓ Standalone job-runner.ts entrypoint for ephemeral container execution — WIRE-04
+- ✓ ECS task definition + Pulumi infra for ephemeral worker containers — INFRA-01, INFRA-02, INFRA-03
+
+### Active — v6.0
 
 ### Out of Scope
 
@@ -144,5 +146,12 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
+| registerHandler? optional on JobExecutor | Avoids forcing HorizontalExecutor to implement it | ✓ Shipped v5.0 |
+| VerticalExecutor propagates handler errors without wrapping | pg-boss retryLimit handles retries at queue level | ✓ Shipped v5.0 |
+| register(boss, executor) — executor passed as second param | Keeps job modules testable without global imports | ✓ Shipped v5.0 |
+| HorizontalExecutor reads env vars at execute() time | Clear errors on first dispatch attempt, not at startup | ✓ Shipped v5.0 |
+| Exponential backoff 2s initial / 30s cap | Balances responsiveness vs ECS DescribeTasks API throttling | ✓ Shipped v5.0 |
+| workersSecurityGroup moved before workersTaskDef | Required so SG ID can be referenced in HORIZONTAL_SECURITY_GROUP env var | ✓ Shipped v5.0 |
+
 ---
-*Last updated: 2026-04-08 after v5.0 milestone start*
+*Last updated: 2026-04-09 after v5.0 milestone*
