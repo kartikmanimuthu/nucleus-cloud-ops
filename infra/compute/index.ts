@@ -1740,6 +1740,8 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
             { name: "HORIZONTAL_TASK_DEF_ARN", value: ephTaskDefArn },
             { name: "HORIZONTAL_SUBNETS", value: subnetsJoined },
             { name: "HORIZONTAL_SECURITY_GROUP", value: workersSgId },
+            { name: "HORIZONTAL_TASK_TIMEOUT_MS", value: "900000" },
+            { name: "WORKER_ARCH", value: "horizontal" },
         ],
     }])),
 });
