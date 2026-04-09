@@ -1546,15 +1546,21 @@ new aws.iam.RolePolicy("workers-s3-policy", {
     ),
 });
 
+// Ephemeral workers CloudWatch log group — short-lived job tasks
+const ephemeralWorkersLogGroup = new aws.cloudwatch.LogGroup("ephemeral-workers-log-group", {
+    name: "/ecs/nucleus-cloud-ops-ephemeral-workers",
+    retentionInDays: 7,
+});
+
 new aws.iam.RolePolicy("workers-logs-policy", {
     role: workersTaskRole.id,
-    policy: workersLogGroup.arn.apply(logArn =>
+    policy: pulumi.all([workersLogGroup.arn, ephemeralWorkersLogGroup.arn]).apply(([logArn, ephLogArn]) =>
         JSON.stringify({
             Version: "2012-10-17",
             Statement: [{
                 Effect: "Allow",
                 Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
-                Resource: [logArn, `${logArn}:*`],
+                Resource: [logArn, `${logArn}:*`, ephLogArn, `${ephLogArn}:*`],
             }],
         })
     ),
@@ -1572,6 +1578,107 @@ new aws.iam.RolePolicy("workers-rds-connect-policy", {
             }],
         })
     ),
+});
+
+// Ephemeral worker task definition — lightweight tasks for horizontal dispatch
+const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task-def", {
+    family: "nucleus-cloud-ops-ephemeral-worker-task",
+    cpu: "256",
+    memory: "512",
+    networkMode: "awsvpc",
+    requiresCompatibilities: ["FARGATE"],
+    executionRoleArn: ecsTaskExecutionRole.arn,
+    taskRoleArn: workersTaskRole.arn,
+    runtimePlatform: {
+        cpuArchitecture: "ARM64",
+        operatingSystemFamily: "LINUX",
+    },
+    containerDefinitions: pulumi.all([
+        appTable.name,
+        auditTable.name,
+        kbStagingBucket.bucket,
+        ephemeralWorkersLogGroup.name,
+        databaseUrl,
+        snsTopic.arn,
+        workersImage.imageUri,
+    ]).apply(([
+        appTableN, auditTableN, kbStagingBucketN,
+        ephLogGroupN, databaseUrlVal, snsTopicArn, imageUri,
+    ]) => JSON.stringify([{
+        name: "WorkersContainer",
+        image: imageUri,
+        essential: true,
+        logConfiguration: {
+            logDriver: "awslogs",
+            options: {
+                "awslogs-group": ephLogGroupN,
+                "awslogs-region": region,
+                "awslogs-stream-prefix": "ephemeral",
+            },
+        },
+        environment: [
+            { name: "NODE_ENV", value: "production" },
+            { name: "AWS_REGION", value: region },
+            { name: "DATABASE_URL", value: databaseUrlVal.includes("?") ? `${databaseUrlVal}&sslmode=no-verify` : `${databaseUrlVal}?sslmode=no-verify` },
+            { name: "APP_TABLE_NAME", value: appTableN },
+            { name: "AUDIT_TABLE_NAME", value: auditTableN },
+            { name: "SNS_TOPIC_ARN", value: snsTopicArn },
+            { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
+            { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
+            { name: "KB_VECTOR_INDEX_NAME", value: "knowledge-base-embeddings" },
+            { name: "KB_STAGING_BUCKET_NAME", value: kbStagingBucketN },
+            { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
+            { name: "USE_PG_SCHEDULES", value: "true" },
+            { name: "USE_PG_KB", value: "true" },
+            { name: "LOG_LEVEL", value: "info" },
+        ],
+    }])),
+});
+
+// IAM policy for workers to dispatch ECS tasks (horizontal executor)
+new aws.iam.RolePolicy("workers-ecs-dispatch-policy", {
+    role: workersTaskRole.id,
+    policy: pulumi.all([ephemeralWorkerTaskDef.arn, ecsCluster.arn, workersTaskRole.arn, ecsTaskExecutionRole.arn]).apply(
+        ([taskDefArn, clusterArn, taskRoleArn, execRoleArn]) =>
+            JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Effect: "Allow",
+                        Action: ["ecs:RunTask"],
+                        Resource: [taskDefArn],
+                    },
+                    {
+                        Effect: "Allow",
+                        Action: ["ecs:DescribeTasks"],
+                        Resource: ["*"],
+                        Condition: {
+                            ArnEquals: {
+                                "ecs:cluster": clusterArn,
+                            },
+                        },
+                    },
+                    {
+                        Effect: "Allow",
+                        Action: ["iam:PassRole"],
+                        Resource: [taskRoleArn, execRoleArn],
+                    },
+                ],
+            })
+    ),
+});
+
+const workersSecurityGroup = new aws.ec2.SecurityGroup("workers-sg", {
+    name: "nucleus-cloud-ops-workers-sg",
+    description: "Security group for pg-boss workers - egress only",
+    vpcId: vpcId,
+    egress: [{
+        fromPort: 0,
+        toPort: 0,
+        protocol: "-1",
+        cidrBlocks: ["0.0.0.0/0"],
+        description: "Allow all outbound for AWS API calls + PostgreSQL",
+    }],
 });
 
 const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
@@ -1594,9 +1701,14 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
         databaseUrl,
         snsTopic.arn,
         workersImage.imageUri,
+        ecsCluster.arn,
+        ephemeralWorkerTaskDef.arn,
+        workersSecurityGroup.id,
+        privateSubnetIds.apply(ids => ids.join(",")),
     ]).apply(([
         appTableN, auditTableN, kbStagingBucketN,
         workersLogGroupN, databaseUrlVal, snsTopicArn, imageUri,
+        clusterArn, ephTaskDefArn, workersSgId, subnetsJoined,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
         image: imageUri,
@@ -1624,21 +1736,12 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
             { name: "USE_PG_SCHEDULES", value: "true" },
             { name: "USE_PG_KB", value: "true" },
             { name: "LOG_LEVEL", value: "info" },
+            { name: "HORIZONTAL_CLUSTER_ARN", value: clusterArn },
+            { name: "HORIZONTAL_TASK_DEF_ARN", value: ephTaskDefArn },
+            { name: "HORIZONTAL_SUBNETS", value: subnetsJoined },
+            { name: "HORIZONTAL_SECURITY_GROUP", value: workersSgId },
         ],
     }])),
-});
-
-const workersSecurityGroup = new aws.ec2.SecurityGroup("workers-sg", {
-    name: "nucleus-cloud-ops-workers-sg",
-    description: "Security group for pg-boss workers - egress only",
-    vpcId: vpcId,
-    egress: [{
-        fromPort: 0,
-        toPort: 0,
-        protocol: "-1",
-        cidrBlocks: ["0.0.0.0/0"],
-        description: "Allow all outbound for AWS API calls + PostgreSQL",
-    }],
 });
 
 const workersService = new aws.ecs.Service("workers-service", {
@@ -1669,6 +1772,7 @@ export const originVerifySecretValue = pulumi.secret(originVerifySecret.result);
 // Workers ECS exports
 export const workersServiceName = workersService.name;
 export const workersEcrRepoUrl = workersEcrRepo.repositoryUrl;
+export const ephemeralWorkerTaskDefArn = ephemeralWorkerTaskDef.arn;
 
 // ============================================================================
 // PHASE 11: S3 VECTORS + S3 TABLES — CloudFormation Stack Wrappers
