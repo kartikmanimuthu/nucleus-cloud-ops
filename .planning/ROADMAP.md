@@ -85,8 +85,8 @@ Plans:
   4. The IAM task role grants STS AssumeRole, RDS connect, S3 read/write, and Bedrock invoke — sufficient for all 3 job types
 **Plans:** 2 plans
 Plans:
-- [x] 23-01-PLAN.md — Wire discovery + agent-ops-scheduler through executor, register in entrypoint
-- [ ] 23-02-PLAN.md — Standalone job-runner.ts entrypoint + export handlers
+- [ ] 24-01-PLAN.md — HorizontalExecutor ECS RunTask dispatch with polling
+- [ ] 24-02-PLAN.md — Pulumi ephemeral task definition, log group, IAM, env var wiring
 
 ## Progress
 
@@ -102,6 +102,6 @@ Plans:
 | 19. Inventory & Agent Ops Isolation | v4.0 | 2/2 | Complete | 2026-04-03 |
 | 20. Knowledge Base & Channels Isolation | v4.0 | 2/2 | Complete | 2026-04-03 |
 | 21. Audit, Settings & Regression Tests | v4.0 | 3/3 | Complete | 2026-04-03 |
-| 22. Executor Abstraction Foundation | v5.0 | 1/2 | Complete    | 2026-04-09 |
+| 22. Executor Abstraction Foundation | v5.0 | 2/2 | Complete    | 2026-04-09 |
 | 23. Job Wiring + Runner Entrypoint | v5.0 | 2/2 | Complete    | 2026-04-09 |
-| 24. Horizontal Executor + Infra | v5.0 | 0/? | Not started | - |
+| 24. Horizontal Executor + Infra | v5.0 | 0/2 | In progress | - |
