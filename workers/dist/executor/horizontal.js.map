@@ -1,0 +1,1 @@
+{"version":3,"file":"horizontal.js","sourceRoot":"","sources":["../../src/executor/horizontal.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,YAAY,EAAE,MAAM,kBAAkB,CAAC;AAGhD,MAAM,GAAG,GAAG,YAAY,CAAC,qBAAqB,CAAC,CAAC;AAEhD,MAAM,OAAO,kBAAkB;IAC3B,KAAK,CAAC,OAAO,CAAC,OAAe,EAAE,QAAiB;QAC5C,GAAG,CAAC,IAAI,CAAC,iEAAiE,EAAE,EAAE,OAAO,EAAE,CAAC,CAAC;IAC7F,CAAC;CACJ"}

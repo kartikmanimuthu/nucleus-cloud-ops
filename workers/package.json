@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "db:generate": "../node_modules/.bin/prisma generate --schema=../prisma/schema.prisma",
     "dev": "tsx --env-file=.env --watch src/index.ts",
     "start": "node --env-file=.env dist/index.js",
     "start:job-runner": "node --env-file=.env dist/job-runner.js",
