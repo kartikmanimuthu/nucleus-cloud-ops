@@ -8,7 +8,7 @@ const log = createLogger('scheduler');
 
 const JOB_NAME = 'scheduler-scan';
 
-async function handleSchedulerJob(jobData: unknown): Promise<void> {
+export async function handleSchedulerJob(jobData: unknown): Promise<void> {
   const event = jobData as SchedulerEvent | undefined;
   const isPartialScan = event?.scheduleId || event?.scheduleName;
   const triggeredBy = event?.triggeredBy || 'system';

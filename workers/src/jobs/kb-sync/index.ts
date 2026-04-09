@@ -13,7 +13,7 @@ const log = createLogger('kb-sync');
 
 const JOB_NAME = 'kb-sync';
 
-async function handleKbSyncJob(jobData: unknown): Promise<void> {
+export async function handleKbSyncJob(jobData: unknown): Promise<void> {
   const job = jobData as KBSyncJob;
   const { kbId, dsId } = job;
 
