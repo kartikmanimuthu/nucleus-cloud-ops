@@ -2,6 +2,7 @@ import type PgBoss from 'pg-boss';
 import { createLogger } from '../../lib/logger.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { runFullScan, runPartialScan } from './services/scheduler-service.js';
+import { getActiveTenants, getTenantSchedulerConfig } from './services/pg-service.js';
 import type { SchedulerEvent } from './types/index.js';
 
 const log = createLogger('scheduler');

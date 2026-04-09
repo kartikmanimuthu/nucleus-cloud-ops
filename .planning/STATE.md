@@ -85,6 +85,10 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 21-audit-settings-regression-tests]: Mock at service layer for static-class routes; mock at repo/service-object layer for direct-call routes
 - [Phase 21-audit-settings-regression-tests]: audit-logs.test.ts: session-error path returns 500 with AuditService never called — proves no unscoped data path
 - [Phase 21-audit-settings-regression-tests]: Repos with cross-tenant methods mock both getTenantClient and getPrismaClient; isolation assertions only cover tenant-scoped methods
+- [260406-rju]: Scheduler settings backed by TenantConfigService (key: scheduler-cron) — no EventBridge dependency
+- [260406-rju]: Per-tenant pg-boss queues (scheduler-scan:<tenantId>) registered on workers startup; scheduler-reschedule queue handles live interval changes
+- [Phase 22-executor-abstraction-foundation]: registerHandler? optional on JobExecutor interface — avoids forcing HorizontalExecutor to implement it and lets job files call it without importing VerticalExecutor directly
+- [Phase 22-executor-abstraction-foundation]: VerticalExecutor propagates handler errors without wrapping — pg-boss retryLimit handles retries at queue level
 
 - [260406-rju]: Scheduler settings backed by TenantConfigService (key: scheduler-cron) — no EventBridge dependency
 - [260406-rju]: Per-tenant pg-boss queues (scheduler-scan:<tenantId>) registered on workers startup; scheduler-reschedule queue handles live interval changes

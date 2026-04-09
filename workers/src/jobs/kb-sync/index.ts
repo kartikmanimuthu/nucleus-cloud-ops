@@ -8,6 +8,9 @@ import { handleBitbucketSync } from './handlers/bitbucket-sync.js';
 import { getDataSource, updateDS, updateKBVectorCount } from './lib/vector-store.js';
 import { deleteOldVectors } from './lib/embedding.js';
 import type { KBSyncJob } from './types.js';
+import { createLogger } from '../../lib/logger.js';
+
+const log = createLogger('kb-sync');
 
 const log = createLogger('kb-sync');
 
@@ -70,7 +73,9 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
           try {
             await updateDS(job.data.kbId, job.data.dsId, {
               status: 'error',
-              lastSyncError: err instanceof Error ? err.message : 'Sync failed',
+              lastSyncError: shortMessage,
+              lastErrorMessage: shortMessage,
+              lastErrorDetail: fullDetail,
             });
           } catch (e) {
             log.error('Error update failed', { error: String(e) });
