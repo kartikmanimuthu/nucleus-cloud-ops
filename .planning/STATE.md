@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v5.0
 milestone_name: Horizontal Worker Architecture
 status: executing
-stopped_at: Completed 22-01-PLAN.md
-last_updated: "2026-04-09T03:57:19.957Z"
+stopped_at: Completed 22-02-PLAN.md
+last_updated: "2026-04-09T04:24:57.389Z"
 last_activity: 2026-04-09
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-04-08)
 ## Current Position
 
 Phase: 22 (Executor Abstraction Foundation) — EXECUTING
-Plan: 1 of 2
-Status: Wave 1 complete — executing wave 2
+Plan: 2 of 2
+Status: All plans complete — ready for verification
 Last activity: 2026-04-09
 
 Progress: [░░░░░░░░░░] 0%
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 21-audit-settings-regression-tests P03 | 8 | 2 tasks | 6 files |
 | Phase 21-audit-settings-regression-tests P02 | 18 | 2 tasks | 10 files |
 | Phase 22-executor-abstraction-foundation P01 | 4 | 2 tasks | 8 files |
+| Phase 22-executor-abstraction-foundation P02 | 12 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -82,10 +83,13 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 21-audit-settings-regression-tests]: Mock at service layer for static-class routes; mock at repo/service-object layer for direct-call routes
 - [Phase 21-audit-settings-regression-tests]: audit-logs.test.ts: session-error path returns 500 with AuditService never called — proves no unscoped data path
 - [Phase 21-audit-settings-regression-tests]: Repos with cross-tenant methods mock both getTenantClient and getPrismaClient; isolation assertions only cover tenant-scoped methods
+<<<<<<< HEAD
 - [260406-rju]: Scheduler settings backed by TenantConfigService (key: scheduler-cron) — no EventBridge dependency
 - [260406-rju]: Per-tenant pg-boss queues (scheduler-scan:<tenantId>) registered on workers startup; scheduler-reschedule queue handles live interval changes
 - [Phase 22-executor-abstraction-foundation]: registerHandler? optional on JobExecutor interface — avoids forcing HorizontalExecutor to implement it and lets job files call it without importing VerticalExecutor directly
 - [Phase 22-executor-abstraction-foundation]: VerticalExecutor propagates handler errors without wrapping — pg-boss retryLimit handles retries at queue level
+- [Phase 22-executor-abstraction-foundation]: register(boss, executor) — executor passed as second param, not imported globally, keeps job modules testable
+- [Phase 22-executor-abstraction-foundation]: Error handling stays in boss.work callback for kb-sync (updateDS on failure) — executor.execute only runs the happy path
 
 ### Pending Todos
 
@@ -138,6 +142,6 @@ None.
 ## Session Continuity
 
 Last activity: 2026-04-09 - Executing Phase 22: Executor Abstraction Foundation
-Last session: 2026-04-09T03:57:19.953Z
-Stopped at: Completed 22-01-PLAN.md
+Last session: 2026-04-09T04:24:57.386Z
+Stopped at: Completed 22-02-PLAN.md
 Resume file: .planning/phases/22-executor-abstraction-foundation/22-CONTEXT.md

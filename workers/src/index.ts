@@ -1,32 +1,32 @@
 import { createBoss } from './boss.js';
+import { createExecutor } from './executor/index.js';
+import { createLogger } from './lib/logger.js';
 import { register as registerSchedulerJobs } from './jobs/scheduler/index.js';
 import { register as registerKbSyncJobs } from './jobs/kb-sync/index.js';
-import { register as registerDiscoveryJobs } from './jobs/discovery/index.js';
-import { register as registerAgentOpsSchedulerJobs } from './jobs/agent-ops-scheduler/index.js';
 
+const log = createLogger('workers');
 const boss = createBoss();
+const executor = createExecutor(process.env.WORKER_ARCH ?? 'vertical');
 
 async function main() {
-  console.log('[workers] Starting pg-boss...');
+  log.info('Starting pg-boss...');
 
   boss.on('error', (error) => {
-    console.error('[workers] pg-boss error:', error);
+    log.error('pg-boss error', { error: String(error) });
   });
 
   await boss.start();
-  console.log('[workers] pg-boss started');
+  log.info('pg-boss started');
 
-  await registerSchedulerJobs(boss);
-  await registerKbSyncJobs(boss);
-  await registerDiscoveryJobs(boss);
-  await registerAgentOpsSchedulerJobs(boss);
+  await registerSchedulerJobs(boss, executor);
+  await registerKbSyncJobs(boss, executor);
 
-  console.log('[workers] All jobs registered. Waiting for work...');
+  log.info('All jobs registered. Waiting for work...');
 
   const shutdown = async (signal: string) => {
-    console.log(`[workers] Received ${signal}, shutting down...`);
+    log.info(`Received ${signal}, shutting down...`);
     await boss.stop({ graceful: true, timeout: 30000 });
-    console.log('[workers] pg-boss stopped');
+    log.info('pg-boss stopped');
     process.exit(0);
   };
 
@@ -35,6 +35,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('[workers] Fatal error:', err);
+  log.error('Fatal error', { error: String(err) });
   process.exit(1);
 });
