@@ -69,7 +69,10 @@ Plans:
   2. Discovery job (fan-out + per-tenant scan) triggers via pg-boss and executes through the executor abstraction in vertical mode
   3. KB sync job (all 4 sub-types: file-upload, s3-sync, confluence-sync, bitbucket-sync) executes through the abstraction in vertical mode
   4. Running `node dist/job-runner.js --job <name> --data '<json>'` executes the correct handler and exits 0 on success, non-zero on failure
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 23-01-PLAN.md — Wire discovery + agent-ops-scheduler through executor, register in entrypoint
+- [ ] 23-02-PLAN.md — Standalone job-runner.ts entrypoint + export handlers
 
 ### Phase 24: Horizontal Executor + Infra
 **Goal**: HorizontalExecutor dispatches each pg-boss job to an ephemeral ECS Fargate task via RunTask, and Pulumi provisions all required infrastructure
@@ -80,7 +83,10 @@ Plans:
   2. The ephemeral ECS task runs job-runner.js, completes the job, and exits — pg-boss marks the job complete when the handler returns
   3. Pulumi provisions the ephemeral worker task definition, security group, and CloudWatch log group without errors on `pulumi up`
   4. The IAM task role grants STS AssumeRole, RDS connect, S3 read/write, and Bedrock invoke — sufficient for all 3 job types
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 23-01-PLAN.md — Wire discovery + agent-ops-scheduler through executor, register in entrypoint
+- [ ] 23-02-PLAN.md — Standalone job-runner.ts entrypoint + export handlers
 
 ## Progress
 
