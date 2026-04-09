@@ -55,7 +55,10 @@ See [archive](milestones/v4.0-ROADMAP.md) for full phase details.
   2. Worker starts with WORKER_ARCH=horizontal and selects a strategy without crashing (stub acceptable at this phase)
   3. VerticalExecutor.execute(jobName, jobData) invokes the registered handler in-process and returns
   4. All existing job behavior is unchanged when WORKER_ARCH=vertical — zero regression on scheduler, discovery, kb-sync
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 22-01-PLAN.md — Executor module: JobExecutor interface, VerticalExecutor, HorizontalExecutor stub, factory, tests
+- [ ] 22-02-PLAN.md — Wire executor into entrypoint and all 4 job register() functions
 
 ### Phase 23: Job Wiring + Runner Entrypoint
 **Goal**: All 3 pg-boss jobs delegate execution through the JobExecutor abstraction, and a standalone job-runner entrypoint can execute any job by name and exit cleanly
@@ -93,6 +96,6 @@ See [archive](milestones/v4.0-ROADMAP.md) for full phase details.
 | 19. Inventory & Agent Ops Isolation | v4.0 | 2/2 | Complete | 2026-04-03 |
 | 20. Knowledge Base & Channels Isolation | v4.0 | 2/2 | Complete | 2026-04-03 |
 | 21. Audit, Settings & Regression Tests | v4.0 | 3/3 | Complete | 2026-04-03 |
-| 22. Executor Abstraction Foundation | v5.0 | 0/? | Not started | - |
+| 22. Executor Abstraction Foundation | v5.0 | 0/2 | Not started | - |
 | 23. Job Wiring + Runner Entrypoint | v5.0 | 0/? | Not started | - |
 | 24. Horizontal Executor + Infra | v5.0 | 0/? | Not started | - |
