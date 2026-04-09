@@ -44,8 +44,8 @@ export async function POST(req: Request) {
             clientId: req.headers.get('x-client-id') || undefined,
         };
 
-        // 5. Create run record
-        const tenantId = req.headers.get('x-tenant-id') || 'default';
+        // 5. Create run record — prefer session tenantId, fall back to header, then 'default'
+        const tenantId = session?.user?.tenantId || req.headers.get('x-tenant-id') || 'default';
         const run = await agentOpsService.createRun({
             tenantId,
             source: 'api',

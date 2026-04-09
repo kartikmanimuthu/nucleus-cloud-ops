@@ -2,7 +2,7 @@
  * AgentOps Jira Settings API Route
  *
  * GET /api/agent-ops/settings/jira — Returns Jira config (secrets masked)
- * PUT /api/agent-ops/settings/jira — Validates and saves Jira config to DynamoDB
+ * PUT /api/agent-ops/settings/jira — Validates and saves Jira config to PostgreSQL
  */
 
 import { NextResponse } from 'next/server';

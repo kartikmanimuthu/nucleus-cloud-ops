@@ -2,7 +2,7 @@
  * AgentOps Slack Settings API Route
  *
  * GET /api/agent-ops/settings/slack — Returns Slack config (secrets masked)
- * PUT /api/agent-ops/settings/slack — Validates and saves Slack config to DynamoDB
+ * PUT /api/agent-ops/settings/slack — Validates and saves Slack config to PostgreSQL
  */
 
 import { NextResponse } from 'next/server';

@@ -1,7 +1,5 @@
 import { BaseMessage, AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { StateGraphArgs } from "@langchain/langgraph";
-import { FileSaver } from "./file-saver";
-import { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
 import { getCheckpointer as getPersistenceCheckpointer, getMemoryStore as getPersistenceMemoryStore } from "./persistence";
 
 
@@ -482,19 +480,8 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
 
 // --- State Definition ---
 // Delegate to persistence.ts which is the single source of truth for all LangGraph persistence.
-// persistence.ts respects USE_PG_LANGGRAPH feature flag and uses globalThis for singleton safety.
 
-export async function getCheckpointer(): Promise<BaseCheckpointSaver> {
-    // When neither PG nor DynamoDB is configured, fall back to file-based saver
-    const usePg = process.env.USE_PG_LANGGRAPH === 'true';
-    const hasDynamo = !!(process.env.DYNAMODB_CHECKPOINT_TABLE && process.env.DYNAMODB_WRITES_TABLE);
-    const hasDatabase = !!(process.env.DATABASE_URL);
-
-    if (!usePg && !hasDynamo && !hasDatabase) {
-        console.log("Using FileSystem Checkpointer (no DB configured)");
-        return new FileSaver();
-    }
-
+export async function getCheckpointer() {
     return getPersistenceCheckpointer();
 }
 

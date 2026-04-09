@@ -1,28 +1,15 @@
 /**
  * persistence.ts
  *
- * Unified singleton for all LangGraph persistence.
- * Supports two backends via USE_PG_LANGGRAPH feature flag:
+ * Unified singleton for all LangGraph persistence (PostgreSQL only).
  *
- * DynamoDB (default, USE_PG_LANGGRAPH !== 'true'):
- *   - DynamoDBSaver       → checkpoint state per thread
- *   - DynamoDBStore       → long-term semantic memory (Bedrock embeddings)
- *   - DynamoDBChatMessageHistory → chat session history
- *
- * PostgreSQL (USE_PG_LANGGRAPH === 'true'):
  *   - PostgresSaver       → checkpoint state per thread (@langchain/langgraph-checkpoint-postgres)
  *   - PostgresMemoryStore → long-term semantic memory (pgvector + Bedrock embeddings)
  *   - PostgresChatHistory → chat session history (ChatMessage Prisma model)
  *
- * Public API is identical for both backends — callers need zero changes.
  * Uses globalThis to survive Next.js hot reloads in dev mode.
  */
 
-import {
-    DynamoDBSaver,
-    DynamoDBStore,
-    DynamoDBChatMessageHistory,
-} from "@farukada/aws-langgraph-dynamodb-ts";
 import { BedrockEmbeddings } from "@langchain/aws";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
@@ -41,8 +28,8 @@ interface MemoryStoreInterface {
 }
 
 interface PersistenceInstances {
-    checkpointer: DynamoDBSaver | PostgresSaver;
-    store: DynamoDBStore | PostgresMemoryStore;
+    checkpointer: PostgresSaver;
+    store: PostgresMemoryStore;
     chatHistory: ChatHistoryInterface;
 }
 
@@ -190,84 +177,21 @@ class PostgresMemoryStore implements MemoryStoreInterface {
 
 async function initPersistence(): Promise<PersistenceInstances> {
     const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || "us-east-1";
-    const usePg = process.env.USE_PG_LANGGRAPH === "true";
+    const databaseUrl = process.env.DATABASE_URL!;
 
-    if (usePg) {
-        const databaseUrl = process.env.DATABASE_URL!;
+    // PostgresSaver manages its own schema — call setup() on first use
+    const checkpointer = PostgresSaver.fromConnString(databaseUrl);
+    await checkpointer.setup();
 
-        // PostgresSaver manages its own schema — call setup() on first use
-        const checkpointer = PostgresSaver.fromConnString(databaseUrl);
-        await checkpointer.setup();
-
-        const embeddings = new BedrockEmbeddings({
-            region,
-            model: "amazon.titan-embed-text-v2:0",
-        });
-
-        const store = new PostgresMemoryStore(embeddings);
-        const chatHistory = new PostgresChatHistory();
-
-        console.log("[Persistence] Initialized PostgresSaver, PostgresMemoryStore, PostgresChatHistory");
-        return { checkpointer, store, chatHistory };
-    }
-
-    // DynamoDB backend (default)
-    const checkpointsTableName = process.env.DYNAMODB_CHECKPOINT_TABLE!;
-    const writesTableName = process.env.DYNAMODB_WRITES_TABLE!;
-    const chatHistoryTableName = process.env.DYNAMODB_CHAT_HISTORY_TABLE!;
-    const memoryTableName = process.env.DYNAMODB_MEMORY_TABLE!;
-    const clientConfig = { region };
-    const bucketName = process.env.CHECKPOINT_S3_BUCKET;
-
-    const checkpointer = new DynamoDBSaver({
-        checkpointsTableName,
-        writesTableName,
-        ttlDays: 30,
-        compression: { enabled: true, minSizeBytes: 1024 },
-        ...(bucketName && {
-            s3OffloadConfig: {
-                bucketName,
-                keyPrefix: "langgraph/checkpoints/",
-            },
-        }),
-        clientConfig,
+    const embeddings = new BedrockEmbeddings({
+        region,
+        model: "amazon.titan-embed-text-v2:0",
     });
 
-    const store = new DynamoDBStore({
-        memoryTableName,
-        ttlDays: 90,
-        clientConfig,
-        embedding: new BedrockEmbeddings({
-            region,
-            model: "amazon.titan-embed-text-v2:0",
-        }),
-    });
+    const store = new PostgresMemoryStore(embeddings);
+    const chatHistory = new PostgresChatHistory();
 
-    // Note: ttlDays intentionally omitted — library uses 'ttl' reserved keyword without escaping
-    const dynamoHistory = new DynamoDBChatMessageHistory({
-        tableName: chatHistoryTableName,
-        clientConfig,
-    });
-    // Wrap in ChatHistoryInterface adapter (metadata not supported by DynamoDB backend)
-    // tenantId is accepted for interface compatibility but DynamoDB backend is single-tenant
-    const chatHistory: ChatHistoryInterface = {
-        addMessages: (_tenantId, userId, threadId, messages) => {
-            // DynamoDB backend expects BaseMessage instances, not plain objects
-            const baseMessages = messages.map(m => {
-                switch (m.role) {
-                    case 'human': case 'user': return new HumanMessage(m.content);
-                    case 'ai': case 'assistant': return new AIMessage(m.content);
-                    case 'tool': return new ToolMessage({ content: m.content, tool_call_id: (m.metadata?.tool_call_id as string) ?? '' });
-                    default: return new SystemMessage(m.content);
-                }
-            });
-            return dynamoHistory.addMessages(userId, threadId, baseMessages);
-        },
-        getMessages: (_tenantId, userId, threadId) => dynamoHistory.getMessages(userId, threadId),
-        clearMessages: (_tenantId, userId, threadId) => dynamoHistory.clearMessages(userId, threadId),
-    };
-
-    console.log("[Persistence] Initialized DynamoDBSaver, DynamoDBStore, DynamoDBChatMessageHistory");
+    console.log("[Persistence] Initialized PostgresSaver, PostgresMemoryStore, PostgresChatHistory");
     return { checkpointer, store, chatHistory };
 }
 
@@ -290,11 +214,11 @@ async function getPersistence(): Promise<PersistenceInstances> {
 
 // ─── Getters ──────────────────────────────────────────────────────────────────
 
-export async function getCheckpointer(): Promise<DynamoDBSaver | PostgresSaver> {
+export async function getCheckpointer(): Promise<PostgresSaver> {
     return (await getPersistence()).checkpointer;
 }
 
-export async function getMemoryStore(): Promise<DynamoDBStore | PostgresMemoryStore> {
+export async function getMemoryStore(): Promise<PostgresMemoryStore> {
     return (await getPersistence()).store;
 }
 

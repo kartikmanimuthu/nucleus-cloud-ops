@@ -98,33 +98,12 @@ export async function POST(req: Request) {
             ? (typeof firstUserMsg.content === 'string' ? firstUserMsg.content.slice(0, 60) : "New Conversation")
             : "New Chat";
 
-        if (process.env.USE_PG_LANGGRAPH === 'true') {
-            // PG mode: session metadata is implicitly created when messages are persisted
-            // via chatHistory.addMessages() in the finally block — no eager seeding needed.
-            console.log(`[Chat API] PG mode — session metadata will be seeded on first message persist for thread ${threadId}`);
-        } else if (process.env.DYNAMODB_CHAT_HISTORY_TABLE) {
-            // Eagerly create session metadata so the thread appears in the sidebar immediately
-            try {
-                const { DynamoDBClient } = await import('@aws-sdk/client-dynamodb');
-                const { DynamoDBDocument } = await import('@aws-sdk/lib-dynamodb');
-                const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
-                const ddbDoc = DynamoDBDocument.from(new DynamoDBClient({ region }));
-                const now = Date.now();
-                await ddbDoc.update({
-                    TableName: process.env.DYNAMODB_CHAT_HISTORY_TABLE,
-                    Key: { userId: resolvedUserId, sessionId: threadId },
-                    UpdateExpression: 'SET title = if_not_exists(title, :t), createdAt = if_not_exists(createdAt, :c), updatedAt = :u, itemType = :it, messageCount = if_not_exists(messageCount, :zero)',
-                    ExpressionAttributeValues: { ':t': title, ':c': now, ':u': now, ':it': 'metadata', ':zero': 0 },
-                });
-            } catch (e) {
-                console.warn('[Chat API] Failed to seed session metadata:', e);
-            }
-        } else {
+        // Eagerly create session metadata so the thread appears in the sidebar immediately
+        try {
             const { threadStore } = await import('@/lib/store/thread-store');
-            const existing = await threadStore.getThread(threadId);
-            if (!existing) {
-                await threadStore.createThread(threadId, title, model);
-            }
+            await threadStore.createThread(threadId, title, model, resolvedTenantId, resolvedUserId);
+        } catch (e) {
+            console.warn('[Chat API] Failed to seed session metadata:', e);
         }
 
         console.log(`\n🚀 [API] New Request Started`);
@@ -324,7 +303,7 @@ export async function POST(req: Request) {
             let content = lastMsg.content;
 
             // Persist NEW messages from this turn to chat history (non-streaming path)
-            if (process.env.DYNAMODB_CHAT_HISTORY_TABLE || process.env.USE_PG_LANGGRAPH === 'true') {
+            {
                 try {
                     const allMessages: BaseMessage[] = result.messages ?? [];
                     const newMessages = allMessages.slice(preRunMessageCount);
@@ -689,7 +668,7 @@ function processStream(
             } finally {
 
                 // Persist NEW messages from this turn to chat history
-                if ((process.env.DYNAMODB_CHAT_HISTORY_TABLE || process.env.USE_PG_LANGGRAPH === 'true') && threadId && graph && config && resolvedUserId) {
+                if (threadId && graph && config && resolvedUserId) {
                     try {
                         const finalState = await graph.getState(config);
                         const allMessages: BaseMessage[] = finalState?.values?.messages ?? [];

@@ -127,7 +127,7 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
           <p className="text-muted-foreground mb-4">
             {error || "The requested execution could not be found."}
           </p>
-          <Link href={`/schedules/${scheduleId}`}>
+          <Link href={`/app/schedules/${encodeURIComponent(scheduleId)}`}>
             <Button>Back to Schedule</Button>
           </Link>
         </div>
@@ -153,7 +153,7 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <Link href={`/schedules/${encodeURIComponent(scheduleId)}`}>
+            <Link href={`/app/schedules/${encodeURIComponent(scheduleId)}`}>
               <Button variant="outline" size="sm">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Schedule

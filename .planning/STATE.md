@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: verifying
-stopped_at: Completed quick 260408-1ew-PLAN.md
-last_updated: "2026-04-07T19:56:30.114Z"
-last_activity: 2026-04-06
+milestone: v5.0
+milestone_name: Horizontal Worker Architecture
+status: executing
+stopped_at: Completed 22-01-PLAN.md
+last_updated: "2026-04-09T03:57:19.957Z"
+last_activity: 2026-04-09
 progress:
-  total_phases: 10
-  completed_phases: 10
-  total_plans: 26
-  completed_plans: 26
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-03)
+See: .planning/PROJECT.md (updated 2026-04-08)
 
 **Core value:** Multi-tenant SaaS cloud ops platform with dual auth, custom RBAC, tenant isolation, invitations, org switching, and branding
-**Current focus:** Phase 18 — Accounts & Scheduler Isolation
+**Current focus:** v5.0 Horizontal Worker Architecture — WORKER_ARCH env-driven execution strategy for pg-boss jobs
 
 ## Current Position
 
-Phase: 18 (Accounts & Scheduler Isolation) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-04-06
+Phase: 22 (Executor Abstraction Foundation) — EXECUTING
+Plan: 1 of 2
+Status: Wave 1 complete — executing wave 2
+Last activity: 2026-04-09
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 21-audit-settings-regression-tests P01 | 10 | 2 tasks | 6 files |
 | Phase 21-audit-settings-regression-tests P03 | 8 | 2 tasks | 6 files |
 | Phase 21-audit-settings-regression-tests P02 | 18 | 2 tasks | 10 files |
+| Phase 22-executor-abstraction-foundation P01 | 4 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ See PROJECT.md Key Decisions table for full log.
 - [Phase 21-audit-settings-regression-tests]: Repos with cross-tenant methods mock both getTenantClient and getPrismaClient; isolation assertions only cover tenant-scoped methods
 - [260406-rju]: Scheduler settings backed by TenantConfigService (key: scheduler-cron) — no EventBridge dependency
 - [260406-rju]: Per-tenant pg-boss queues (scheduler-scan:<tenantId>) registered on workers startup; scheduler-reschedule queue handles live interval changes
+- [Phase 22-executor-abstraction-foundation]: registerHandler? optional on JobExecutor interface — avoids forcing HorizontalExecutor to implement it and lets job files call it without importing VerticalExecutor directly
+- [Phase 22-executor-abstraction-foundation]: VerticalExecutor propagates handler errors without wrapping — pg-boss retryLimit handles retries at queue level
 
 ### Pending Todos
 
@@ -128,10 +131,13 @@ None.
 | 260408-1ew | Remove S3 Vectors, store KB embeddings in PostgreSQL pgvector | 2026-04-07 | ddd638e | [260408-1ew-remove-s3-vectors-implementation-store-k](./quick/260408-1ew-remove-s3-vectors-implementation-store-k/) |
 | 260408-1mm | Fix inventory discovery worker reliability — singletonKey silent drops, expiry blocking, status persistence | 2026-04-07 | — | [260408-1mm-fix-inventory-discovery-worker-job-not-t](./quick/260408-1mm-fix-inventory-discovery-worker-job-not-t/) |
 | 260408-32q | Fix discovery scanner stuck — not scanning all AWS account resources | 2026-04-07 | — | [260408-32q-fix-discovery-scanner-stuck-not-scanning](./quick/260408-32q-fix-discovery-scanner-stuck-not-scanning/) |
+| 260408-nhh | Remove DynamoDB dead code and feature flags from agent persistence — PostgreSQL only | 2026-04-08 | 519c9a8 | [260408-nhh-remove-dynamodb-dead-code-and-feature-fl](./quick/260408-nhh-remove-dynamodb-dead-code-and-feature-fl/) |
+| 260408-stg | Fix back button navigation across all modules to prevent 404 errors | 2026-04-08 | — | [260408-stg-fix-back-button-navigation-across-all-mo](./quick/260408-stg-fix-back-button-navigation-across-all-mo/) |
+| 260408-t9s | Remove DynamoDB dependencies from agent-ops module, use PostgreSQL only, agent-ops scheduled tasks should use pg-boss | 2026-04-08 | f192312 | [260408-t9s-remove-dynamodb-dependencies-from-agent-](./quick/260408-t9s-remove-dynamodb-dependencies-from-agent-/) |
 
 ## Session Continuity
 
-Last activity: 2026-04-07 - Completed quick task 260408-32q: Fix discovery scanner stuck — not scanning all AWS account resources
-Last session: 2026-04-07T19:56:30.110Z
-Stopped at: Completed quick 260408-1ew-PLAN.md
-Resume file: None
+Last activity: 2026-04-09 - Executing Phase 22: Executor Abstraction Foundation
+Last session: 2026-04-09T03:57:19.953Z
+Stopped at: Completed 22-01-PLAN.md
+Resume file: .planning/phases/22-executor-abstraction-foundation/22-CONTEXT.md

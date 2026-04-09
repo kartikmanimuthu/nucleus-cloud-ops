@@ -1,5 +1,4 @@
-import fs from 'fs';
-import path from 'path';
+import { getPrismaClient } from "@/lib/db/pg-config";
 
 export interface Thread {
     id: string;
@@ -7,97 +6,101 @@ export interface Thread {
     createdAt: number;
     updatedAt: number;
     model?: string;
-}
-
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
-const THREADS_FILE = path.join(DATA_DIR, 'threads.json');
-
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-// Ensure threads file exists
-if (!fs.existsSync(THREADS_FILE)) {
-    fs.writeFileSync(THREADS_FILE, JSON.stringify([]));
+    ownerUserId?: string;
 }
 
 export class ThreadStore {
-    private getAllThreads(): Thread[] {
+    async listThreads(tenantId: string): Promise<Thread[]> {
+        const prisma = getPrismaClient();
+        const sessions = await prisma.chatSession.findMany({
+            where: { tenantId },
+            orderBy: { updatedAt: "desc" },
+            take: 50,
+        });
+        return sessions.map((s) => ({
+            id: s.sessionId,
+            title: s.title,
+            createdAt: s.createdAt.getTime(),
+            updatedAt: s.updatedAt.getTime(),
+            model: s.model ?? undefined,
+            ownerUserId: s.userId,
+        }));
+    }
+
+    async getThread(sessionId: string): Promise<Thread | undefined> {
+        const prisma = getPrismaClient();
+        const s = await prisma.chatSession.findUnique({ where: { sessionId } });
+        if (!s) return undefined;
+        return {
+            id: s.sessionId,
+            title: s.title,
+            createdAt: s.createdAt.getTime(),
+            updatedAt: s.updatedAt.getTime(),
+            model: s.model ?? undefined,
+            ownerUserId: s.userId,
+        };
+    }
+
+    async createThread(
+        sessionId: string,
+        title: string = "New Chat",
+        model?: string,
+        tenantId?: string,
+        userId?: string
+    ): Promise<Thread> {
+        const prisma = getPrismaClient();
+        const s = await prisma.chatSession.upsert({
+            where: { sessionId },
+            create: {
+                tenantId: tenantId ?? "default",
+                sessionId,
+                userId: userId ?? "default",
+                title,
+                model,
+            },
+            update: { title, updatedAt: new Date() },
+        });
+        return {
+            id: s.sessionId,
+            title: s.title,
+            createdAt: s.createdAt.getTime(),
+            updatedAt: s.updatedAt.getTime(),
+            model: s.model ?? undefined,
+            ownerUserId: s.userId,
+        };
+    }
+
+    async updateThread(sessionId: string, updates: Partial<{ title: string; model: string }>): Promise<Thread | undefined> {
+        const prisma = getPrismaClient();
         try {
-            const data = fs.readFileSync(THREADS_FILE, 'utf-8');
-            return JSON.parse(data);
-        } catch (error) {
-            console.error('Error reading threads file:', error);
-            return [];
+            const s = await prisma.chatSession.update({
+                where: { sessionId },
+                data: {
+                    ...(updates.title !== undefined && { title: updates.title }),
+                    ...(updates.model !== undefined && { model: updates.model }),
+                },
+            });
+            return {
+                id: s.sessionId,
+                title: s.title,
+                createdAt: s.createdAt.getTime(),
+                updatedAt: s.updatedAt.getTime(),
+                model: s.model ?? undefined,
+                ownerUserId: s.userId,
+            };
+        } catch {
+            return undefined;
         }
     }
 
-    private saveThreads(threads: Thread[]): void {
+    async deleteThread(sessionId: string): Promise<boolean> {
+        const prisma = getPrismaClient();
         try {
-            fs.writeFileSync(THREADS_FILE, JSON.stringify(threads, null, 2));
-        } catch (error) {
-            console.error('Error writing threads file:', error);
-        }
-    }
-
-    async listThreads(): Promise<Thread[]> {
-        return this.getAllThreads().sort((a, b) => b.updatedAt - a.updatedAt);
-    }
-
-    async getThread(id: string): Promise<Thread | undefined> {
-        const threads = this.getAllThreads();
-        return threads.find(t => t.id === id);
-    }
-
-    async createThread(id: string, title: string = "New Chat", model?: string): Promise<Thread> {
-        const threads = this.getAllThreads();
-        const newThread: Thread = {
-            id,
-            title,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            model
-        };
-        threads.push(newThread);
-        this.saveThreads(threads);
-        return newThread;
-    }
-
-    async updateThread(id: string, updates: Partial<Thread>): Promise<Thread | undefined> {
-        const threads = this.getAllThreads();
-        const index = threads.findIndex(t => t.id === id);
-        if (index === -1) return undefined;
-
-        threads[index] = {
-            ...threads[index],
-            ...updates,
-            updatedAt: Date.now()
-        };
-        this.saveThreads(threads);
-        return threads[index];
-    }
-
-    async deleteThread(id: string): Promise<boolean> {
-        let threads = this.getAllThreads();
-        const initialLength = threads.length;
-        threads = threads.filter(t => t.id !== id);
-
-        if (threads.length !== initialLength) {
-            this.saveThreads(threads);
-
-            // Also try to delete the checkpoint file if it exists
-            try {
-                const checkpointFile = path.join(DATA_DIR, `${id}.json`);
-                if (fs.existsSync(checkpointFile)) {
-                    fs.unlinkSync(checkpointFile);
-                }
-            } catch (e) {
-                // Ignore error if checkpoint file doesn't exist
-            }
+            await prisma.chatSession.delete({ where: { sessionId } });
             return true;
+        } catch {
+            return false;
         }
-        return false;
     }
 }
 

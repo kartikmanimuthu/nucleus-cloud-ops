@@ -9,7 +9,7 @@
  *   - prompt-templates.ts  → prompt builders
  *   - model-factory.ts     → createAgentModels, assembleTools
  *   - agent-shared.ts      → sanitizeMessagesForBedrock, getRecentMessages, truncateOutput, llmAuditLog
- *   - persistence.ts       → DynamoDB checkpointer (short-term), DynamoDB store (long-term memory)
+ *   - persistence.ts       → PostgreSQL checkpointer (short-term), PostgreSQL store (long-term memory)
  *
  * Graph flow:
  *   evaluator → clarify (end)
@@ -56,7 +56,7 @@ import { filterMutativeToolCalls } from "./tool-classifier";
 export async function createDynamicExecutorGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, mcpServerIds, tenantId, userId } = config as any;
 
-    // ── Persistence (DynamoDB checkpointer + long-term memory store) ──────────
+    // ── Persistence (PostgreSQL checkpointer + long-term memory store) ────────
     const checkpointer = await getCheckpointer();
     const store = await getMemoryStore().catch(() => undefined);
 

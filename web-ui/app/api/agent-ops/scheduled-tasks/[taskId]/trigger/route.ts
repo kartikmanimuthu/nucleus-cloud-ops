@@ -5,12 +5,27 @@ import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { notifyScheduledRunResult } from '@/lib/agent-ops/scheduled-notifier';
 import { getSessionTenantId } from '@/lib/auth-session';
 
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'internal-worker-key';
+
+/**
+ * Resolve tenantId from either session auth or internal worker header.
+ * Workers pass x-internal-key + x-tenant-id to bypass NextAuth session.
+ */
+async function resolveTenantId(req: Request): Promise<string> {
+    const internalKey = req.headers.get('x-internal-key');
+    if (internalKey === INTERNAL_API_KEY) {
+        const tenantId = req.headers.get('x-tenant-id');
+        if (!tenantId) throw new Error('x-tenant-id header required for internal calls');
+        return tenantId;
+    }
+    return getSessionTenantId();
+}
+
 export async function POST(req: Request, { params }: { params: Promise<{ taskId: string }> }) {
     try {
         const { taskId } = await params;
-        const tenantId = await getSessionTenantId();
+        const tenantId = await resolveTenantId(req);
 
-        // Pre-flight ownership check (D-08)
         const task = await getScheduledTask(tenantId, taskId);
         if (!task) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 

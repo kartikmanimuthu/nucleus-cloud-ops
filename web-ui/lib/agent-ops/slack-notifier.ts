@@ -2,7 +2,7 @@
  * Slack result/error notifier
  *
  * Posts agent run results and errors back to Slack via response_url.
- * Errors are swallowed — the run record in DynamoDB already reflects final status.
+ * Errors are swallowed — the run record in PostgreSQL already reflects final status.
  */
 
 import { TenantConfigService } from '../tenant-config-service';

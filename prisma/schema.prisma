@@ -498,6 +498,22 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
+// ChatSession — thread metadata for AI agent chat sessions
+// Tracks thread title, owner, timestamps for sidebar listing
+model ChatSession {
+  id        String   @id @default(cuid())
+  tenantId  String
+  sessionId String   @unique // thread ID (tenantId:userId:timestamp format)
+  userId    String
+  title     String   @default("New Chat")
+  model     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, updatedAt])
+  @@map("chat_sessions")
+}
+
 // CustomRole — preset (global) and tenant-scoped custom roles with per-module permission sets (Phase 13 RBAC)
 // type: 'preset' = global (tenantId=null), 'custom' = tenant-scoped
 // permissions column stores PermissionSet shape: { Accounts: ['read','update'], ... }
