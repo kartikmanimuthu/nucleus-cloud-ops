@@ -42,7 +42,7 @@ See [archive](milestones/v4.0-ROADMAP.md) for full phase details.
 
 - [x] **Phase 22: Executor Abstraction Foundation** - JobExecutor interface + VerticalExecutor with WORKER_ARCH env switching (completed 2026-04-09)
 - [x] **Phase 23: Job Wiring + Runner Entrypoint** - All 3 jobs delegate through abstraction; standalone job-runner.ts entrypoint (completed 2026-04-09)
-- [ ] **Phase 24: Horizontal Executor + Infra** - HorizontalExecutor ECS RunTask dispatch + Pulumi task definition and IAM
+- [x] **Phase 24: Horizontal Executor + Infra** - HorizontalExecutor ECS RunTask dispatch + Pulumi task definition and IAM (completed 2026-04-09)
 
 ## Phase Details
 
@@ -83,10 +83,10 @@ Plans:
   2. The ephemeral ECS task runs job-runner.js, completes the job, and exits — pg-boss marks the job complete when the handler returns
   3. Pulumi provisions the ephemeral worker task definition, security group, and CloudWatch log group without errors on `pulumi up`
   4. The IAM task role grants STS AssumeRole, RDS connect, S3 read/write, and Bedrock invoke — sufficient for all 3 job types
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
-- [ ] 24-01-PLAN.md — HorizontalExecutor ECS RunTask dispatch with polling
-- [ ] 24-02-PLAN.md — Pulumi ephemeral task definition, log group, IAM, env var wiring
+- [x] 24-01-PLAN.md — HorizontalExecutor ECS RunTask dispatch with polling
+- [x] 24-02-PLAN.md — Pulumi ephemeral task definition, log group, IAM, env var wiring
 
 ## Progress
 
@@ -104,4 +104,4 @@ Plans:
 | 21. Audit, Settings & Regression Tests | v4.0 | 3/3 | Complete | 2026-04-03 |
 | 22. Executor Abstraction Foundation | v5.0 | 2/2 | Complete    | 2026-04-09 |
 | 23. Job Wiring + Runner Entrypoint | v5.0 | 2/2 | Complete    | 2026-04-09 |
-| 24. Horizontal Executor + Infra | v5.0 | 0/2 | In progress | - |
+| 24. Horizontal Executor + Infra | v5.0 | 2/2 | Complete   | 2026-04-09 |

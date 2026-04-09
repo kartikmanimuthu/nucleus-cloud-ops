@@ -17,7 +17,7 @@
 - [x] **WIRE-01**: Scheduler job (per-tenant cron scan) delegates execution through the executor abstraction
 - [x] **WIRE-02**: Discovery job (fan-out + per-tenant scan) delegates execution through the executor abstraction
 - [x] **WIRE-03**: KB sync job (file-upload, s3-sync, confluence-sync, bitbucket-sync) delegates execution through the executor abstraction
-- [ ] **WIRE-04**: Job runner entrypoint receives job name + data args, runs the handler directly, and exits the container
+- [x] **WIRE-04**: Job runner entrypoint receives job name + data args, runs the handler directly, and exits the container
 
 ### Infrastructure
 
@@ -59,7 +59,7 @@
 | WIRE-01 | Phase 23 | Complete |
 | WIRE-02 | Phase 23 | Complete |
 | WIRE-03 | Phase 23 | Complete |
-| WIRE-04 | Phase 23 | Pending |
+| WIRE-04 | Phase 23 | Complete |
 | INFRA-01 | Phase 24 | Pending |
 | INFRA-02 | Phase 24 | Pending |
 | INFRA-03 | Phase 24 | Pending |
