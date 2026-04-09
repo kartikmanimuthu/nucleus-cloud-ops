@@ -41,7 +41,7 @@ See [archive](milestones/v4.0-ROADMAP.md) for full phase details.
 ### v5.0 Horizontal Worker Architecture
 
 - [x] **Phase 22: Executor Abstraction Foundation** - JobExecutor interface + VerticalExecutor with WORKER_ARCH env switching (completed 2026-04-09)
-- [ ] **Phase 23: Job Wiring + Runner Entrypoint** - All 3 jobs delegate through abstraction; standalone job-runner.ts entrypoint
+- [x] **Phase 23: Job Wiring + Runner Entrypoint** - All 3 jobs delegate through abstraction; standalone job-runner.ts entrypoint (completed 2026-04-09)
 - [ ] **Phase 24: Horizontal Executor + Infra** - HorizontalExecutor ECS RunTask dispatch + Pulumi task definition and IAM
 
 ## Phase Details
@@ -69,10 +69,10 @@ Plans:
   2. Discovery job (fan-out + per-tenant scan) triggers via pg-boss and executes through the executor abstraction in vertical mode
   3. KB sync job (all 4 sub-types: file-upload, s3-sync, confluence-sync, bitbucket-sync) executes through the abstraction in vertical mode
   4. Running `node dist/job-runner.js --job <name> --data '<json>'` executes the correct handler and exits 0 on success, non-zero on failure
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [x] 23-01-PLAN.md — Wire discovery + agent-ops-scheduler through executor, register in entrypoint
-- [ ] 23-02-PLAN.md — Standalone job-runner.ts entrypoint + export handlers
+- [x] 23-02-PLAN.md — Standalone job-runner.ts entrypoint + export handlers
 
 ### Phase 24: Horizontal Executor + Infra
 **Goal**: HorizontalExecutor dispatches each pg-boss job to an ephemeral ECS Fargate task via RunTask, and Pulumi provisions all required infrastructure
@@ -85,7 +85,7 @@ Plans:
   4. The IAM task role grants STS AssumeRole, RDS connect, S3 read/write, and Bedrock invoke — sufficient for all 3 job types
 **Plans:** 2 plans
 Plans:
-- [ ] 23-01-PLAN.md — Wire discovery + agent-ops-scheduler through executor, register in entrypoint
+- [x] 23-01-PLAN.md — Wire discovery + agent-ops-scheduler through executor, register in entrypoint
 - [ ] 23-02-PLAN.md — Standalone job-runner.ts entrypoint + export handlers
 
 ## Progress
@@ -103,5 +103,5 @@ Plans:
 | 20. Knowledge Base & Channels Isolation | v4.0 | 2/2 | Complete | 2026-04-03 |
 | 21. Audit, Settings & Regression Tests | v4.0 | 3/3 | Complete | 2026-04-03 |
 | 22. Executor Abstraction Foundation | v5.0 | 1/2 | Complete    | 2026-04-09 |
-| 23. Job Wiring + Runner Entrypoint | v5.0 | 1/2 | In Progress|  |
+| 23. Job Wiring + Runner Entrypoint | v5.0 | 2/2 | Complete   | 2026-04-09 |
 | 24. Horizontal Executor + Infra | v5.0 | 0/? | Not started | - |
