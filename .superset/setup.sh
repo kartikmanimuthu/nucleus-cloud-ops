@@ -1,5 +1,8 @@
 #!/bin/bash
+
+# chmod +x ./.superset/setup.sh
 # .superset/setup.sh
+
 set -e
 
 # Use the Superset-provided variable for the main repository
