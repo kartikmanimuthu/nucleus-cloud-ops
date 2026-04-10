@@ -77,7 +77,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -97,37 +99,15 @@ import { UIAccount } from "@/lib/types";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
 
 // Available models
-const AVAILABLE_MODELS = [
-  {
-    id: "global.anthropic.claude-sonnet-4-6",
-    label: "Claude 4.6 Sonnet",
-    provider: "amazon",
-  },
-  {
-    id: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
-    label: "Claude 4.5 Sonnet",
-    provider: "amazon",
-  },
-  {
-    id: "global.amazon.nova-2-lite-v1:0",
-    label: "Nova 2 Lite",
-    provider: "amazon",
-  },
-  {
-    id: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-    label: "Claude 4.5 Haiku",
-    provider: "amazon",
-  },
-  {
-    id: "global.anthropic.claude-opus-4-5-20251101-v1:0",
-    label: "Claude 4.5 Opus",
-    provider: "amazon",
-  },
-  {
-    id: "global.anthropic.claude-opus-4-6-v1",
-    label: "Claude 4.6 Opus",
-    provider: "amazon",
-  }
+interface AvailableModel {
+  id: string;
+  label: string;
+  provider: string;
+}
+
+const DEFAULT_MODELS: AvailableModel[] = [
+  { id: "bedrock:global.anthropic.claude-sonnet-4-6", label: "Claude 4.6 Sonnet", provider: "bedrock" },
+  { id: "bedrock:global.anthropic.claude-sonnet-4-5-20250929-v1:0", label: "Claude 4.5 Sonnet", provider: "bedrock" },
 ];
 
 // Phase types matching backend
@@ -450,7 +430,23 @@ export function ChatInterface({
   // Configuration state (before conversation starts)
   const [autoApprove, setAutoApprove] = useState(true);
   const [showTools, setShowTools] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
+  const [selectedModel, setSelectedModel] = useState("bedrock:global.anthropic.claude-sonnet-4-6");
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>(DEFAULT_MODELS);
+
+  useEffect(() => {
+    async function fetchModels() {
+      try {
+        const res = await fetch('/api/settings/providers');
+        const json = await res.json();
+        if (res.ok && json.success && json.data?.models?.length > 0) {
+          setAvailableModels(json.data.models);
+        }
+      } catch {
+        // Silently fall back to defaults
+      }
+    }
+    fetchModels();
+  }, []);
   const [agentMode, setAgentMode] = useState("fast");
   const [hasStarted, setHasStarted] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -1493,15 +1489,26 @@ export function ChatInterface({
                   </div>
                 </SelectTrigger>
                 <SelectContent>
-                  {AVAILABLE_MODELS.map((model) => (
-                    <SelectItem
-                      key={model.id}
-                      value={model.id}
-                      className="text-xs"
-                    >
-                      {model.label}
-                    </SelectItem>
-                  ))}
+                  {availableModels.filter(m => m.provider === 'bedrock').length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel className="text-xs text-muted-foreground px-2">Bedrock</SelectLabel>
+                      {availableModels.filter(m => m.provider === 'bedrock').map((model) => (
+                        <SelectItem key={model.id} value={model.id} className="text-xs">
+                          {model.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
+                  {availableModels.filter(m => m.provider === 'openai-compatible').length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel className="text-xs text-muted-foreground px-2">Self-Hosted</SelectLabel>
+                      {availableModels.filter(m => m.provider === 'openai-compatible').map((model) => (
+                        <SelectItem key={model.id} value={model.id} className="text-xs">
+                          {model.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
                 </SelectContent>
               </Select>
 

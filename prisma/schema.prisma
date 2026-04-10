@@ -30,6 +30,7 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   configs TenantConfig[]
+  providerModels ProviderModel[]
 
   @@index([status])
   @@map("tenants")
@@ -50,6 +51,27 @@ model TenantConfig {
   @@unique([tenantId, configKey])
   @@index([tenantId])
   @@map("tenant_configs")
+}
+
+// ProviderModel — tenant-scoped self-hosted LLM provider configurations
+// Stores OpenAI-compatible endpoint configs (Ollama, vLLM, LiteLLM, LocalAI)
+// Bedrock is the built-in default and is NOT stored here
+model ProviderModel {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  provider  String   @default("openai-compatible")
+  baseUrl   String   @map("base_url")
+  apiKey    String?  @map("api_key")
+  models    Json     // Array<{ id: string; label: string; maxTokens?: number }>
+  isEnabled Boolean  @default(true) @map("is_enabled")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("provider_models")
 }
 
 // Account — migrated from DynamoDB NucleusAppTable (PK=ACCOUNT#<AccountId>, SK=METADATA)

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Cable, CheckCircle2, Globe, Loader2, Settings2 } from 'lucide-react';
+import { Cable, CheckCircle2, Globe, Loader2, Settings2, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,10 +34,11 @@ interface ChannelStatus {
     slack: { configured: boolean; enabled: boolean } | null;
     jira: { configured: boolean; enabled: boolean } | null;
     mcp: { serverCount: number } | null;
+    providers: { count: number } | null;
 }
 
 export default function ChannelsPage() {
-    const [status, setStatus] = useState<ChannelStatus>({ slack: null, jira: null, mcp: null });
+    const [status, setStatus] = useState<ChannelStatus>({ slack: null, jira: null, mcp: null, providers: null });
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -45,11 +46,13 @@ export default function ChannelsPage() {
             fetch('/api/agent-ops/settings/slack').then(r => r.json()).catch(() => null),
             fetch('/api/agent-ops/settings/jira').then(r => r.json()).catch(() => null),
             fetch('/api/agent-ops/mcp-settings').then(r => r.json()).catch(() => null),
-        ]).then(([slack, jira, mcp]) => {
+            fetch('/api/settings/providers').then(r => r.json()).catch(() => null),
+        ]).then(([slack, jira, mcp, providers]) => {
             setStatus({
                 slack: slack ? { configured: slack.configured ?? false, enabled: slack.enabled ?? false } : null,
                 jira: jira ? { configured: jira.configured ?? false, enabled: jira.enabled ?? false } : null,
                 mcp: mcp?.servers ? { serverCount: Object.keys(mcp.servers).length } : null,
+                providers: providers?.success ? { count: providers.data?.providers?.length ?? 0 } : null,
             });
         }).finally(() => setLoading(false));
     }, []);
@@ -114,6 +117,7 @@ export default function ChannelsPage() {
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                     </div>
                 ) : (
+                    <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {channels.map(channel => (
                             <Card key={channel.id} className="flex flex-col hover:border-primary/50 transition-colors">
@@ -140,6 +144,50 @@ export default function ChannelsPage() {
                             </Card>
                         ))}
                     </div>
+
+                    {/* Separator */}
+                    <div className="border-t pt-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <Server className="h-5 w-5 text-primary" />
+                            <div>
+                                <h2 className="text-lg font-semibold">Model Providers</h2>
+                                <p className="text-muted-foreground text-sm">
+                                    Connect self-hosted LLM endpoints to use open-source models alongside AWS Bedrock.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <Link href="/app/settings/providers">
+                                <Card className="flex flex-col hover:border-primary/50 transition-colors cursor-pointer h-full">
+                                    <CardHeader className="pb-3">
+                                        <div className="flex items-start justify-between">
+                                            <div className="p-2 rounded-lg bg-muted/50">
+                                                <Server className="h-8 w-8 text-primary" />
+                                            </div>
+                                            {status.providers && status.providers.count > 0
+                                                ? <Badge variant="secondary" className="gap-1 text-xs">
+                                                    <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                                    {status.providers.count} provider{status.providers.count !== 1 ? 's' : ''}
+                                                  </Badge>
+                                                : <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>
+                                            }
+                                        </div>
+                                        <CardTitle className="text-base mt-3">LLM Providers</CardTitle>
+                                        <CardDescription className="text-sm leading-relaxed">
+                                            Configure OpenAI-compatible endpoints (Ollama, vLLM, LiteLLM) to use self-hosted models in AI Ops.
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="mt-auto pt-0">
+                                        <Button variant="outline" size="sm" className="w-full gap-2">
+                                            <Settings2 className="h-3.5 w-3.5" />
+                                            Configure
+                                        </Button>
+                                    </CardContent>
+                                </Card>
+                            </Link>
+                        </div>
+                    </div>
+                    </>
                 )}
             </div>
         </div>
