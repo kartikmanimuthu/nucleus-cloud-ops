@@ -1,0 +1,7 @@
+{
+  "setup": [
+    "# 1. Store our directories\nMAIN_DIR=\"/Users/kartik/Documents/git-repo/nucleus-cloud-ops\"\nTARGET_DIR=\"$PWD\"\n\necho \"Copying environment files from $MAIN_DIR to $TARGET_DIR...\"\n\n# 2. Automatically find and copy all .env files, preserving the exact folder structure.\n#    Using a while loop for robust path-handling and explicit path recreation.\ncd \"$MAIN_DIR\" && find . -name \".env*\" -type f \\\n  -not -path \"*/node_modules/*\" \\\n  -not -path \"*/.git/*\" \\\n  -not -path \"*/.claude/*\" \\\n  -not -path \"*/.superset/*\" \\\n  -not -path \"*/.next/*\" \\\n  -not -path \"*/cdk.out/*\" \\\n  -not -path \"*/playwright-report/*\" \\\n  -print0 | while IFS= read -r -d $'\\0' env_file; do\n    \n    # Strip the leading './' from find output (e.g. \"./web-ui/.env.local\" -> \"web-ui/.env.local\")\n    rel_path=\"${env_file#./}\"\n    dest_path=\"$TARGET_DIR/$rel_path\"\n    \n    # Ensure the parent directory exists in the target worktree before copying\n    mkdir -p \"$(dirname \"$dest_path\")\"\n    \n    # Copy the file to replicate it in the new directory\n    cp \"$MAIN_DIR/$rel_path\" \"$dest_path\"\n    \n    echo \"✅ Replicated: $rel_path\"\ndone\n\n# 3. Return to the original workspace folder to continue with any other setup needed\ncd \"$TARGET_DIR\"\n\necho \"Environment files successfully replicated!\"\n\n# (Optional) Add your installation and runtime commands if needed below, like:\n# bun install && bun run dev"
+  ],
+  "teardown": [],
+  "run": []
+}

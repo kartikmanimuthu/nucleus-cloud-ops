@@ -64,246 +64,14 @@ const intraSubnetIds = networking.requireOutput("intraSubnetIds") as pulumi.Outp
 const availabilityZones = networking.requireOutput("availabilityZones") as pulumi.Output<string[]>;
 const dbSubnetGroupName = networking.requireOutput("dbSubnetGroupName") as pulumi.Output<string>;
 
-// ============================================================================
-// DYNAMODB TABLES
-// ============================================================================
-
 const appName = "nucleus-cloud-ops";
 const webUiStackName = "nucleus-cloud-ops-web-ui";
-
-// 1. AppTable — single-table design (accounts, schedules, resources)
-const appTable = new aws.dynamodb.Table("appTable", {
-    name: "nucleus-cloud-ops-app-table",
-    hashKey: "pk",
-    rangeKey: "sk",
-    billingMode: "PAY_PER_REQUEST",
-    attributes: [
-        { name: "pk", type: "S" },
-        { name: "sk", type: "S" },
-        { name: "gsi1pk", type: "S" },
-        { name: "gsi1sk", type: "S" },
-        { name: "gsi2pk", type: "S" },
-        { name: "gsi2sk", type: "S" },
-        { name: "gsi3pk", type: "S" },
-        { name: "gsi3sk", type: "S" },
-    ],
-    ttl: { attributeName: "ttl", enabled: true },
-    globalSecondaryIndexes: [
-        {
-            name: "GSI1",
-            hashKey: "gsi1pk",
-            rangeKey: "gsi1sk",
-            projectionType: "ALL",
-        },
-        {
-            name: "GSI2",
-            hashKey: "gsi2pk",
-            rangeKey: "gsi2sk",
-            projectionType: "ALL",
-        },
-        {
-            name: "GSI3",
-            hashKey: "gsi3pk",
-            rangeKey: "gsi3sk",
-            projectionType: "ALL",
-        },
-    ],
-}, { retainOnDelete: true });
-
-// 2. AuditTable — immutable audit logs with 30-day TTL via expire_at
-const auditTable = new aws.dynamodb.Table("auditTable", {
-    name: "nucleus-cloud-ops-audit-table",
-    hashKey: "pk",
-    rangeKey: "sk",
-    billingMode: "PAY_PER_REQUEST",
-    attributes: [
-        { name: "pk", type: "S" },
-        { name: "sk", type: "S" },
-        { name: "gsi1pk", type: "S" },
-        { name: "gsi1sk", type: "S" },
-        { name: "gsi2pk", type: "S" },
-        { name: "gsi2sk", type: "S" },
-        { name: "gsi3pk", type: "S" },
-        { name: "gsi3sk", type: "S" },
-    ],
-    ttl: { attributeName: "expire_at", enabled: true },
-    globalSecondaryIndexes: [
-        {
-            name: "GSI1",
-            hashKey: "gsi1pk",
-            rangeKey: "gsi1sk",
-            projectionType: "ALL",
-        },
-        {
-            name: "GSI2",
-            hashKey: "gsi2pk",
-            rangeKey: "gsi2sk",
-            projectionType: "ALL",
-        },
-        {
-            name: "GSI3",
-            hashKey: "gsi3pk",
-            rangeKey: "gsi3sk",
-            projectionType: "ALL",
-        },
-    ],
-}, { retainOnDelete: true });
-
-// 3. InventoryTable — auto-discovery single-table design
-const inventoryTable = new aws.dynamodb.Table("inventoryTable", {
-    name: "nucleus-cloud-ops-inventory-table",
-    hashKey: "pk",
-    rangeKey: "sk",
-    billingMode: "PAY_PER_REQUEST",
-    attributes: [
-        { name: "pk", type: "S" },
-        { name: "sk", type: "S" },
-        { name: "gsi1pk", type: "S" },
-        { name: "gsi1sk", type: "S" },
-        { name: "gsi2pk", type: "S" },
-        { name: "gsi2sk", type: "S" },
-        { name: "gsi3pk", type: "S" },
-        { name: "gsi3sk", type: "S" },
-    ],
-    ttl: { attributeName: "ttl", enabled: true },
-    globalSecondaryIndexes: [
-        {
-            name: "GSI1",
-            hashKey: "gsi1pk",
-            rangeKey: "gsi1sk",
-            projectionType: "ALL",
-        },
-        {
-            name: "GSI2",
-            hashKey: "gsi2pk",
-            rangeKey: "gsi2sk",
-            projectionType: "ALL",
-        },
-        {
-            name: "GSI3",
-            hashKey: "gsi3pk",
-            rangeKey: "gsi3sk",
-            projectionType: "ALL",
-        },
-    ],
-}, { retainOnDelete: true });
-
-// 4. UsersTeamsTable — RBAC users and teams (uppercase PK/SK)
-const usersTeamsTable = new aws.dynamodb.Table("usersTeamsTable", {
-    name: "nucleus-cloud-ops-web-ui-users-teams",
-    hashKey: "PK",
-    rangeKey: "SK",
-    billingMode: "PAY_PER_REQUEST",
-    attributes: [
-        { name: "PK", type: "S" },
-        { name: "SK", type: "S" },
-        { name: "EntityType", type: "S" },
-    ],
-    globalSecondaryIndexes: [
-        {
-            name: "EntityTypeIndex",
-            hashKey: "EntityType",
-            projectionType: "ALL",
-        },
-    ],
-}, { retainOnDelete: true });
-
-// 5. CheckpointTable — LangGraph checkpoint state
-const checkpointTable = new aws.dynamodb.Table("checkpointTable", {
-    name: "nucleus-cloud-ops-checkpoints-table",
-    hashKey: "thread_id",
-    rangeKey: "checkpoint_id",
-    billingMode: "PAY_PER_REQUEST",
-    attributes: [
-        { name: "thread_id", type: "S" },
-        { name: "checkpoint_id", type: "S" },
-    ],
-    ttl: { attributeName: "ttl", enabled: true },
-}, { retainOnDelete: true });
-
-// 6. WritesTable — LangGraph pending writes (v2 schema)
-const writesTable = new aws.dynamodb.Table("writesTable", {
-    name: "nucleus-cloud-ops-checkpoint-writes-v2-table",
-    hashKey: "thread_id_checkpoint_id_checkpoint_ns",
-    rangeKey: "task_id_idx",
-    billingMode: "PAY_PER_REQUEST",
-    attributes: [
-        { name: "thread_id_checkpoint_id_checkpoint_ns", type: "S" },
-        { name: "task_id_idx", type: "S" },
-    ],
-    ttl: { attributeName: "ttl", enabled: true },
-}, { retainOnDelete: true });
-
-// 7. ChatHistoryTable — DynamoDBChatMessageHistory per user/session
-const chatHistoryTable = new aws.dynamodb.Table("chatHistoryTable", {
-    name: "nucleus-cloud-ops-chat-history",
-    hashKey: "userId",
-    rangeKey: "sessionId",
-    billingMode: "PAY_PER_REQUEST",
-    attributes: [
-        { name: "userId", type: "S" },
-        { name: "sessionId", type: "S" },
-    ],
-    ttl: { attributeName: "ttl", enabled: true },
-}, { retainOnDelete: true });
-
-// 8. MemoryTable — DynamoDBStore long-term agent memory
-const memoryTable = new aws.dynamodb.Table("memoryTable", {
-    name: "nucleus-cloud-ops-memory",
-    hashKey: "user_id",
-    rangeKey: "namespace_key",
-    billingMode: "PAY_PER_REQUEST",
-    attributes: [
-        { name: "user_id", type: "S" },
-        { name: "namespace_key", type: "S" },
-    ],
-    ttl: { attributeName: "ttl", enabled: true },
-}, { retainOnDelete: true });
-
-// 9. AgentOpsTable — background agent execution runs + events (uppercase PK/SK)
-const agentOpsTable = new aws.dynamodb.Table("agentOpsTable", {
-    name: "nucleus-cloud-ops-agent-ops",
-    hashKey: "PK",
-    rangeKey: "SK",
-    billingMode: "PAY_PER_REQUEST",
-    attributes: [
-        { name: "PK", type: "S" },
-        { name: "SK", type: "S" },
-        { name: "GSI1PK", type: "S" },
-        { name: "GSI1SK", type: "S" },
-    ],
-    ttl: { attributeName: "ttl", enabled: true },
-    globalSecondaryIndexes: [
-        {
-            name: "GSI1",
-            hashKey: "GSI1PK",
-            rangeKey: "GSI1SK",
-            projectionType: "ALL",
-        },
-    ],
-}, { retainOnDelete: true });
 
 // ============================================================================
 // S3 BUCKETS
 // ============================================================================
 
-// 1. CheckpointBucket — LangGraph checkpoint offloading (30-day expiry)
-const checkpointBucket = new aws.s3.BucketV2("checkpoint-bucket", {
-    bucket: pulumi.interpolate`${appName}-checkpoints-bucket-${accountId}-${region}`,
-    forceDestroy: false,
-}, { retainOnDelete: true });
-
-new aws.s3.BucketLifecycleConfigurationV2("checkpoint-bucket-lifecycle", {
-    bucket: checkpointBucket.id,
-    rules: [{
-        id: "expire-all-30d",
-        status: "Enabled",
-        filter: {},
-        expiration: { days: 30 },
-    }],
-});
-
-// 2. AgentTempBucket — temporary agent storage (1-day expiry)
+// 1. AgentTempBucket — temporary agent storage (1-day expiry)
 const agentTempBucket = new aws.s3.BucketV2("agent-temp-bucket", {
     bucket: pulumi.interpolate`${appName}-agent-temp-${accountId}-${region}`,
     forceDestroy: false,
@@ -359,60 +127,6 @@ new aws.s3.BucketLifecycleConfigurationV2("inventory-bucket-lifecycle", {
     ],
 });
 
-// ============================================================================
-// SQS QUEUES
-// ============================================================================
-
-// VectorProcessing pair — buffers S3 normalized/ events before vector processing
-const vectorProcessingDlq = new aws.sqs.Queue("vector-processing-dlq", {
-    name: "nucleus-cloud-ops-vector-processing-dlq",
-    messageRetentionSeconds: 1209600, // 14 days
-});
-
-const vectorProcessingQueue = new aws.sqs.Queue("vector-processing-queue", {
-    name: "nucleus-cloud-ops-vector-processing-queue",
-    visibilityTimeoutSeconds: 900, // >= Lambda timeout of 15 min
-    receiveWaitTimeSeconds: 20,    // long polling
-    redrivePolicy: vectorProcessingDlq.arn.apply(dlqArn => JSON.stringify({
-        deadLetterTargetArn: dlqArn,
-        maxReceiveCount: 3,
-    })),
-});
-
-// Allow inventory bucket to send messages to the vector processing queue
-new aws.sqs.QueuePolicy("vector-processing-queue-policy", {
-    queueUrl: vectorProcessingQueue.url,
-    policy: pulumi.all([vectorProcessingQueue.arn, inventoryBucket.arn]).apply(
-        ([queueArn, bucketArn]) => JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Principal: { Service: "s3.amazonaws.com" },
-                Action: "sqs:SendMessage",
-                Resource: queueArn,
-                Condition: { ArnLike: { "aws:SourceArn": bucketArn } },
-            }],
-        })
-    ),
-});
-
-// ============================================================================
-// CLOUDWATCH ALARMS
-// ============================================================================
-
-new aws.cloudwatch.MetricAlarm("vector-dlq-alarm", {
-    name: "nucleus-cloud-ops-vector-dlq-depth",
-    alarmDescription: "Vector processor DLQ has messages — check Lambda errors",
-    namespace: "AWS/SQS",
-    metricName: "ApproximateNumberOfMessagesVisible",
-    dimensions: { QueueName: vectorProcessingDlq.name },
-    statistic: "Sum",
-    period: 300,
-    evaluationPeriods: 1,
-    threshold: 1,
-    comparisonOperator: "GreaterThanOrEqualToThreshold",
-    treatMissingData: "notBreaching",
-});
 
 // ============================================================================
 // COGNITO AUTHENTICATION
@@ -522,23 +236,6 @@ new aws.iam.RolePolicy("web-ui-auth-cognito-sync-policy", {
     }),
 });
 
-// Inline policy 2 — DynamoDB on UsersTeamsTable
-new aws.iam.RolePolicy("web-ui-auth-dynamodb-policy", {
-    role: authenticatedRole.id,
-    policy: pulumi.all([usersTeamsTable.arn]).apply(([tableArn]) =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: [
-                    "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
-                    "dynamodb:Query", "dynamodb:Scan", "dynamodb:DeleteItem",
-                ],
-                Resource: [tableArn, `${tableArn}/index/*`],
-            }],
-        })
-    ),
-});
 
 // Wire authenticated role to identity pool
 new aws.cognito.IdentityPoolRoleAttachment("web-ui-identity-pool-role-attachment", {
@@ -615,176 +312,6 @@ const databaseUrl = pulumi.secret(
 
 
 // ============================================================================
-// VECTOR PROCESSOR LAMBDA
-// ============================================================================
-
-// IAM Role for VectorProcessor Lambda
-const vectorProcessorRole = new aws.iam.Role("vector-processor-role", {
-    name: "nucleus-cloud-ops-vector-processor-role",
-    assumeRolePolicy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Principal: { Service: "lambda.amazonaws.com" },
-            Action: "sts:AssumeRole",
-        }],
-    }),
-    managedPolicyArns: [
-        "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
-    ],
-});
-
-// Inline policy — S3 read on inventory bucket
-new aws.iam.RolePolicy("vector-processor-s3-policy", {
-    role: vectorProcessorRole.id,
-    policy: pulumi.all([inventoryBucket.arn]).apply(([bucketArn]) =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: ["s3:GetObject", "s3:ListBucket"],
-                Resource: [bucketArn, `${bucketArn}/*`],
-            }],
-        })
-    ),
-});
-
-// Inline policy — DynamoDB read/write on appTable + auditTable
-new aws.iam.RolePolicy("vector-processor-dynamodb-policy", {
-    role: vectorProcessorRole.id,
-    policy: pulumi.all([appTable.arn, auditTable.arn]).apply(([appArn, auditArn]) =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: [
-                    "dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan",
-                    "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
-                    "dynamodb:BatchWriteItem",
-                ],
-                Resource: [
-                    appArn, `${appArn}/index/*`,
-                    auditArn, `${auditArn}/index/*`,
-                ],
-            }],
-        })
-    ),
-});
-
-// Inline policy — S3 Vectors permissions
-new aws.iam.RolePolicy("vector-processor-s3vectors-policy", {
-    role: vectorProcessorRole.id,
-    policy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Action: [
-                "s3vectors:PutVectors",
-                "s3vectors:DeleteVectors",
-                "s3vectors:QueryVectors",
-                "s3vectors:CreateVectorIndex",
-                "s3vectors:GetIndex",
-            ],
-            Resource: ["*"],
-        }],
-    }),
-});
-
-// Inline policy — Bedrock embedding
-new aws.iam.RolePolicy("vector-processor-bedrock-policy", {
-    role: vectorProcessorRole.id,
-    policy: JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Action: ["bedrock:InvokeModel"],
-            Resource: ["*"],
-        }],
-    }),
-});
-
-// Inline policy — SQS receive from vectorProcessingQueue
-new aws.iam.RolePolicy("vector-processor-sqs-policy", {
-    role: vectorProcessorRole.id,
-    policy: vectorProcessingQueue.arn.apply(queueArn =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: [
-                    "sqs:ReceiveMessage",
-                    "sqs:DeleteMessage",
-                    "sqs:GetQueueAttributes",
-                ],
-                Resource: [queueArn],
-            }],
-        })
-    ),
-});
-
-// Auto-build VectorProcessor Lambda — reruns when source changes
-const vectorSrcHash = hashDirectory(path.join(repoRoot, "lambda/vector_processor/src"));
-const vectorZipPath = path.join(repoRoot, "lambda/vector_processor/lambda.zip");
-// FileArchive hashes the zip at program-eval time (before Pulumi resource ordering),
-// so we must ensure the zip exists synchronously before declaring the Function resource.
-if (!fs.existsSync(vectorZipPath)) {
-    const { execSync } = require("child_process");
-    execSync(`bash ${repoRoot}/infra/build-lambdas.sh --lambda=vector_processor`, {
-        cwd: repoRoot,
-        stdio: "inherit",
-    });
-}
-const buildVectorProcessor = new command.local.Command("build-vector-processor", {
-    create: `bash ${repoRoot}/infra/build-lambdas.sh --lambda=vector_processor`,
-    update: `bash ${repoRoot}/infra/build-lambdas.sh --lambda=vector_processor`,
-    triggers: [vectorSrcHash],
-    dir: repoRoot,
-});
-
-// VectorProcessor Lambda Function
-const vectorProcessorLambda = new aws.lambda.Function("vector-processor-lambda", {
-    name: "nucleus-cloud-ops-vector-processor",
-    role: vectorProcessorRole.arn,
-    runtime: "nodejs20.x",
-    architectures: ["arm64"],
-    handler: "index.handler",
-    code: new pulumi.asset.FileArchive(vectorZipPath),
-    timeout: 900,
-    memorySize: 1024,
-    reservedConcurrentExecutions: 10,
-    environment: {
-        variables: {
-            INVENTORY_BUCKET_NAME: inventoryBucket.bucket,
-            VECTOR_BUCKET_NAME: vectorBucketName,
-            VECTOR_BUCKET_ARN: "",  // placeholder — Phase 11 wires real S3 Vectors
-            VECTOR_INDEX_NAME: "text-embeddings",
-            BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
-            APP_TABLE_NAME: appTable.name,
-            AUDIT_TABLE_NAME: auditTable.name,
-            DATABASE_URL: databaseUrl,
-        },
-    },
-}, { dependsOn: [buildVectorProcessor] });
-new aws.lambda.EventSourceMapping("vector-processor-sqs-trigger", {
-    eventSourceArn: vectorProcessingQueue.arn,
-    functionName: vectorProcessorLambda.arn,
-    batchSize: 1,
-    scalingConfig: {
-        maximumConcurrency: 5,
-    },
-});
-
-// S3 BucketNotification — inventory bucket normalized/ prefix → vectorProcessingQueue
-new aws.s3.BucketNotification("inventory-bucket-notification", {
-    bucket: inventoryBucket.id,
-    queues: [{
-        queueArn: vectorProcessingQueue.arn,
-        events: ["s3:ObjectCreated:*"],
-        filterPrefix: "normalized/",
-    }],
-});
-
-// ============================================================================
 // ECS + ALB + CLOUDFRONT
 // ============================================================================
 
@@ -857,46 +384,14 @@ const ecsTaskRole = new aws.iam.Role("ecs-task-role", {
     }),
 });
 
-// 5a. DynamoDB — read/write on all 9 tables + GSI indexes
-new aws.iam.RolePolicy("ecs-task-dynamodb-policy", {
-    role: ecsTaskRole.id,
-    policy: pulumi.all([
-        appTable.arn, auditTable.arn, inventoryTable.arn,
-        usersTeamsTable.arn, checkpointTable.arn, writesTable.arn,
-        chatHistoryTable.arn, memoryTable.arn, agentOpsTable.arn,
-    ]).apply(([appArn, auditArn, inventoryArn, usersTeamsArn, checkpointArn, writesArn, chatHistoryArn, memoryArn, agentOpsArn]) =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: [
-                    "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
-                    "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
-                    "dynamodb:BatchWriteItem", "dynamodb:BatchGetItem",
-                ],
-                Resource: [
-                    appArn, `${appArn}/index/*`,
-                    auditArn, `${auditArn}/index/*`,
-                    inventoryArn, `${inventoryArn}/index/*`,
-                    usersTeamsArn, `${usersTeamsArn}/index/*`,
-                    checkpointArn, `${checkpointArn}/index/*`,
-                    writesArn, `${writesArn}/index/*`,
-                    chatHistoryArn, `${chatHistoryArn}/index/*`,
-                    memoryArn, `${memoryArn}/index/*`,
-                    agentOpsArn, `${agentOpsArn}/index/*`,
-                ],
-            }],
-        })
-    ),
-});
 
-// 5b. S3 — read/write on 4 buckets
+// 5b. S3 — read/write on 3 buckets
 new aws.iam.RolePolicy("ecs-task-s3-policy", {
     role: ecsTaskRole.id,
     policy: pulumi.all([
-        checkpointBucket.arn, agentTempBucket.arn,
+        agentTempBucket.arn,
         inventoryBucket.arn, kbStagingBucket.arn,
-    ]).apply(([cpArn, atArn, invArn, kbArn]) =>
+    ]).apply(([atArn, invArn, kbArn]) =>
         JSON.stringify({
             Version: "2012-10-17",
             Statement: [{
@@ -906,7 +401,6 @@ new aws.iam.RolePolicy("ecs-task-s3-policy", {
                     "s3:ListBucket", "s3:GetBucketLocation",
                 ],
                 Resource: [
-                    cpArn, `${cpArn}/*`,
                     atArn, `${atArn}/*`,
                     invArn, `${invArn}/*`,
                     kbArn, `${kbArn}/*`,
@@ -993,23 +487,13 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         operatingSystemFamily: "LINUX",
     },
     containerDefinitions: pulumi.all([
-        appTable.name,
-        auditTable.name,
-        checkpointTable.name,
-        writesTable.name,
-        checkpointBucket.bucket,
-        chatHistoryTable.name,
-        memoryTable.name,
-        usersTeamsTable.name,
         userPool.id,
         userPoolClient.id,
         userPoolClient.clientSecret,
         identityPool.id,
         inventoryBucket.bucket,
-        inventoryTable.name,
         kbStagingBucket.bucket,
         agentTempBucket.bucket,
-        agentOpsTable.name,
         ecsTaskRole.arn,
         webUiLogGroup.name,
         accountId,
@@ -1017,11 +501,8 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         databaseUrl,
         webUiImage.imageUri,
     ]).apply(([
-        appTableN, auditTableN, checkpointTableN, writesTableN,
-        checkpointBucketN, chatHistoryTableN, memoryTableN, usersTeamsTableN,
         cognitoPoolId, cognitoClientId, cognitoClientSecret, identityPoolId,
-        inventoryBucketN, inventoryTableN, kbStagingBucketN,
-        agentTempBucketN, agentOpsTableN, ecsTaskRoleArnVal,
+        inventoryBucketN, kbStagingBucketN, agentTempBucketN, ecsTaskRoleArnVal,
         webUiLogGroupN, acctId, nextauthSecretVal, databaseUrlVal, imageUri,
     ]) => JSON.stringify([{
         name: "WebUIContainer",
@@ -1043,16 +524,6 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "NEXT_PUBLIC_AWS_REGION", value: region },
             { name: "NEXT_PUBLIC_HUB_ACCOUNT_ID", value: acctId },
             { name: "HUB_ACCOUNT_ID", value: acctId },
-            { name: "APP_TABLE_NAME", value: appTableN },
-            { name: "NEXT_PUBLIC_APP_TABLE_NAME", value: appTableN },
-            { name: "AUDIT_TABLE_NAME", value: auditTableN },
-            { name: "NEXT_PUBLIC_AUDIT_TABLE_NAME", value: auditTableN },
-            { name: "DYNAMODB_CHECKPOINT_TABLE", value: checkpointTableN },
-            { name: "DYNAMODB_WRITES_TABLE", value: writesTableN },
-            { name: "CHECKPOINT_S3_BUCKET", value: checkpointBucketN },
-            { name: "DYNAMODB_CHAT_HISTORY_TABLE", value: chatHistoryTableN },
-            { name: "DYNAMODB_MEMORY_TABLE", value: memoryTableN },
-            { name: "DYNAMODB_USERS_TEAMS_TABLE", value: usersTeamsTableN },
             { name: "COGNITO_USER_POOL_ID", value: cognitoPoolId },
             { name: "NEXT_PUBLIC_COGNITO_USER_POOL_ID", value: cognitoPoolId },
             { name: "COGNITO_USER_POOL_CLIENT_ID", value: cognitoClientId },
@@ -1078,9 +549,7 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "DATA_DIR", value: "/tmp" },
             { name: "EVENTBRIDGE_RULE_NAME", value: "nucleus-cloud-ops-rule" },
             { name: "AGENT_TEMP_BUCKET", value: agentTempBucketN },
-            { name: "AGENT_OPS_TABLE_NAME", value: agentOpsTableN },
             { name: "INVENTORY_BUCKET_NAME", value: inventoryBucketN },
-            { name: "INVENTORY_TABLE_NAME", value: inventoryTableN },
             { name: "VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
             { name: "VECTOR_INDEX_NAME", value: "text-embeddings" },
             { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
@@ -1093,7 +562,7 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "LANGFUSE_SECRET_KEY", value: "" },
             { name: "LANGFUSE_HOST", value: "https://cloud.langfuse.com" },
             { name: "DATABASE_URL", value: databaseUrlVal },
-            // PostgreSQL feature flags — disable DynamoDB, route all entities to PostgreSQL
+            // PostgreSQL feature flags
             { name: "USE_PG_ACCOUNTS", value: "true" },
             { name: "USE_PG_SCHEDULES", value: "true" },
             { name: "USE_PG_AUDIT", value: "true" },
@@ -1281,19 +750,8 @@ export const networkingVpcId = vpcId;
 export const networkingVpcCidr = vpcCidr;
 
 // DynamoDB table name exports (for Phase 9/10 consumption via requireOutput)
-export const appTableName = appTable.name;
-export const auditTableName = auditTable.name;
-export const inventoryTableName = inventoryTable.name;
-export const usersTeamsTableName = usersTeamsTable.name;
-export const checkpointTableName = checkpointTable.name;
-export const writesTableName = writesTable.name;
-export const chatHistoryTableName = chatHistoryTable.name;
-export const memoryTableName = memoryTable.name;
-export const agentOpsTableName = agentOpsTable.name;
 
 // S3 bucket exports
-export const checkpointBucketName = checkpointBucket.bucket;
-export const checkpointBucketArn = checkpointBucket.arn;
 export const agentTempBucketName = agentTempBucket.bucket;
 export const agentTempBucketArn = agentTempBucket.arn;
 export const kbStagingBucketName = kbStagingBucket.bucket;
@@ -1301,10 +759,6 @@ export const kbStagingBucketArn = kbStagingBucket.arn;
 export const inventoryBucketName = inventoryBucket.bucket;
 export const inventoryBucketArn = inventoryBucket.arn;
 
-// SQS exports
-export const vectorProcessingQueueUrl = vectorProcessingQueue.url;
-export const vectorProcessingQueueArn = vectorProcessingQueue.arn;
-export const vectorProcessingDlqArn = vectorProcessingDlq.arn;
 // Cognito exports
 export const cognitoUserPoolId = userPool.id;
 export const cognitoUserPoolArn = userPool.arn;
@@ -1316,23 +770,12 @@ export const cognitoDomainPrefix = pulumi.interpolate`nucleus-cloud-ops-web-ui-a
 // SNS exports
 export const snsTopicArn = snsTopic.arn;
 
-// VectorProcessor exports
-export const vectorProcessorArn = vectorProcessorLambda.arn;
-
 // ============================================================================
 // RDS POSTGRESQL — IAM rds-db:connect policies
 // ============================================================================
 
 new aws.iam.RolePolicy("ecs-task-rds-connect-policy", {
     role: ecsTaskRole.id,
-    policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
-    })),
-});
-
-new aws.iam.RolePolicy("vector-processor-rds-connect-policy", {
-    role: vectorProcessorRole.id,
     policy: postgresInstance.arn.apply(rdsArn => JSON.stringify({
         Version: "2012-10-17",
         Statement: [{ Effect: "Allow", Action: ["rds-db:connect"], Resource: [rdsArn] }],
@@ -1452,27 +895,6 @@ const workersTaskRole = new aws.iam.Role("workers-task-role", {
             Action: "sts:AssumeRole",
         }],
     }),
-});
-
-new aws.iam.RolePolicy("workers-dynamodb-policy", {
-    role: workersTaskRole.id,
-    policy: pulumi.all([appTable.arn, auditTable.arn]).apply(([appArn, auditArn]) =>
-        JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [{
-                Effect: "Allow",
-                Action: [
-                    "dynamodb:GetItem", "dynamodb:Scan", "dynamodb:Query",
-                    "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem",
-                    "dynamodb:BatchWriteItem",
-                ],
-                Resource: [
-                    appArn, `${appArn}/index/*`,
-                    auditArn, `${auditArn}/index/*`,
-                ],
-            }],
-        })
-    ),
 });
 
 new aws.iam.RolePolicy("workers-sts-policy", {
@@ -1603,15 +1025,13 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
         operatingSystemFamily: "LINUX",
     },
     containerDefinitions: pulumi.all([
-        appTable.name,
-        auditTable.name,
         kbStagingBucket.bucket,
         ephemeralWorkersLogGroup.name,
         databaseUrl,
         snsTopic.arn,
         workersImage.imageUri,
     ]).apply(([
-        appTableN, auditTableN, kbStagingBucketN,
+        kbStagingBucketN,
         ephLogGroupN, databaseUrlVal, snsTopicArn, imageUri,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
@@ -1629,8 +1049,6 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
             { name: "NODE_ENV", value: "production" },
             { name: "AWS_REGION", value: region },
             { name: "DATABASE_URL", value: databaseUrlVal.includes("?") ? `${databaseUrlVal}&sslmode=no-verify` : `${databaseUrlVal}?sslmode=no-verify` },
-            { name: "APP_TABLE_NAME", value: appTableN },
-            { name: "AUDIT_TABLE_NAME", value: auditTableN },
             { name: "SNS_TOPIC_ARN", value: snsTopicArn },
             { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
             { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
@@ -1703,8 +1121,6 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
         operatingSystemFamily: "LINUX",
     },
     containerDefinitions: pulumi.all([
-        appTable.name,
-        auditTable.name,
         kbStagingBucket.bucket,
         workersLogGroup.name,
         databaseUrl,
@@ -1715,7 +1131,7 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
         workersSecurityGroup.id,
         privateSubnetIds.apply(ids => ids.join(",")),
     ]).apply(([
-        appTableN, auditTableN, kbStagingBucketN,
+        kbStagingBucketN,
         workersLogGroupN, databaseUrlVal, snsTopicArn, imageUri,
         clusterArn, ephTaskDefArn, workersSgId, subnetsJoined,
     ]) => JSON.stringify([{
@@ -1734,8 +1150,6 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
             { name: "NODE_ENV", value: "production" },
             { name: "AWS_REGION", value: region },
             { name: "DATABASE_URL", value: databaseUrlVal.includes("?") ? `${databaseUrlVal}&sslmode=no-verify` : `${databaseUrlVal}?sslmode=no-verify` },
-            { name: "APP_TABLE_NAME", value: appTableN },
-            { name: "AUDIT_TABLE_NAME", value: auditTableN },
             { name: "SNS_TOPIC_ARN", value: snsTopicArn },
             { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
             { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
