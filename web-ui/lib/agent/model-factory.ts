@@ -6,6 +6,8 @@
  */
 
 import { ChatBedrockConverse } from "@langchain/aws";
+import { ChatOpenAI } from "@langchain/openai";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import {
     executeCommandTool,
     readFileTool,
@@ -19,38 +21,59 @@ import {
     writeFileToS3Tool,
     getFileFromS3Tool,
 } from "./tools";
-import { getActiveMCPTools, type AccountContext } from "./agent-shared";
+import { getActiveMCPTools, type AccountContext, type ResolvedModelConfig } from "./agent-shared";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { saveMemory, searchMemory } from "./persistence";
 
 export interface AgentModels {
-    /** Primary model: streaming, 4096 max tokens. Used for all generation nodes. */
-    main: ChatBedrockConverse;
-    /** Reflector model: non-streaming, 1024 max tokens. Emits small JSON critiques only. */
-    reflector: ChatBedrockConverse;
+    /** Primary model: streaming. Used for all generation nodes. */
+    main: BaseChatModel;
+    /** Reflector model: non-streaming. Emits small JSON critiques only. */
+    reflector: BaseChatModel;
 }
 
 /**
- * Creates the main and reflector model instances for a given model ID.
- * Reads region from environment — consistent across all agent types.
+ * Creates the main and reflector model instances for a given resolved config.
+ * Routes to ChatBedrockConverse (AWS) or ChatOpenAI (self-hosted) based on provider.
  */
-export function createAgentModels(modelId: string): AgentModels {
+export function createAgentModels(config: ResolvedModelConfig): AgentModels {
+    if (config.provider === "openai-compatible") {
+        const openaiConfig = {
+            modelName: config.modelId,
+            configuration: {
+                baseURL: config.baseUrl,
+                apiKey: config.apiKey || "not-needed",
+            },
+            temperature: 0,
+        };
+        return {
+            main: new ChatOpenAI({
+                ...openaiConfig,
+                maxTokens: config.maxTokens || 8192,
+                streaming: true,
+            }),
+            reflector: new ChatOpenAI({
+                ...openaiConfig,
+                maxTokens: 2048,
+                streaming: false,
+            }),
+        };
+    }
+
+    // Default: Bedrock
     const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null';
+    const bedrockConfig = { region, model: config.modelId, temperature: 0 };
     return {
         main: new ChatBedrockConverse({
-            region,
-            model: modelId,
-            maxTokens: 8192,  // Raised from 4096 — allows complete responses without truncation
-            temperature: 0,
+            ...bedrockConfig,
+            maxTokens: config.maxTokens || 8192,
             streaming: true,
         }),
         reflector: new ChatBedrockConverse({
-            region,
-            model: modelId,
-            maxTokens: 2048,  // Raised from 1024 — enough for detailed multi-point critiques
-            temperature: 0,
-            streaming: false, // Reflector emits critique only — no streaming needed
+            ...bedrockConfig,
+            maxTokens: 2048,
+            streaming: false,
         }),
     };
 }
