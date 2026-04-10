@@ -1,5 +1,4 @@
 import { SystemMessage } from "@langchain/core/messages";
-import { ChatBedrockConverse } from "@langchain/aws";
 import { createDeepAgent } from "deepagents";
 import type { SubAgent } from "deepagents";
 import {
@@ -21,11 +20,12 @@ import {
     getActiveMCPTools,
     getStore,
 } from "./agent-shared";
-import { createMemoryTools } from "./model-factory";
+import { createAgentModels, createMemoryTools } from "./model-factory";
 
 // --- DEEP GRAPH (Deep Agent Mode) ---
 export async function createDeepGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId, userId } = config as any;
+    const { model: modelConfig, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId, userId } = config as any;
+    const modelId = modelConfig.modelId;
     const checkpointer = await getCheckpointer();
     const store = await getStore();
 
@@ -63,13 +63,7 @@ You are operating as a general-purpose DevOps engineer with full read and write 
 `;
 
     // --- Model Initialization ---
-    const model = new ChatBedrockConverse({
-        region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
-        model: modelId,
-        maxTokens: 8192,
-        temperature: 0,
-        streaming: true,
-    });
+    const { main: model } = createAgentModels(modelConfig);
 
     // --- Account Context (same pattern as fast-agent.ts) ---
     let accountContext: string;
