@@ -2,6 +2,14 @@ import { BaseMessage, AIMessage, HumanMessage, ToolMessage } from "@langchain/co
 import { StateGraphArgs } from "@langchain/langgraph";
 import { getCheckpointer as getPersistenceCheckpointer, getMemoryStore as getPersistenceMemoryStore } from "./persistence";
 
+/** Resolved model configuration — provider-agnostic. */
+export interface ResolvedModelConfig {
+    provider: "bedrock" | "openai-compatible";
+    modelId: string;
+    baseUrl?: string;
+    apiKey?: string;
+    maxTokens?: number;
+}
 
 // --- Components & Interfaces ---
 
@@ -381,7 +389,7 @@ export interface AccountContext {
 }
 
 export interface GraphConfig {
-    model: string;
+    model: ResolvedModelConfig;
     autoApprove: boolean;
     accounts?: AccountContext[];
     accountId?: string;
