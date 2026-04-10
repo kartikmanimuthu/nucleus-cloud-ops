@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ThemeSettings } from "@/components/settings/theme-settings"
 import { ProfileForm } from "@/components/settings/profile-form"
-import { Settings, Palette, Bell, Shield, User, Building2, Server } from "lucide-react"
+import { Settings, Palette, Bell, Shield, User, Building2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 export default function SettingsPage() {
@@ -43,14 +43,6 @@ export default function SettingsPage() {
           >
             <Building2 className="mr-2 h-4 w-4" />
             Organization
-          </TabsTrigger>
-          <TabsTrigger
-            value="providers"
-            className="data-[state=active]:bg-background"
-            onClick={() => router.push("/app/settings/providers")}
-          >
-            <Server className="mr-2 h-4 w-4" />
-            LLM Providers
           </TabsTrigger>
         </TabsList>
 
