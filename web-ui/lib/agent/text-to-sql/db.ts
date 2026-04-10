@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
+import type { SQLResult } from './state';
 
 let pool: Pool | null = null;
 
@@ -16,18 +17,13 @@ export function getTextToSQLPool(): Pool {
     return pool;
 }
 
-export interface QueryResult {
-    rows: Record<string, unknown>[];
-    rowCount: number;
-}
-
 /**
  * Execute a SQL query in a read-only transaction with statement timeout.
  * - BEGIN TRANSACTION READ ONLY — PostgreSQL blocks any writes
  * - SET LOCAL statement_timeout = 10000 — 10s max query time
  * - Parameterized: params[0] is always tenantId
  */
-export async function executeReadOnlyQuery(sql: string, params: unknown[]): Promise<QueryResult> {
+export async function executeReadOnlyQuery(sql: string, params: unknown[]): Promise<SQLResult> {
     const client: PoolClient = await getTextToSQLPool().connect();
     try {
         await client.query('BEGIN TRANSACTION READ ONLY');
@@ -45,12 +41,18 @@ export async function executeReadOnlyQuery(sql: string, params: unknown[]): Prom
 
 /**
  * Execute a hardcoded schema introspection query (not LLM-generated).
- * Still read-only but no statement_timeout since these are fast.
+ * Wrapped in read-only transaction for defense-in-depth.
  */
 export async function executeSchemaQuery(sql: string): Promise<Record<string, unknown>[]> {
     const client: PoolClient = await getTextToSQLPool().connect();
     try {
-        return (await client.query(sql)).rows;
+        await client.query('BEGIN TRANSACTION READ ONLY');
+        const result = await client.query(sql);
+        await client.query('COMMIT');
+        return result.rows;
+    } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
     } finally {
         client.release();
     }

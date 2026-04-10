@@ -1,5 +1,14 @@
 import { TextToSQLFilters } from "./state";
 
+// Strict patterns for filter value sanitization
+const REGION_PATTERN = /^[a-z]{2}-[a-z]+-\d+$/;
+const ACCOUNT_ID_PATTERN = /^\d{12}$/;
+const RESOURCE_TYPE_PATTERN = /^[a-z0-9_]+$/;
+
+function sanitizeFilterValue(value: string, pattern: RegExp): string | null {
+    return pattern.test(value) ? value : null;
+}
+
 export function buildSQLGenerationPrompt(
     schemaDescription: string,
     sampleRows: Record<string, unknown>[],
@@ -7,21 +16,26 @@ export function buildSQLGenerationPrompt(
 ): string {
     const sampleRowsJson = JSON.stringify(sampleRows.slice(0, 5), null, 2);
 
-    const filterClauses: string[] = [];
+    // Describe filters in natural language — never embed raw values as SQL fragments
+    const filterDescriptions: string[] = [];
     if (filters?.accountIds && filters.accountIds.length > 0) {
-        const ids = filters.accountIds.map((id) => `'${id}'`).join(", ");
-        filterClauses.push(`account_id IN (${ids})`);
+        const validIds = filters.accountIds.filter(id => sanitizeFilterValue(id, ACCOUNT_ID_PATTERN));
+        if (validIds.length > 0) {
+            filterDescriptions.push(`Filter by account_id IN (${validIds.map(id => `'${id}'`).join(', ')})`);
+        }
     }
     if (filters?.region) {
-        filterClauses.push(`region = '${filters.region}'`);
+        const valid = sanitizeFilterValue(filters.region, REGION_PATTERN);
+        if (valid) filterDescriptions.push(`Filter by region = '${valid}'`);
     }
     if (filters?.resourceType) {
-        filterClauses.push(`resource_type = '${filters.resourceType}'`);
+        const valid = sanitizeFilterValue(filters.resourceType, RESOURCE_TYPE_PATTERN);
+        if (valid) filterDescriptions.push(`Filter by resource_type = '${valid}'`);
     }
 
     const filterSection =
-        filterClauses.length > 0
-            ? `\nActive inventory filters (must be included in WHERE clause in addition to tenant_id):\n${filterClauses.map((c) => `  - ${c}`).join("\n")}`
+        filterDescriptions.length > 0
+            ? `\nActive inventory filters (must be included in WHERE clause in addition to tenant_id):\n${filterDescriptions.map((c) => `  - ${c}`).join("\n")}`
             : "";
 
     return `You are a PostgreSQL expert. Generate a single SELECT query for the inventory_resources table.

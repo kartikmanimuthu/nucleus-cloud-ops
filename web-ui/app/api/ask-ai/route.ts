@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { invokeTextToSQL } from '@/lib/agent/text-to-sql';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth-options';
 import type { Message } from 'ai';
 
 // In-memory conversation store (keyed by conversationId)
+// NOTE: single-process only — needs Redis or DB-backed store before horizontal scaling
 const conversationStore = new Map<string, Array<{ role: string; content: string }>>();
 const MAX_CONVERSATION_TURNS = 10;
 
 export async function POST(req: NextRequest) {
     try {
+        // Auth check — every data-reading route requires a session
+        const session = await getServerSession(authOptions);
+        if (!session?.user) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        const tenantId = (session.user as { activeTenantId?: string }).activeTenantId || 'default';
+
         const body = await req.json();
 
         const userMessages: Message[] = body.messages || [];
@@ -20,6 +30,7 @@ export async function POST(req: NextRequest) {
             promptPreview: prompt.slice(0, 80),
             conversationId: conversationId.slice(0, 20),
             filters,
+            tenantId,
         });
 
         if (!prompt) {
@@ -53,7 +64,7 @@ export async function POST(req: NextRequest) {
                 try {
                     const events = invokeTextToSQL({
                         question: prompt,
-                        tenantId: 'default', // TODO: extract from session
+                        tenantId,
                         conversationHistory,
                         filters: agentFilters,
                     });

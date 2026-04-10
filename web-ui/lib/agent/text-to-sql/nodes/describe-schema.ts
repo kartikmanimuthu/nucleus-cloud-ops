@@ -1,6 +1,12 @@
 import { executeSchemaQuery, executeReadOnlyQuery } from '../db';
 import type { TextToSQLState } from '../state';
 
+interface SchemaColumn {
+    column_name: string;
+    data_type: string;
+    is_nullable: string;
+}
+
 export async function describeSchemaNode(state: TextToSQLState): Promise<Partial<TextToSQLState>> {
     // Skip if already cached
     if (state.schemaDescription) {
@@ -13,10 +19,10 @@ export async function describeSchemaNode(state: TextToSQLState): Promise<Partial
          FROM information_schema.columns
          WHERE table_name = 'inventory_resources'
          ORDER BY ordinal_position`
-    );
+    ) as SchemaColumn[];
 
     const schemaDescription = columns
-        .map((c: any) => `${c.column_name} (${c.data_type}, nullable: ${c.is_nullable})`)
+        .map((c) => `${c.column_name} (${c.data_type}, nullable: ${c.is_nullable})`)
         .join('\n');
 
     // Fetch sample rows for context
