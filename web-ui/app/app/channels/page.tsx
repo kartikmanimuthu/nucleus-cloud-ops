@@ -117,6 +117,7 @@ export default function ChannelsPage() {
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                     </div>
                 ) : (
+                    <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {channels.map(channel => (
                             <Card key={channel.id} className="flex flex-col hover:border-primary/50 transition-colors">
@@ -186,6 +187,7 @@ export default function ChannelsPage() {
                             </Link>
                         </div>
                     </div>
+                    </>
                 )}
             </div>
         </div>
