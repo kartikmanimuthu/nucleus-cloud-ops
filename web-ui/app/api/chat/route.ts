@@ -2,6 +2,7 @@ import { HumanMessage, AIMessage, ToolMessage, BaseMessage } from '@langchain/co
 import { NextResponse } from 'next/server';
 import { createUIMessageStreamResponse, UIMessageChunk } from 'ai';
 import { createReflectionGraph, createFastGraph, createDeepGraph } from '@/lib/agent/graph-factory';
+import { resolveModelConfig } from '@/lib/agent/model-resolver';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -114,9 +115,15 @@ export async function POST(req: Request) {
         console.log(`   AWS Accounts: ${accounts?.length || 0} selected${accounts?.length ? ` (${accounts.map((a: any) => a.accountId).join(', ')})` : ' (none)'}`);
         console.log(`   Timestamp:    ${new Date().toISOString()}`);
 
+        // Resolve model string into a ResolvedModelConfig before graph creation
+        const resolvedModel = await resolveModelConfig(
+            model || 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+            resolvedTenantId,
+        );
+
         // Create graph with configuration - supports multi-account
         const graphConfig = {
-            model: model || 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+            model: resolvedModel,
             autoApprove: autoApprove,
             accounts: accounts,         // Pass accounts array for multi-account querying
             accountId: accountId,       // Backwards compatibility

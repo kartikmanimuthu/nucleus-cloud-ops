@@ -30,7 +30,8 @@ import { createAgentModels, assembleTools } from "./model-factory";
 
 // Factory function to create a configured reflection graph
 export async function createReflectionGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId } = config;
+    const { model: modelConfig, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId } = config;
+    const modelId = modelConfig.modelId;
     const checkpointer = await getCheckpointer();
     const store = await getStore();
 
@@ -57,11 +58,11 @@ export async function createReflectionGraph(config: GraphConfig) {
     const skillContent = selectedSkill ? (getSkillContent(selectedSkill) || '') : '';
 
     // --- Model Initialization ---
-    const { main: model, reflector: reflectorModel } = createAgentModels(modelId);
+    const { main: model, reflector: reflectorModel } = createAgentModels(modelConfig);
 
     // --- Tool Assembly ---
     const tools = await assembleTools({ includeS3Tools: true, includeMemoryTools: !!store, userId: config.userId, mcpServerIds, tenantId, accounts });
-    const modelWithTools = model.bindTools(tools);
+    const modelWithTools = model.bindTools!(tools);
     const toolNode = new ToolNode(tools);
 
     // ---------------------------------------------------------------------------
