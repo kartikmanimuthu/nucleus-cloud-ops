@@ -1,5 +1,5 @@
 import { createTextToSQLGraph } from "./graph";
-import type { TextToSQLFilters } from "./state";
+import type { TextToSQLFilters, TextToSQLState } from "./state";
 
 export interface TextToSQLInput {
     question: string;
@@ -13,44 +13,81 @@ export interface TextToSQLEvent {
     [key: string]: unknown;
 }
 
+/**
+ * Invoke the Text-to-SQL graph and yield SSE events in real-time
+ * as each node completes. Uses graph.stream() with streamMode: 'updates'
+ * so the frontend sees step indicators progress live.
+ */
 export async function* invokeTextToSQL(input: TextToSQLInput): AsyncGenerator<TextToSQLEvent> {
     const graph = createTextToSQLGraph();
 
-    yield { type: 'step', step: 'describe_schema', status: 'running' };
-
     try {
-        const result = await graph.invoke({
-            question: input.question,
-            tenantId: input.tenantId,
-            conversationHistory: input.conversationHistory ?? [],
-            filters: input.filters,
-            maxIterations: 3,
-        });
+        const stream = await graph.stream(
+            {
+                question: input.question,
+                tenantId: input.tenantId,
+                conversationHistory: input.conversationHistory ?? [],
+                filters: input.filters,
+                maxIterations: 3,
+            },
+            { streamMode: 'updates' }
+        );
 
-        yield { type: 'step', step: 'describe_schema', status: 'done' };
+        let lastSQL = '';
+        let lastIteration = 0;
 
-        if (result.generatedSQL) {
-            yield { type: 'step', step: 'generate_sql', status: 'done', iteration: result.iteration };
-            yield { type: 'sql', query: result.generatedSQL };
-        }
+        for await (const chunk of stream) {
+            // streamMode: 'updates' yields { [nodeName]: Partial<State> }
+            const entries = Object.entries(chunk) as [string, Partial<TextToSQLState>][];
 
-        if (result.sqlResult) {
-            yield { type: 'step', step: 'execute_sql', status: 'done' };
-            yield { type: 'result', rowCount: result.sqlResult.rowCount, preview: result.sqlResult.rows.slice(0, 5) };
-        }
+            for (const [nodeName, update] of entries) {
+                // Emit step completion for each node
+                yield { type: 'step', step: nodeName, status: 'done' };
 
-        if (result.iteration > 0) {
-            yield { type: 'step', step: 'reflect', status: 'done' };
-            yield { type: 'reflection', satisfied: result.satisfied, feedback: result.reflectionFeedback || '' };
-        }
+                switch (nodeName) {
+                    case 'generate_sql':
+                        if (update.generatedSQL) {
+                            lastSQL = update.generatedSQL;
+                            lastIteration = (update as any).iteration ?? lastIteration;
+                            yield { type: 'sql', query: update.generatedSQL };
+                        }
+                        break;
 
-        if (result.finalAnswer) {
-            yield { type: 'step', step: 'synthesize', status: 'done' };
-            yield { type: 'token', content: result.finalAnswer };
+                    case 'execute_sql':
+                        if (update.sqlResult) {
+                            yield {
+                                type: 'result',
+                                rowCount: update.sqlResult.rowCount,
+                                preview: update.sqlResult.rows.slice(0, 5),
+                            };
+                        }
+                        if (update.sqlError) {
+                            yield { type: 'step', step: 'execute_sql', status: 'done', detail: 'error' };
+                        }
+                        break;
+
+                    case 'reflect':
+                        if (update.satisfied !== undefined) {
+                            yield {
+                                type: 'reflection',
+                                satisfied: update.satisfied,
+                                feedback: update.reflectionFeedback || '',
+                                iteration: update.iteration ?? lastIteration,
+                            };
+                        }
+                        break;
+
+                    case 'synthesize':
+                        if (update.finalAnswer) {
+                            yield { type: 'token', content: update.finalAnswer };
+                        }
+                        break;
+                }
+            }
         }
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
-        console.error('[TextToSQL] Graph invocation error:', message);
+        console.error('[TextToSQL] Graph stream error:', message);
         yield { type: 'error', message };
     }
 
