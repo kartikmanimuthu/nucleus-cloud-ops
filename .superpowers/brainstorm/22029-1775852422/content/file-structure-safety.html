@@ -1,0 +1,121 @@
+<h2>Text-to-SQL Agent — File Structure & Safety</h2>
+<p class="subtitle">New files, modifications to existing files, and SQL execution guardrails</p>
+
+<div class="section">
+  <h3>New Files</h3>
+  <div style="padding:16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:8px; font-family:monospace; font-size:13px; line-height:2.2; color:#e2e8f0;">
+    <div style="color:#34d399;">web-ui/lib/agent/text-to-sql/</div>
+    <div style="padding-left:24px;">
+      <div><span style="color:#60a5fa;">graph.ts</span> <span style="color:#64748b;">— LangGraph StateGraph definition (5 nodes + conditional edges)</span></div>
+      <div><span style="color:#60a5fa;">state.ts</span> <span style="color:#64748b;">— TextToSQLState type + Annotation definition</span></div>
+      <div><span style="color:#60a5fa;">nodes/</span></div>
+      <div style="padding-left:24px;">
+        <div><span style="color:#a78bfa;">describe-schema.ts</span> <span style="color:#64748b;">— Introspects information_schema + sample rows</span></div>
+        <div><span style="color:#a78bfa;">generate-sql.ts</span> <span style="color:#64748b;">— LLM generates SQL from question + schema + feedback</span></div>
+        <div><span style="color:#a78bfa;">execute-sql.ts</span> <span style="color:#64748b;">— Raw pg query with safety validation</span></div>
+        <div><span style="color:#a78bfa;">reflect.ts</span> <span style="color:#64748b;">— LLM evaluates result quality</span></div>
+        <div><span style="color:#a78bfa;">synthesize.ts</span> <span style="color:#64748b;">— LLM generates natural language answer</span></div>
+      </div>
+      <div><span style="color:#60a5fa;">db.ts</span> <span style="color:#64748b;">— Raw pg Pool singleton (DATABASE_URL, max:3, read-only)</span></div>
+      <div><span style="color:#60a5fa;">sql-validator.ts</span> <span style="color:#64748b;">— SELECT-only check, tenant_id param check, LIMIT enforcement</span></div>
+      <div><span style="color:#60a5fa;">prompts.ts</span> <span style="color:#64748b;">— System prompts for SQL generation, reflection, synthesis</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Modified Files</h3>
+  <div style="padding:16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:8px; font-family:monospace; font-size:13px; line-height:2.2; color:#e2e8f0;">
+    <div><span style="color:#fbbf24;">web-ui/app/api/ask-ai/route.ts</span> <span style="color:#64748b;">— Replace RAG logic with graph invocation + SSE streaming</span></div>
+    <div><span style="color:#fbbf24;">web-ui/components/inventory/ask-ai-dialog.tsx</span> <span style="color:#64748b;">— Parse SSE events, render step indicators + SQL block</span></div>
+    <div><span style="color:#94a3b8; text-decoration:line-through;">web-ui/components/inventory/ask-ai-sources.tsx</span> <span style="color:#64748b;">— Removed (no more RAG sources)</span></div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>SQL Execution Safety — 5 Layers</h3>
+  <div style="display:flex; flex-direction:column; gap:12px;">
+
+    <div style="display:flex; gap:12px; align-items:flex-start;">
+      <div style="width:36px; height:36px; background:rgba(248,113,113,0.15); border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-weight:bold; color:#f87171;">1</div>
+      <div style="flex:1; padding:12px; background:rgba(248,113,113,0.06); border:1px solid rgba(248,113,113,0.15); border-radius:8px;">
+        <div style="color:#f87171; font-weight:bold; margin-bottom:4px;">SELECT-Only Validation</div>
+        <div style="color:#94a3b8; font-size:13px;">Regex + AST-light check: reject any SQL containing INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, GRANT, REVOKE. Runs before execution.</div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:12px; align-items:flex-start;">
+      <div style="width:36px; height:36px; background:rgba(251,191,36,0.15); border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-weight:bold; color:#fbbf24;">2</div>
+      <div style="flex:1; padding:12px; background:rgba(251,191,36,0.06); border:1px solid rgba(251,191,36,0.15); border-radius:8px;">
+        <div style="color:#fbbf24; font-weight:bold; margin-bottom:4px;">Tenant Isolation</div>
+        <div style="color:#94a3b8; font-size:13px;">Every query must reference <code style="color:#fbbf24;">$1</code> as the tenant_id parameter. Validated before execution. The actual tenantId is passed as a parameterized value via <code>pool.query(sql, [tenantId])</code> — never string-interpolated.</div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:12px; align-items:flex-start;">
+      <div style="width:36px; height:36px; background:rgba(52,211,153,0.15); border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-weight:bold; color:#34d399;">3</div>
+      <div style="flex:1; padding:12px; background:rgba(52,211,153,0.06); border:1px solid rgba(52,211,153,0.15); border-radius:8px;">
+        <div style="color:#34d399; font-weight:bold; margin-bottom:4px;">Read-Only Transaction</div>
+        <div style="color:#94a3b8; font-size:13px;"><code style="color:#34d399;">SET TRANSACTION READ ONLY</code> before every query. Even if validation is bypassed, PostgreSQL itself blocks writes.</div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:12px; align-items:flex-start;">
+      <div style="width:36px; height:36px; background:rgba(96,165,250,0.15); border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-weight:bold; color:#60a5fa;">4</div>
+      <div style="flex:1; padding:12px; background:rgba(96,165,250,0.06); border:1px solid rgba(96,165,250,0.15); border-radius:8px;">
+        <div style="color:#60a5fa; font-weight:bold; margin-bottom:4px;">Table Allowlist</div>
+        <div style="color:#94a3b8; font-size:13px;">Only <code style="color:#60a5fa;">inventory_resources</code> is queryable. Any reference to other tables (accounts, audit_logs, auth_users, etc.) is rejected before execution.</div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:12px; align-items:flex-start;">
+      <div style="width:36px; height:36px; background:rgba(167,139,250,0.15); border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-weight:bold; color:#a78bfa;">5</div>
+      <div style="flex:1; padding:12px; background:rgba(167,139,250,0.06); border:1px solid rgba(167,139,250,0.15); border-radius:8px;">
+        <div style="color:#a78bfa; font-weight:bold; margin-bottom:4px;">Resource Limits</div>
+        <div style="color:#94a3b8; font-size:13px;">LIMIT 500 enforced (appended if missing). 10-second query timeout via <code style="color:#a78bfa;">statement_timeout</code>. Max 3 reflection retries.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h3>pg Pool Configuration</h3>
+  <div style="padding:16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:8px; font-family:monospace; font-size:12px; line-height:1.8; color:#e2e8f0;">
+    <pre style="margin:0;">// web-ui/lib/agent/text-to-sql/db.ts
+import { Pool } from 'pg';
+
+let pool: Pool | null = null;
+
+export function getTextToSQLPool(): Pool {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 3,                    // small pool — only for AI queries
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+  }
+  return pool;
+}
+
+// Execute with safety: read-only tx + statement timeout
+export async function executeReadOnlyQuery(
+  sql: string, params: unknown[]
+): Promise&lt;{ rows: Record&lt;string, unknown&gt;[]; rowCount: number }&gt; {
+  const client = await getTextToSQLPool().connect();
+  try {
+    await client.query('BEGIN TRANSACTION READ ONLY');
+    await client.query('SET LOCAL statement_timeout = 10000');
+    const result = await client.query(sql, params);
+    await client.query('COMMIT');
+    return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}</pre>
+  </div>
+</div>
