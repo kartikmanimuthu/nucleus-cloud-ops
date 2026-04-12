@@ -1,0 +1,149 @@
+<h2>Text-to-SQL Agent — Error Handling & Testing</h2>
+<p class="subtitle">How failures are handled at each stage, and the testing strategy</p>
+
+<div class="section">
+  <h3>Error Handling by Node</h3>
+  <div style="display:flex; flex-direction:column; gap:10px;">
+
+    <div style="padding:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span style="color:#1e40af; font-weight:bold; font-size:13px;">describe_schema</span>
+      </div>
+      <div style="color:#94a3b8; font-size:13px;">
+        <strong style="color:#f87171;">If fails:</strong> DB connection error → return friendly error to user ("Unable to connect to inventory database"). No retries — this is a hard dependency.<br>
+        <strong style="color:#34d399;">Caching:</strong> Schema is cached in state after first successful call. Follow-up questions in the same conversation skip this node.
+      </div>
+    </div>
+
+    <div style="padding:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span style="color:#0369a1; font-weight:bold; font-size:13px;">generate_sql</span>
+      </div>
+      <div style="color:#94a3b8; font-size:13px;">
+        <strong style="color:#f87171;">If LLM fails:</strong> Bedrock timeout/throttle → retry once, then error to user.<br>
+        <strong style="color:#f87171;">If SQL invalid:</strong> Validator rejects (not SELECT, missing tenant_id, forbidden table) → feed validation error back as reflection feedback, retry generation.<br>
+        <strong style="color:#34d399;">Prompt includes:</strong> Schema, question, conversation history, and any prior error/feedback from reflection.
+      </div>
+    </div>
+
+    <div style="padding:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span style="color:#047857; font-weight:bold; font-size:13px;">execute_sql</span>
+      </div>
+      <div style="color:#94a3b8; font-size:13px;">
+        <strong style="color:#f87171;">If SQL error:</strong> Syntax error, invalid column, etc. → capture error message, pass to reflect node. The reflection loop will generate corrected SQL.<br>
+        <strong style="color:#f87171;">If timeout:</strong> 10s statement_timeout hit → error captured, reflection suggests simpler query or adding indexes.<br>
+        <strong style="color:#f87171;">If connection error:</strong> Pool exhausted → error to user ("Database temporarily unavailable").
+      </div>
+    </div>
+
+    <div style="padding:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span style="color:#b45309; font-weight:bold; font-size:13px;">reflect</span>
+      </div>
+      <div style="color:#94a3b8; font-size:13px;">
+        <strong style="color:#f87171;">If not satisfied + retries left:</strong> Feedback goes back to generate_sql with specific guidance ("Try using JSONB operator for tags", "Column name is resource_type not type").<br>
+        <strong style="color:#f87171;">If not satisfied + max retries (3):</strong> Proceed to synthesize anyway with best available results. User gets answer with a note: "I had difficulty finding the exact answer. Here's what I found..."<br>
+        <strong style="color:#34d399;">Empty results:</strong> Not always an error. Reflector checks if "zero results" is a valid answer (e.g., "no Lambda functions in eu-west-1" is correct if there aren't any).
+      </div>
+    </div>
+
+    <div style="padding:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span style="color:#7c3aed; font-weight:bold; font-size:13px;">synthesize</span>
+      </div>
+      <div style="color:#94a3b8; font-size:13px;">
+        <strong style="color:#f87171;">If LLM fails:</strong> Return raw query results as a formatted table (graceful degradation).<br>
+        <strong style="color:#34d399;">Streaming:</strong> Tokens stream via SSE. If client disconnects mid-stream, server detects abort signal and cleans up.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Testing Strategy</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+
+    <div style="padding:14px; background:rgba(52,211,153,0.06); border:1px solid rgba(52,211,153,0.15); border-radius:8px;">
+      <div style="color:#34d399; font-weight:bold; margin-bottom:8px;">Unit Tests (Vitest)</div>
+      <div style="color:#94a3b8; font-size:13px; line-height:1.8;">
+        <div><code style="color:#e2e8f0;">sql-validator.test.ts</code></div>
+        <div style="padding-left:12px; font-size:12px;">
+          • Rejects INSERT/UPDATE/DELETE/DROP<br>
+          • Rejects queries without $1 tenant param<br>
+          • Rejects queries referencing non-allowed tables<br>
+          • Appends LIMIT 500 when missing<br>
+          • Passes valid SELECT queries
+        </div>
+        <div style="margin-top:8px;"><code style="color:#e2e8f0;">prompts.test.ts</code></div>
+        <div style="padding-left:12px; font-size:12px;">
+          • Schema description formatting<br>
+          • Filter injection into prompts
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:14px; background:rgba(96,165,250,0.06); border:1px solid rgba(96,165,250,0.15); border-radius:8px;">
+      <div style="color:#60a5fa; font-weight:bold; margin-bottom:8px;">Integration Tests (Vitest)</div>
+      <div style="color:#94a3b8; font-size:13px; line-height:1.8;">
+        <div><code style="color:#e2e8f0;">graph.test.ts</code></div>
+        <div style="padding-left:12px; font-size:12px;">
+          • Mock LLM + real pg pool against test DB<br>
+          • Full graph execution: question → SQL → results → answer<br>
+          • Reflection loop triggers on bad SQL<br>
+          • Max retries respected<br>
+          • Tenant isolation enforced
+        </div>
+        <div style="margin-top:8px;"><code style="color:#e2e8f0;">execute-sql.test.ts</code></div>
+        <div style="padding-left:12px; font-size:12px;">
+          • Read-only transaction blocks writes<br>
+          • Statement timeout fires at 10s<br>
+          • Parameterized queries prevent injection
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:14px; background:rgba(167,139,250,0.06); border:1px solid rgba(167,139,250,0.15); border-radius:8px;">
+      <div style="color:#a78bfa; font-weight:bold; margin-bottom:8px;">E2E Tests (Playwright)</div>
+      <div style="color:#94a3b8; font-size:13px; line-height:1.8;">
+        <div><code style="color:#e2e8f0;">ask-ai-sql.spec.ts</code></div>
+        <div style="padding-left:12px; font-size:12px;">
+          • Open Ask AI → type question → see step indicators<br>
+          • SQL block appears and is collapsible<br>
+          • Answer streams in with markdown table<br>
+          • Follow-up question uses conversation context<br>
+          • Error state renders correctly
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:14px; background:rgba(251,191,36,0.06); border:1px solid rgba(251,191,36,0.15); border-radius:8px;">
+      <div style="color:#fbbf24; font-weight:bold; margin-bottom:8px;">Security Tests (Vitest)</div>
+      <div style="color:#94a3b8; font-size:13px; line-height:1.8;">
+        <div><code style="color:#e2e8f0;">sql-validator.security.test.ts</code></div>
+        <div style="padding-left:12px; font-size:12px;">
+          • SQL injection attempts blocked<br>
+          • Subquery attacks (SELECT from auth_users) blocked<br>
+          • UNION-based table access blocked<br>
+          • Comment-based bypass attempts blocked<br>
+          • Tenant ID cannot be overridden
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h3>Edge Cases</h3>
+  <div style="padding:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px;">
+      <div style="color:#94a3b8;"><strong style="color:#e2e8f0;">Ambiguous question</strong> — "show me everything" → agent generates broad SELECT with LIMIT 500, synthesizer summarizes by resource type</div>
+      <div style="color:#94a3b8;"><strong style="color:#e2e8f0;">JSONB queries</strong> — "resources tagged Environment=Production" → agent uses <code>tags->>'Environment' = 'Production'</code> or <code>tags @> '{"Environment":"Production"}'</code></div>
+      <div style="color:#94a3b8;"><strong style="color:#e2e8f0;">No data</strong> — empty inventory → describe_schema still works, agent returns "No inventory data found. Run a sync first."</div>
+      <div style="color:#94a3b8;"><strong style="color:#e2e8f0;">Non-inventory question</strong> — "what's the weather?" → agent recognizes no relevant SQL, returns "I can only answer questions about your AWS inventory."</div>
+      <div style="color:#94a3b8;"><strong style="color:#e2e8f0;">Large result sets</strong> — LIMIT 500 cap + synthesizer summarizes/aggregates rather than listing all 500 rows</div>
+      <div style="color:#94a3b8;"><strong style="color:#e2e8f0;">Metadata queries</strong> — "instances with more than 4 vCPUs" → agent uses <code>metadata->>'vCpuCount'</code> JSONB access</div>
+    </div>
+  </div>
+</div>

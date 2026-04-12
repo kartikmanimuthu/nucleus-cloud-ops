@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Bot, Send, Sparkles, User, RefreshCw, Trash2 } from "lucide-react";
+import { Bot, Send, Sparkles, User, RefreshCw, Trash2, ChevronDown } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useEffect, useRef, useState, useId } from "react";
-import { AskAISources, AISource } from "./ask-ai-sources";
+import { cn } from "@/lib/utils";
 
 // Example prompts shown in the empty state
 const EXAMPLE_PROMPTS = [
@@ -39,9 +39,6 @@ interface AskAIDialogProps {
     filters?: ActiveFilters;
 }
 
-// Per-message sources parsed from X-AI-Sources header
-const sourcesMap = new Map<string, AISource[]>();
-
 export function AskAIDialog({ open, onOpenChange, filters }: AskAIDialogProps) {
     const conversationId = useId();
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -51,6 +48,9 @@ export function AskAIDialog({ open, onOpenChange, filters }: AskAIDialogProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
     const [error, setError] = useState<{ message: string } | null>(null);
+    const [steps, setSteps] = useState<Array<{ name: string; status: 'running' | 'done'; detail?: string }>>([]);
+    const [sqlQuery, setSqlQuery] = useState('');
+    const [sqlExpanded, setSqlExpanded] = useState(false);
 
     const handleSend = async (text: string) => {
         const trimmed = text.trim();
@@ -77,28 +77,64 @@ export function AskAIDialog({ open, onOpenChange, filters }: AskAIDialogProps) {
 
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-            // Parse sources from header before consuming the body stream
             const msgId = 'ai-' + Date.now();
-            const sourcesHeader = response.headers.get("X-AI-Sources");
-            if (sourcesHeader) {
-                try {
-                    sourcesMap.set(msgId, JSON.parse(decodeURIComponent(sourcesHeader)));
-                } catch { /* ignore */ }
-            }
-
-            // Add empty assistant message, then stream content into it
             setMessages(prev => [...prev, { id: msgId, role: 'assistant', content: '' }]);
             setIsLoading(false);
             setIsStreaming(true);
+            setSteps([]);
+            setSqlQuery('');
 
             const reader = response.body!.getReader();
             const decoder = new TextDecoder();
+            let buffer = '';
             let content = '';
+
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-                content += decoder.decode(value, { stream: true });
-                setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content } : m));
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const event = JSON.parse(line.slice(6));
+
+                        switch (event.type) {
+                            case 'step':
+                                setSteps(prev => {
+                                    const existing = prev.find(s => s.name === event.step);
+                                    if (existing) {
+                                        return prev.map(s => s.name === event.step
+                                            ? { ...s, status: event.status, detail: event.detail }
+                                            : s
+                                        );
+                                    }
+                                    return [...prev, { name: event.step, status: event.status, detail: event.detail }];
+                                });
+                                break;
+                            case 'sql':
+                                setSqlQuery(event.query);
+                                break;
+                            case 'result':
+                                setSteps(prev => prev.map(s => s.name === 'execute_sql'
+                                    ? { ...s, detail: `${event.rowCount} rows` }
+                                    : s
+                                ));
+                                break;
+                            case 'token':
+                                content += event.content;
+                                setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content } : m));
+                                break;
+                            case 'error':
+                                setError({ message: event.message });
+                                break;
+                            case 'done':
+                                break;
+                        }
+                    } catch { /* skip malformed lines */ }
+                }
             }
 
             setIsStreaming(false);
@@ -121,10 +157,12 @@ export function AskAIDialog({ open, onOpenChange, filters }: AskAIDialogProps) {
 
     const handleClearConversation = () => {
         setMessages([]);
-        sourcesMap.clear();
         setShowFollowUps(false);
         setInput('');
         setIsStreaming(false);
+        setSteps([]);
+        setSqlQuery('');
+        setSqlExpanded(false);
     };
 
     const handleFollowUpClick = (text: string) => handleSend(text);
@@ -226,15 +264,41 @@ export function AskAIDialog({ open, onOpenChange, filters }: AskAIDialogProps) {
                                             <Bot className="h-4 w-4 text-indigo-600" />
                                         </div>
                                         <div className="flex-1 min-w-0 space-y-2">
+                                            {/* Step indicators */}
+                                            {message.id === messages.filter(m => m.role === 'assistant').at(-1)?.id && steps.length > 0 && (
+                                                <div className="flex flex-wrap gap-1.5 mb-3">
+                                                    {steps.map((step) => (
+                                                        <div key={step.name} className={cn(
+                                                            "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border",
+                                                            step.status === 'done'
+                                                                ? "bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400"
+                                                                : "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 animate-pulse"
+                                                        )}>
+                                                            {step.status === 'done' ? '✓' : '⟳'} {step.name.replace(/_/g, ' ')}{step.detail ? ` (${step.detail})` : ''}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {/* Collapsible SQL block */}
+                                            {message.id === messages.filter(m => m.role === 'assistant').at(-1)?.id && sqlQuery && (
+                                                <div className="mb-3 rounded-md border bg-muted/30 overflow-hidden">
+                                                    <button
+                                                        onClick={() => setSqlExpanded(!sqlExpanded)}
+                                                        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 transition-colors"
+                                                    >
+                                                        <span>SQL Query</span>
+                                                        <ChevronDown className={cn("h-3 w-3 transition-transform", sqlExpanded && "rotate-180")} />
+                                                    </button>
+                                                    {sqlExpanded && (
+                                                        <pre className="px-3 py-2 text-xs overflow-x-auto border-t bg-muted/20 font-mono">{sqlQuery}</pre>
+                                                    )}
+                                                </div>
+                                            )}
                                             <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                                     {message.content as string}
                                                 </ReactMarkdown>
                                             </div>
-                                            {/* Source citations */}
-                                            {sourcesMap.has(message.id) && (
-                                                <AskAISources sources={sourcesMap.get(message.id)!} />
-                                            )}
                                         </div>
                                     </div>
                                 )}

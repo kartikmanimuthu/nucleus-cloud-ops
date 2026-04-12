@@ -1,0 +1,161 @@
+<h2>Text-to-SQL Agent — Architecture</h2>
+<p class="subtitle">LangGraph StateGraph with full quality reflection loop</p>
+
+<div class="mockup">
+  <div class="mockup-header">Agent Flow — LangGraph StateGraph</div>
+  <div class="mockup-body" style="padding:24px; background:#0f172a;">
+    <div style="display:flex; flex-direction:column; gap:16px; font-family:monospace; font-size:13px;">
+
+      <!-- Entry -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:180px; padding:12px; background:#7c3aed; border-radius:8px; text-align:center; color:white; font-weight:bold;">
+          START
+        </div>
+        <span style="color:#64748b;">→ User question + conversation history + tenantId</span>
+      </div>
+
+      <!-- Node 1: describe_schema -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="color:#64748b; font-size:18px;">↓</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:180px; padding:12px; background:#1e40af; border-radius:8px; text-align:center; color:white;">
+          describe_schema
+        </div>
+        <span style="color:#94a3b8;">Run <code style="color:#60a5fa;">SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'inventory_resources'</code> + sample rows. Cached per session.</span>
+      </div>
+
+      <!-- Node 2: generate_sql -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="color:#64748b; font-size:18px;">↓</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:180px; padding:12px; background:#0369a1; border-radius:8px; text-align:center; color:white;">
+          generate_sql
+        </div>
+        <span style="color:#94a3b8;">LLM generates SQL from question + schema + prior errors. Enforces: <code style="color:#fbbf24;">SELECT only</code>, <code style="color:#fbbf24;">WHERE tenant_id = $1</code>, <code style="color:#fbbf24;">LIMIT 500</code></span>
+      </div>
+
+      <!-- Node 3: execute_sql -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="color:#64748b; font-size:18px;">↓</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:180px; padding:12px; background:#047857; border-radius:8px; text-align:center; color:white;">
+          execute_sql
+        </div>
+        <span style="color:#94a3b8;">Raw <code style="color:#34d399;">pg Pool</code> client. Parameterized <code style="color:#34d399;">pool.query(sql, [tenantId])</code>. Read-only transaction. 10s timeout. Returns rows + row count.</span>
+      </div>
+
+      <!-- Node 4: reflect -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="color:#64748b; font-size:18px;">↓</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:180px; padding:12px; background:#b45309; border-radius:8px; text-align:center; color:white;">
+          reflect
+        </div>
+        <div style="color:#94a3b8;">
+          LLM evaluates: <em>"Did this query answer the user's question?"</em><br>
+          Checks: SQL errors? Empty results when data expected? Wrong columns? Incomplete answer?<br>
+          Returns: <code style="color:#fbbf24;">{ satisfied: boolean, feedback: string }</code>
+        </div>
+      </div>
+
+      <!-- Conditional -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="color:#64748b; font-size:18px;">↓</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:24px;">
+        <div style="width:180px; padding:12px; background:#374151; border-radius:8px; text-align:center; color:white; border:2px dashed #6b7280;">
+          satisfied?
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="color:#f87171; font-weight:bold;">NO</span>
+            <span style="color:#94a3b8;">→ back to <code style="color:#0369a1;">generate_sql</code> with feedback (max 3 retries)</span>
+            <span style="color:#f87171; font-size:20px;">↩</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="color:#34d399; font-weight:bold;">YES</span>
+            <span style="color:#94a3b8;">→ continue to synthesize</span>
+            <span style="color:#34d399; font-size:20px;">↓</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Node 5: synthesize -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="color:#64748b; font-size:18px;">↓</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:180px; padding:12px; background:#7c3aed; border-radius:8px; text-align:center; color:white;">
+          synthesize
+        </div>
+        <span style="color:#94a3b8;">LLM generates natural language answer from query results. Streams to user. Includes data tables, counts, summaries as appropriate.</span>
+      </div>
+
+      <!-- End -->
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="color:#64748b; font-size:18px;">↓</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:180px; padding:12px; background:#7c3aed; border-radius:8px; text-align:center; color:white; font-weight:bold;">
+          END
+        </div>
+        <span style="color:#64748b;">→ Streamed response complete</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px;">
+  <h3>State Shape</h3>
+  <div style="padding:16px; background:rgba(255,255,255,0.05); border-radius:8px; font-family:monospace; font-size:13px; line-height:1.8; color:#e2e8f0;">
+    <pre style="margin:0; white-space:pre-wrap;">interface TextToSQLState {
+  // Input
+  question: string;
+  conversationHistory: BaseMessage[];
+  tenantId: string;
+  filters?: { accountIds?: string[]; region?: string; resourceType?: string };
+
+  // Schema (cached after first run)
+  schemaDescription: string;
+  sampleRows: Record&lt;string, unknown&gt;[];
+
+  // SQL generation loop
+  generatedSQL: string;
+  sqlResult: { rows: Record&lt;string, unknown&gt;[]; rowCount: number } | null;
+  sqlError: string | null;
+  reflectionFeedback: string;
+  iteration: number;        // current retry count
+  maxIterations: number;    // default 3
+  satisfied: boolean;
+
+  // Output
+  finalAnswer: string;      // streamed to user
+}</pre>
+  </div>
+</div>
+
+<div style="margin-top:24px;">
+  <h3>Key Design Decisions</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+    <div style="padding:12px; background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.3); border-radius:8px;">
+      <div style="color:#34d399; font-weight:bold; margin-bottom:4px;">Raw pg, not Prisma</div>
+      <div style="color:#94a3b8; font-size:13px;">LLM-generated SQL can't go through an ORM. Direct <code>pg.Pool.query()</code> with parameterized tenantId.</div>
+    </div>
+    <div style="padding:12px; background:rgba(96,165,250,0.1); border:1px solid rgba(96,165,250,0.3); border-radius:8px;">
+      <div style="color:#60a5fa; font-weight:bold; margin-bottom:4px;">Runtime schema introspection</div>
+      <div style="color:#94a3b8; font-size:13px;">Query information_schema at runtime instead of hardcoding. Schema stays accurate as migrations evolve.</div>
+    </div>
+    <div style="padding:12px; background:rgba(251,191,36,0.1); border:1px solid rgba(251,191,36,0.3); border-radius:8px;">
+      <div style="color:#fbbf24; font-weight:bold; margin-bottom:4px;">Tenant isolation enforced</div>
+      <div style="color:#94a3b8; font-size:13px;">Every generated SQL must include <code>WHERE tenant_id = $1</code>. Validated before execution. Parameterized, never interpolated.</div>
+    </div>
+    <div style="padding:12px; background:rgba(248,113,113,0.1); border:1px solid rgba(248,113,113,0.3); border-radius:8px;">
+      <div style="color:#f87171; font-weight:bold; margin-bottom:4px;">Safety guardrails</div>
+      <div style="color:#94a3b8; font-size:13px;">SELECT-only validation. Read-only transaction (<code>SET TRANSACTION READ ONLY</code>). 10s query timeout. LIMIT 500 cap.</div>
+    </div>
+  </div>
+</div>

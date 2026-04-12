@@ -1,0 +1,171 @@
+<h2>Text-to-SQL Agent — API Route & Streaming UX</h2>
+<p class="subtitle">How the Ask AI API route changes and what the user sees during each agent step</p>
+
+<div class="section">
+  <h3>API Route Changes</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+    <div style="padding:16px; background:rgba(248,113,113,0.08); border:1px solid rgba(248,113,113,0.2); border-radius:8px;">
+      <div style="color:#f87171; font-weight:bold; margin-bottom:8px;">Before (RAG)</div>
+      <div style="font-family:monospace; font-size:12px; color:#94a3b8; line-height:1.8;">
+        POST /api/ask-ai<br><br>
+        1. Generate embedding (Titan v2)<br>
+        2. pgvector search OR listResources<br>
+        3. Build RAG system prompt<br>
+        4. streamText() → plain text stream<br>
+        5. X-AI-Sources header with resources<br><br>
+        <span style="color:#f87171;">Response: text/plain stream</span>
+      </div>
+    </div>
+    <div style="padding:16px; background:rgba(52,211,153,0.08); border:1px solid rgba(52,211,153,0.2); border-radius:8px;">
+      <div style="color:#34d399; font-weight:bold; margin-bottom:8px;">After (Text-to-SQL Agent)</div>
+      <div style="font-family:monospace; font-size:12px; color:#94a3b8; line-height:1.8;">
+        POST /api/ask-ai<br><br>
+        1. Create/resume LangGraph thread<br>
+        2. Invoke text-to-sql graph<br>
+        3. Stream agent events via SSE<br>
+        4. Each node emits typed events<br>
+        5. Final answer streams as text chunks<br><br>
+        <span style="color:#34d399;">Response: text/event-stream (SSE)</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>SSE Event Protocol</h3>
+  <div style="padding:16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:8px; font-family:monospace; font-size:12px; line-height:2; color:#e2e8f0;">
+    <div style="color:#64748b;">// Step 1: Schema introspection</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">step</span>","step":"<span style="color:#a78bfa;">describe_schema</span>","status":"running"}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">step</span>","step":"<span style="color:#a78bfa;">describe_schema</span>","status":"done"}</div>
+    <br>
+    <div style="color:#64748b;">// Step 2: SQL generation</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">step</span>","step":"<span style="color:#0ea5e9;">generate_sql</span>","status":"running","iteration":1}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">sql</span>","query":"<span style="color:#fbbf24;">SELECT resource_type, COUNT(*) ...</span>"}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">step</span>","step":"<span style="color:#0ea5e9;">generate_sql</span>","status":"done","iteration":1}</div>
+    <br>
+    <div style="color:#64748b;">// Step 3: Execution</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">step</span>","step":"<span style="color:#34d399;">execute_sql</span>","status":"running"}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">result</span>","rowCount":<span style="color:#fbbf24;">42</span>,"preview":[<span style="color:#94a3b8;">...first 5 rows...</span>]}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">step</span>","step":"<span style="color:#34d399;">execute_sql</span>","status":"done"}</div>
+    <br>
+    <div style="color:#64748b;">// Step 4: Reflection</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">step</span>","step":"<span style="color:#f59e0b;">reflect</span>","status":"running"}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">reflection</span>","satisfied":<span style="color:#34d399;">true</span>,"feedback":"Query correctly answers..."}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">step</span>","step":"<span style="color:#f59e0b;">reflect</span>","status":"done"}</div>
+    <br>
+    <div style="color:#64748b;">// Step 5: Final answer (streamed token by token)</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">step</span>","step":"<span style="color:#a78bfa;">synthesize</span>","status":"running"}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">token</span>","content":"Based on"}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">token</span>","content":" your inventory"}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">token</span>","content":", there are"}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">token</span>","content":" 42 EC2..."}</div>
+    <div>data: {"type":"<span style="color:#60a5fa;">done</span>"}</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>What the User Sees</h3>
+  <div class="mockup">
+    <div class="mockup-header">Ask AI Dialog — Step-by-Step Streaming</div>
+    <div class="mockup-body" style="padding:20px; background:#0f172a; font-size:13px;">
+      <!-- User message -->
+      <div style="display:flex; justify-content:flex-end; margin-bottom:16px;">
+        <div style="background:#6366f1; color:white; padding:8px 14px; border-radius:16px 16px 4px 16px; max-width:70%;">
+          How many EC2 instances are running per region?
+        </div>
+      </div>
+
+      <!-- Agent steps -->
+      <div style="display:flex; gap:10px; margin-bottom:16px;">
+        <div style="width:32px; height:32px; background:rgba(99,102,241,0.15); border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+          <span style="font-size:16px;">🤖</span>
+        </div>
+        <div style="flex:1;">
+          <!-- Step indicators -->
+          <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:4px; padding:3px 10px; background:rgba(52,211,153,0.15); border:1px solid rgba(52,211,153,0.3); border-radius:12px; font-size:11px; color:#34d399;">
+              ✓ Schema loaded
+            </div>
+            <div style="display:flex; align-items:center; gap:4px; padding:3px 10px; background:rgba(52,211,153,0.15); border:1px solid rgba(52,211,153,0.3); border-radius:12px; font-size:11px; color:#34d399;">
+              ✓ SQL generated
+            </div>
+            <div style="display:flex; align-items:center; gap:4px; padding:3px 10px; background:rgba(52,211,153,0.15); border:1px solid rgba(52,211,153,0.3); border-radius:12px; font-size:11px; color:#34d399;">
+              ✓ Query executed (42 rows)
+            </div>
+            <div style="display:flex; align-items:center; gap:4px; padding:3px 10px; background:rgba(52,211,153,0.15); border:1px solid rgba(52,211,153,0.3); border-radius:12px; font-size:11px; color:#34d399;">
+              ✓ Results verified
+            </div>
+          </div>
+
+          <!-- Collapsible SQL -->
+          <div style="margin-bottom:12px; padding:10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:6px;">
+            <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+              <span style="color:#60a5fa; font-size:11px; font-weight:600;">SQL QUERY</span>
+              <span style="color:#64748b; font-size:10px;">▼</span>
+            </div>
+            <pre style="margin:0; font-size:11px; color:#94a3b8; line-height:1.6;">SELECT region, COUNT(*) as count
+FROM inventory_resources
+WHERE tenant_id = $1
+  AND resource_type = 'ec2_instances'
+  AND status = 'running'
+GROUP BY region
+ORDER BY count DESC</pre>
+          </div>
+
+          <!-- Streamed answer -->
+          <div style="color:#e2e8f0; line-height:1.7;">
+            Based on your inventory, here are the running EC2 instances by region:<br><br>
+            <table style="width:100%; border-collapse:collapse; font-size:12px; margin-bottom:8px;">
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
+                <th style="text-align:left; padding:6px 8px; color:#94a3b8;">Region</th>
+                <th style="text-align:right; padding:6px 8px; color:#94a3b8;">Running Instances</th>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                <td style="padding:6px 8px;">us-east-1</td>
+                <td style="text-align:right; padding:6px 8px;">18</td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                <td style="padding:6px 8px;">us-west-2</td>
+                <td style="text-align:right; padding:6px 8px;">12</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 8px;">eu-west-1</td>
+                <td style="text-align:right; padding:6px 8px;">12</td>
+              </tr>
+            </table>
+            <span style="color:#94a3b8;">Total: 42 running EC2 instances across 3 regions.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:20px;">
+  <h3>Request / Response Contract</h3>
+  <div style="padding:16px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:8px; font-family:monospace; font-size:12px; line-height:1.8; color:#e2e8f0;">
+    <div style="color:#34d399; margin-bottom:4px;">// Request (same shape as current — backward compatible)</div>
+    <pre style="margin:0;">POST /api/ask-ai
+{
+  "messages": [...],          // conversation history
+  "conversationId": "...",    // thread ID
+  "filters": {                // from inventory grid
+    "accountId": "123456",
+    "region": "us-east-1",
+    "resourceType": "ec2_instances"
+  }
+}</pre>
+    <br>
+    <div style="color:#60a5fa; margin-bottom:4px;">// Response: text/event-stream</div>
+    <pre style="margin:0;">Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+
+data: {"type":"step", ...}
+data: {"type":"sql", ...}
+data: {"type":"result", ...}
+data: {"type":"reflection", ...}
+data: {"type":"token", "content":"..."}
+data: {"type":"done"}</pre>
+  </div>
+</div>

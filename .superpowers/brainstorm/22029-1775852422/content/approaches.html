@@ -1,0 +1,92 @@
+<h2>Text-to-SQL Agent — Architecture Approaches</h2>
+<p class="subtitle">Three ways to build the LangGraph reflection agent for inventory queries</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Standalone LangGraph Agent (Recommended)</h3>
+      <p>New dedicated agent in <code>web-ui/lib/agent/text-to-sql/</code> with its own StateGraph, separate from the existing fast/planning agents.</p>
+      <div style="margin-top:12px; padding:12px; background:rgba(255,255,255,0.05); border-radius:8px; font-size:13px; font-family:monospace; line-height:1.8">
+        <span style="color:#a78bfa">User Question</span><br>
+        → <span style="color:#60a5fa">generate_sql</span> (LLM + schema context)<br>
+        → <span style="color:#34d399">execute_sql</span> (Prisma $queryRawUnsafe, read-only)<br>
+        → <span style="color:#fbbf24">reflect</span> (LLM evaluates: did this answer the question?)<br>
+        → <span style="color:#f87171">if not satisfied → back to generate_sql</span> (max 3 retries)<br>
+        → <span style="color:#a78bfa">synthesize</span> (LLM formats natural language answer)<br>
+        → <span style="color:#60a5fa">Stream to user</span>
+      </div>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Clean separation — doesn't touch existing agent code</li>
+          <li>Purpose-built state for SQL generation (schema, query history, errors)</li>
+          <li>Easy to test and iterate independently</li>
+          <li>Reuses model-factory.ts for Bedrock access</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>New module to maintain alongside existing agents</li>
+          <li>Doesn't inherit MCP tools or memory from fast-agent</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Extend Fast Agent with SQL Tool</h3>
+      <p>Add a <code>query_inventory_sql</code> tool to the existing fast-agent's toolset. The agent decides when to use SQL vs other tools.</p>
+      <div style="margin-top:12px; padding:12px; background:rgba(255,255,255,0.05); border-radius:8px; font-size:13px; font-family:monospace; line-height:1.8">
+        <span style="color:#a78bfa">User Question</span><br>
+        → <span style="color:#60a5fa">fast-agent</span> (existing reflection loop)<br>
+        → agent calls <span style="color:#34d399">query_inventory_sql</span> tool<br>
+        → tool internally: generate SQL → execute → return results<br>
+        → <span style="color:#fbbf24">fast-agent reflects</span> on tool output<br>
+        → <span style="color:#a78bfa">Stream answer</span>
+      </div>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Reuses existing agent infrastructure</li>
+          <li>Agent can combine SQL with other tools</li>
+          <li>Less new code</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>SQL self-correction is hidden inside a single tool call</li>
+          <li>Fast-agent's reflection loop isn't SQL-aware</li>
+          <li>Harder to stream step-by-step progress</li>
+          <li>Mixes concerns — inventory SQL + general agent ops</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Vercel AI SDK Agent (Lightweight)</h3>
+      <p>Use Vercel AI SDK's <code>streamText</code> with tool calls instead of LangGraph. Simpler but less structured reflection.</p>
+      <div style="margin-top:12px; padding:12px; background:rgba(255,255,255,0.05); border-radius:8px; font-size:13px; font-family:monospace; line-height:1.8">
+        <span style="color:#a78bfa">User Question</span><br>
+        → <span style="color:#60a5fa">streamText</span> with tools: [generate_sql, execute_sql, reflect]<br>
+        → LLM orchestrates tool calls in sequence<br>
+        → <span style="color:#34d399">maxSteps: 10</span> allows multi-turn tool use<br>
+        → <span style="color:#a78bfa">Final text streams to user</span>
+      </div>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Minimal code — leverages existing Vercel AI SDK</li>
+          <li>Built-in streaming</li>
+          <li>No LangGraph dependency for this feature</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>No explicit state graph — reflection is implicit via maxSteps</li>
+          <li>Harder to control the exact flow (generate → execute → reflect)</li>
+          <li>Inconsistent with existing agent architecture (LangGraph)</li>
+          <li>Less observable — can't easily show "which step am I on"</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:24px; color:#94a3b8; font-size:14px;">Click an approach to select it. I recommend <strong>Approach A</strong> — it gives you a purpose-built SQL reflection loop with clean step-by-step streaming, without touching the existing agent code.</p>
