@@ -2,8 +2,8 @@
 // MODULE-BASED TYPES (Phase 13 custom RBAC)
 // =============================================================================
 
-/** The 5 top-level modules in the permission matrix */
-export type Module = 'Accounts' | 'Schedules' | 'AIOps' | 'Inventory' | 'Settings';
+/** The 6 top-level modules in the permission matrix */
+export type Module = 'Accounts' | 'Schedules' | 'AIOps' | 'Inventory' | 'Settings' | 'CloudShell';
 
 /** CRUD actions only — schedule execution maps to 'update', audit export maps to 'read' */
 export type Action = 'create' | 'read' | 'update' | 'delete';
@@ -33,6 +33,7 @@ export const SUBJECT_TO_MODULE: Record<string, Module> = {
     KnowledgeBase: 'AIOps', // Agent + KnowledgeBase collapsed into AI Ops (D-02)
     Billing: 'Settings',
     all: 'Settings',        // wildcard fallback
+    ShellSession: 'CloudShell',
 };
 
 /**

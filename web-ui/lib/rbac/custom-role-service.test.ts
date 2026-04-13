@@ -22,6 +22,7 @@ const FULL_PERMISSIONS: PermissionSet = {
     AIOps: ['create', 'read', 'update', 'delete'],
     Inventory: ['create', 'read', 'update', 'delete'],
     Settings: ['create', 'read', 'update', 'delete'],
+    CloudShell: ['create', 'read', 'update', 'delete'],
 };
 
 const MINIMAL_PERMISSIONS: PermissionSet = {
@@ -30,6 +31,7 @@ const MINIMAL_PERMISSIONS: PermissionSet = {
     AIOps: [],
     Inventory: [],
     Settings: [],
+    CloudShell: [],
 };
 
 const EMPTY_PERMISSIONS: PermissionSet = {
@@ -38,6 +40,7 @@ const EMPTY_PERMISSIONS: PermissionSet = {
     AIOps: [],
     Inventory: [],
     Settings: [],
+    CloudShell: [],
 };
 
 const MOCK_ROLE = {

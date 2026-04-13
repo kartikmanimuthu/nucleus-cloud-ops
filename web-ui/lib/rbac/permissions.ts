@@ -11,6 +11,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         AIOps: ['create', 'read', 'update', 'delete'],
         Inventory: ['create', 'read', 'update', 'delete'],
         Settings: ['create', 'read', 'update', 'delete'],
+        CloudShell: ['create', 'read', 'update', 'delete'],
     },
     Admin: {
         Accounts: ['create', 'read', 'update', 'delete'],
@@ -18,6 +19,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         AIOps: ['create', 'read', 'update', 'delete'],
         Inventory: ['create', 'read', 'update', 'delete'],
         Settings: ['create', 'read', 'update'], // No delete on Settings per D-04
+        CloudShell: ['create', 'read', 'update', 'delete'],
     },
     Member: {
         Accounts: ['create', 'read', 'update'],
@@ -25,6 +27,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         AIOps: ['create', 'read', 'update'],
         Inventory: ['create', 'read', 'update'],
         Settings: ['read'], // R only on Settings per D-04
+        CloudShell: ['create', 'read', 'update'],
     },
     Viewer: {
         Accounts: ['read'],
@@ -32,6 +35,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         AIOps: ['read'],
         Inventory: ['read'],
         Settings: ['read'],
+        CloudShell: ['read'],
     },
 };
 
@@ -84,9 +88,9 @@ export function canAssignRole(assignerRole: PredefinedRole, targetRole: Predefin
  */
 export function getAutoLevel(permissions: PermissionSet): RoleLevel {
     const totalActions = Object.values(permissions).flat().length;
-    const maxPossible = 20; // 5 modules * 4 actions
+    const maxPossible = 24; // 6 modules * 4 actions
     if (totalActions >= maxPossible) return 4;
-    if (totalActions >= 15) return 3;
-    if (totalActions >= 8) return 2;
+    if (totalActions >= 18) return 3;
+    if (totalActions >= 10) return 2;
     return 1;
 }

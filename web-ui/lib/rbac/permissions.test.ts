@@ -10,8 +10,8 @@ import {
 import type { PermissionSet } from './types';
 
 describe('ROLE_PERMISSIONS', () => {
-    it('Owner has all 4 CRUD actions on all 5 modules (20 true checks)', () => {
-        const modules = ['Accounts', 'Schedules', 'AIOps', 'Inventory', 'Settings'] as const;
+    it('Owner has all 4 CRUD actions on all 6 modules (24 true checks)', () => {
+        const modules = ['Accounts', 'Schedules', 'AIOps', 'Inventory', 'Settings', 'CloudShell'] as const;
         const actions = ['create', 'read', 'update', 'delete'] as const;
         for (const mod of modules) {
             for (const action of actions) {
@@ -54,8 +54,8 @@ describe('ROLE_PERMISSIONS', () => {
         expect(ROLE_PERMISSIONS.Member.Settings).not.toContain('delete');
     });
 
-    it('Viewer has R only on all 5 modules', () => {
-        const modules = ['Accounts', 'Schedules', 'AIOps', 'Inventory', 'Settings'] as const;
+    it('Viewer has R only on all 6 modules', () => {
+        const modules = ['Accounts', 'Schedules', 'AIOps', 'Inventory', 'Settings', 'CloudShell'] as const;
         for (const mod of modules) {
             expect(ROLE_PERMISSIONS.Viewer[mod]).toContain('read');
             expect(ROLE_PERMISSIONS.Viewer[mod]).not.toContain('create');
@@ -132,24 +132,26 @@ describe('canAssignRole', () => {
 });
 
 describe('getAutoLevel', () => {
-    it('returns 4 for Owner-level permissions (all 20 actions)', () => {
+    it('returns 4 for Owner-level permissions (all 24 actions)', () => {
         const ownerPerms: PermissionSet = {
             Accounts: ['create', 'read', 'update', 'delete'],
             Schedules: ['create', 'read', 'update', 'delete'],
             AIOps: ['create', 'read', 'update', 'delete'],
             Inventory: ['create', 'read', 'update', 'delete'],
             Settings: ['create', 'read', 'update', 'delete'],
+            CloudShell: ['create', 'read', 'update', 'delete'],
         };
         expect(getAutoLevel(ownerPerms)).toBe(4);
     });
 
-    it('returns 1 for Viewer-level permissions (read only, 5 actions)', () => {
+    it('returns 1 for Viewer-level permissions (read only, 6 actions)', () => {
         const viewerPerms: PermissionSet = {
             Accounts: ['read'],
             Schedules: ['read'],
             AIOps: ['read'],
             Inventory: ['read'],
             Settings: ['read'],
+            CloudShell: ['read'],
         };
         expect(getAutoLevel(viewerPerms)).toBe(1);
     });
@@ -163,6 +165,7 @@ describe('hasCustomPermission', () => {
             AIOps: [],
             Inventory: [],
             Settings: [],
+            CloudShell: [],
         };
         expect(hasCustomPermission(customPerms, 'create', 'Accounts')).toBe(true);
     });
@@ -174,6 +177,7 @@ describe('hasCustomPermission', () => {
             AIOps: [],
             Inventory: [],
             Settings: [],
+            CloudShell: [],
         };
         expect(hasCustomPermission(customPerms, 'delete', 'Accounts')).toBe(false);
     });
