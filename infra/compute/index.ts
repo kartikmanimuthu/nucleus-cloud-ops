@@ -372,12 +372,13 @@ const webUiSrcHash = crypto.createHash("sha256")
 const webUiImage = new awsx.ecr.Image("web-ui-image", {
     repositoryUrl: ecrRepository.repositoryUrl,
     context: repoRoot,
-    dockerfile: path.join(repoRoot, "web-ui/Dockerfile.ecs"),
+    dockerfile: path.join(repoRoot, "web-ui/Dockerfile"),
     platform: "linux/arm64",
     imageTag: webUiSrcHash,
     args: {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
+    cacheFrom: [pulumi.interpolate`${ecrRepository.repositoryUrl}:latest`],
 }, { dependsOn: [ecrPublicLogin] });
 
 // ECS Cluster
@@ -513,6 +514,9 @@ new aws.iam.RolePolicy("ecs-task-logs-policy", {
 });
 
 // WebUI Task Definition — ARM64, FARGATE, 512 CPU / 1024 MiB
+// retainOnDelete: true — Pulumi must NOT deactivate old task definition revisions on replace.
+// ECS task definitions are immutable revisions; deleting the Pulumi resource deactivates the
+// revision in AWS, which breaks rollback. Retain ensures all historical revisions stay ACTIVE.
 const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
     family: "nucleus-cloud-ops-web-ui-task",
     cpu: "512",
@@ -614,7 +618,7 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "USE_PG_KB", value: "true" },
         ],
     }])),
-});
+}, { retainOnDelete: true });
 
 // ============================================================================
 // ALB + SECURITY GROUPS + TARGET GROUP + LISTENER
@@ -947,6 +951,7 @@ const workersImage = new awsx.ecr.Image("workers-image", {
     args: {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
+    cacheFrom: [pulumi.interpolate`${workersEcrRepo.repositoryUrl}:latest`],
 }, { dependsOn: [ecrPublicLogin] });
 
 const workersLogGroup = new aws.cloudwatch.LogGroup("workers-log-group", {
@@ -1129,7 +1134,7 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
             { name: "LOG_LEVEL", value: "info" },
         ],
     }])),
-});
+}, { retainOnDelete: true });
 
 // IAM policy for workers to dispatch ECS tasks (horizontal executor)
 new aws.iam.RolePolicy("workers-ecs-dispatch-policy", {
@@ -1236,7 +1241,7 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
             { name: "WORKER_ARCH", value: "horizontal" },
         ],
     }])),
-});
+}, { retainOnDelete: true });
 
 const workersService = new aws.ecs.Service("workers-service", {
     name: "nucleus-cloud-ops-workers-service",

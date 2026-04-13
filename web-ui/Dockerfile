@@ -1,65 +1,99 @@
-FROM public.ecr.aws/docker/library/node:20.9.0-slim AS deps
+# Multi-stage Dockerfile for Next.js Web UI on ECS Fargate
+# Uses Bun for dependency installation, build, and production runtime
+# Build context: project root (not web-ui/) — required to include prisma/
+
+# ── Stage 1: Install dependencies with Bun ──
+FROM oven/bun:1-slim AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+COPY web-ui/package.json web-ui/bun.lock* web-ui/package-lock.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production --omit=dev --legacy-peer-deps && \
-    npm cache clean --force
+RUN bun install --frozen-lockfile --production
 
-FROM public.ecr.aws/docker/library/node:20.9.0-slim AS builder
+# ── Stage 2: Build with Bun ──
+FROM oven/bun:1-slim AS builder
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Install openssl for Prisma engine binaries
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
-# Install all dependencies for build
-RUN npm ci --legacy-peer-deps && \
-    npm cache clean --force
+COPY web-ui/package.json web-ui/bun.lock* web-ui/package-lock.json ./
 
-# Copy source code
-COPY . .
+# Install all dependencies (including devDependencies for build)
+RUN bun install --frozen-lockfile
+
+# Copy source code and prisma schema
+COPY web-ui/ .
+COPY prisma/ ./prisma/
 
 # Set Next.js environment for standalone build
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_SHARP_PATH=/tmp/node_modules/sharp
 
-# Set build-time environment variables for Next.js client-side access
+# Set build-time environment variables
 ENV NEXT_PUBLIC_AWS_REGION=ap-south-1
 ENV NEXT_PUBLIC_APP_TABLE_NAME=NucleusAppTable
 ENV NEXT_PUBLIC_AUDIT_TABLE_NAME=NucleusAuditTable
 ENV NEXT_PUBLIC_AWS_USE_STS=true
 
+# Generate Prisma client before building
+# In Docker context, web-ui/ contents are at /app/ (not /app/web-ui/),
+# so patch the schema output path before generating.
+RUN sed -i 's|"../web-ui/node_modules/.prisma/client"|"../node_modules/.prisma/client"|' ./prisma/schema.prisma && \
+    bunx prisma@5 generate --schema=./prisma/schema.prisma
+
 # Build the application
-RUN npm run build
+RUN bun run build
 
-FROM public.ecr.aws/docker/library/node:20.9.0-slim AS runner
+# ── Stage 3: Production runner (Bun) ──
+FROM oven/bun:1-slim AS runner
+WORKDIR /app
 
-# Install AWS Lambda Web Adapter
-COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4 /lambda-adapter /opt/extensions/lambda-adapter
+# Install system dependencies, AWS CLI, Python3 (for uvx/MCP servers)
+RUN apt-get update && \
+    apt-get install -y \
+    curl \
+    unzip \
+    git \
+    jq \
+    less \
+    groff \
+    grep \
+    openssl \
+    python3 \
+    python3-venv && \
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf aws awscliv2.zip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install uv (Python package manager) for uvx MCP server support
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    cp /root/.local/bin/uv /usr/local/bin/uv && \
+    cp /root/.local/bin/uvx /usr/local/bin/uvx && \
+    chmod +x /usr/local/bin/uv /usr/local/bin/uvx
 
 # Set environment variables
-ENV PORT=8080 \
-    AWS_LWA_INVOKE_MODE=response_stream \
+ENV PORT=3000 \
+    HOSTNAME="0.0.0.0" \
     NODE_ENV=production \
-    AWS_LWA_ENABLE_COMPRESSION=true \
     NEXT_TELEMETRY_DISABLED=1 \
-    NEXTAUTH_SECRET='iojifjifjfijffjijiehyudfytwfdtrdreswrsrxedctfvygbuhnjmk' \
     NEXT_PUBLIC_AWS_REGION=ap-south-1 \
     NEXT_PUBLIC_APP_TABLE_NAME=NucleusAppTable \
     NEXT_PUBLIC_AUDIT_TABLE_NAME=NucleusAuditTable \
-    NEXT_PUBLIC_AWS_USE_STS=true \
-    NEXT_PUBLIC_TESTING1='testing1'
+    NEXT_PUBLIC_AWS_USE_STS=true
 
-
-WORKDIR /app
+# Download RDS CA bundle for TLS connections
+RUN curl -sSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+    -o /etc/ssl/certs/rds-combined-ca-bundle.pem
 
 # Create necessary directories
 RUN mkdir -p /tmp/cache && \
     mkdir -p .next/cache
 
-# Copy built application from builder stage
+# Copy built application assets
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./package.json
 
@@ -67,21 +101,27 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# Copy production node_modules from deps stage
-COPY --from=deps /app/node_modules ./node_modules
-
-# Copy generated Prisma client from builder (prisma generate runs there, not in deps)
+# Copy generated Prisma client (not included in standalone output)
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
+
+# Copy Prisma schema + migrations for migrate deploy at startup
+COPY --from=builder /app/prisma ./prisma
 
 # Create symbolic link for cache
 RUN ln -sf /tmp/cache ./.next/cache
 
+# Copy entrypoint script
+COPY web-ui/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Set proper permissions
-RUN chown -R node:node /app && \
-    chown -R node:node /tmp/cache
+RUN chown -R bun:bun /app /tmp/cache
 
-# Expose port
-EXPOSE 8080
+# Switch to non-root user
+USER bun
 
-# Start the application (run as root for Lambda Web Adapter compatibility)
-CMD ["node", "server.js"]
+EXPOSE 3000
+
+# Entrypoint: retry DB connection, run Prisma migrations, then start Next.js via Bun
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
