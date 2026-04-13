@@ -19,6 +19,7 @@ export function CloudShellPage() {
     const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const clientRef = useRef<ShellClient | null>(null);
+    const startingRef = useRef(false);
 
     // Fetch available accounts on mount
     useEffect(() => {
@@ -39,6 +40,8 @@ export function CloudShellPage() {
     }, []);
 
     const startSession = useCallback(async (accountId?: string) => {
+        if (startingRef.current) return;
+        startingRef.current = true;
         setError(null);
         try {
             // 1. Create session record
@@ -77,6 +80,8 @@ export function CloudShellPage() {
             client.connect();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unknown error');
+        } finally {
+            startingRef.current = false;
         }
     }, []);
 
