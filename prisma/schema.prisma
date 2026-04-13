@@ -648,3 +648,21 @@ model VerificationToken {
   @@unique([identifier, token])
   @@map("verification_tokens")
 }
+
+model ShellSession {
+  id            String    @id @default(cuid())
+  tenantId      String
+  userId        String
+  accountId     String?
+  accountName   String?
+  region        String    @default("us-east-1")
+  status        String    @default("active") // active, disconnected, terminated
+  approvalMode  String    @default("manual") // manual, auto_read, auto_all
+  startedAt     DateTime  @default(now())
+  lastActiveAt  DateTime  @default(now())
+  terminatedAt  DateTime?
+
+  @@index([tenantId, userId, status])
+  @@index([tenantId, status])
+  @@map("shell_sessions")
+}
