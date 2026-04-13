@@ -39,6 +39,7 @@ import {
   Calendar,
   Shield,
   UserCog,
+  TerminalSquare,
 } from "lucide-react"
 
 const navigation = [
@@ -50,6 +51,7 @@ const navigation = [
   { name: "Cost Scheduler", href: "/app/schedules", icon: Calendar },
   { name: "Inventory Discovery", href: "/app/inventory", icon: Database },
   { name: "Knowledge Base", href: "/app/knowledge-base", icon: BookOpen },
+  { name: "Cloud Shell", href: "/app/cloud-shell", icon: TerminalSquare },
   { name: "Audit Logs", href: "/app/audit", icon: Activity },
   { name: "Settings", href: "/app/settings", icon: Settings },
 ]
