@@ -21,12 +21,6 @@ vi.mock('@/lib/audit-service', () => ({
     },
 }));
 
-// Mock AWS config (DELETE handler uses getDynamoDBDocumentClient)
-vi.mock('@/lib/aws-config', () => ({
-    getDynamoDBDocumentClient: vi.fn().mockReturnValue({ send: vi.fn() }),
-    AUDIT_TABLE_NAME: 'test-audit-table',
-}));
-
 import { getSessionTenantId } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { GET } from '@/app/api/audit/route';

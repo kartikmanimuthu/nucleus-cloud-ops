@@ -1,6 +1,5 @@
 /**
  * Cognito Identity Provider client singleton.
- * Mirrors the getDynamoDBDocumentClient() singleton pattern in aws-config.ts.
  *
  * Usage: import { getCognitoClient, COGNITO_USER_POOL_ID } from '@/lib/cognito-client'
  */

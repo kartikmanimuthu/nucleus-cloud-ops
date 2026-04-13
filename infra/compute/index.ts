@@ -322,6 +322,45 @@ const ecrRepository = new aws.ecr.Repository("web-ui-ecr-repo", {
     forceDelete: false,
 });
 
+// ECR Lifecycle Policy — retain last 30 images, expire untagged after 7 days
+new aws.ecr.LifecyclePolicy("web-ui-ecr-lifecycle", {
+    repository: ecrRepository.name,
+    policy: JSON.stringify({
+        rules: [
+            {
+                rulePriority: 1,
+                description: "Expire untagged images after 7 days",
+                selection: {
+                    tagStatus: "untagged",
+                    countType: "sinceImagePushed",
+                    countUnit: "days",
+                    countNumber: 7,
+                },
+                action: { type: "expire" },
+            },
+            {
+                rulePriority: 2,
+                description: "Keep last 30 tagged images",
+                selection: {
+                    tagStatus: "any",
+                    countType: "imageCountMoreThan",
+                    countNumber: 30,
+                },
+                action: { type: "expire" },
+            },
+        ],
+    }),
+});
+
+// ECR public login — authenticate Docker to public.ecr.aws before building
+// images so base image pulls (e.g. public.ecr.aws/docker/library/node) succeed.
+const ecrPublicLogin = new command.local.Command("ecr-public-login", {
+    create: "aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws",
+    environment: {
+        BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
+    },
+});
+
 // Explicit source hash — combines web-ui/ + prisma/ so any change to either
 // produces a new imageTag, forcing a Docker rebuild + new ECS task definition revision.
 const webUiSrcHash = crypto.createHash("sha256")
@@ -339,7 +378,7 @@ const webUiImage = new awsx.ecr.Image("web-ui-image", {
     args: {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
-});
+}, { dependsOn: [ecrPublicLogin] });
 
 // ECS Cluster
 const ecsCluster = new aws.ecs.Cluster("web-ui-ecs-cluster", {
@@ -861,6 +900,36 @@ const workersEcrRepo = new aws.ecr.Repository("workers-ecr-repo", {
     forceDelete: false,
 });
 
+// ECR Lifecycle Policy — retain last 30 images, expire untagged after 7 days
+new aws.ecr.LifecyclePolicy("workers-ecr-lifecycle", {
+    repository: workersEcrRepo.name,
+    policy: JSON.stringify({
+        rules: [
+            {
+                rulePriority: 1,
+                description: "Expire untagged images after 7 days",
+                selection: {
+                    tagStatus: "untagged",
+                    countType: "sinceImagePushed",
+                    countUnit: "days",
+                    countNumber: 7,
+                },
+                action: { type: "expire" },
+            },
+            {
+                rulePriority: 2,
+                description: "Keep last 30 tagged images",
+                selection: {
+                    tagStatus: "any",
+                    countType: "imageCountMoreThan",
+                    countNumber: 30,
+                },
+                action: { type: "expire" },
+            },
+        ],
+    }),
+});
+
 // Explicit source hash — combines workers/ + prisma/ so any change forces a rebuild.
 const workersSrcHash = crypto.createHash("sha256")
     .update(hashDirectory(path.join(repoRoot, "workers")))
@@ -878,7 +947,7 @@ const workersImage = new awsx.ecr.Image("workers-image", {
     args: {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
-});
+}, { dependsOn: [ecrPublicLogin] });
 
 const workersLogGroup = new aws.cloudwatch.LogGroup("workers-log-group", {
     name: "/ecs/nucleus-cloud-ops-workers",
@@ -1014,8 +1083,8 @@ new aws.iam.RolePolicy("workers-rds-connect-policy", {
 // Ephemeral worker task definition — lightweight tasks for horizontal dispatch
 const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task-def", {
     family: "nucleus-cloud-ops-ephemeral-worker-task",
-    cpu: "256",
-    memory: "512",
+    cpu: "2048",
+    memory: "4096",
     networkMode: "awsvpc",
     requiresCompatibilities: ["FARGATE"],
     executionRoleArn: ecsTaskExecutionRole.arn,

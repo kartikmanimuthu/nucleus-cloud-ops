@@ -1,6 +1,5 @@
 /**
  * PostgreSQL client singleton via Prisma ORM.
- * Mirrors the getDynamoDBDocumentClient() singleton pattern in aws-config.ts.
  *
  * Connection pool sizes (per architecture decision):
  *   - ECS (web-ui): connection_limit=10 — long-lived process

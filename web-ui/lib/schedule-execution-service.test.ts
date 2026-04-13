@@ -5,13 +5,6 @@ vi.mock('@/lib/db/repository-factory', () => ({
     getScheduleExecutionRepository: vi.fn(),
 }));
 
-// Mock aws-config (DEFAULT_TENANT_ID removed — tenantId is now always explicit)
-vi.mock('@/lib/aws-config', () => ({
-    getDynamoDBDocumentClient: vi.fn(),
-    APP_TABLE_NAME: 'test-table',
-    AUDIT_TABLE_NAME: 'test-audit-table',
-}));
-
 import { getScheduleExecutionRepository } from '@/lib/db/repository-factory';
 import { ScheduleExecutionService } from './schedule-execution-service';
 
