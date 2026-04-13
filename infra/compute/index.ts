@@ -381,6 +381,50 @@ const webUiImage = new awsx.ecr.Image("web-ui-image", {
     cacheFrom: [pulumi.interpolate`${ecrRepository.repositoryUrl}:latest`],
 }, { dependsOn: [ecrPublicLogin] });
 
+// ============================================================================
+// SHELL SERVER — ECR + IMAGE
+// ============================================================================
+
+const shellServerEcrRepo = new aws.ecr.Repository("shell-server-ecr-repo", {
+    name: "nucleus-cloud-ops-shell-server",
+    imageTagMutability: "MUTABLE",
+    forceDelete: false,
+});
+
+new aws.ecr.LifecyclePolicy("shell-server-ecr-lifecycle", {
+    repository: shellServerEcrRepo.name,
+    policy: JSON.stringify({
+        rules: [
+            {
+                rulePriority: 1,
+                description: "Expire untagged images after 7 days",
+                selection: { tagStatus: "untagged", countType: "sinceImagePushed", countUnit: "days", countNumber: 7 },
+                action: { type: "expire" },
+            },
+            {
+                rulePriority: 2,
+                description: "Keep last 10 tagged images",
+                selection: { tagStatus: "any", countType: "imageCountMoreThan", countNumber: 10 },
+                action: { type: "expire" },
+            },
+        ],
+    }),
+});
+
+const shellServerSrcHash = crypto.createHash("sha256")
+    .update(hashDirectory(path.join(repoRoot, "shell-server")))
+    .digest("hex")
+    .substring(0, 12);
+
+const shellServerImage = new awsx.ecr.Image("shell-server-image", {
+    repositoryUrl: shellServerEcrRepo.repositoryUrl,
+    context: path.join(repoRoot, "shell-server"),
+    dockerfile: path.join(repoRoot, "shell-server/Dockerfile"),
+    platform: "linux/arm64",
+    imageTag: shellServerSrcHash,
+    args: { BUILDX_NO_DEFAULT_ATTESTATIONS: "1" },
+}, { dependsOn: [ecrPublicLogin] });
+
 // ECS Cluster
 const ecsCluster = new aws.ecs.Cluster("web-ui-ecs-cluster", {
     name: "nucleus-cloud-ops-ecs-cluster",
@@ -390,6 +434,12 @@ const ecsCluster = new aws.ecs.Cluster("web-ui-ecs-cluster", {
 // WebUI CloudWatch Log Group
 const webUiLogGroup = new aws.cloudwatch.LogGroup("web-ui-log-group", {
     name: "/ecs/nucleus-cloud-ops-web-ui-service",
+    retentionInDays: 7,
+});
+
+// Shell Server CloudWatch Log Group
+const shellServerLogGroup = new aws.cloudwatch.LogGroup("shell-server-log-group", {
+    name: "/ecs/nucleus-cloud-ops-shell-server",
     retentionInDays: 7,
 });
 
@@ -543,10 +593,13 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         nextauthSecret,
         databaseUrl,
         webUiImage.imageUri,
+        shellServerImage.imageUri,
+        shellServerLogGroup.name,
     ]).apply(([
         cognitoPoolId, cognitoClientId, cognitoClientSecret, identityPoolId,
         inventoryBucketN, kbStagingBucketN, agentTempBucketN, ecsTaskRoleArnVal,
         webUiLogGroupN, acctId, nextauthSecretVal, databaseUrlVal, imageUri,
+        shellServerImageUri, shellServerLogGroupN,
     ]) => JSON.stringify([{
         name: "WebUIContainer",
         image: imageUri,
@@ -605,6 +658,8 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "LANGFUSE_SECRET_KEY", value: "" },
             { name: "LANGFUSE_HOST", value: "https://cloud.langfuse.com" },
             { name: "DATABASE_URL", value: databaseUrlVal },
+            // Shell server sidecar — reachable on localhost within the task
+            { name: "SHELL_SERVER_HOST", value: "localhost:3001" },
             // PostgreSQL feature flags
             { name: "USE_PG_ACCOUNTS", value: "true" },
             { name: "USE_PG_SCHEDULES", value: "true" },
@@ -616,6 +671,25 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "USE_PG_RBAC", value: "true" },
             { name: "USE_PG_TENANT_CONFIG", value: "true" },
             { name: "USE_PG_KB", value: "true" },
+        ],
+    }, {
+        // Shell server sidecar — WebSocket PTY server on port 3001
+        name: "ShellServerContainer",
+        image: shellServerImageUri,
+        essential: false,
+        portMappings: [{ containerPort: 3001, hostPort: 3001, protocol: "tcp" }],
+        logConfiguration: {
+            logDriver: "awslogs",
+            options: {
+                "awslogs-group": shellServerLogGroupN,
+                "awslogs-region": region,
+                "awslogs-stream-prefix": "shell-server",
+            },
+        },
+        environment: [
+            { name: "NODE_ENV", value: "production" },
+            { name: "SHELL_SERVER_PORT", value: "3001" },
+            { name: "AWS_REGION", value: region },
         ],
     }])),
 }, { retainOnDelete: true });
@@ -710,6 +784,37 @@ const httpListener = new aws.lb.Listener("http-listener", {
     }],
 });
 
+// Shell Server Target Group — port 3001, WebSocket health check
+const shellServerTargetGroup = new aws.lb.TargetGroup("shell-server-tg", {
+    name: "nucleus-cloud-ops-shell-server-tg",
+    port: 3001,
+    protocol: "HTTP",
+    targetType: "ip",
+    vpcId: vpcId,
+    deregistrationDelay: 10,
+    healthCheck: {
+        path: "/",
+        interval: 60,
+        timeout: 5,
+        healthyThreshold: 2,
+        unhealthyThreshold: 3,
+        matcher: "200-404", // shell-server returns 404 on HTTP GET /
+    },
+});
+
+// Listener rule — route /ws/* to shell-server sidecar
+new aws.lb.ListenerRule("shell-server-listener-rule", {
+    listenerArn: httpListener.arn,
+    priority: 10,
+    conditions: [{
+        pathPattern: { values: ["/ws/*", "/ws"] },
+    }],
+    actions: [{
+        type: "forward",
+        targetGroupArn: shellServerTargetGroup.arn,
+    }],
+});
+
 // ============================================================================
 // ECS FARGATE SERVICE + AUTO SCALING
 // ============================================================================
@@ -737,6 +842,10 @@ const webUiService = new aws.ecs.Service("web-ui-service", {
         targetGroupArn: webUiTargetGroup.arn,
         containerName: "WebUIContainer",
         containerPort: 3000,
+    }, {
+        targetGroupArn: shellServerTargetGroup.arn,
+        containerName: "ShellServerContainer",
+        containerPort: 3001,
     }],
 }, { dependsOn: [httpListener] });
 
@@ -787,6 +896,7 @@ new aws.appautoscaling.Policy("web-ui-memory-scaling", {
 export const ecsClusterArn = ecsCluster.arn;
 export const ecsClusterName = ecsCluster.name;
 export const ecrRepositoryUri = ecrRepository.repositoryUrl;
+export const shellServerEcrRepoUri = shellServerEcrRepo.repositoryUrl;
 export const webUiTaskDefinitionArn = webUiTaskDef.arn;
 
 export const networkingVpcId = vpcId;
