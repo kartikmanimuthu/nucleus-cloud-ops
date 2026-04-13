@@ -55,7 +55,7 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
 
   const sourceOptions = [
     { value: "all", label: "All Sources", icon: null },
-    { value: "web-ui", label: "Web UI", icon: <Monitor className="h-4 w-4" /> },
+    { value: "platform", label: "Platform", icon: <Monitor className="h-4 w-4" /> },
     { value: "lambda", label: "Lambda Function", icon: <Zap className="h-4 w-4" /> },
     { value: "system", label: "System", icon: <Server className="h-4 w-4" /> },
     { value: "api", label: "API", icon: <Globe className="h-4 w-4" /> },

@@ -11,6 +11,7 @@ import {
     upsertTodos,
 } from '../../../../lib/deep-agent/db/chat-history-store';
 import type { TodoItem, TodoStatus } from '../../../../lib/deep-agent/types';
+import { AuditService } from '@/lib/audit-service';
 
 export async function GET(req: NextRequest) {
     const threadId = new URL(req.url).searchParams.get('threadId');
@@ -46,6 +47,19 @@ export async function POST(req: NextRequest) {
             updatedAt: now,
         };
         await upsertTodos(threadId, [...existing, newTodo]);
+
+        AuditService.logUserAction({
+            action: 'Created Todo',
+            resourceType: 'agent',
+            resourceId: newTodo.id,
+            resourceName: title,
+            user: 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Created todo in thread ${threadId}`,
+            metadata: { threadId },
+        }).catch(() => {});
+
         return NextResponse.json({ todo: newTodo }, { status: 201 });
     } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 500 });
@@ -68,6 +82,19 @@ export async function PATCH(req: NextRequest) {
             t.id === todoId ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t,
         );
         await upsertTodos(threadId, todos);
+
+        AuditService.logUserAction({
+            action: 'Updated Todo',
+            resourceType: 'agent',
+            resourceId: todoId,
+            resourceName: todoId,
+            user: 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Updated todo ${todoId} in thread ${threadId}`,
+            metadata: { threadId },
+        }).catch(() => {});
+
         return NextResponse.json({ todos });
     } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 500 });
@@ -85,6 +112,19 @@ export async function DELETE(req: NextRequest) {
 
         const todos = (thread.todos ?? []).filter(t => t.id !== todoId);
         await upsertTodos(threadId, todos);
+
+        AuditService.logUserAction({
+            action: 'Deleted Todo',
+            resourceType: 'agent',
+            resourceId: todoId,
+            resourceName: todoId,
+            user: 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Deleted todo ${todoId} from thread ${threadId}`,
+            metadata: { threadId },
+        }).catch(() => {});
+
         return NextResponse.json({ todos });
     } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 500 });

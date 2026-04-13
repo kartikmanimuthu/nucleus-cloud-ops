@@ -16,8 +16,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  SelectGroup,
-  SelectLabel,
 } from "@/components/ui/select";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -115,10 +113,14 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
       if (selectedStatus !== "all") filters.status = selectedStatus;
       if (selectedUser !== "all") filters.user = selectedUser;
       if (searchTerm) filters.searchTerm = searchTerm;
-      if (dateRange?.from) filters.startDate = dateRange.from.toISOString();
+      if (dateRange?.from) {
+        const start = new Date(dateRange.from);
+        start.setUTCHours(0, 0, 0, 0);
+        filters.startDate = start.toISOString();
+      }
       if (dateRange?.to) {
         const end = new Date(dateRange.to);
-        end.setHours(23, 59, 59, 999);
+        end.setUTCHours(23, 59, 59, 999);
         filters.endDate = end.toISOString();
       }
       // Merge advanced filters (correlationId, executionId, ipAddress, resourceId, severity, source)
@@ -224,34 +226,19 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
     });
   };
 
-  // Derived values for dropdowns
+  // Derived values for dropdowns — show ALL event types from the database, no filtering
   const uniqueEventTypes = stats.byEventType
-    ? Object.keys(stats.byEventType).map((eventType) => {
-        const category =
-          eventType.startsWith("scheduler") || eventType.startsWith("system")
-            ? "System Events"
-            : eventType.startsWith("web-ui") || eventType === "auth.login"
-            ? "Web UI Events"
-            : "User Events";
-        return {
+    ? Object.keys(stats.byEventType)
+        .sort()
+        .map((eventType) => ({
           value: eventType,
           label: eventType
             .split(".")
             .map((p) => p.replace(/_/g, " "))
             .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
             .join(" → "),
-          category,
-        };
-      })
+        }))
     : [];
-
-  const groupedEventTypes = {
-    "System Events": uniqueEventTypes.filter((t) => t.category === "System Events"),
-    "User Events": uniqueEventTypes.filter((t) => t.category === "User Events"),
-    "Web UI Events": uniqueEventTypes.filter((t) => t.category === "Web UI Events"),
-  };
-
-  const uniqueUsers = allUsers;
 
   const getEventTypeLabel = (value: string) => {
     if (value === "all") return "All Events";
@@ -376,45 +363,14 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
               </SelectTrigger>
               <SelectContent className="max-w-[400px]">
                 <SelectItem value="all">All Events</SelectItem>
-                {groupedEventTypes["System Events"].length > 0 && (
-                  <SelectGroup>
-                    <SelectLabel>System Events</SelectLabel>
-                    {groupedEventTypes["System Events"].map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        <div className="flex items-center space-x-2 max-w-[350px]">
-                          <Server className="h-4 w-4 flex-shrink-0" />
-                          <span className="truncate">{type.label}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                )}
-                {groupedEventTypes["User Events"].length > 0 && (
-                  <SelectGroup>
-                    <SelectLabel>User Events</SelectLabel>
-                    {groupedEventTypes["User Events"].map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        <div className="flex items-center space-x-2 max-w-[350px]">
-                          <User className="h-4 w-4 flex-shrink-0" />
-                          <span className="truncate">{type.label}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                )}
-                {groupedEventTypes["Web UI Events"].length > 0 && (
-                  <SelectGroup>
-                    <SelectLabel>Web UI Events</SelectLabel>
-                    {groupedEventTypes["Web UI Events"].map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        <div className="flex items-center space-x-2 max-w-[350px]">
-                          <Activity className="h-4 w-4 flex-shrink-0" />
-                          <span className="truncate">{type.label}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                )}
+                {uniqueEventTypes.map((type) => (
+                  <SelectItem key={type.value} value={type.value}>
+                    <div className="flex items-center space-x-2 max-w-[350px]">
+                      <Activity className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{type.label}</span>
+                    </div>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
@@ -447,7 +403,7 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Users</SelectItem>
-                {uniqueUsers.map((user) => (
+                {allUsers.map((user) => (
                   <SelectItem key={user} value={user}>
                     <div className="flex items-center space-x-2">
                       {user === "system" ? <Server className="h-4 w-4" /> : <User className="h-4 w-4" />}

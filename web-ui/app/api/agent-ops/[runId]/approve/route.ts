@@ -14,7 +14,8 @@ import { resumeApprovedRun } from '@/lib/agent-ops/agent-executor';
 import { postResultToSlack, postErrorToSlack, updateApprovalMessageInSlack } from '@/lib/agent-ops/slack-notifier';
 import { postResultToJira, postErrorToJira } from '@/lib/agent-ops/jira-notifier';
 import { TenantConfigService } from '@/lib/tenant-config-service';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 import type { AgentOpsRun, SlackTriggerMeta, JiraTriggerMeta, JiraIntegrationConfig } from '@/lib/agent-ops/types';
 
 export async function POST(
@@ -53,6 +54,19 @@ export async function POST(
             // Notify source channel
             await notifySourceOnReject(run);
 
+            const session = await getAuthSession();
+            AuditService.logUserAction({
+                action: 'Rejected Agent Run',
+                resourceType: 'agent',
+                resourceId: runId,
+                resourceName: runId,
+                user: session?.user?.email || 'unknown',
+                userType: 'user',
+                status: 'success',
+                details: `Rejected agent run ${runId}`,
+                metadata: { tenantId },
+            }).catch(() => {});
+
             return NextResponse.json({ runId, status: 'cancelled', message: 'Run rejected.' });
         }
 
@@ -64,6 +78,19 @@ export async function POST(
 
         // Notify source channel that approval happened
         await notifySourceOnApprove(run);
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            action: 'Approved Agent Run',
+            resourceType: 'agent',
+            resourceId: runId,
+            resourceName: runId,
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Approved agent run ${runId}`,
+            metadata: { tenantId },
+        }).catch(() => {});
 
         // Fire-and-forget resume
         resumeApprovedRun(run)

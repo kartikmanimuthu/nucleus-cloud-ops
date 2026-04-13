@@ -97,5 +97,5 @@ export interface AuditLog {
     accountId?: string;
     duration?: number;
     errorCode?: string;
-    source: 'web-ui' | 'lambda' | 'system' | 'api';
+    source: 'platform' | 'lambda' | 'system' | 'api';
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/rbac/authorize";
 import { getSessionTenantId, getAuthSession } from "@/lib/auth-session";
 import { InvitationService } from "@/lib/invitation-service";
+import { AuditService } from "@/lib/audit-service";
 
 export async function POST(request: NextRequest) {
     console.log("API - POST /api/invitations - Creating invitation");
@@ -22,9 +23,33 @@ export async function POST(request: NextRequest) {
         }
 
         const result = await InvitationService.createInvitation(tenantId, email, role, invitedBy);
+
+        AuditService.logUserAction({
+            action: 'Created Invitation',
+            resourceType: 'tenant',
+            resourceId: result.id || email,
+            resourceName: email,
+            user: session!.user.email || invitedBy,
+            userType: 'user',
+            status: 'success',
+            details: `Invited ${email} with role "${role}"`,
+            metadata: { tenantId, email, role },
+        }).catch(() => {});
+
         return NextResponse.json({ success: true, data: result }, { status: 201 });
     } catch (error) {
         console.error("API - Error creating invitation:", error);
+        AuditService.logUserAction({
+            action: 'Created Invitation',
+            resourceType: 'tenant',
+            resourceId: 'unknown',
+            resourceName: 'unknown',
+            user: 'unknown',
+            userType: 'user',
+            status: 'error',
+            details: `Failed to create invitation: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            metadata: {},
+        }).catch(() => {});
         const message = error instanceof Error ? error.message : "Failed to create invitation";
         const isConflict = message.includes("already");
         return NextResponse.json(

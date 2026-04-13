@@ -203,7 +203,7 @@ describe('ScheduleService', () => {
 
             expect(AuditService.logUserAction).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    action: 'Create Schedule',
+                    action: 'Created Schedule',
                     resourceType: 'schedule',
                     status: 'success',
                     metadata: expect.objectContaining({
@@ -222,7 +222,7 @@ describe('ScheduleService', () => {
 
             expect(AuditService.logUserAction).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    action: 'Create Schedule',
+                    action: 'Created Schedule',
                     status: 'error',
                     details: expect.stringContaining('Duplicate'),
                 })
@@ -254,7 +254,7 @@ describe('ScheduleService', () => {
 
             expect(AuditService.logUserAction).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    action: 'Update Schedule',
+                    action: 'Updated Schedule',
                     resourceType: 'schedule',
                     status: 'success',
                 })
@@ -287,7 +287,7 @@ describe('ScheduleService', () => {
 
             expect(AuditService.logUserAction).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    action: 'Delete Schedule',
+                    action: 'Deleted Schedule',
                     resourceType: 'schedule',
                     user: 'bob',
                     status: 'success',

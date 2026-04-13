@@ -2,6 +2,7 @@
 // Use USE_PG_AUDIT_LOGS=true to switch to PostgreSQL backend
 import { AuditLog } from './types';
 import { getAuditLogRepository } from '@/lib/db/repository-factory';
+import type { NextRequest } from 'next/server';
 
 export interface AuditLogFilters {
     startDate?: string;
@@ -185,18 +186,33 @@ export class AuditService {
         ipAddress?: string;
         userAgent?: string;
         sessionId?: string;
+        tenantId?: string;
     }): Promise<void> {
         try {
+            const tenantId = data.tenantId || data.metadata?.tenantId;
             await this.createAuditLog({
                 eventType: `${data.resourceType}.${data.action.toLowerCase().replace(/\s+/g, '_')}`,
                 ...data,
+                ...(tenantId ? { tenantId } : {}),
                 resource: data.resourceName || data.resourceId,
                 severity: data.status === 'error' ? 'high' : (data.status === 'warning' ? 'medium' : 'info'),
-                source: 'web-ui'
+                source: 'platform'
             });
         } catch (error) {
             console.error('Failed to create user action audit log:', error);
         }
+    }
+
+    /**
+     * Extract IP address and user agent from a NextRequest for audit context.
+     */
+    static getRequestContext(request: NextRequest): { ipAddress: string; userAgent: string } {
+        const ipAddress =
+            request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+            request.headers.get('x-real-ip') ||
+            'unknown';
+        const userAgent = request.headers.get('user-agent') || 'unknown';
+        return { ipAddress, userAgent };
     }
 
     static async logResourceAction(data: {
@@ -212,12 +228,15 @@ export class AuditService {
         correlationId?: string;
         accountId?: string;
         region?: string;
-        source?: 'web-ui' | 'lambda' | 'system' | 'api';
+        source?: 'platform' | 'lambda' | 'system' | 'api';
+        tenantId?: string;
     }): Promise<void> {
         try {
+            const tenantId = data.tenantId || data.metadata?.tenantId;
             await this.createAuditLog({
                 eventType: `${data.resourceType}.${data.action.toLowerCase().replace(/\s+/g, '_')}`,
-                ...data, // Spread rest
+                ...data,
+                ...(tenantId ? { tenantId } : {}),
                 resource: data.resourceName || data.resourceId,
                 severity: data.status === 'error' ? 'high' : (data.status === 'warning' ? 'medium' : 'info'),
                 user: data.user || 'system',
@@ -226,6 +245,77 @@ export class AuditService {
             });
         } catch (error) {
             console.error('Failed to create resource action audit log:', error);
+        }
+    }
+
+    /**
+     * Log a system event (background jobs, workers, cron tasks).
+     * Sets userType='system', source='system'.
+     */
+    static async logSystemEvent(data: {
+        eventType: string;
+        action: string;
+        status: 'success' | 'error' | 'warning';
+        details: string;
+        resourceType?: string;
+        resourceId?: string;
+        metadata?: Record<string, any>;
+        correlationId?: string;
+        executionId?: string;
+        accountId?: string;
+        region?: string;
+        duration?: number;
+        errorCode?: string;
+        tenantId?: string;
+    }): Promise<void> {
+        try {
+            const tenantId = data.tenantId || data.metadata?.tenantId;
+            await this.createAuditLog({
+                ...data,
+                ...(tenantId ? { tenantId } : {}),
+                resource: data.resourceId || '',
+                severity: data.status === 'error' ? 'high' : (data.status === 'warning' ? 'medium' : 'info'),
+                user: 'system',
+                userType: 'system',
+                source: 'system',
+            });
+        } catch (error) {
+            console.error('Failed to create system event audit log:', error);
+        }
+    }
+
+    /**
+     * Log an agent event (AI agent tool executions).
+     * Sets source='api' (agent acts via API), requires correlationId (threadId).
+     */
+    static async logAgentEvent(data: {
+        eventType: string;
+        action: string;
+        userId: string;
+        status: 'success' | 'error' | 'warning';
+        details: string;
+        resourceType?: string;
+        resourceId?: string;
+        metadata?: Record<string, any>;
+        correlationId: string;
+        executionId?: string;
+        accountId?: string;
+        region?: string;
+        tenantId?: string;
+    }): Promise<void> {
+        try {
+            const tenantId = data.tenantId || data.metadata?.tenantId;
+            await this.createAuditLog({
+                ...data,
+                ...(tenantId ? { tenantId } : {}),
+                resource: data.resourceId || '',
+                severity: data.status === 'error' ? 'high' : 'medium',
+                user: data.userId,
+                userType: 'user',
+                source: 'api',
+            });
+        } catch (error) {
+            console.error('Failed to create agent event audit log:', error);
         }
     }
 }

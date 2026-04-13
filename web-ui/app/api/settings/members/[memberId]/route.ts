@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/rbac/authorize";
-import { getSessionTenantId, getSessionUserId } from "@/lib/auth-session";
+import { getSessionTenantId, getSessionUserId, getAuthSession } from "@/lib/auth-session";
 import { getTenantClient } from "@/lib/db/pg-config";
+import { AuditService } from '@/lib/audit-service';
 
 export async function PATCH(
     request: NextRequest,
@@ -25,6 +26,8 @@ export async function PATCH(
 
         const tenantId = await getSessionTenantId();
         const userId = await getSessionUserId();
+        const session = await getAuthSession();
+        const callerEmail = session?.user?.email ?? 'unknown';
         const prisma = getTenantClient(tenantId);
 
         // Self-edit guard
@@ -47,9 +50,34 @@ export async function PATCH(
             data: { role: role.trim() },
         });
 
+        AuditService.logUserAction({
+            action: 'Changed Member Role',
+            resourceType: 'tenant',
+            resourceId: memberId,
+            resourceName: memberId,
+            user: callerEmail,
+            userType: 'user',
+            status: 'success',
+            details: `Changed member role to "${role.trim()}"`,
+            metadata: { tenantId, previousRole: existing.role, newRole: role.trim() },
+        }).catch(() => {});
+
         return NextResponse.json({ success: true, data: updated });
     } catch (error) {
         console.error("API - Error updating member role:", error);
+
+        AuditService.logUserAction({
+            action: 'Changed Member Role',
+            resourceType: 'tenant',
+            resourceId: 'unknown',
+            resourceName: '',
+            user: 'unknown',
+            userType: 'user',
+            status: 'error',
+            details: `Failed to change member role: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            metadata: {},
+        }).catch(() => {});
+
         return NextResponse.json(
             {
                 success: false,

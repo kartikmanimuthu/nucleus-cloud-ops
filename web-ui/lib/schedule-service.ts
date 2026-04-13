@@ -97,7 +97,7 @@ export class ScheduleService {
 
             // Audit log (cross-cutting concern stays in service layer)
             await AuditService.logUserAction({
-                action: 'Create Schedule',
+                action: 'Created Schedule',
                 resourceType: 'schedule',
                 resourceId: result.id,
                 resourceName: schedule.name,
@@ -117,7 +117,7 @@ export class ScheduleService {
         } catch (error) {
             console.error('Error creating schedule:', error);
             await AuditService.logUserAction({
-                action: 'Create Schedule',
+                action: 'Created Schedule',
                 resourceType: 'schedule',
                 resourceId: schedule.name,
                 resourceName: schedule.name,
@@ -157,7 +157,7 @@ export class ScheduleService {
             }
 
             await AuditService.logUserAction({
-                action: 'Update Schedule',
+                action: 'Updated Schedule',
                 resourceType: 'schedule',
                 resourceId: scheduleId,
                 resourceName: result.name,
@@ -203,7 +203,7 @@ export class ScheduleService {
             }
 
             await AuditService.logUserAction({
-                action: 'Delete Schedule',
+                action: 'Deleted Schedule',
                 resourceType: 'schedule',
                 resourceId: idOrName,
                 resourceName: schedule.name,

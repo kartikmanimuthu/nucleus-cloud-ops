@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { getBoss } from '@/lib/boss-client';
@@ -62,6 +63,18 @@ export async function POST(
   // Enqueue background job via pg-boss
   const boss = await getBoss();
   await boss.send('kb-sync', { type: 'file-upload', kbId, dsId: ds.id, tenantId, stagingKey, fileName: file.name, mimeType: file.type });
+
+  AuditService.logUserAction({
+    action: 'Uploaded File',
+    resourceType: 'kb',
+    resourceId: ds.id,
+    resourceName: file.name,
+    user: session?.user?.email || 'unknown',
+    userType: 'user',
+    status: 'success',
+    details: `Uploaded file "${file.name}" (${file.size} bytes) to knowledge base ${kbId}`,
+    metadata: { tenantId, kbId, fileName: file.name, fileSize: file.size },
+  }).catch(() => {});
 
   return NextResponse.json({ dataSource: ds }, { status: 202 });
 }

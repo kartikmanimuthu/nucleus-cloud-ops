@@ -18,7 +18,8 @@ import {
     jsonToServerConfigs,
 } from '@/lib/agent/mcp-config';
 import { TenantConfigService } from '@/lib/tenant-config-service';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 
 const CONFIG_KEY = 'agent-ops-mcp-servers';
 
@@ -76,6 +77,19 @@ export async function PUT(req: Request) {
 
         console.log(`[API /agent-ops/mcp-settings] Saved config with ${Object.keys(config.mcpServers).length} servers`);
 
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            action: 'Updated MCP Settings',
+            resourceType: 'agent',
+            resourceId: 'mcp-settings',
+            resourceName: 'MCP Settings',
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Updated MCP settings with ${Object.keys(config.mcpServers).length} servers`,
+            metadata: { tenantId },
+        }).catch(() => {});
+
         return NextResponse.json({
             success: true,
             servers,
@@ -100,6 +114,19 @@ export async function DELETE() {
         const config = defaultsToJson();
 
         console.log('[API /agent-ops/mcp-settings] Reset to defaults');
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            action: 'Reset MCP Settings',
+            resourceType: 'agent',
+            resourceId: 'mcp-settings',
+            resourceName: 'MCP Settings',
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: 'Reset MCP settings to defaults',
+            metadata: { tenantId },
+        }).catch(() => {});
 
         return NextResponse.json({
             success: true,

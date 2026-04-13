@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPrismaClient } from "@/lib/db/pg-config";
+import { AuditService } from '@/lib/audit-service';
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 
@@ -44,6 +45,19 @@ export async function POST(req: NextRequest) {
         });
 
         console.log(`API - POST /api/auth/signup - Created user ${user.id}`);
+
+        // Audit: log successful signup
+        AuditService.logUserAction({
+            action: 'auth.signup.created',
+            resourceType: 'auth',
+            resourceId: user.id,
+            resourceName: 'User Signup',
+            user: email,
+            userType: 'user',
+            status: 'success',
+            details: `New user account created for ${email}`,
+            metadata: { tenantId: 'unknown' },
+        }).catch(() => {});
 
         return NextResponse.json(
             { success: true, userId: user.id },

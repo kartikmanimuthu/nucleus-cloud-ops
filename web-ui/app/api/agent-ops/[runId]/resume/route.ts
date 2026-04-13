@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 
 export async function POST(
     req: Request,
@@ -61,6 +62,18 @@ export async function POST(
         executeAgentRun(resumedRun).catch((err) => {
             console.error(`[ResumeEndpoint] Execution error for run ${runId}:`, err);
         });
+
+        AuditService.logUserAction({
+            action: 'Resumed Agent Run',
+            resourceType: 'agent',
+            resourceId: runId,
+            resourceName: run.taskDescription?.slice(0, 80) || runId,
+            user: 'system',
+            userType: 'user',
+            status: 'success',
+            details: `Resumed agent run ${runId} with clarification input`,
+            metadata: { tenantId },
+        }).catch(() => {});
 
         return NextResponse.json({
             runId,

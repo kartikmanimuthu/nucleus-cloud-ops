@@ -10,6 +10,7 @@ import {
     listThreads,
     createThread,
 } from '../../../../lib/deep-agent/db/chat-history-store';
+import { AuditService } from '@/lib/audit-service';
 
 export async function GET(req: NextRequest) {
     try {
@@ -33,6 +34,18 @@ export async function POST(req: NextRequest) {
             body.title || 'New conversation',
             body.model || 'default',
         );
+
+        AuditService.logUserAction({
+            action: 'Created Thread',
+            resourceType: 'chat',
+            resourceId: threadId,
+            resourceName: body.title || 'New conversation',
+            user: 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Created deep agent thread`,
+        }).catch(() => {});
+
         return NextResponse.json({ thread }, { status: 201 });
     } catch (err: any) {
         console.error('[DeepAgent] Create thread error:', err);

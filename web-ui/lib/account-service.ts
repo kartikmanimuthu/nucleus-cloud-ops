@@ -47,7 +47,7 @@ export class AccountService {
     static async createAccount(account: Omit<UIAccount, 'id'>, tenantId: string): Promise<UIAccount> {
         const result = await getAccountRepository().createAccount(account, tenantId);
         await AuditService.logUserAction({
-            action: 'Create Account',
+            action: 'Created Account',
             resourceType: 'account',
             resourceId: account.accountId,
             resourceName: account.name,
@@ -70,7 +70,7 @@ export class AccountService {
     static async updateAccount(accountId: string, updates: Partial<Omit<UIAccount, 'id' | 'accountId'>>, tenantId: string): Promise<UIAccount> {
         const result = await getAccountRepository().updateAccount(accountId, updates, tenantId);
         await AuditService.logUserAction({
-            action: 'Update Account',
+            action: 'Updated Account',
             resourceType: 'account',
             resourceId: accountId,
             resourceName: result.name,
@@ -89,7 +89,7 @@ export class AccountService {
     static async deleteAccount(accountId: string, deletedBy = 'system', tenantId: string): Promise<void> {
         await getAccountRepository().deleteAccount(accountId, tenantId);
         await AuditService.logUserAction({
-            action: 'Delete Account',
+            action: 'Deleted Account',
             resourceType: 'account',
             resourceId: accountId,
             resourceName: accountId,
@@ -200,7 +200,7 @@ export class AccountService {
             const updatedAccount = await this.updateAccount(accountId, updates, tenantId);
 
             await AuditService.logUserAction({
-                action: 'Validate Account',
+                action: 'Validated Account',
                 resourceType: 'account',
                 resourceId: accountId,
                 resourceName: account.name,

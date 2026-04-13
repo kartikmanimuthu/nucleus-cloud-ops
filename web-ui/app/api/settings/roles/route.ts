@@ -3,6 +3,7 @@ import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { createCustomRole, getCustomRoles, getPresetRoles } from '@/lib/rbac/custom-role-service';
 import type { PermissionSet } from '@/lib/rbac/types';
+import { AuditService } from '@/lib/audit-service';
 
 export async function GET(_request: NextRequest) {
     console.log('API - GET /api/settings/roles - Fetching roles');
@@ -56,9 +57,35 @@ export async function POST(request: NextRequest) {
         }
 
         const role = await createCustomRole(tenantId, { name: name.trim(), permissions }, callerEmail);
+
+        AuditService.logUserAction({
+            action: 'Created Role',
+            resourceType: 'rbac',
+            resourceId: role.id,
+            resourceName: name.trim(),
+            user: callerEmail,
+            userType: 'user',
+            status: 'success',
+            details: `Created custom role "${name.trim()}"`,
+            metadata: { tenantId, permissions },
+        }).catch(() => {});
+
         return NextResponse.json({ success: true, data: role }, { status: 201 });
     } catch (error) {
         console.error('API - Error creating role:', error);
+
+        AuditService.logUserAction({
+            action: 'Created Role',
+            resourceType: 'rbac',
+            resourceId: 'unknown',
+            resourceName: '',
+            user: callerEmail,
+            userType: 'user',
+            status: 'error',
+            details: `Failed to create role: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            metadata: { tenantId },
+        }).catch(() => {});
+
         const message = error instanceof Error ? error.message : 'Failed to create role';
         const isConflict =
             message.includes('already exists') ||

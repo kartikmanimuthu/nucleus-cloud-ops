@@ -4,6 +4,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { deleteVectors } from '@/lib/knowledge-base/embedder';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 import type { DataSource } from '@/lib/knowledge-base/types';
 
 function sanitizeDataSource(ds: DataSource): DataSource {
@@ -71,9 +72,32 @@ export async function PUT(
 
     await KnowledgeBaseService.updateKnowledgeBase(kbId, { name, description }, tenantId);
 
+    AuditService.logUserAction({
+      action: 'Updated Knowledge Base',
+      resourceType: 'kb',
+      resourceId: kbId,
+      resourceName: name || kbId,
+      user: session?.user?.email || 'unknown',
+      userType: 'user',
+      status: 'success',
+      details: `Updated knowledge base "${name || kbId}"`,
+      metadata: { tenantId },
+    }).catch(() => {});
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[KB API] Error updating knowledge base:', error);
+    AuditService.logUserAction({
+      action: 'Updated Knowledge Base',
+      resourceType: 'kb',
+      resourceId: 'unknown',
+      resourceName: 'unknown',
+      user: session?.user?.email || 'unknown',
+      userType: 'user',
+      status: 'error',
+      details: `Failed to update knowledge base: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      metadata: {},
+    }).catch(() => {});
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to update knowledge base' },
       { status: 500 },
@@ -115,9 +139,32 @@ export async function DELETE(
     // 3. Delete the knowledge base itself
     await KnowledgeBaseService.deleteKnowledgeBase(kbId, tenantId);
 
+    AuditService.logUserAction({
+      action: 'Deleted Knowledge Base',
+      resourceType: 'kb',
+      resourceId: kbId,
+      resourceName: kb.name || kbId,
+      user: session?.user?.email || 'unknown',
+      userType: 'user',
+      status: 'success',
+      details: `Deleted knowledge base "${kb.name || kbId}" and ${dataSources.length} data source(s)`,
+      metadata: { tenantId },
+    }).catch(() => {});
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[KB API] Error deleting knowledge base:', error);
+    AuditService.logUserAction({
+      action: 'Deleted Knowledge Base',
+      resourceType: 'kb',
+      resourceId: 'unknown',
+      resourceName: 'unknown',
+      user: session?.user?.email || 'unknown',
+      userType: 'user',
+      status: 'error',
+      details: `Failed to delete knowledge base: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      metadata: {},
+    }).catch(() => {});
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to delete knowledge base' },
       { status: 500 },

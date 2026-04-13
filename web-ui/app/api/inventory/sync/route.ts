@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
             details: accountId
                 ? `triggered manual discovery scan for account ${accountId}`
                 : 'triggered manual discovery scan for all accounts',
-            source: 'web-ui',
+            source: 'platform',
             metadata: {
                 accountId: accountId || 'ALL',
                 scanId,
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
                 status: 'error',
                 tenantId,
                 details: 'Failed to enqueue discovery job: pg-boss returned null (job may already be queued)',
-                source: 'web-ui',
+                source: 'platform',
                 metadata: {
                     accountId: accountId || 'ALL',
                     scanId,

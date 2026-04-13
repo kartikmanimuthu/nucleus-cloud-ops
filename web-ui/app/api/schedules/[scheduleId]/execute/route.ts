@@ -72,7 +72,7 @@ export async function POST(
                 status: 'error',
                 details: `Manual execution enqueue failed: ${errorMessage}`,
                 user: userEmail || "unknown-web-user",
-                source: "web-ui",
+                source: "platform",
                 tenantId,
                 metadata: { tenantId },
             });
@@ -103,7 +103,7 @@ export async function POST(
             status: 'success',
             details: `Manual execution triggered via Dashboard (Async). Execution running in background.`,
             user: userEmail || "unknown-web-user",
-            source: "web-ui",
+            source: "platform",
             tenantId,
             metadata: { tenantId },
         });

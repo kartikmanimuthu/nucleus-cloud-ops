@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 import type { CreateDataSourceInput, DataSource } from '@/lib/knowledge-base/types';
 
 function sanitizeDataSource(ds: DataSource): DataSource {
@@ -79,9 +80,32 @@ export async function POST(
 
     await KnowledgeBaseService.updateDataSourceCount(kbId, 1, tenantId);
 
+    AuditService.logUserAction({
+      action: 'Created Data Source',
+      resourceType: 'kb',
+      resourceId: dataSource.id,
+      resourceName: dataSource.name || dataSource.id,
+      user: session?.user?.email || 'unknown',
+      userType: 'user',
+      status: 'success',
+      details: `Created data source "${dataSource.name}" in knowledge base ${kbId}`,
+      metadata: { tenantId, kbId, sourceType: input.sourceType },
+    }).catch(() => {});
+
     return NextResponse.json({ dataSource: sanitizeDataSource(dataSource) }, { status: 201 });
   } catch (error) {
     console.error('[KB Sources API] Error creating data source:', error);
+    AuditService.logUserAction({
+      action: 'Created Data Source',
+      resourceType: 'kb',
+      resourceId: 'unknown',
+      resourceName: 'unknown',
+      user: session?.user?.email || 'unknown',
+      userType: 'user',
+      status: 'error',
+      details: `Failed to create data source: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      metadata: {},
+    }).catch(() => {});
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to create data source' },
       { status: 500 },

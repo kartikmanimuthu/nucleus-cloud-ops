@@ -21,6 +21,7 @@ import type {
     TodoItem,
 } from '../../../../lib/deep-agent/types';
 import { createLogger } from '../../../../lib/deep-agent/logger';
+import { AuditService } from '@/lib/audit-service';
 
 const log = createLogger('ApproveRoute');
 
@@ -98,6 +99,18 @@ export async function POST(req: NextRequest) {
         model: config.model,
         autoApprove: config.autoApprove,
     });
+
+    AuditService.logUserAction({
+        action: 'Approved Agent Decision',
+        resourceType: 'agent',
+        resourceId: threadId,
+        resourceName: threadId,
+        user: 'unknown',
+        userType: 'user',
+        status: 'success',
+        details: `Approved ${decisions.length} decision(s) for deep agent thread ${threadId}`,
+        metadata: { threadId, decisionCount: decisions.length },
+    }).catch(() => {});
 
     const graphConfig = { configurable: { thread_id: threadId } };
 

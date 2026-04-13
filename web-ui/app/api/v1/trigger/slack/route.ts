@@ -9,6 +9,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { AuditService } from '@/lib/audit-service';
 import { verifySlackSignature, parseSlackSlashCommand } from '@/lib/agent-ops/slack-validator';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
@@ -111,6 +112,19 @@ export async function POST(req: Request) {
             threadTs,
         },
     });
+
+    // Audit: log the incoming Slack trigger
+    AuditService.logResourceAction({
+        action: 'Received Slack Trigger',
+        resourceType: 'trigger',
+        resourceId: run.runId,
+        resourceName: 'Slack Trigger',
+        status: 'success',
+        details: `Received Slack slash command from ${payload.user_id || 'unknown'}`,
+        userType: 'system',
+        source: 'api',
+        metadata: { tenantId, channelId: payload.channel_id, userId: payload.user_id },
+    }).catch(() => {});
 
     // 6.5. Post initial message using API to start a thread (if botToken is available)
     let initialMessageTs: string | undefined;
