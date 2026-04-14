@@ -12,6 +12,12 @@ export function Terminal({ client, className }: TerminalProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<import('@xterm/xterm').Terminal | null>(null);
     const fitRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null);
+    const clientRef = useRef<ShellClient | null>(null);
+
+    // Keep clientRef in sync so the onData handler always sees the latest client
+    useEffect(() => {
+        clientRef.current = client;
+    }, [client]);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -66,15 +72,15 @@ export function Terminal({ client, className }: TerminalProps) {
             termRef.current = term;
             fitRef.current = fitAddon;
 
-            // Forward keyboard input to shell
+            // Forward keyboard input to shell — uses ref so it always sees current client
             term.onData((data) => {
-                client?.sendInput(data);
+                clientRef.current?.sendInput(data);
             });
 
             // Resize observer — refit and notify server
             resizeObserver = new ResizeObserver(() => {
                 fitAddon.fit();
-                client?.sendResize(term.cols, term.rows);
+                clientRef.current?.sendResize(term.cols, term.rows);
             });
             resizeObserver.observe(containerRef.current!);
         }
@@ -93,11 +99,13 @@ export function Terminal({ client, className }: TerminalProps) {
     // Wire up client output to terminal
     useEffect(() => {
         if (!client || !termRef.current) return;
-        // Patch onOutput to write to terminal
-        const origOnOutput = (client as unknown as { onOutput: (d: string) => void }).onOutput;
-        (client as unknown as { onOutput: (d: string) => void }).onOutput = (data: string) => {
-            termRef.current?.write(data);
-            origOnOutput?.(data);
+
+        const term = termRef.current;
+        // Replace the client's onOutput to write to the terminal
+        const origOnOutput = client['onOutput'].bind(client);
+        (client as any).onOutput = (data: string) => {
+            term.write(data);
+            origOnOutput(data);
         };
     }, [client]);
 
