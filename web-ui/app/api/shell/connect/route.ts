@@ -9,7 +9,7 @@ const SHELL_SERVER_HOST = process.env.SHELL_SERVER_HOST ?? 'localhost:3001';
 const SESSION_DURATION_SECONDS = 3600; // 1 hour
 
 export async function POST(request: NextRequest) {
-    const authError = await authorize('create', 'ShellSession');
+    const authError = await authorize('create', 'CloudShell');
     if (authError) return authError;
 
     try {
@@ -42,32 +42,35 @@ export async function POST(request: NextRequest) {
             expiresAt: string;
         } | undefined;
 
-        // If accountId provided, assume role for that account
+        // If accountId provided, try to assume role for that account
         if (accountId) {
             const account = await AccountService.getAccount(accountId, tenantId);
             if (!account) {
                 return NextResponse.json({ success: false, error: 'Account not found' }, { status: 404 });
             }
 
-            const stsClient = new STSClient({ region: process.env.AWS_REGION ?? 'us-east-1' });
-            const assumed = await stsClient.send(new AssumeRoleCommand({
-                RoleArn: account.roleArn,
-                RoleSessionName: `NucleusShell-${userId.substring(0, 16)}`,
-                ExternalId: account.externalId,
-                DurationSeconds: SESSION_DURATION_SECONDS,
-            }));
+            try {
+                const stsClient = new STSClient({ region: process.env.AWS_REGION ?? 'us-east-1' });
+                const assumed = await stsClient.send(new AssumeRoleCommand({
+                    RoleArn: account.roleArn,
+                    RoleSessionName: `NucleusShell-${userId.substring(0, 16)}`,
+                    ExternalId: account.externalId,
+                    DurationSeconds: SESSION_DURATION_SECONDS,
+                }));
 
-            if (!assumed.Credentials) {
-                return NextResponse.json({ success: false, error: 'Failed to assume role' }, { status: 502 });
+                if (assumed.Credentials) {
+                    creds = {
+                        accessKeyId: assumed.Credentials.AccessKeyId!,
+                        secretAccessKey: assumed.Credentials.SecretAccessKey!,
+                        sessionToken: assumed.Credentials.SessionToken!,
+                        region,
+                        expiresAt: assumed.Credentials.Expiration!.toISOString(),
+                    };
+                }
+            } catch (stsError) {
+                // Non-fatal: connect to shell without AWS credentials
+                console.warn('API - STS AssumeRole failed, connecting without AWS credentials:', stsError instanceof Error ? stsError.message : stsError);
             }
-
-            creds = {
-                accessKeyId: assumed.Credentials.AccessKeyId!,
-                secretAccessKey: assumed.Credentials.SecretAccessKey!,
-                sessionToken: assumed.Credentials.SessionToken!,
-                region,
-                expiresAt: assumed.Credentials.Expiration!.toISOString(),
-            };
         }
 
         // Build WebSocket URL for the client to connect to
