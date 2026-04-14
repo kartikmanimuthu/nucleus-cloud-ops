@@ -103,14 +103,60 @@ export function CloudShellPage() {
         }
     }, [session, startSession]);
 
-    // Auto-start session on mount (no account = hub account)
+    // Cleanup on unmount
     useEffect(() => {
-        startSession();
         return () => {
             clientRef.current?.dispose();
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // No session yet — show start screen
+    if (!session) {
+        return (
+            <div className="flex flex-col h-full bg-[#1a1b26]" data-testid="cloud-shell-page">
+                <div className="flex flex-1 items-center justify-center">
+                    <div className="flex flex-col items-center gap-4 text-center max-w-md">
+                        <div className="rounded-full bg-white/5 p-4">
+                            <svg className="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 18V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25Z" />
+                            </svg>
+                        </div>
+                        <h2 className="text-lg font-semibold text-gray-200">Cloud Shell</h2>
+                        <p className="text-sm text-gray-400">
+                            Open a terminal session to run AWS CLI commands against your connected accounts.
+                        </p>
+
+                        {accounts.length > 0 && (
+                            <select
+                                className="rounded-md border border-gray-600 bg-gray-800 px-3 py-1.5 text-sm text-gray-200"
+                                value={selectedAccountId || ''}
+                                onChange={(e) => setSelectedAccountId(e.target.value || null)}
+                            >
+                                <option value="">No account (local shell)</option>
+                                {accounts.map((a) => (
+                                    <option key={a.id} value={a.id}>
+                                        {a.name} ({a.accountId})
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+
+                        <button
+                            onClick={() => startSession(selectedAccountId || undefined)}
+                            disabled={startingRef.current}
+                            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+                        >
+                            {startingRef.current ? 'Starting...' : 'Open Terminal'}
+                        </button>
+
+                        {error && (
+                            <p className="text-sm text-red-400">{error}</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-full bg-[#1a1b26]" data-testid="cloud-shell-page">
