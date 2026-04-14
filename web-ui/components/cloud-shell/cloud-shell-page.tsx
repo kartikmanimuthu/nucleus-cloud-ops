@@ -103,9 +103,33 @@ export function CloudShellPage() {
         }
     }, [session, startSession]);
 
-    // Cleanup on unmount
+    // Track session ID in a ref so cleanup handlers always see the latest value
+    const sessionIdRef = useRef<string | null>(null);
+
+    // Keep ref in sync with state
     useEffect(() => {
+        sessionIdRef.current = session?.id ?? null;
+    }, [session]);
+
+    // Cleanup on unmount + tab close/navigate away
+    useEffect(() => {
+        const terminateCurrentSession = () => {
+            const sid = sessionIdRef.current;
+            if (sid) {
+                // sendBeacon is reliable during page unload (fetch may be cancelled)
+                navigator.sendBeacon(`/api/shell/sessions/${sid}?_method=DELETE`);
+            }
+        };
+
+        window.addEventListener('beforeunload', terminateCurrentSession);
+
         return () => {
+            window.removeEventListener('beforeunload', terminateCurrentSession);
+            // Also terminate on React unmount (e.g. navigating to another page)
+            const sid = sessionIdRef.current;
+            if (sid) {
+                fetch(`/api/shell/sessions/${sid}`, { method: 'DELETE' }).catch(() => {});
+            }
             clientRef.current?.dispose();
         };
     }, []);
