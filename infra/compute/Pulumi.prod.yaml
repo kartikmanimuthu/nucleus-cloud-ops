@@ -1,0 +1,5 @@
+config:
+  aws:region: ap-south-1
+  nucleus-compute:appUrl: https://d11lr8aqp8vqde.cloudfront.net
+  nucleus-compute:subscriptionEmails: ""
+secretsprovider: passphrase
