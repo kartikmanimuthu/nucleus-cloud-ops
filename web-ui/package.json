@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "predev": "prisma migrate deploy --schema=../prisma/schema.prisma",
-    "dev": "next dev -p 3001",
+    "dev": "next dev -p 3000",
     "prestart": "prisma migrate deploy --schema=../prisma/schema.prisma",
     "start": "next start -p 3001",
     "build": "next build",

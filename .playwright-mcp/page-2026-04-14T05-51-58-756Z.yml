@@ -1,0 +1,37 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e12]
+        - generic [ref=e14]: Nucleus Ops
+      - generic [ref=e15]:
+        - heading "Welcome back" [level=1] [ref=e16]
+        - paragraph [ref=e17]: Sign in to your account to continue
+      - generic [ref=e18]:
+        - tablist [ref=e19]:
+          - tab "Email & Password" [selected] [ref=e20] [cursor=pointer]
+          - tab "SSO" [ref=e21] [cursor=pointer]
+        - tabpanel "Email & Password" [ref=e22]:
+          - generic [ref=e24]:
+            - generic [ref=e25]:
+              - text: Email
+              - textbox "Email" [ref=e26]:
+                - /placeholder: you@example.com
+                - text: kartikmanimuthu@gmail.com
+            - generic [ref=e27]:
+              - text: Password
+              - textbox "Password" [ref=e28]: Admin@123
+            - link "Forgot password?" [ref=e30] [cursor=pointer]:
+              - /url: /api/auth/forgot-password
+            - alert [ref=e44]: Invalid email or password.
+            - button "Sign in" [ref=e31] [cursor=pointer]
+      - paragraph [ref=e32]:
+        - text: Don't have an account?
+        - link "Sign up" [ref=e33] [cursor=pointer]:
+          - /url: /signup
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e39] [cursor=pointer]:
+    - img [ref=e40]
+  - alert [ref=e43]
