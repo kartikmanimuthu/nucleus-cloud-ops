@@ -341,7 +341,7 @@ const postgresInstance = new aws.rds.Instance("postgres", {
 // Store full connection string in Secrets Manager (needs postgresInstance.address)
 new aws.secretsmanager.SecretVersion("database-url-version", {
     secretId: databaseUrlSm.id,
-    secretString: pulumi.interpolate`postgresql://nucleus_admin:${dbPasswordRandom.result}@${postgresInstance.address}:5432/nucleus?sslmode=no-verify`,
+    secretString: pulumi.interpolate`postgresql://nucleus_admin:${dbPasswordRandom.result}@${postgresInstance.address}:5432/nucleus?sslmode=require`,
 });
 
 
