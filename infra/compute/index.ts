@@ -41,8 +41,8 @@ const region = aws.config.region ?? "us-east-1";
 const config = new pulumi.Config();
 const appUrl = config.get("appUrl") ?? "https://placeholder.cloudfront.net";
 const subscriptionEmails = config.get("subscriptionEmails") ?? "";
-const crossAccountRoleName = config.get("crossAccountRoleName") ?? "NucleusAccess";
-const vectorBucketName = config.get("vectorBucketName") ?? "";
+const crossAccountRoleName = "NucleusAccess";
+const vectorBucketName = "";
 const appName = "nucleus-cloud-ops";
 
 // Dynamically generated — stored in AWS Secrets Manager, never in Pulumi config
