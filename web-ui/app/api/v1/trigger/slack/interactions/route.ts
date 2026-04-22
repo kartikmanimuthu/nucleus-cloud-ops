@@ -77,6 +77,11 @@ export async function POST(req: Request) {
 
     // Audit: log the incoming Slack interaction
     AuditService.logResourceAction({
+        eventType: 'trigger.slack.interaction',
+        severity: 'low',
+        apiRoute: 'POST /api/v1/trigger/slack/interactions',
+        httpMethod: 'POST',
+        source: 'external',
         action: 'Received Slack Interaction',
         resourceType: 'trigger',
         resourceId: runId,
@@ -84,7 +89,6 @@ export async function POST(req: Request) {
         status: 'success',
         details: `Received Slack interaction action=${actionId} for run ${runId}`,
         userType: 'system',
-        source: 'api',
         metadata: { tenantId, actionId, channelId },
     }).catch(() => {});
 

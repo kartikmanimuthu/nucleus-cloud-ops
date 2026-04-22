@@ -111,6 +111,10 @@ export async function PUT(req: NextRequest) {
         );
 
         AuditService.logUserAction({
+            eventType: 'tenant.logo.updated',
+            severity: 'low',
+            apiRoute: 'PUT /api/tenants/logo',
+            httpMethod: 'PUT',
             action: 'Updated Logo',
             resourceType: 'tenant',
             resourceId: tenantId,
@@ -128,6 +132,10 @@ export async function PUT(req: NextRequest) {
     } catch (error) {
         console.error("API - PUT /api/tenants/logo - Error:", error);
         AuditService.logUserAction({
+            eventType: 'tenant.logo.updated',
+            severity: 'low',
+            apiRoute: 'PUT /api/tenants/logo',
+            httpMethod: 'PUT',
             action: 'Updated Logo',
             resourceType: 'tenant',
             resourceId: 'unknown',

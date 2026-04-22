@@ -73,6 +73,10 @@ export async function PUT(
     await KnowledgeBaseService.updateKnowledgeBase(kbId, { name, description }, tenantId);
 
     AuditService.logUserAction({
+      eventType: 'kb.knowledgebase.updated',
+      severity: 'medium',
+      apiRoute: 'PUT /api/knowledge-base/[kbId]',
+      httpMethod: 'PUT',
       action: 'Updated Knowledge Base',
       resourceType: 'kb',
       resourceId: kbId,
@@ -88,6 +92,10 @@ export async function PUT(
   } catch (error) {
     console.error('[KB API] Error updating knowledge base:', error);
     AuditService.logUserAction({
+      eventType: 'kb.knowledgebase.updated',
+      severity: 'medium',
+      apiRoute: 'PUT /api/knowledge-base/[kbId]',
+      httpMethod: 'PUT',
       action: 'Updated Knowledge Base',
       resourceType: 'kb',
       resourceId: 'unknown',
@@ -140,6 +148,10 @@ export async function DELETE(
     await KnowledgeBaseService.deleteKnowledgeBase(kbId, tenantId);
 
     AuditService.logUserAction({
+      eventType: 'kb.knowledgebase.deleted',
+      severity: 'high',
+      apiRoute: 'DELETE /api/knowledge-base/[kbId]',
+      httpMethod: 'DELETE',
       action: 'Deleted Knowledge Base',
       resourceType: 'kb',
       resourceId: kbId,
@@ -155,6 +167,10 @@ export async function DELETE(
   } catch (error) {
     console.error('[KB API] Error deleting knowledge base:', error);
     AuditService.logUserAction({
+      eventType: 'kb.knowledgebase.deleted',
+      severity: 'high',
+      apiRoute: 'DELETE /api/knowledge-base/[kbId]',
+      httpMethod: 'DELETE',
       action: 'Deleted Knowledge Base',
       resourceType: 'kb',
       resourceId: 'unknown',

@@ -42,6 +42,10 @@ export async function POST(req: Request) {
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.task.created',
+            severity: 'medium',
+            apiRoute: 'POST /api/agent-ops/scheduled-tasks',
+            httpMethod: 'POST',
             action: 'Created Scheduled Task',
             resourceType: 'agent',
             resourceId: task.taskId,

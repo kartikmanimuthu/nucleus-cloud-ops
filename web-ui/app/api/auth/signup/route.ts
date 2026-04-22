@@ -48,6 +48,10 @@ export async function POST(req: NextRequest) {
 
         // Audit: log successful signup
         AuditService.logUserAction({
+            eventType: 'auth.signup.created',
+            severity: 'medium',
+            apiRoute: 'POST /api/auth/signup',
+            httpMethod: 'POST',
             action: 'auth.signup.created',
             resourceType: 'auth',
             resourceId: user.id,

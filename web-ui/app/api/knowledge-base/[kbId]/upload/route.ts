@@ -65,6 +65,10 @@ export async function POST(
   await boss.send('kb-sync', { type: 'file-upload', kbId, dsId: ds.id, tenantId, stagingKey, fileName: file.name, mimeType: file.type });
 
   AuditService.logUserAction({
+    eventType: 'kb.file.uploaded',
+    severity: 'low',
+    apiRoute: 'POST /api/knowledge-base/[kbId]/upload',
+    httpMethod: 'POST',
     action: 'Uploaded File',
     resourceType: 'kb',
     resourceId: ds.id,

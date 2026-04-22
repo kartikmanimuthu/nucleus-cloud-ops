@@ -21,6 +21,10 @@ export async function POST(request: NextRequest) {
 
         // Log scan initiation
         await AuditService.logResourceAction({
+            eventType: 'inventory.sync.triggered',
+            severity: 'medium',
+            apiRoute: 'POST /api/inventory/sync',
+            httpMethod: 'POST',
             action: 'scan_triggered',
             resourceType: 'discovery',
             resourceId: scanId,
@@ -57,6 +61,10 @@ export async function POST(request: NextRequest) {
 
         if (!jobId) {
             await AuditService.logResourceAction({
+                eventType: 'inventory.sync.triggered',
+                severity: 'medium',
+                apiRoute: 'POST /api/inventory/sync',
+                httpMethod: 'POST',
                 action: 'scan_failed',
                 resourceType: 'discovery',
                 resourceId: scanId,

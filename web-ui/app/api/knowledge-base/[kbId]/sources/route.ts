@@ -81,6 +81,10 @@ export async function POST(
     await KnowledgeBaseService.updateDataSourceCount(kbId, 1, tenantId);
 
     AuditService.logUserAction({
+      eventType: 'kb.datasource.created',
+      severity: 'medium',
+      apiRoute: 'POST /api/knowledge-base/[kbId]/sources',
+      httpMethod: 'POST',
       action: 'Created Data Source',
       resourceType: 'kb',
       resourceId: dataSource.id,
@@ -96,6 +100,10 @@ export async function POST(
   } catch (error) {
     console.error('[KB Sources API] Error creating data source:', error);
     AuditService.logUserAction({
+      eventType: 'kb.datasource.created',
+      severity: 'medium',
+      apiRoute: 'POST /api/knowledge-base/[kbId]/sources',
+      httpMethod: 'POST',
       action: 'Created Data Source',
       resourceType: 'kb',
       resourceId: 'unknown',

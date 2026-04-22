@@ -201,41 +201,52 @@ model TargetedResource {
 }
 
 // AuditLog — migrated from DynamoDB NucleusAuditTable (immutable logs with TTL)
-// expiresAt replaces DynamoDB TTL (expire_at epoch) — cleanup-expired.ts handles purging (30-day retention)
+// expiresAt replaces DynamoDB TTL (expire_at epoch) — cleanup-expired.ts handles purging
 // status and severity fields use CHECK constraints in migration SQL (not Prisma-native)
+// source: platform (user-initiated) | system (background jobs) | agent (AI agent) | external (webhooks)
 model AuditLog {
-  id            String   @id @default(cuid())
-  tenantId      String
-  logId         String   // Application-level ID (e.g., log-*)
-  timestamp     DateTime @default(now())
-  eventType     String
-  action        String
-  user          String   @default("system")
-  userType      String   @default("system") // system|user|admin|external
-  resource      String?
-  resourceType  String?
-  resourceId    String?
-  status        String   @default("info") // success|error|warning|info
-  severity      String   @default("info") // low|medium|high|critical|info
-  details       String?
-  metadata      Json?
-  ipAddress     String?
-  userAgent     String?
-  sessionId     String?
-  correlationId String?
-  executionId   String?
-  region        String?
-  accountId     String?
-  duration      Int?
-  errorCode     String?
-  source        String   @default("system") // web-ui|lambda|system|api
-  expiresAt     DateTime // TTL replacement — set to now + 30 days (audit retention)
+  id                 String   @id @default(cuid())
+  tenantId           String
+  logId              String   // Application-level ID (e.g., log-*)
+  timestamp          DateTime @default(now())
+  eventType          String   // domain.entity.action (e.g., account.account.created)
+  action             String
+  user               String   @default("system")
+  userType           String   @default("system") // system|user|admin|external
+  resource           String?
+  resourceType       String?
+  resourceId         String?
+  status             String   @default("info") // success|error|warning|info
+  severity           String   @default("info") // low|medium|high|critical|info
+  details            String?
+  metadata           Json?
+  ipAddress          String?
+  userAgent          String?
+  sessionId          String?
+  correlationId      String?
+  executionId        String?
+  region             String?
+  accountId          String?
+  duration           Int?
+  errorCode          String?
+  source             String   @default("system") // platform|system|agent|external
+  expiresAt          DateTime // TTL — computed from retentionDays at insert time
+
+  // Compliance fields (SOC 2 / NIST AU-3)
+  changeSet          Json?    // { before: {...}, after: {...} } for update events
+  requestId          String?  // X-Request-Id header for request tracing
+  apiRoute           String?  // e.g., "POST /api/accounts"
+  httpMethod         String?  // GET, POST, PUT, DELETE, PATCH
+  dataClassification String?  // pii, credentials, infrastructure, config
+  retentionDays      Int      @default(90) // Configurable per event type
 
   @@unique([tenantId, logId])
   @@index([tenantId])
   @@index([tenantId, eventType])
   @@index([tenantId, user])
   @@index([tenantId, timestamp])
+  @@index([tenantId, source, timestamp]) // "show me all system events today"
+  @@index([tenantId, resourceType, resourceId]) // "show me all events for this schedule"
   @@index([expiresAt]) // for cleanup-expired.ts
   @@map("audit_logs")
 }

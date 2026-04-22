@@ -51,6 +51,10 @@ export async function PATCH(
         });
 
         AuditService.logUserAction({
+            eventType: 'tenant.member.role_changed',
+            severity: 'high',
+            apiRoute: 'PATCH /api/settings/members/[memberId]',
+            httpMethod: 'PATCH',
             action: 'Changed Member Role',
             resourceType: 'tenant',
             resourceId: memberId,
@@ -67,6 +71,10 @@ export async function PATCH(
         console.error("API - Error updating member role:", error);
 
         AuditService.logUserAction({
+            eventType: 'tenant.member.role_changed',
+            severity: 'high',
+            apiRoute: 'PATCH /api/settings/members/[memberId]',
+            httpMethod: 'PATCH',
             action: 'Changed Member Role',
             resourceType: 'tenant',
             resourceId: 'unknown',

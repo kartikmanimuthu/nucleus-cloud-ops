@@ -68,6 +68,11 @@ export async function POST(req: Request) {
 
         // Audit: log the incoming API trigger
         AuditService.logResourceAction({
+            eventType: 'trigger.api.received',
+            severity: 'low',
+            apiRoute: 'POST /api/v1/trigger/api',
+            httpMethod: 'POST',
+            source: 'external',
             action: 'Received API Trigger',
             resourceType: 'trigger',
             resourceId: run.runId,
@@ -75,7 +80,6 @@ export async function POST(req: Request) {
             status: 'success',
             details: `Received API trigger from ${session?.user?.email || apiKey || 'unknown'}`,
             userType: 'system',
-            source: 'api',
             metadata: { tenantId, mode },
         }).catch(() => {});
 

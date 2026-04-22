@@ -58,6 +58,10 @@ export async function PUT(
   const updated = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
 
   AuditService.logUserAction({
+    eventType: 'kb.datasource.updated',
+    severity: 'medium',
+    apiRoute: 'PUT /api/knowledge-base/[kbId]/sources/[dsId]',
+    httpMethod: 'PUT',
     action: 'Updated Data Source',
     resourceType: 'kb',
     resourceId: dsId,
@@ -96,6 +100,10 @@ export async function DELETE(
   ]);
 
   AuditService.logUserAction({
+    eventType: 'kb.datasource.deleted',
+    severity: 'high',
+    apiRoute: 'DELETE /api/knowledge-base/[kbId]/sources/[dsId]',
+    httpMethod: 'DELETE',
     action: 'Deleted Data Source',
     resourceType: 'kb',
     resourceId: dsId,

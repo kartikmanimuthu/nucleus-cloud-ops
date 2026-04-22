@@ -19,6 +19,10 @@ export async function POST(
         const invitation = await InvitationService.revokeInvitation(id, tenantId);
 
         AuditService.logUserAction({
+            eventType: 'tenant.invitation.revoked',
+            severity: 'medium',
+            apiRoute: 'POST /api/invitations/[id]/revoke',
+            httpMethod: 'POST',
             action: 'Revoked Invitation',
             resourceType: 'tenant',
             resourceId: id,
@@ -34,6 +38,10 @@ export async function POST(
     } catch (error) {
         console.error("API - Error revoking invitation:", error);
         AuditService.logUserAction({
+            eventType: 'tenant.invitation.revoked',
+            severity: 'medium',
+            apiRoute: 'POST /api/invitations/[id]/revoke',
+            httpMethod: 'POST',
             action: 'Revoked Invitation',
             resourceType: 'tenant',
             resourceId: 'unknown',

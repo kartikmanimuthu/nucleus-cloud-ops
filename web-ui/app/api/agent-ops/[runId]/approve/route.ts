@@ -56,6 +56,10 @@ export async function POST(
 
             const session = await getAuthSession();
             AuditService.logUserAction({
+                eventType: 'agent.run.rejected',
+                severity: 'medium',
+                apiRoute: 'POST /api/agent-ops/[runId]/approve',
+                httpMethod: 'POST',
                 action: 'Rejected Agent Run',
                 resourceType: 'agent',
                 resourceId: runId,
@@ -81,6 +85,10 @@ export async function POST(
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.run.approved',
+            severity: 'high',
+            apiRoute: 'POST /api/agent-ops/[runId]/approve',
+            httpMethod: 'POST',
             action: 'Approved Agent Run',
             resourceType: 'agent',
             resourceId: runId,

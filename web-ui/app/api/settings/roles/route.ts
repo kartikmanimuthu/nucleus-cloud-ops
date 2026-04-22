@@ -59,6 +59,10 @@ export async function POST(request: NextRequest) {
         const role = await createCustomRole(tenantId, { name: name.trim(), permissions }, callerEmail);
 
         AuditService.logUserAction({
+            eventType: 'rbac.role.created',
+            severity: 'high',
+            apiRoute: 'POST /api/settings/roles',
+            httpMethod: 'POST',
             action: 'Created Role',
             resourceType: 'rbac',
             resourceId: role.id,
@@ -75,6 +79,10 @@ export async function POST(request: NextRequest) {
         console.error('API - Error creating role:', error);
 
         AuditService.logUserAction({
+            eventType: 'rbac.role.created',
+            severity: 'high',
+            apiRoute: 'POST /api/settings/roles',
+            httpMethod: 'POST',
             action: 'Created Role',
             resourceType: 'rbac',
             resourceId: 'unknown',

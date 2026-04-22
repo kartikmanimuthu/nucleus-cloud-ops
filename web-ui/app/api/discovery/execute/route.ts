@@ -50,6 +50,10 @@ export async function POST(req: NextRequest) {
 
         // Audit: log discovery scan trigger
         AuditService.logUserAction({
+            eventType: 'inventory.discovery.triggered',
+            severity: 'medium',
+            apiRoute: 'POST /api/discovery/execute',
+            httpMethod: 'POST',
             action: 'inventory.discovery.triggered',
             resourceType: 'inventory',
             resourceId: jobId,

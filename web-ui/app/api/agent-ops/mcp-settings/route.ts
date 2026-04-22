@@ -79,6 +79,10 @@ export async function PUT(req: Request) {
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.settings.mcp_updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/agent-ops/mcp-settings',
+            httpMethod: 'PUT',
             action: 'Updated MCP Settings',
             resourceType: 'agent',
             resourceId: 'mcp-settings',
@@ -117,6 +121,10 @@ export async function DELETE() {
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.settings.mcp_reset',
+            severity: 'medium',
+            apiRoute: 'DELETE /api/agent-ops/mcp-settings',
+            httpMethod: 'DELETE',
             action: 'Reset MCP Settings',
             resourceType: 'agent',
             resourceId: 'mcp-settings',

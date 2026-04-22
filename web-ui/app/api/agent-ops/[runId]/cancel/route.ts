@@ -50,6 +50,10 @@ export async function POST(
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.run.cancelled',
+            severity: 'medium',
+            apiRoute: 'POST /api/agent-ops/[runId]/cancel',
+            httpMethod: 'POST',
             action: 'Cancelled Agent Run',
             resourceType: 'agent',
             resourceId: runId,

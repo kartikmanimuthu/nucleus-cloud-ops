@@ -19,6 +19,10 @@ export async function POST(
         const invitation = await InvitationService.resendInvitation(id, tenantId);
 
         AuditService.logUserAction({
+            eventType: 'tenant.invitation.resent',
+            severity: 'low',
+            apiRoute: 'POST /api/invitations/[id]/resend',
+            httpMethod: 'POST',
             action: 'Resent Invitation',
             resourceType: 'tenant',
             resourceId: id,
@@ -34,6 +38,10 @@ export async function POST(
     } catch (error) {
         console.error("API - Error resending invitation:", error);
         AuditService.logUserAction({
+            eventType: 'tenant.invitation.resent',
+            severity: 'low',
+            apiRoute: 'POST /api/invitations/[id]/resend',
+            httpMethod: 'POST',
             action: 'Resent Invitation',
             resourceType: 'tenant',
             resourceId: 'unknown',

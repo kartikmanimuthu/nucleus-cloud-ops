@@ -46,6 +46,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ taskId:
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.task.triggered',
+            severity: 'medium',
+            apiRoute: 'POST /api/agent-ops/scheduled-tasks/[taskId]/trigger',
+            httpMethod: 'POST',
             action: 'Triggered Scheduled Task',
             resourceType: 'agent',
             resourceId: taskId,

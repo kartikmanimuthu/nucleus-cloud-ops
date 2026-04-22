@@ -97,6 +97,10 @@ export async function PUT(req: Request) {
 
         // Audit: log MCP config update
         AuditService.logUserAction({
+            eventType: 'integration.mcp.updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/mcp-servers',
+            httpMethod: 'PUT',
             action: 'integration.mcp.updated',
             resourceType: 'integration',
             resourceId: 'mcp-servers',
@@ -143,6 +147,10 @@ export async function DELETE() {
 
         // Audit: log MCP config reset
         AuditService.logUserAction({
+            eventType: 'integration.mcp.reset',
+            severity: 'medium',
+            apiRoute: 'DELETE /api/mcp-servers',
+            httpMethod: 'DELETE',
             action: 'integration.mcp.reset',
             resourceType: 'integration',
             resourceId: 'mcp-servers',

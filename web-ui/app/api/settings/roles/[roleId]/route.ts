@@ -58,6 +58,10 @@ export async function PUT(
         const role = await updateCustomRole(tenantId, roleId, { name: name.trim(), permissions });
 
         AuditService.logUserAction({
+            eventType: 'rbac.role.updated',
+            severity: 'high',
+            apiRoute: 'PUT /api/settings/roles/[roleId]',
+            httpMethod: 'PUT',
             action: 'Updated Role',
             resourceType: 'rbac',
             resourceId: roleId,
@@ -74,6 +78,10 @@ export async function PUT(
         console.error('API - Error updating role:', error);
 
         AuditService.logUserAction({
+            eventType: 'rbac.role.updated',
+            severity: 'high',
+            apiRoute: 'PUT /api/settings/roles/[roleId]',
+            httpMethod: 'PUT',
             action: 'Updated Role',
             resourceType: 'rbac',
             resourceId: (await params).roleId,
@@ -107,6 +115,10 @@ export async function DELETE(
         await deleteCustomRole(tenantId, roleId);
 
         AuditService.logUserAction({
+            eventType: 'rbac.role.deleted',
+            severity: 'high',
+            apiRoute: 'DELETE /api/settings/roles/[roleId]',
+            httpMethod: 'DELETE',
             action: 'Deleted Role',
             resourceType: 'rbac',
             resourceId: roleId,
@@ -123,6 +135,10 @@ export async function DELETE(
         console.error('API - Error deleting role:', error);
 
         AuditService.logUserAction({
+            eventType: 'rbac.role.deleted',
+            severity: 'high',
+            apiRoute: 'DELETE /api/settings/roles/[roleId]',
+            httpMethod: 'DELETE',
             action: 'Deleted Role',
             resourceType: 'rbac',
             resourceId: (await params).roleId,

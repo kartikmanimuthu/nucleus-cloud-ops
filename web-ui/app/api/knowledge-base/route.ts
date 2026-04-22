@@ -49,6 +49,10 @@ export async function POST(request: NextRequest) {
     );
 
     AuditService.logUserAction({
+      eventType: 'kb.knowledgebase.created',
+      severity: 'medium',
+      apiRoute: 'POST /api/knowledge-base',
+      httpMethod: 'POST',
       action: 'Created Knowledge Base',
       resourceType: 'kb',
       resourceId: knowledgeBase.id,
@@ -64,6 +68,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[KB API] Error creating knowledge base:', error);
     AuditService.logUserAction({
+      eventType: 'kb.knowledgebase.created',
+      severity: 'medium',
+      apiRoute: 'POST /api/knowledge-base',
+      httpMethod: 'POST',
       action: 'Created Knowledge Base',
       resourceType: 'kb',
       resourceId: 'unknown',

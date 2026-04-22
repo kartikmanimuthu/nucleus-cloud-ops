@@ -10,6 +10,7 @@ import {
     deleteThread,
 } from '../../../../../lib/deep-agent/db/chat-history-store';
 import { AuditService } from '@/lib/audit-service';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 
 export async function GET(
     _req: NextRequest,
@@ -39,15 +40,29 @@ export async function DELETE(
             return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
         }
 
+        let tenantId = 'unknown';
+        let userEmail = 'unknown';
+        try {
+            tenantId = await getSessionTenantId();
+            const session = await getAuthSession();
+            userEmail = session?.user?.email || 'unknown';
+        } catch {}
+
         AuditService.logUserAction({
-            action: 'Deleted Thread',
-            resourceType: 'chat',
+            action: 'chat.thread.deleted',
+            eventType: 'chat.thread.deleted',
+            severity: 'medium',
+            apiRoute: 'DELETE /api/deep-agent/threads/[threadId]',
+            httpMethod: 'DELETE',
+            resourceType: 'Thread',
             resourceId: threadId,
             resourceName: threadId,
-            user: 'unknown',
+            user: userEmail,
             userType: 'user',
             status: 'success',
             details: `Deleted deep agent thread ${threadId}`,
+            tenantId,
+            metadata: { tenantId },
         }).catch(() => {});
 
         return NextResponse.json({ success: true });

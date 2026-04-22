@@ -79,6 +79,10 @@ export async function POST(request: NextRequest) {
         });
 
         AuditService.logUserAction({
+            eventType: 'integration.provider.created',
+            severity: 'high',
+            apiRoute: 'POST /api/settings/providers',
+            httpMethod: 'POST',
             action: 'Created Provider',
             resourceType: 'integration',
             resourceId: provider.id,
@@ -95,6 +99,10 @@ export async function POST(request: NextRequest) {
         console.error('API - Error creating provider:', error);
 
         AuditService.logUserAction({
+            eventType: 'integration.provider.created',
+            severity: 'high',
+            apiRoute: 'POST /api/settings/providers',
+            httpMethod: 'POST',
             action: 'Created Provider',
             resourceType: 'integration',
             resourceId: 'unknown',

@@ -55,6 +55,10 @@ export async function POST(req: Request) {
         const thread = await threadStore.createThread(id, title, model, tenantId, userId);
 
         AuditService.logUserAction({
+            eventType: 'chat.thread.created',
+            severity: 'low',
+            apiRoute: 'POST /api/threads',
+            httpMethod: 'POST',
             action: 'Created Thread',
             resourceType: 'chat',
             resourceId: id,

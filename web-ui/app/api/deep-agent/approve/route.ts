@@ -22,6 +22,7 @@ import type {
 } from '../../../../lib/deep-agent/types';
 import { createLogger } from '../../../../lib/deep-agent/logger';
 import { AuditService } from '@/lib/audit-service';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 
 const log = createLogger('ApproveRoute');
 
@@ -101,15 +102,20 @@ export async function POST(req: NextRequest) {
     });
 
     AuditService.logUserAction({
-        action: 'Approved Agent Decision',
-        resourceType: 'agent',
+        action: 'agent.run.approved',
+        eventType: 'agent.run.approved',
+        severity: 'high',
+        apiRoute: 'POST /api/deep-agent/approve',
+        httpMethod: 'POST',
+        resourceType: 'AgentRun',
         resourceId: threadId,
         resourceName: threadId,
         user: 'unknown',
         userType: 'user',
         status: 'success',
         details: `Approved ${decisions.length} decision(s) for deep agent thread ${threadId}`,
-        metadata: { threadId, decisionCount: decisions.length },
+        tenantId: await getSessionTenantId().catch(() => 'unknown'),
+        metadata: { tenantId: 'unknown', threadId, decisionCount: decisions.length },
     }).catch(() => {});
 
     const graphConfig = { configurable: { thread_id: threadId } };

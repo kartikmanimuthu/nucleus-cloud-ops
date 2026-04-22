@@ -25,6 +25,10 @@ export async function POST(request: NextRequest) {
         const result = await InvitationService.createInvitation(tenantId, email, role, invitedBy);
 
         AuditService.logUserAction({
+            eventType: 'tenant.invitation.created',
+            severity: 'medium',
+            apiRoute: 'POST /api/invitations',
+            httpMethod: 'POST',
             action: 'Created Invitation',
             resourceType: 'tenant',
             resourceId: result.id || email,
@@ -40,6 +44,10 @@ export async function POST(request: NextRequest) {
     } catch (error) {
         console.error("API - Error creating invitation:", error);
         AuditService.logUserAction({
+            eventType: 'tenant.invitation.created',
+            severity: 'medium',
+            apiRoute: 'POST /api/invitations',
+            httpMethod: 'POST',
             action: 'Created Invitation',
             resourceType: 'tenant',
             resourceId: 'unknown',

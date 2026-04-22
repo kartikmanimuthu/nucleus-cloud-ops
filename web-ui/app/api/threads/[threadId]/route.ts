@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { AuditService } from '@/lib/audit-service';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 
 interface NormalizedThread {
     id: string;
@@ -21,6 +22,10 @@ export async function DELETE(
         if (!success) return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
 
         AuditService.logUserAction({
+            eventType: 'chat.thread.deleted',
+            severity: 'medium',
+            apiRoute: 'DELETE /api/threads/[threadId]',
+            httpMethod: 'DELETE',
             action: 'Deleted Thread',
             resourceType: 'chat',
             resourceId: threadId,
@@ -29,6 +34,7 @@ export async function DELETE(
             userType: 'user',
             status: 'success',
             details: `Deleted chat thread ${threadId}`,
+            tenantId: await getSessionTenantId().catch(() => 'unknown'),
         }).catch(() => {});
 
         return NextResponse.json({ success: true });
@@ -50,6 +56,10 @@ export async function PATCH(
         if (!updated) return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
 
         AuditService.logUserAction({
+            eventType: 'chat.thread.updated',
+            severity: 'low',
+            apiRoute: 'PATCH /api/threads/[threadId]',
+            httpMethod: 'PATCH',
             action: 'Updated Thread',
             resourceType: 'chat',
             resourceId: threadId,
@@ -58,6 +68,7 @@ export async function PATCH(
             userType: 'user',
             status: 'success',
             details: `Updated chat thread ${threadId}`,
+            tenantId: await getSessionTenantId().catch(() => 'unknown'),
         }).catch(() => {});
 
         return NextResponse.json(updated);

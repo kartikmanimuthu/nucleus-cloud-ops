@@ -286,15 +286,15 @@ export async function createExecutionAuditLog(
 
     await createAuditLog({
         type: 'audit_log',
-        eventType: 'scheduler.execution.complete',
+        eventType: 'schedule.execution.completed',
         action: 'execution_complete',
         user: userEmail || 'system',
         userType: userEmail ? 'user' : 'system',
-        resourceType: 'scheduler',
+        resourceType: 'Schedule',
         resourceId: executionId,
         status: overallStatus,
         details,
-        severity: summary.resourcesFailed > 0 ? 'medium' : 'info',
+        severity: summary.resourcesFailed > 0 ? 'medium' : 'low',
         metadata: {
             executionId,
             scheduleId: schedule.scheduleId,

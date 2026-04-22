@@ -97,14 +97,18 @@ export class ScheduleService {
 
             // Audit log (cross-cutting concern stays in service layer)
             await AuditService.logUserAction({
+                eventType: 'schedule.schedule.created',
                 action: 'Created Schedule',
-                resourceType: 'schedule',
+                resourceType: 'Schedule',
                 resourceId: result.id,
                 resourceName: schedule.name,
                 user: schedule.createdBy || 'system',
                 userType: 'user',
                 status: 'success',
+                severity: 'medium',
                 details: `Created schedule "${schedule.name}"`,
+                tenantId,
+                dataClassification: 'infrastructure',
                 metadata: {
                     tenantId,
                     accountId: schedule.accounts?.[0],
@@ -117,14 +121,18 @@ export class ScheduleService {
         } catch (error) {
             console.error('Error creating schedule:', error);
             await AuditService.logUserAction({
+                eventType: 'schedule.schedule.created',
                 action: 'Created Schedule',
-                resourceType: 'schedule',
+                resourceType: 'Schedule',
                 resourceId: schedule.name,
                 resourceName: schedule.name,
                 user: 'system',
                 userType: 'user',
                 status: 'error',
+                severity: 'high',
                 details: `Failed to create schedule "${schedule.name}": ${(error as Error).message}`,
+                tenantId,
+                metadata: { tenantId },
             });
             throw error;
         }
@@ -138,7 +146,8 @@ export class ScheduleService {
         scheduleId: string,
         updates: Partial<Omit<UISchedule, 'name'>>,
         accountId?: string,
-        tenantId?: string
+        tenantId?: string,
+        skipAudit = false
     ): Promise<UISchedule> {
         const usePg = process.env.USE_PG_SCHEDULES === 'true';
 
@@ -156,16 +165,23 @@ export class ScheduleService {
                 result = await repo.updateSchedule(scheduleId, updates, tenantId, accountId);
             }
 
-            await AuditService.logUserAction({
-                action: 'Updated Schedule',
-                resourceType: 'schedule',
-                resourceId: scheduleId,
-                resourceName: result.name,
-                user: (updates as Record<string, unknown>).updatedBy as string || 'system',
-                userType: 'user',
-                status: 'success',
-                details: `Updated schedule "${result.name}"`,
-            });
+            if (!skipAudit) {
+                await AuditService.logUserAction({
+                    eventType: 'schedule.schedule.updated',
+                    action: 'Updated Schedule',
+                    resourceType: 'Schedule',
+                    resourceId: scheduleId,
+                    resourceName: result.name,
+                    user: (updates as Record<string, unknown>).updatedBy as string || 'system',
+                    userType: 'user',
+                    status: 'success',
+                    severity: 'medium',
+                    details: `Updated schedule "${result.name}"`,
+                    tenantId,
+                    dataClassification: 'infrastructure',
+                    metadata: { tenantId },
+                });
+            }
 
             return result;
         } catch (error) {
@@ -203,14 +219,19 @@ export class ScheduleService {
             }
 
             await AuditService.logUserAction({
+                eventType: 'schedule.schedule.deleted',
                 action: 'Deleted Schedule',
-                resourceType: 'schedule',
+                resourceType: 'Schedule',
                 resourceId: idOrName,
                 resourceName: schedule.name,
                 user: deletedBy,
                 userType: 'user',
                 status: 'success',
+                severity: 'high',
                 details: `Deleted schedule "${schedule.name}"`,
+                tenantId,
+                dataClassification: 'infrastructure',
+                metadata: { tenantId },
             });
         } catch (error: unknown) {
             console.error('Error deleting schedule:', error);
@@ -232,11 +253,37 @@ export class ScheduleService {
         }
 
         const effectiveAccountId = accountId || currentSchedule.accounts?.[0];
-        return await this.updateSchedule(
-            currentSchedule.id,
-            { active: !currentSchedule.active, updatedBy } as Partial<UISchedule>,
-            effectiveAccountId,
-            tenantId
-        );
+        const newActive = !currentSchedule.active;
+
+        // Use updateSchedule but we'll log a specific "Toggled" event instead of generic "Updated"
+        const usePg = process.env.USE_PG_SCHEDULES === 'true';
+        let result: UISchedule;
+        if (usePg) {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { SchedulePostgresRepository } = require('@/lib/db/repositories/schedule/postgres');
+            const pgRepo = new SchedulePostgresRepository();
+            result = await pgRepo.updateSchedule(currentSchedule.id, { active: newActive, updatedBy } as Partial<UISchedule>, tenantId, effectiveAccountId);
+        } else {
+            const repo = getScheduleRepository();
+            result = await repo.updateSchedule(currentSchedule.id, { active: newActive, updatedBy } as Partial<UISchedule>, tenantId, effectiveAccountId);
+        }
+
+        await AuditService.logUserAction({
+            eventType: 'schedule.schedule.toggled',
+            action: 'Toggled Schedule',
+            resourceType: 'Schedule',
+            resourceId: currentSchedule.id,
+            resourceName: currentSchedule.name,
+            user: updatedBy,
+            userType: 'user',
+            status: 'success',
+            severity: 'medium',
+            details: `Toggled schedule "${currentSchedule.name}" to ${newActive ? 'active' : 'inactive'}`,
+            tenantId,
+            changeSet: { before: { active: currentSchedule.active }, after: { active: newActive } },
+            metadata: { tenantId, active: newActive },
+        });
+
+        return result;
     }
 }

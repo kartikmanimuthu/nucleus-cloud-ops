@@ -18,6 +18,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ taskId:
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.task.paused',
+            severity: 'medium',
+            apiRoute: 'POST /api/agent-ops/scheduled-tasks/[taskId]/pause',
+            httpMethod: 'POST',
             action: 'Paused Scheduled Task',
             resourceType: 'agent',
             resourceId: taskId,

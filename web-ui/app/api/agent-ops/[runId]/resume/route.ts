@@ -64,6 +64,10 @@ export async function POST(
         });
 
         AuditService.logUserAction({
+            eventType: 'agent.run.resumed',
+            severity: 'medium',
+            apiRoute: 'POST /api/agent-ops/[runId]/resume',
+            httpMethod: 'POST',
             action: 'Resumed Agent Run',
             resourceType: 'agent',
             resourceId: runId,

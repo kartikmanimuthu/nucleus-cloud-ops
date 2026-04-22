@@ -47,6 +47,10 @@ export async function POST(
   });
 
   AuditService.logUserAction({
+    eventType: 'kb.datasource.sync_triggered',
+    severity: 'low',
+    apiRoute: 'POST /api/knowledge-base/[kbId]/sources/[dsId]/sync',
+    httpMethod: 'POST',
     action: 'Triggered Data Source Sync',
     resourceType: 'kb',
     resourceId: dsId,

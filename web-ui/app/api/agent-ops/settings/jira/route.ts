@@ -75,6 +75,10 @@ export async function PUT(req: Request) {
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.settings.jira_updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/agent-ops/settings/jira',
+            httpMethod: 'PUT',
             action: 'Updated Jira Settings',
             resourceType: 'agent',
             resourceId: 'jira-integration',

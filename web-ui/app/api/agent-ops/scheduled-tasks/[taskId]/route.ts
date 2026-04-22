@@ -45,6 +45,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.task.updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/agent-ops/scheduled-tasks/[taskId]',
+            httpMethod: 'PATCH',
             action: 'Updated Scheduled Task',
             resourceType: 'agent',
             resourceId: taskId,
@@ -76,6 +80,10 @@ export async function DELETE(req: Request, { params }: Ctx) {
 
         const session = await getAuthSession();
         AuditService.logUserAction({
+            eventType: 'agent.task.deleted',
+            severity: 'medium',
+            apiRoute: 'DELETE /api/agent-ops/scheduled-tasks/[taskId]',
+            httpMethod: 'DELETE',
             action: 'Deleted Scheduled Task',
             resourceType: 'agent',
             resourceId: taskId,

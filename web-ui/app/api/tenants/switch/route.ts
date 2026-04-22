@@ -34,6 +34,10 @@ export async function POST(req: NextRequest) {
         console.log(`API - POST /api/tenants/switch - User ${session.user.id} switched to tenant ${tenantId}`);
 
         AuditService.logUserAction({
+            eventType: 'tenant.organization.switched',
+            severity: 'low',
+            apiRoute: 'POST /api/tenants/switch',
+            httpMethod: 'POST',
             action: 'Switched Organization',
             resourceType: 'tenant',
             resourceId: tenantId,

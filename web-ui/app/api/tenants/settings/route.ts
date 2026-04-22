@@ -51,6 +51,10 @@ export async function PUT(req: NextRequest) {
         );
 
         AuditService.logUserAction({
+            eventType: 'tenant.settings.updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/tenants/settings',
+            httpMethod: 'PUT',
             action: 'Updated Settings',
             resourceType: 'tenant',
             resourceId: tenantId,
@@ -67,6 +71,10 @@ export async function PUT(req: NextRequest) {
     } catch (error) {
         console.error("API - PUT /api/tenants/settings - Error:", error);
         AuditService.logUserAction({
+            eventType: 'tenant.settings.updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/tenants/settings',
+            httpMethod: 'PUT',
             action: 'Updated Settings',
             resourceType: 'tenant',
             resourceId: 'unknown',

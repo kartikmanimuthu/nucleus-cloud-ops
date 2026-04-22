@@ -204,6 +204,11 @@ export async function POST(req: Request) {
 
         // Audit: log the incoming Jira trigger
         AuditService.logResourceAction({
+            eventType: 'trigger.jira.received',
+            severity: 'low',
+            apiRoute: 'POST /api/v1/trigger/jira',
+            httpMethod: 'POST',
+            source: 'external',
             action: 'Received Jira Trigger',
             resourceType: 'trigger',
             resourceId: run.runId,
@@ -211,7 +216,6 @@ export async function POST(req: Request) {
             status: 'success',
             details: `Received Jira trigger for issue ${issueKey || 'unknown'}`,
             userType: 'system',
-            source: 'api',
             metadata: { tenantId, issueKey, projectKey: trigger.projectKey },
         }).catch(() => {});
 

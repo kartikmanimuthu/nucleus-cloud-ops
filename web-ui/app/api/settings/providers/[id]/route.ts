@@ -18,6 +18,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         const updated = await ProviderModelService.updateProvider(id, tenantId, body);
 
         AuditService.logUserAction({
+            eventType: 'integration.provider.updated',
+            severity: 'high',
+            apiRoute: 'PUT /api/settings/providers/[id]',
+            httpMethod: 'PUT',
             action: 'Updated Provider',
             resourceType: 'integration',
             resourceId: id,
@@ -34,6 +38,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         console.error('API - Error updating provider:', error);
 
         AuditService.logUserAction({
+            eventType: 'integration.provider.updated',
+            severity: 'high',
+            apiRoute: 'PUT /api/settings/providers/[id]',
+            httpMethod: 'PUT',
             action: 'Updated Provider',
             resourceType: 'integration',
             resourceId: id,
@@ -64,6 +72,10 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
         await ProviderModelService.deleteProvider(id, tenantId);
 
         AuditService.logUserAction({
+            eventType: 'integration.provider.deleted',
+            severity: 'high',
+            apiRoute: 'DELETE /api/settings/providers/[id]',
+            httpMethod: 'DELETE',
             action: 'Deleted Provider',
             resourceType: 'integration',
             resourceId: id,
@@ -80,6 +92,10 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
         console.error('API - Error deleting provider:', error);
 
         AuditService.logUserAction({
+            eventType: 'integration.provider.deleted',
+            severity: 'high',
+            apiRoute: 'DELETE /api/settings/providers/[id]',
+            httpMethod: 'DELETE',
             action: 'Deleted Provider',
             resourceType: 'integration',
             resourceId: id,

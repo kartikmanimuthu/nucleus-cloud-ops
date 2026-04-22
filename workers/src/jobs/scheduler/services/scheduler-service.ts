@@ -170,15 +170,15 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
 
     await createAuditLog({
         type: 'audit_log',
-        eventType: 'scheduler.complete',
+        eventType: 'schedule.execution.completed',
         action: 'full_scan',
         user: 'system',
         userType: 'system',
-        resourceType: 'scheduler',
+        resourceType: 'Schedule',
         resourceId: executionId,
         status: overallStatus,
         details: `Full scan completed: ${totalStarted} started, ${totalStopped} stopped, ${totalFailed} failed`,
-        severity: totalFailed > 0 ? 'medium' : 'info',
+        severity: totalFailed > 0 ? 'medium' : 'low',
         metadata: {
             schedulesProcessed: totalSchedulesProcessed,
             resourcesStarted: totalStarted,
@@ -232,11 +232,11 @@ export async function runPartialScan(
         // Log audit for schedule not found error
         await createAuditLog({
             type: 'audit_log',
-            eventType: 'scheduler.error',
+            eventType: 'schedule.execution.failed',
             action: 'partial_scan',
             user: userEmail || 'system',
             userType: userEmail ? 'user' : 'system',
-            resourceType: 'scheduler',
+            resourceType: 'Schedule',
             resourceId: scheduleId,
             status: 'error',
             details: `Partial scan failed: Schedule not found: ${scheduleId}`,
@@ -264,15 +264,15 @@ export async function runPartialScan(
         // Log audit for partial scan completion (similar to full_scan)
         await createAuditLog({
             type: 'audit_log',
-            eventType: 'scheduler.complete',
+            eventType: 'schedule.execution.completed',
             action: 'partial_scan',
             user: userEmail || 'system',
             userType: userEmail ? 'user' : 'system',
-            resourceType: 'scheduler',
+            resourceType: 'Schedule',
             resourceId: executionId,
             status: overallStatus,
             details: `Partial scan completed for "${schedule.name}": ${result.started} started, ${result.stopped} stopped, ${result.failed} failed`,
-            severity: result.failed > 0 ? 'medium' : 'info',
+            severity: result.failed > 0 ? 'medium' : 'low',
             metadata: {
                 scheduleId: schedule.scheduleId,
                 scheduleName: schedule.name,
@@ -298,11 +298,11 @@ export async function runPartialScan(
         // Log audit for partial scan failure
         await createAuditLog({
             type: 'audit_log',
-            eventType: 'scheduler.error',
+            eventType: 'schedule.execution.failed',
             action: 'partial_scan',
             user: userEmail || 'system',
             userType: userEmail ? 'user' : 'system',
-            resourceType: 'scheduler',
+            resourceType: 'Schedule',
             resourceId: executionId,
             status: 'error',
             details: `Partial scan failed for "${schedule.name}": ${error instanceof Error ? error.message : String(error)}`,

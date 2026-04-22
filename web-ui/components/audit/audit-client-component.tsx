@@ -37,7 +37,6 @@ import { AuditLogsTable } from "@/components/audit/audit-logs-table";
 import { AuditLogsChart } from "@/components/audit/audit-logs-chart";
 import { AuditFilters } from "@/components/audit/audit-filters";
 import { ExportAuditDialog } from "@/components/audit/export-audit-dialog";
-import { subDays, startOfDay, endOfDay } from "date-fns";
 import { AuditLog } from "@/lib/types";
 import { AuditLogFilters, ClientAuditService } from "@/lib/client-audit-service-api";
 import type { DateRange } from "react-day-picker";
@@ -69,6 +68,17 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Dynamic filter values fetched from DB
+  const [filterOptions, setFilterOptions] = useState<{
+    sources: string[];
+    users: string[];
+    resourceTypes: string[];
+    eventTypes: string[];
+    severities: string[];
+    statuses: string[];
+    userTypes: string[];
+  }>({ sources: [], users: [], resourceTypes: [], eventTypes: [], severities: [], statuses: [], userTypes: [] });
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedEventType, setSelectedEventType] = useState<string>(initialFilters?.eventType || "all");
   const [selectedStatus, setSelectedStatus] = useState<string>(initialFilters?.status || "all");
@@ -76,21 +86,14 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
     if (initialFilters?.startDate || initialFilters?.endDate) {
       return {
-        from: initialFilters.startDate ? new Date(initialFilters.startDate) : subDays(new Date(), 7),
-        to: initialFilters.endDate ? new Date(initialFilters.endDate) : new Date(),
+        from: initialFilters.startDate ? new Date(initialFilters.startDate) : undefined,
+        to: initialFilters.endDate ? new Date(initialFilters.endDate) : undefined,
       };
     }
-    // Default: last 7 days — consistent with API default
-    return {
-      from: startOfDay(subDays(new Date(), 7)),
-      to: endOfDay(new Date()),
-    };
+    return undefined;
   });
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState<Partial<AuditLogFilters>>({});
-  // Accumulate seen users across pages so the dropdown stays populated
-  const seenUsersRef = useRef<Set<string>>(new Set());
-  const [allUsers, setAllUsers] = useState<string[]>([]);
 
   // Pagination state
   const [pageSize, setPageSize] = useState(20);
@@ -150,9 +153,6 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
       setAuditLogs(logsResponse.logs);
       setFilteredLogs(logsResponse.logs);
       setNextPageToken(logsResponse.nextPageToken);
-      // Accumulate users across pages for the dropdown
-      logsResponse.logs.forEach((log) => { if (log.user) seenUsersRef.current.add(log.user); });
-      setAllUsers(Array.from(seenUsersRef.current));
       setStats({
         totalLogs: statsResponse.totalLogs || 0,
         errorCount: statsResponse.errorCount || 0,
@@ -169,6 +169,16 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEventType, selectedStatus, selectedUser, searchTerm, dateRange, pageSize, advancedFilters]);
 
+  // Fetch dynamic filter values from DB on mount
+  useEffect(() => {
+    fetch('/api/audit/filters')
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) setFilterOptions(result.data);
+      })
+      .catch(() => {});
+  }, []);
+
   // Initial load on mount
   useEffect(() => {
     isMounted.current = true;
@@ -183,7 +193,6 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
     setPageHistory([]);
     setNextPageToken(undefined);
     pendingPageToken.current = undefined;
-    seenUsersRef.current = new Set();
     fetchAuditData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEventType, selectedStatus, selectedUser, searchTerm, dateRange, pageSize, advancedFilters]);
@@ -220,25 +229,20 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
     setSelectedStatus("all");
     setSelectedUser("all");
     setAdvancedFilters({});
-    setDateRange({
-      from: startOfDay(subDays(new Date(), 7)),
-      to: endOfDay(new Date()),
-    });
+    setDateRange(undefined);
   };
 
-  // Derived values for dropdowns — show ALL event types from the database, no filtering
-  const uniqueEventTypes = stats.byEventType
-    ? Object.keys(stats.byEventType)
-        .sort()
-        .map((eventType) => ({
-          value: eventType,
-          label: eventType
-            .split(".")
-            .map((p) => p.replace(/_/g, " "))
-            .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-            .join(" → "),
-        }))
-    : [];
+  // Event types from dynamic filter options (DB-driven)
+  const uniqueEventTypes = filterOptions.eventTypes
+    .sort()
+    .map((eventType) => ({
+      value: eventType,
+      label: eventType
+        .split(".")
+        .map((p) => p.replace(/_/g, " "))
+        .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+        .join(" → "),
+    }));
 
   const getEventTypeLabel = (value: string) => {
     if (value === "all") return "All Events";
@@ -382,28 +386,27 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="success">
-                  <div className="flex items-center space-x-2"><CheckCircle className="h-4 w-4 text-success" /><span>Success</span></div>
-                </SelectItem>
-                <SelectItem value="error">
-                  <div className="flex items-center space-x-2"><XCircle className="h-4 w-4 text-destructive" /><span>Error</span></div>
-                </SelectItem>
-                <SelectItem value="warning">
-                  <div className="flex items-center space-x-2"><AlertTriangle className="h-4 w-4 text-warning" /><span>Warning</span></div>
-                </SelectItem>
-                <SelectItem value="info">
-                  <div className="flex items-center space-x-2"><Activity className="h-4 w-4 text-info" /><span>Info</span></div>
-                </SelectItem>
+                {filterOptions.statuses.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    <div className="flex items-center space-x-2">
+                      {s === "success" && <CheckCircle className="h-4 w-4 text-success" />}
+                      {s === "error" && <XCircle className="h-4 w-4 text-destructive" />}
+                      {s === "warning" && <AlertTriangle className="h-4 w-4 text-warning" />}
+                      {s === "info" && <Activity className="h-4 w-4 text-info" />}
+                      <span>{s.charAt(0).toUpperCase() + s.slice(1)}</span>
+                    </div>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
             <Select value={selectedUser} onValueChange={setSelectedUser}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className="w-[200px]">
                 <SelectValue>{selectedUser === "all" ? "All Users" : selectedUser}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Users</SelectItem>
-                {allUsers.map((user) => (
+                {filterOptions.users.map((user) => (
                   <SelectItem key={user} value={user}>
                     <div className="flex items-center space-x-2">
                       {user === "system" ? <Server className="h-4 w-4" /> : <User className="h-4 w-4" />}

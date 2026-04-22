@@ -75,6 +75,10 @@ export async function POST(req: NextRequest) {
         console.log(`API - POST /api/tenants - Created tenant ${result.id} (slug: ${result.slug})`);
 
         AuditService.logUserAction({
+            eventType: 'tenant.organization.created',
+            severity: 'high',
+            apiRoute: 'POST /api/tenants',
+            httpMethod: 'POST',
             action: 'Created Organization',
             resourceType: 'tenant',
             resourceId: result.id,
@@ -99,6 +103,10 @@ export async function POST(req: NextRequest) {
         }
         console.error("API - POST /api/tenants - Error:", error);
         AuditService.logUserAction({
+            eventType: 'tenant.organization.created',
+            severity: 'high',
+            apiRoute: 'POST /api/tenants',
+            httpMethod: 'POST',
             action: 'Created Organization',
             resourceType: 'tenant',
             resourceId: 'unknown',

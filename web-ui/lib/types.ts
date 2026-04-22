@@ -77,7 +77,7 @@ export interface AuditLog {
     id: string;
     type: 'audit_log';
     timestamp: string;
-    eventType: string;
+    eventType: string;       // domain.entity.action (e.g., account.account.created)
     action: string;
     user: string;
     userType: 'system' | 'user' | 'admin' | 'external';
@@ -97,5 +97,12 @@ export interface AuditLog {
     accountId?: string;
     duration?: number;
     errorCode?: string;
-    source: 'platform' | 'lambda' | 'system' | 'api';
+    source: 'platform' | 'system' | 'agent' | 'external';
+    // Compliance fields (SOC 2 / NIST AU-3)
+    changeSet?: { before?: Record<string, any>; after?: Record<string, any> };
+    requestId?: string;
+    apiRoute?: string;
+    httpMethod?: string;
+    dataClassification?: string;
+    retentionDays?: number;
 }

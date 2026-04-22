@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ScheduleService } from '@/lib/schedule-service';
-import { AuditService } from '@/lib/audit-service';
 
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
@@ -129,6 +128,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Create schedule — map accountId → accounts array for the repository
+        // ScheduleService.createSchedule already logs audit events internally
         const schedule = await ScheduleService.createSchedule({
             ...body,
             accounts: [body.accountId],
@@ -137,20 +137,6 @@ export async function POST(request: NextRequest) {
             updatedBy: createdBy
         }, tenantId);
 
-        // Log audit event
-        await AuditService.logUserAction({
-            action: 'Create Schedule',
-            resourceType: 'schedule',
-            resourceId: schedule.name,
-            resourceName: schedule.name,
-            user: createdBy,
-            userType: 'user',
-            status: 'success',
-            details: `Created schedule "${schedule.name}"`,
-            tenantId,
-            metadata: { tenantId },
-        });
-
         return NextResponse.json({
             success: true,
             data: schedule,
@@ -158,22 +144,6 @@ export async function POST(request: NextRequest) {
         }, { status: 201 });
     } catch (error: unknown) {
         console.error('API - Error creating schedule:', error);
-
-        // Log audit event for error
-        if (error instanceof Error) {
-            await AuditService.logUserAction({
-                action: 'Create Schedule',
-                resourceType: 'schedule',
-                resourceId: 'unknown',
-                resourceName: 'Unknown Schedule',
-                user: 'system',
-                userType: 'user',
-                status: 'error',
-                details: `Failed to create schedule: ${error.message}`,
-                tenantId,
-                metadata: { tenantId },
-            });
-        }
 
         // Handle specific DynamoDB errors
         if (error instanceof Error && error.message.includes('already exists')) {
