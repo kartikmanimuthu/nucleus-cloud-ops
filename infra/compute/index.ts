@@ -338,11 +338,6 @@ const postgresInstance = new aws.rds.Instance("postgres", {
     tags: { Name: "nucleus-cloud-ops-postgres" },
 }, { retainOnDelete: false });
 
-// DATABASE_URL — secret-wrapped connection string
-const databaseUrl = pulumi.secret(
-    pulumi.interpolate`postgresql://nucleus_admin:${dbPassword}@${postgresInstance.address}:5432/nucleus`
-);
-
 // Store full connection string in Secrets Manager (needs postgresInstance.address)
 new aws.secretsmanager.SecretVersion("database-url-version", {
     secretId: databaseUrlSm.id,
@@ -884,7 +879,7 @@ new aws.iam.RolePolicy("ecs-task-rds-connect-policy", {
 
 // RDS PostgreSQL exports
 export const postgresEndpoint = postgresInstance.address;
-export { databaseUrl };
+
 
 // ============================================================================
 // CLOUDFRONT DISTRIBUTION
