@@ -43,8 +43,42 @@ const appUrl = config.get("appUrl") ?? "https://placeholder.cloudfront.net";
 const subscriptionEmails = config.get("subscriptionEmails") ?? "";
 const crossAccountRoleName = config.get("crossAccountRoleName") ?? "NucleusAccess";
 const vectorBucketName = config.get("vectorBucketName") ?? "";
-const nextauthSecret = config.requireSecret("nextauthSecret");
-const dbPassword = config.requireSecret("dbPassword");
+const appName = "nucleus-cloud-ops";
+
+// Dynamically generated — stored in AWS Secrets Manager, never in Pulumi config
+const nextauthSecretRandom = new random.RandomPassword("nextauth-secret-random", {
+    length: 32,
+    special: false,
+    keepers: { version: "1" },
+});
+
+const dbPasswordRandom = new random.RandomPassword("db-password-random", {
+    length: 24,
+    special: false,
+    keepers: { version: "1" },
+});
+
+const nextauthSecretSm = new aws.secretsmanager.Secret("nextauth-secret", {
+    name: `${appName}/nextauth-secret`,
+    description: "NextAuth.js secret for JWT signing",
+    recoveryWindowInDays: 0,
+});
+
+new aws.secretsmanager.SecretVersion("nextauth-secret-version", {
+    secretId: nextauthSecretSm.id,
+    secretString: nextauthSecretRandom.result,
+});
+
+const databaseUrlSm = new aws.secretsmanager.Secret("database-url", {
+    name: `${appName}/database-url`,
+    description: "Full PostgreSQL connection string for ECS tasks",
+    recoveryWindowInDays: 0,
+});
+
+// database-url-version is created after postgresInstance (needs .address output)
+
+const nextauthSecret = nextauthSecretRandom.result;
+const dbPassword = dbPasswordRandom.result;
 
 // Phase 7+: Networking stack is deployed — use requireOutput() to enforce dependency.
 // requireOutput() throws at preview time if networking stack is not deployed,
@@ -64,7 +98,6 @@ const intraSubnetIds = networking.requireOutput("intraSubnetIds") as pulumi.Outp
 const availabilityZones = networking.requireOutput("availabilityZones") as pulumi.Output<string[]>;
 const dbSubnetGroupName = networking.requireOutput("dbSubnetGroupName") as pulumi.Output<string>;
 
-const appName = "nucleus-cloud-ops";
 const webUiStackName = "nucleus-cloud-ops-web-ui";
 
 // ============================================================================
@@ -310,6 +343,12 @@ const databaseUrl = pulumi.secret(
     pulumi.interpolate`postgresql://nucleus_admin:${dbPassword}@${postgresInstance.address}:5432/nucleus`
 );
 
+// Store full connection string in Secrets Manager (needs postgresInstance.address)
+new aws.secretsmanager.SecretVersion("database-url-version", {
+    secretId: databaseUrlSm.id,
+    secretString: pulumi.interpolate`postgresql://nucleus_admin:${dbPasswordRandom.result}@${postgresInstance.address}:5432/nucleus?sslmode=no-verify`,
+});
+
 
 // ============================================================================
 // ECS + ALB + CLOUDFRONT
@@ -409,6 +448,21 @@ const ecsTaskExecutionRole = new aws.iam.Role("ecs-task-execution-role", {
 new aws.iam.RolePolicyAttachment("ecs-task-execution-role-policy", {
     role: ecsTaskExecutionRole.name,
     policyArn: "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+});
+
+new aws.iam.RolePolicy("ecs-execution-role-secrets-policy", {
+    role: ecsTaskExecutionRole.id,
+    policy: pulumi.all([nextauthSecretSm.arn, databaseUrlSm.arn]).apply(
+        ([nextauthArn, dbArn]) =>
+            JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [{
+                    Effect: "Allow",
+                    Action: ["secretsmanager:GetSecretValue"],
+                    Resource: [nextauthArn, dbArn],
+                }],
+            })
+    ),
 });
 
 // ECS Task Role — application permissions
@@ -540,13 +594,14 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         ecsTaskRole.arn,
         webUiLogGroup.name,
         accountId,
-        nextauthSecret,
-        databaseUrl,
         webUiImage.imageUri,
+        nextauthSecretSm.arn,
+        databaseUrlSm.arn,
     ]).apply(([
         cognitoPoolId, cognitoClientId, cognitoClientSecret, identityPoolId,
         inventoryBucketN, kbStagingBucketN, agentTempBucketN, ecsTaskRoleArnVal,
-        webUiLogGroupN, acctId, nextauthSecretVal, databaseUrlVal, imageUri,
+        webUiLogGroupN, acctId, imageUri,
+        nextauthSecretArn, databaseUrlArn,
     ]) => JSON.stringify([{
         name: "WebUIContainer",
         image: imageUri,
@@ -560,6 +615,10 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
                 "awslogs-stream-prefix": "web-ui",
             },
         },
+        secrets: [
+            { name: "NEXTAUTH_SECRET", valueFrom: nextauthSecretArn },
+            { name: "DATABASE_URL", valueFrom: databaseUrlArn },
+        ],
         environment: [
             { name: "NODE_ENV", value: "production" },
             { name: "PORT", value: "3000" },
@@ -580,7 +639,6 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID", value: identityPoolId },
             { name: "NEXTAUTH_URL", value: appUrl },
             { name: "NEXT_PUBLIC_NEXTAUTH_URL", value: appUrl },
-            { name: "NEXTAUTH_SECRET", value: nextauthSecretVal },
             { name: "COGNITO_ISSUER", value: `https://cognito-idp.${region}.amazonaws.com/${cognitoPoolId}` },
             { name: "NEXT_PUBLIC_COGNITO_ISSUER", value: `https://cognito-idp.${region}.amazonaws.com/${cognitoPoolId}` },
             { name: "AWS_LAMBDA_EXECUTION_ROLE_ARN", value: ecsTaskRoleArnVal },
@@ -604,7 +662,6 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "LANGFUSE_PUBLIC_KEY", value: "" },
             { name: "LANGFUSE_SECRET_KEY", value: "" },
             { name: "LANGFUSE_HOST", value: "https://cloud.langfuse.com" },
-            { name: "DATABASE_URL", value: databaseUrlVal },
             // PostgreSQL feature flags
             { name: "USE_PG_ACCOUNTS", value: "true" },
             { name: "USE_PG_SCHEDULES", value: "true" },
@@ -1101,12 +1158,12 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
     containerDefinitions: pulumi.all([
         kbStagingBucket.bucket,
         ephemeralWorkersLogGroup.name,
-        databaseUrl,
         snsTopic.arn,
         workersImage.imageUri,
+        databaseUrlSm.arn,
     ]).apply(([
         kbStagingBucketN,
-        ephLogGroupN, databaseUrlVal, snsTopicArn, imageUri,
+        ephLogGroupN, snsTopicArn, imageUri, databaseUrlArn,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
         image: imageUri,
@@ -1119,10 +1176,12 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
                 "awslogs-stream-prefix": "ephemeral",
             },
         },
+        secrets: [
+            { name: "DATABASE_URL", valueFrom: databaseUrlArn },
+        ],
         environment: [
             { name: "NODE_ENV", value: "production" },
             { name: "AWS_REGION", value: region },
-            { name: "DATABASE_URL", value: databaseUrlVal.includes("?") ? `${databaseUrlVal}&sslmode=no-verify` : `${databaseUrlVal}?sslmode=no-verify` },
             { name: "SNS_TOPIC_ARN", value: snsTopicArn },
             { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
             { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
@@ -1197,17 +1256,17 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
     containerDefinitions: pulumi.all([
         kbStagingBucket.bucket,
         workersLogGroup.name,
-        databaseUrl,
         snsTopic.arn,
         workersImage.imageUri,
         ecsCluster.arn,
         ephemeralWorkerTaskDef.arn,
         workersSecurityGroup.id,
         privateSubnetIds.apply(ids => ids.join(",")),
+        databaseUrlSm.arn,
     ]).apply(([
         kbStagingBucketN,
-        workersLogGroupN, databaseUrlVal, snsTopicArn, imageUri,
-        clusterArn, ephTaskDefArn, workersSgId, subnetsJoined,
+        workersLogGroupN, snsTopicArn, imageUri,
+        clusterArn, ephTaskDefArn, workersSgId, subnetsJoined, databaseUrlArn,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
         image: imageUri,
@@ -1220,10 +1279,12 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
                 "awslogs-stream-prefix": "workers",
             },
         },
+        secrets: [
+            { name: "DATABASE_URL", valueFrom: databaseUrlArn },
+        ],
         environment: [
             { name: "NODE_ENV", value: "production" },
             { name: "AWS_REGION", value: region },
-            { name: "DATABASE_URL", value: databaseUrlVal.includes("?") ? `${databaseUrlVal}&sslmode=no-verify` : `${databaseUrlVal}?sslmode=no-verify` },
             { name: "SNS_TOPIC_ARN", value: snsTopicArn },
             { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
             { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
