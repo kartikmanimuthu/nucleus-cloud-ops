@@ -345,6 +345,83 @@ new aws.secretsmanager.SecretVersion("database-url-version", {
 });
 
 
+
+// ============================================================================
+// BASTION HOST (SSM Session Manager — no SSH, private subnet only)
+// ============================================================================
+
+// IAM role — SSM managed instance core only, no SSH key needed
+const bastionRole = new aws.iam.Role("bastion-role", {
+    name: "nucleus-cloud-ops-bastion-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "ec2.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+    tags: { Name: "nucleus-cloud-ops-bastion-role" },
+});
+
+new aws.iam.RolePolicyAttachment("bastion-ssm-policy", {
+    role: bastionRole.name,
+    policyArn: "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
+});
+
+const bastionInstanceProfile = new aws.iam.InstanceProfile("bastion-instance-profile", {
+    name: "nucleus-cloud-ops-bastion-profile",
+    role: bastionRole.name,
+});
+
+// No inbound rules — SSM agent initiates outbound connections to SSM endpoints
+const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {
+    name: "nucleus-cloud-ops-bastion-sg",
+    description: "Bastion — SSM only, no inbound SSH",
+    vpcId: vpcId,
+    egress: [
+        {
+            fromPort: 443,
+            toPort: 443,
+            protocol: "tcp",
+            cidrBlocks: ["0.0.0.0/0"],
+            description: "HTTPS to SSM endpoints (via NAT or VPC endpoints)",
+        },
+        {
+            fromPort: 5432,
+            toPort: 5432,
+            protocol: "tcp",
+            cidrBlocks: [vpcCidr],
+            description: "PostgreSQL tunnel to RDS",
+        },
+    ],
+    tags: { Name: "nucleus-cloud-ops-bastion-sg" },
+});
+
+// Latest Amazon Linux 2023 ARM64 AMI (SSM agent pre-installed)
+const bastionAmi = aws.ec2.getAmiOutput({
+    mostRecent: true,
+    owners: ["amazon"],
+    filters: [
+        { name: "name", values: ["al2023-ami-*-arm64"] },
+        { name: "architecture", values: ["arm64"] },
+        { name: "virtualization-type", values: ["hvm"] },
+    ],
+});
+
+// t4g.nano in first private subnet — no public IP, reachable only via SSM
+const bastionInstance = new aws.ec2.Instance("bastion", {
+    ami: bastionAmi.id,
+    instanceType: "t4g.nano",
+    subnetId: privateSubnetIds.apply(ids => ids[0]),
+    iamInstanceProfile: bastionInstanceProfile.name,
+    vpcSecurityGroupIds: [bastionSg.id],
+    associatePublicIpAddress: false,
+    tags: { Name: "nucleus-cloud-ops-bastion" },
+});
+
+export const bastionInstanceId = bastionInstance.id;
+
 // ============================================================================
 // ECS + ALB + CLOUDFRONT
 // ============================================================================
