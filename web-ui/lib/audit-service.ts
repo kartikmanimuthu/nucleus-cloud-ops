@@ -2,6 +2,7 @@
 // Use USE_PG_AUDIT_LOGS=true to switch to PostgreSQL backend
 import { AuditLog } from './types';
 import { getAuditLogRepository } from '@/lib/db/repository-factory';
+import type { NextRequest } from 'next/server';
 
 export interface AuditLogFilters {
     startDate?: string;
@@ -39,6 +40,27 @@ export interface AuditLogStats {
     byStatus: Record<string, number>;
     bySeverity: Record<string, number>;
     byResourceType: Record<string, number>;
+}
+
+/** Retention days by event category per requirements */
+const RETENTION_DAYS: Record<string, number> = {
+    'auth': 365,
+    'rbac': 365,
+    'tenant': 180,
+    'account': 90,
+    'schedule': 90,
+    'agent': 90,
+    'integration': 90,
+    'inventory': 30,
+    'kb': 30,
+    'chat': 30,
+    'trigger': 30,
+};
+
+/** Derive retention days from event type domain */
+function getRetentionDays(eventType: string): number {
+    const domain = eventType.split('.')[0];
+    return RETENTION_DAYS[domain] ?? 90;
 }
 
 export class AuditService {
@@ -159,18 +181,36 @@ export class AuditService {
     private static validateAndCleanAuditData(data: any): Record<string, any> {
         if (!data || typeof data !== 'object') throw new Error('Invalid audit data');
 
+        // Compute retentionDays from event type if not explicitly set
+        const retentionDays = data.retentionDays ?? getRetentionDays(data.eventType || '');
+
         return {
             ...data,
             // Ensure defaults
             action: data.action || 'Unknown Action',
             status: data.status || 'info',
             user: data.user || 'system',
-            timestamp: data.timestamp || new Date().toISOString()
+            timestamp: data.timestamp || new Date().toISOString(),
+            retentionDays,
         };
     }
 
     /**
-     * Make audit logging silently fail rather than disrupt the app.
+     * Extract IP address and user agent from a NextRequest for audit context.
+     */
+    static getRequestContext(request: NextRequest): { ipAddress: string; userAgent: string; requestId: string } {
+        const ipAddress =
+            request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+            request.headers.get('x-real-ip') ||
+            'unknown';
+        const userAgent = request.headers.get('user-agent') || 'unknown';
+        const requestId = request.headers.get('x-request-id') || `req-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+        return { ipAddress, userAgent, requestId };
+    }
+
+    /**
+     * Log a user-initiated platform action.
+     * Generates standardized domain.entity.action event type.
      */
     static async logUserAction(data: {
         action: string;
@@ -185,20 +225,35 @@ export class AuditService {
         ipAddress?: string;
         userAgent?: string;
         sessionId?: string;
+        tenantId?: string;
+        // New compliance fields
+        eventType?: string;
+        severity?: 'low' | 'medium' | 'high' | 'critical' | 'info';
+        changeSet?: { before?: Record<string, any>; after?: Record<string, any> };
+        requestId?: string;
+        apiRoute?: string;
+        httpMethod?: string;
+        dataClassification?: string;
     }): Promise<void> {
         try {
+            const tenantId = data.tenantId || data.metadata?.tenantId;
+            const eventType = data.eventType || `${data.resourceType}.${data.action.toLowerCase().replace(/\s+/g, '_')}`;
             await this.createAuditLog({
-                eventType: `${data.resourceType}.${data.action.toLowerCase().replace(/\s+/g, '_')}`,
+                eventType,
                 ...data,
+                ...(tenantId ? { tenantId } : {}),
                 resource: data.resourceName || data.resourceId,
-                severity: data.status === 'error' ? 'high' : (data.status === 'warning' ? 'medium' : 'info'),
-                source: 'web-ui'
+                severity: data.severity ?? (data.status === 'error' ? 'high' : (data.status === 'warning' ? 'medium' : 'info')),
+                source: 'platform',
             });
         } catch (error) {
             console.error('Failed to create user action audit log:', error);
         }
     }
 
+    /**
+     * Log a resource-level action (schedule execution, sync, etc.).
+     */
     static async logResourceAction(data: {
         action: string;
         resourceType: string;
@@ -212,20 +267,105 @@ export class AuditService {
         correlationId?: string;
         accountId?: string;
         region?: string;
-        source?: 'web-ui' | 'lambda' | 'system' | 'api';
+        source?: 'platform' | 'system' | 'agent' | 'external';
+        tenantId?: string;
+        // New compliance fields
+        eventType?: string;
+        severity?: 'low' | 'medium' | 'high' | 'critical' | 'info';
+        changeSet?: { before?: Record<string, any>; after?: Record<string, any> };
+        requestId?: string;
+        apiRoute?: string;
+        httpMethod?: string;
+        dataClassification?: string;
     }): Promise<void> {
         try {
+            const tenantId = data.tenantId || data.metadata?.tenantId;
+            const eventType = data.eventType || `${data.resourceType}.${data.action.toLowerCase().replace(/\s+/g, '_')}`;
             await this.createAuditLog({
-                eventType: `${data.resourceType}.${data.action.toLowerCase().replace(/\s+/g, '_')}`,
-                ...data, // Spread rest
+                eventType,
+                ...data,
+                ...(tenantId ? { tenantId } : {}),
                 resource: data.resourceName || data.resourceId,
-                severity: data.status === 'error' ? 'high' : (data.status === 'warning' ? 'medium' : 'info'),
+                severity: data.severity ?? (data.status === 'error' ? 'high' : (data.status === 'warning' ? 'medium' : 'info')),
                 user: data.user || 'system',
                 userType: data.userType || 'system',
                 source: data.source || 'system',
             });
         } catch (error) {
             console.error('Failed to create resource action audit log:', error);
+        }
+    }
+
+    /**
+     * Log a system event (background jobs, workers, cron tasks).
+     * Sets userType='system', source='system'.
+     */
+    static async logSystemEvent(data: {
+        eventType: string;
+        action: string;
+        status: 'success' | 'error' | 'warning';
+        details: string;
+        resourceType?: string;
+        resourceId?: string;
+        metadata?: Record<string, any>;
+        correlationId?: string;
+        executionId?: string;
+        accountId?: string;
+        region?: string;
+        duration?: number;
+        errorCode?: string;
+        tenantId?: string;
+        severity?: 'low' | 'medium' | 'high' | 'critical' | 'info';
+    }): Promise<void> {
+        try {
+            const tenantId = data.tenantId || data.metadata?.tenantId;
+            await this.createAuditLog({
+                ...data,
+                ...(tenantId ? { tenantId } : {}),
+                resource: data.resourceId || '',
+                severity: data.severity ?? (data.status === 'error' ? 'high' : (data.status === 'warning' ? 'medium' : 'info')),
+                user: 'system',
+                userType: 'system',
+                source: 'system',
+            });
+        } catch (error) {
+            console.error('Failed to create system event audit log:', error);
+        }
+    }
+
+    /**
+     * Log an agent event (AI agent tool executions).
+     * Sets source='agent', requires correlationId (threadId).
+     */
+    static async logAgentEvent(data: {
+        eventType: string;
+        action: string;
+        userId: string;
+        status: 'success' | 'error' | 'warning';
+        details: string;
+        resourceType?: string;
+        resourceId?: string;
+        metadata?: Record<string, any>;
+        correlationId: string;
+        executionId?: string;
+        accountId?: string;
+        region?: string;
+        tenantId?: string;
+        severity?: 'low' | 'medium' | 'high' | 'critical' | 'info';
+    }): Promise<void> {
+        try {
+            const tenantId = data.tenantId || data.metadata?.tenantId;
+            await this.createAuditLog({
+                ...data,
+                ...(tenantId ? { tenantId } : {}),
+                resource: data.resourceId || '',
+                severity: data.severity ?? (data.status === 'error' ? 'high' : 'medium'),
+                user: data.userId,
+                userType: 'user',
+                source: 'agent',
+            });
+        } catch (error) {
+            console.error('Failed to create agent event audit log:', error);
         }
     }
 }

@@ -5,6 +5,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { getPrismaClient } from "@/lib/db/pg-config";
+import { AuditService } from "@/lib/audit-service";
 
 const prisma = getPrismaClient();
 
@@ -76,6 +77,23 @@ export const authOptions: NextAuthOptions = {
                             ...(lockedUntil ? { lockedUntil } : {}),
                         },
                     });
+
+                    // Audit: failed login attempt
+                    const utr = await prisma.userTenantRole.findFirst({ where: { userId: user.id } });
+                    AuditService.createAuditLog({
+                        tenantId: utr?.tenantId ?? 'unknown',
+                        eventType: 'auth.session.login_failed',
+                        action: 'Login Failed',
+                        user: email,
+                        userType: 'user',
+                        status: 'error',
+                        severity: lockedUntil ? 'critical' : 'high',
+                        details: lockedUntil
+                            ? `Account locked after ${newFailedAttempts} failed attempts for ${email}`
+                            : `Failed login attempt ${newFailedAttempts} for ${email}`,
+                        source: 'platform',
+                        metadata: { failedAttempts: newFailedAttempts, locked: !!lockedUntil },
+                    }).catch(() => {});
 
                     return null;
                 }
@@ -176,4 +194,37 @@ export const authOptions: NextAuthOptions = {
         },
     },
     secret: process.env.NEXTAUTH_SECRET,
+    events: {
+        async signIn({ user, account }) {
+            const utr = await prisma.userTenantRole.findFirst({ where: { userId: user.id } });
+            AuditService.createAuditLog({
+                tenantId: utr?.tenantId ?? 'unknown',
+                eventType: 'auth.session.login',
+                action: 'User Login',
+                user: user.email ?? user.id,
+                userType: 'user',
+                status: 'success',
+                severity: 'low',
+                details: `User ${user.email} logged in via ${account?.provider ?? 'credentials'}`,
+                source: 'platform',
+                metadata: { provider: account?.provider ?? 'credentials', userId: user.id },
+            }).catch(() => {});
+        },
+        async signOut({ token }) {
+            const userId = token?.sub as string | undefined;
+            const email = token?.email as string | undefined;
+            const tenantId = token?.tenantId as string | undefined;
+            AuditService.createAuditLog({
+                tenantId: tenantId ?? 'unknown',
+                eventType: 'auth.session.logout',
+                action: 'User Logout',
+                user: email ?? userId ?? 'unknown',
+                userType: 'user',
+                status: 'success',
+                severity: 'low',
+                details: `User ${email ?? userId} logged out`,
+                source: 'platform',
+            }).catch(() => {});
+        },
+    },
 };

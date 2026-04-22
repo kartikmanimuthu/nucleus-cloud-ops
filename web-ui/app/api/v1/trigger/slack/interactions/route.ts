@@ -11,6 +11,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { AuditService } from '@/lib/audit-service';
 import { verifySlackSignature } from '@/lib/agent-ops/slack-validator';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { resumeApprovedRun } from '@/lib/agent-ops/agent-executor';
@@ -73,6 +74,23 @@ export async function POST(req: Request) {
     const responseUrl: string = payload.response_url ?? '';
 
     console.log(`[Slack Interactions] action=${actionId} runId=${runId} tenantId=${tenantId}`);
+
+    // Audit: log the incoming Slack interaction
+    AuditService.logResourceAction({
+        eventType: 'trigger.slack.interaction',
+        severity: 'low',
+        apiRoute: 'POST /api/v1/trigger/slack/interactions',
+        httpMethod: 'POST',
+        source: 'external',
+        action: 'Received Slack Interaction',
+        resourceType: 'trigger',
+        resourceId: runId,
+        resourceName: 'Slack Interaction',
+        status: 'success',
+        details: `Received Slack interaction action=${actionId} for run ${runId}`,
+        userType: 'system',
+        metadata: { tenantId, actionId, channelId },
+    }).catch(() => {});
 
     // 4. Fetch the run and validate it's still awaiting approval
     const run = await agentOpsService.findAwaitingApprovalRun(runId);

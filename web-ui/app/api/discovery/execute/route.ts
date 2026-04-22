@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
+import { AuditService } from '@/lib/audit-service';
 import { getBoss } from '@/lib/boss-client';
 
 export async function POST(req: NextRequest) {
@@ -46,6 +47,23 @@ export async function POST(req: NextRequest) {
         }
 
         console.log(`API - POST /api/discovery/execute - Triggered scan for tenant ${tenantId}`, { jobId, accountId });
+
+        // Audit: log discovery scan trigger
+        AuditService.logUserAction({
+            eventType: 'inventory.discovery.triggered',
+            severity: 'medium',
+            apiRoute: 'POST /api/discovery/execute',
+            httpMethod: 'POST',
+            action: 'inventory.discovery.triggered',
+            resourceType: 'inventory',
+            resourceId: jobId,
+            resourceName: 'Discovery Scan',
+            user: userEmail || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Triggered discovery scan for tenant ${tenantId}${accountId ? ` account ${accountId}` : ''}`,
+            metadata: { tenantId, jobId, accountId },
+        }).catch(() => {});
 
         return NextResponse.json({ success: true, jobId });
     } catch (error) {

@@ -17,9 +17,6 @@ import type { AuditLog } from '@/lib/types';
 import type { AuditLogFilters, AuditLogResponse } from '@/lib/audit-service';
 import type { IAuditLogRepository } from './interface';
 
-// 30 days in milliseconds — matches DynamoDB TTL retention policy
-const AUDIT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-
 export class AuditLogPostgresRepository implements IAuditLogRepository {
     /**
      * Fire-and-forget: errors are swallowed to prevent disrupting the main flow.
@@ -36,7 +33,8 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
             }
 
             const logId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            const expiresAt = new Date(Date.now() + AUDIT_TTL_MS);
+            const retentionDays = (auditData as Record<string, unknown>).retentionDays as number | undefined ?? 90;
+            const expiresAt = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000);
 
             const tenantId = (auditData as Record<string, unknown>).tenantId as string | undefined;
             if (!tenantId) {
@@ -70,6 +68,13 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
                     errorCode: auditData.errorCode,
                     source: auditData.source || 'system',
                     expiresAt,
+                    // Compliance fields
+                    changeSet: (auditData.changeSet as object) || undefined,
+                    requestId: auditData.requestId,
+                    apiRoute: auditData.apiRoute,
+                    httpMethod: auditData.httpMethod,
+                    dataClassification: auditData.dataClassification,
+                    retentionDays,
                 },
             });
 
@@ -107,7 +112,7 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
             if (filters?.userType && filters.userType !== 'all') {
                 where.userType = filters.userType;
             }
-            if (filters?.resourceType) {
+            if (filters?.resourceType && filters.resourceType !== 'all') {
                 where.resourceType = filters.resourceType;
             }
             if (filters?.resourceId) {
@@ -144,18 +149,98 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
                 ];
             }
 
+            // Cursor-based pagination using nextPageToken (format: "timestamp|id")
+            if (filters?.nextPageToken) {
+                const [cursorTimestamp, cursorId] = filters.nextPageToken.split('|');
+                if (cursorTimestamp && cursorId) {
+                    where.OR = where.OR || undefined;
+                    // For desc ordering: get rows older than cursor
+                    const cursorCondition = {
+                        OR: [
+                            { timestamp: { lt: new Date(cursorTimestamp) } },
+                            {
+                                timestamp: new Date(cursorTimestamp),
+                                id: { lt: cursorId },
+                            },
+                        ],
+                    };
+                    // Merge cursor with existing where (handle existing OR for search)
+                    if (where.OR) {
+                        const searchOr = where.OR;
+                        delete where.OR;
+                        where.AND = [
+                            { OR: searchOr },
+                            cursorCondition,
+                        ];
+                    } else {
+                        where.AND = [cursorCondition];
+                    }
+                }
+            }
+
+            // Fetch limit+1 to determine if there's a next page
             const rows = await getTenantClient(tenantId).auditLog.findMany({
                 where,
-                orderBy: { timestamp: 'desc' },
-                take: limit,
+                orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+                take: limit + 1,
             });
 
+            const hasMore = rows.length > limit;
+            const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+            let nextPageToken: string | undefined;
+            if (hasMore && pageRows.length > 0) {
+                const lastRow = pageRows[pageRows.length - 1];
+                nextPageToken = `${lastRow.timestamp.toISOString()}|${lastRow.id}`;
+            }
+
             return {
-                logs: rows.map((r) => this.transformToAuditLog(r)),
+                logs: pageRows.map((r) => this.transformToAuditLog(r)),
+                nextPageToken,
             };
         } catch (error: unknown) {
             console.error('[AuditLogPostgresRepository] Error fetching audit logs:', error);
             return { logs: [] };
+        }
+    }
+
+    /**
+     * Get distinct filter values for dynamic filter dropdowns.
+     */
+    async getDistinctFilterValues(tenantId: string): Promise<{
+        sources: string[];
+        users: string[];
+        resourceTypes: string[];
+        eventTypes: string[];
+        severities: string[];
+        statuses: string[];
+        userTypes: string[];
+    }> {
+        try {
+            const client = getTenantClient(tenantId);
+
+            const [sources, users, resourceTypes, eventTypes, severities, statuses, userTypes] = await Promise.all([
+                client.auditLog.findMany({ where: { tenantId }, distinct: ['source'], select: { source: true } }),
+                client.auditLog.findMany({ where: { tenantId }, distinct: ['user'], select: { user: true } }),
+                client.auditLog.findMany({ where: { tenantId, resourceType: { not: null } }, distinct: ['resourceType'], select: { resourceType: true } }),
+                client.auditLog.findMany({ where: { tenantId }, distinct: ['eventType'], select: { eventType: true } }),
+                client.auditLog.findMany({ where: { tenantId }, distinct: ['severity'], select: { severity: true } }),
+                client.auditLog.findMany({ where: { tenantId }, distinct: ['status'], select: { status: true } }),
+                client.auditLog.findMany({ where: { tenantId }, distinct: ['userType'], select: { userType: true } }),
+            ]);
+
+            return {
+                sources: sources.map(r => r.source).sort(),
+                users: users.map(r => r.user).sort(),
+                resourceTypes: resourceTypes.map(r => r.resourceType!).filter(Boolean).sort(),
+                eventTypes: eventTypes.map(r => r.eventType).sort(),
+                severities: severities.map(r => r.severity).sort(),
+                statuses: statuses.map(r => r.status).sort(),
+                userTypes: userTypes.map(r => r.userType).sort(),
+            };
+        } catch (error) {
+            console.error('[AuditLogPostgresRepository] Error fetching distinct filter values:', error);
+            return { sources: [], users: [], resourceTypes: [], eventTypes: [], severities: [], statuses: [], userTypes: [] };
         }
     }
 
@@ -186,6 +271,12 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
         errorCode: string | null;
         source: string;
         expiresAt: Date;
+        changeSet: unknown;
+        requestId: string | null;
+        apiRoute: string | null;
+        httpMethod: string | null;
+        dataClassification: string | null;
+        retentionDays: number;
     }): AuditLog {
         return {
             id: record.logId,
@@ -212,6 +303,12 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
             duration: record.duration ?? undefined,
             errorCode: record.errorCode ?? undefined,
             source: record.source as AuditLog['source'],
+            changeSet: (record.changeSet as AuditLog['changeSet']) ?? undefined,
+            requestId: record.requestId ?? undefined,
+            apiRoute: record.apiRoute ?? undefined,
+            httpMethod: record.httpMethod ?? undefined,
+            dataClassification: record.dataClassification ?? undefined,
+            retentionDays: record.retentionDays,
         };
     }
 }

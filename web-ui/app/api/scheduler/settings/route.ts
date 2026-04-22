@@ -85,6 +85,10 @@ export async function PUT(request: NextRequest) {
 
         // Audit log
         await AuditService.logUserAction({
+            eventType: 'schedule.settings.updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/scheduler/settings',
+            httpMethod: 'PUT',
             action: 'Update Scheduler Settings',
             resourceType: 'settings',
             resourceId: 'scheduler-cron',
@@ -111,6 +115,10 @@ export async function PUT(request: NextRequest) {
 
         try {
             await AuditService.logUserAction({
+                eventType: 'schedule.settings.updated',
+                severity: 'medium',
+                apiRoute: 'PUT /api/scheduler/settings',
+                httpMethod: 'PUT',
                 action: 'Update Scheduler Settings',
                 resourceType: 'settings',
                 resourceId: 'scheduler-cron',

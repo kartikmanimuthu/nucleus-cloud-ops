@@ -42,6 +42,10 @@ export async function POST() {
             const errorMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
 
             await AuditService.logUserAction({
+                eventType: 'schedule.execution.triggered',
+                severity: 'high',
+                apiRoute: 'POST /api/scheduler/execute',
+                httpMethod: 'POST',
                 action: "Execute Full Scan",
                 resourceType: "scheduler",
                 resourceId: "full-scan",
@@ -60,6 +64,10 @@ export async function POST() {
         }
 
         await AuditService.logUserAction({
+            eventType: 'schedule.execution.triggered',
+            severity: 'high',
+            apiRoute: 'POST /api/scheduler/execute',
+            httpMethod: 'POST',
             action: "Execute Full Scan",
             resourceType: "scheduler",
             resourceId: "full-scan",

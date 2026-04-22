@@ -7,7 +7,8 @@
 
 import { NextResponse } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 import type { JiraIntegrationConfig } from '@/lib/agent-ops/types';
 
 const CONFIG_KEY = 'agent-ops-jira';
@@ -71,6 +72,23 @@ export async function PUT(req: Request) {
         await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);
 
         console.log('[API /agent-ops/settings/jira] Saved Jira config');
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.settings.jira_updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/agent-ops/settings/jira',
+            httpMethod: 'PUT',
+            action: 'Updated Jira Settings',
+            resourceType: 'agent',
+            resourceId: 'jira-integration',
+            resourceName: 'Jira Integration',
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: 'Updated Jira integration settings',
+            metadata: { tenantId },
+        }).catch(() => {});
 
         return NextResponse.json({
             success: true,

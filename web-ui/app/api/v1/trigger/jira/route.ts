@@ -16,6 +16,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { AuditService } from '@/lib/audit-service';
 import {
     verifyJiraSecret,
     extractJiraTaskDescription,
@@ -200,6 +201,23 @@ export async function POST(req: Request) {
             selectedSkill: payload.selectedSkill,
             autoApprove: jiraConfig?.autoApprove ?? false,
         });
+
+        // Audit: log the incoming Jira trigger
+        AuditService.logResourceAction({
+            eventType: 'trigger.jira.received',
+            severity: 'low',
+            apiRoute: 'POST /api/v1/trigger/jira',
+            httpMethod: 'POST',
+            source: 'external',
+            action: 'Received Jira Trigger',
+            resourceType: 'trigger',
+            resourceId: run.runId,
+            resourceName: 'Jira Trigger',
+            status: 'success',
+            details: `Received Jira trigger for issue ${issueKey || 'unknown'}`,
+            userType: 'system',
+            metadata: { tenantId, issueKey, projectKey: trigger.projectKey },
+        }).catch(() => {});
 
         // 10. Execute agent asynchronously, then post result/error back to Jira
         executeAgentRun(run)

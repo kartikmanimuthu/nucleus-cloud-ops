@@ -7,6 +7,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { AuditService } from '@/lib/audit-service';
 import {
     DEFAULT_MCP_SERVERS,
     MCPConfigJson,
@@ -15,7 +16,7 @@ import {
     jsonToServerConfigs,
 } from '@/lib/agent/mcp-config';
 import { TenantConfigService } from '@/lib/tenant-config-service';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 
 const CONFIG_KEY = 'mcp-servers';
 
@@ -58,8 +59,10 @@ export async function GET() {
 
 export async function PUT(req: Request) {
     let tenantId: string;
+    let userId: string;
     try {
         tenantId = await getSessionTenantId();
+        userId = await getSessionUserId();
     } catch {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -92,6 +95,23 @@ export async function PUT(req: Request) {
 
         console.log(`[API /mcp-servers] Saved config with ${Object.keys(config.mcpServers).length} servers`);
 
+        // Audit: log MCP config update
+        AuditService.logUserAction({
+            eventType: 'integration.mcp.updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/mcp-servers',
+            httpMethod: 'PUT',
+            action: 'integration.mcp.updated',
+            resourceType: 'integration',
+            resourceId: 'mcp-servers',
+            resourceName: 'MCP Server Configuration',
+            user: userId,
+            userType: 'user',
+            status: 'success',
+            details: `Updated MCP config with ${Object.keys(config.mcpServers).length} servers`,
+            metadata: { tenantId, serverCount: Object.keys(config.mcpServers).length },
+        }).catch(() => {});
+
         return NextResponse.json({
             success: true,
             servers,
@@ -109,8 +129,10 @@ export async function PUT(req: Request) {
 
 export async function DELETE() {
     let tenantId: string;
+    let userId: string;
     try {
         tenantId = await getSessionTenantId();
+        userId = await getSessionUserId();
     } catch {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -122,6 +144,23 @@ export async function DELETE() {
         const config = defaultsToJson();
 
         console.log('[API /mcp-servers] Reset to defaults');
+
+        // Audit: log MCP config reset
+        AuditService.logUserAction({
+            eventType: 'integration.mcp.reset',
+            severity: 'medium',
+            apiRoute: 'DELETE /api/mcp-servers',
+            httpMethod: 'DELETE',
+            action: 'integration.mcp.reset',
+            resourceType: 'integration',
+            resourceId: 'mcp-servers',
+            resourceName: 'MCP Server Configuration',
+            user: userId,
+            userType: 'user',
+            status: 'success',
+            details: 'Reset MCP server configuration to defaults',
+            metadata: { tenantId },
+        }).catch(() => {});
 
         return NextResponse.json({
             success: true,

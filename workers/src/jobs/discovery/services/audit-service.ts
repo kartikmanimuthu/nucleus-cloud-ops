@@ -27,8 +27,8 @@ export async function writeAuditLog(entry: {
       `INSERT INTO audit_logs
          (id, "tenantId", "logId", timestamp, "eventType", action,
           "user", "userType", "resourceType", "resourceId",
-          status, severity, details, metadata, "accountId", region, "expiresAt")
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+          status, severity, details, metadata, "accountId", region, "expiresAt", source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        ON CONFLICT DO NOTHING`,
       [
         id, entry.tenantId, logId, new Date(),
@@ -38,6 +38,7 @@ export async function writeAuditLog(entry: {
         entry.status, entry.severity, entry.details,
         entry.metadata ? JSON.stringify(entry.metadata) : null,
         entry.accountId ?? null, entry.region ?? null, expiresAt,
+        'system',
       ],
     );
   } catch (error) {

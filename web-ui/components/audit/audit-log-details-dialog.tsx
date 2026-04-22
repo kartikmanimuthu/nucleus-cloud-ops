@@ -98,7 +98,7 @@ export function AuditLogDetailsDialog({
                       Timestamp
                     </label>
                     <p className="text-sm">
-                      {new Date(log.timestamp).toLocaleString()}
+                      {new Date(log.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} IST
                     </p>
                   </div>
                 </div>
@@ -267,7 +267,9 @@ export function AuditLogDetailsDialog({
             {(log.correlationId ||
               log.executionId ||
               log.accountId ||
-              log.region) && (
+              log.region ||
+              log.requestId ||
+              log.apiRoute) && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">
@@ -275,7 +277,36 @@ export function AuditLogDetailsDialog({
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    {(log.apiRoute || log.httpMethod) && (
+                      <div className="grid grid-cols-2 gap-4">
+                        {log.apiRoute && (
+                          <div>
+                            <label className="text-sm font-medium text-muted-foreground">
+                              API Route
+                            </label>
+                            <p className="font-mono text-sm">{log.apiRoute}</p>
+                          </div>
+                        )}
+                        {log.httpMethod && (
+                          <div>
+                            <label className="text-sm font-medium text-muted-foreground">
+                              HTTP Method
+                            </label>
+                            <Badge variant="outline">{log.httpMethod}</Badge>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-4">
+                      {log.requestId && (
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">
+                            Request ID
+                          </label>
+                          <p className="font-mono text-sm">{log.requestId}</p>
+                        </div>
+                      )}
                       {log.correlationId && (
                         <div>
                           <label className="text-sm font-medium text-muted-foreground">
@@ -284,12 +315,23 @@ export function AuditLogDetailsDialog({
                           <p className="font-mono text-sm">{log.correlationId}</p>
                         </div>
                       )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
                       {log.executionId && (
                         <div>
                           <label className="text-sm font-medium text-muted-foreground">
                             Execution ID
                           </label>
                           <p className="font-mono text-sm">{log.executionId}</p>
+                        </div>
+                      )}
+                      {log.dataClassification && (
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">
+                            Data Classification
+                          </label>
+                          <Badge variant="outline">{log.dataClassification}</Badge>
                         </div>
                       )}
                     </div>
@@ -315,9 +357,46 @@ export function AuditLogDetailsDialog({
                         </div>
                       )}
                     </div>
+
+                    {log.retentionDays && (
+                      <div>
+                        <label className="text-sm font-medium text-muted-foreground">
+                          Retention
+                        </label>
+                        <p className="text-sm">{log.retentionDays} days</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               )}
+
+            {/* Change Set (before/after diff) */}
+            {log.changeSet && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Change Set</CardTitle>
+                  <CardDescription>Before and after values for this change</CardDescription>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 gap-4">
+                  {log.changeSet.before && (
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Before</label>
+                      <pre className="text-xs bg-destructive/5 p-3 rounded overflow-auto mt-1">
+                        {JSON.stringify(log.changeSet.before, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  {log.changeSet.after && (
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">After</label>
+                      <pre className="text-xs bg-success/5 p-3 rounded overflow-auto mt-1">
+                        {JSON.stringify(log.changeSet.after, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Metadata */}
             {log.metadata && Object.keys(log.metadata).length > 0 && (
@@ -334,12 +413,12 @@ export function AuditLogDetailsDialog({
               </Card>
             )}
 
-            {/* Raw DynamoDB Record */}
+            {/* Raw Record */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Server className="h-4 w-4" />
-                  Raw DynamoDB Record
+                  Raw Record
                 </CardTitle>
                 <CardDescription>Complete raw record from database</CardDescription>
               </CardHeader>

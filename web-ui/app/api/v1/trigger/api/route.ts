@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { AuditService } from '@/lib/audit-service';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import type { ApiTriggerMeta, TriggerRequest } from '@/lib/agent-ops/types';
@@ -64,6 +65,23 @@ export async function POST(req: Request) {
         executeAgentRun(run).catch((err) => {
             console.error('[API Trigger] Execution error:', err);
         });
+
+        // Audit: log the incoming API trigger
+        AuditService.logResourceAction({
+            eventType: 'trigger.api.received',
+            severity: 'low',
+            apiRoute: 'POST /api/v1/trigger/api',
+            httpMethod: 'POST',
+            source: 'external',
+            action: 'Received API Trigger',
+            resourceType: 'trigger',
+            resourceId: run.runId,
+            resourceName: 'API Trigger',
+            status: 'success',
+            details: `Received API trigger from ${session?.user?.email || apiKey || 'unknown'}`,
+            userType: 'system',
+            metadata: { tenantId, mode },
+        }).catch(() => {});
 
         // 7. Immediate acknowledgement
         return NextResponse.json({

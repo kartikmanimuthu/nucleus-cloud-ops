@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/rbac/authorize";
-import { getSessionTenantId } from "@/lib/auth-session";
+import { getSessionTenantId, getAuthSession } from "@/lib/auth-session";
 import { InvitationService } from "@/lib/invitation-service";
+import { AuditService } from "@/lib/audit-service";
 
 export async function POST(
     _request: NextRequest,
@@ -13,11 +14,44 @@ export async function POST(
 
     try {
         const tenantId = await getSessionTenantId();
+        const session = await getAuthSession();
         const { id } = await params;
         const invitation = await InvitationService.resendInvitation(id, tenantId);
+
+        AuditService.logUserAction({
+            eventType: 'tenant.invitation.resent',
+            severity: 'low',
+            apiRoute: 'POST /api/invitations/[id]/resend',
+            httpMethod: 'POST',
+            action: 'Resent Invitation',
+            resourceType: 'tenant',
+            resourceId: id,
+            resourceName: id,
+            user: session!.user.email || session!.user.id,
+            userType: 'user',
+            status: 'success',
+            details: `Resent invitation ${id}`,
+            metadata: { tenantId, invitationId: id },
+        }).catch(() => {});
+
         return NextResponse.json({ success: true, data: invitation });
     } catch (error) {
         console.error("API - Error resending invitation:", error);
+        AuditService.logUserAction({
+            eventType: 'tenant.invitation.resent',
+            severity: 'low',
+            apiRoute: 'POST /api/invitations/[id]/resend',
+            httpMethod: 'POST',
+            action: 'Resent Invitation',
+            resourceType: 'tenant',
+            resourceId: 'unknown',
+            resourceName: 'unknown',
+            user: 'unknown',
+            userType: 'user',
+            status: 'error',
+            details: `Failed to resend invitation: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            metadata: {},
+        }).catch(() => {});
         return NextResponse.json(
             {
                 success: false,

@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
             tenantId,
             userAgent,
             ipAddress,
-            source: 'web-ui',
+            source: 'platform',
         });
 
         return NextResponse.json({

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession, getSessionTenantId } from "@/lib/auth-session";
 import { authorize } from "@/lib/rbac/authorize";
 import { TenantSettingsService } from "@/lib/tenant-settings-service";
+import { AuditService } from "@/lib/audit-service";
 import { z } from "zod";
 
 const updateSettingsSchema = z.object({
@@ -49,10 +50,41 @@ export async function PUT(req: NextRequest) {
             session!.user.id
         );
 
+        AuditService.logUserAction({
+            eventType: 'tenant.settings.updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/tenants/settings',
+            httpMethod: 'PUT',
+            action: 'Updated Settings',
+            resourceType: 'tenant',
+            resourceId: tenantId,
+            resourceName: parsed.data.name,
+            user: session!.user.email || session!.user.id,
+            userType: 'user',
+            status: 'success',
+            details: `Updated organization settings: name="${parsed.data.name}", timezone="${parsed.data.timezone}"`,
+            metadata: { tenantId, ...parsed.data },
+        }).catch(() => {});
+
         console.log(`API - PUT /api/tenants/settings - Updated settings for tenant ${tenantId}`);
         return NextResponse.json({ success: true });
     } catch (error) {
         console.error("API - PUT /api/tenants/settings - Error:", error);
+        AuditService.logUserAction({
+            eventType: 'tenant.settings.updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/tenants/settings',
+            httpMethod: 'PUT',
+            action: 'Updated Settings',
+            resourceType: 'tenant',
+            resourceId: 'unknown',
+            resourceName: 'unknown',
+            user: 'unknown',
+            userType: 'user',
+            status: 'error',
+            details: `Failed to update settings: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            metadata: {},
+        }).catch(() => {});
         return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
     }
 }

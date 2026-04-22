@@ -47,14 +47,18 @@ export class AccountService {
     static async createAccount(account: Omit<UIAccount, 'id'>, tenantId: string): Promise<UIAccount> {
         const result = await getAccountRepository().createAccount(account, tenantId);
         await AuditService.logUserAction({
-            action: 'Create Account',
-            resourceType: 'account',
+            eventType: 'account.account.created',
+            action: 'Created Account',
+            resourceType: 'Account',
             resourceId: account.accountId,
             resourceName: account.name,
             user: account.createdBy || 'system',
             userType: 'user',
             status: 'success',
+            severity: 'high',
             details: `Created AWS account "${account.name}" (${account.accountId})`,
+            tenantId,
+            dataClassification: 'infrastructure',
             metadata: {
                 tenantId,
                 accountId: account.accountId,
@@ -66,20 +70,28 @@ export class AccountService {
 
     /**
      * Update an existing account and emit an audit log entry.
+     * Pass skipAudit=true when called internally from validateAccount/toggleAccountStatus
+     * to avoid duplicate audit entries.
      */
-    static async updateAccount(accountId: string, updates: Partial<Omit<UIAccount, 'id' | 'accountId'>>, tenantId: string): Promise<UIAccount> {
+    static async updateAccount(accountId: string, updates: Partial<Omit<UIAccount, 'id' | 'accountId'>>, tenantId: string, skipAudit = false): Promise<UIAccount> {
         const result = await getAccountRepository().updateAccount(accountId, updates, tenantId);
-        await AuditService.logUserAction({
-            action: 'Update Account',
-            resourceType: 'account',
-            resourceId: accountId,
-            resourceName: result.name,
-            user: updates.updatedBy || 'system',
-            userType: 'user',
-            status: 'success',
-            details: `Updated AWS account "${result.name}" (${accountId})`,
-            metadata: { updates },
-        });
+        if (!skipAudit) {
+            await AuditService.logUserAction({
+                eventType: 'account.account.updated',
+                action: 'Updated Account',
+                resourceType: 'Account',
+                resourceId: accountId,
+                resourceName: result.name,
+                user: updates.updatedBy || 'system',
+                userType: 'user',
+                status: 'success',
+                severity: 'medium',
+                details: `Updated AWS account "${result.name}" (${accountId})`,
+                tenantId,
+                dataClassification: 'infrastructure',
+                metadata: { tenantId, updates },
+            });
+        }
         return result;
     }
 
@@ -89,15 +101,19 @@ export class AccountService {
     static async deleteAccount(accountId: string, deletedBy = 'system', tenantId: string): Promise<void> {
         await getAccountRepository().deleteAccount(accountId, tenantId);
         await AuditService.logUserAction({
-            action: 'Delete Account',
-            resourceType: 'account',
+            eventType: 'account.account.deleted',
+            action: 'Deleted Account',
+            resourceType: 'Account',
             resourceId: accountId,
             resourceName: accountId,
             user: deletedBy,
             userType: 'user',
             status: 'success',
+            severity: 'high',
             details: `Deleted AWS account (${accountId})`,
-            metadata: { accountId, tenantId },
+            tenantId,
+            dataClassification: 'infrastructure',
+            metadata: { tenantId, accountId },
         });
     }
 
@@ -175,7 +191,7 @@ export class AccountService {
             await this.updateAccount(accountId, {
                 connectionStatus: 'validating',
                 connectionError: 'None',
-            }, tenantId);
+            }, tenantId, true);
 
             const now = new Date().toISOString();
 
@@ -197,20 +213,25 @@ export class AccountService {
                 console.warn(`Validation failed for ${accountId}: ${validationDetails.error}`);
             }
 
-            const updatedAccount = await this.updateAccount(accountId, updates, tenantId);
+            const updatedAccount = await this.updateAccount(accountId, updates, tenantId, true);
 
             await AuditService.logUserAction({
-                action: 'Validate Account',
-                resourceType: 'account',
+                eventType: 'account.account.validated',
+                action: 'Validated Account',
+                resourceType: 'Account',
                 resourceId: accountId,
                 resourceName: account.name,
                 user: updatedAccount.updatedBy || 'system',
                 userType: 'user',
                 status: finalStatus === 'connected' ? 'success' : 'error',
+                severity: finalStatus === 'connected' ? 'low' : 'high',
                 details: finalStatus === 'connected'
                     ? `Account connection validated successfully`
                     : `Account connection validation failed: ${validationDetails.error}`,
+                tenantId,
+                dataClassification: 'credentials',
                 metadata: {
+                    tenantId,
                     accountId,
                     roleArn: account.roleArn,
                     error: validationDetails.error,
@@ -234,10 +255,28 @@ export class AccountService {
             throw new Error(`Account ${accountId} not found`);
         }
 
-        return this.updateAccount(accountId, {
+        const result = await this.updateAccount(accountId, {
             active: !account.active,
             updatedBy: 'system',
-        }, tenantId);
+        }, tenantId, true);
+
+        await AuditService.logUserAction({
+            eventType: 'account.account.toggled',
+            action: 'Toggled Account',
+            resourceType: 'Account',
+            resourceId: accountId,
+            resourceName: account.name,
+            user: result.updatedBy || 'system',
+            userType: 'user',
+            status: 'success',
+            severity: 'medium',
+            details: `Toggled account "${account.name}" to ${!account.active ? 'active' : 'inactive'}`,
+            tenantId,
+            changeSet: { before: { active: account.active }, after: { active: !account.active } },
+            metadata: { tenantId, accountId, active: !account.active },
+        });
+
+        return result;
     }
 
     /**
@@ -466,7 +505,7 @@ export class AccountService {
             await this.updateAccount(accountId, {
                 resourceCount: resources.length,
                 lastValidated: new Date().toISOString(),
-            }, tenantId);
+            }, tenantId, true);
 
             return resources;
 

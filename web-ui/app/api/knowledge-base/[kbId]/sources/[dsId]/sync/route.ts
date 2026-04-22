@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 import { getBoss } from '@/lib/boss-client';
 import type { S3BucketConfig, ConfluenceConfig, BitbucketConfig } from '@/lib/knowledge-base/types';
 
@@ -44,6 +45,22 @@ export async function POST(
     oldVectorKeys: ds.vectorKeys,
     config: ds.config as S3BucketConfig | ConfluenceConfig | BitbucketConfig,
   });
+
+  AuditService.logUserAction({
+    eventType: 'kb.datasource.sync_triggered',
+    severity: 'low',
+    apiRoute: 'POST /api/knowledge-base/[kbId]/sources/[dsId]/sync',
+    httpMethod: 'POST',
+    action: 'Triggered Data Source Sync',
+    resourceType: 'kb',
+    resourceId: dsId,
+    resourceName: ds.name || dsId,
+    user: session?.user?.email || 'unknown',
+    userType: 'user',
+    status: 'success',
+    details: `Triggered sync for data source "${ds.name || dsId}" (type: ${ds.sourceType}) in knowledge base ${kbId}`,
+    metadata: { tenantId, kbId, sourceType: ds.sourceType },
+  }).catch(() => {});
 
   return NextResponse.json({ success: true, status: 'syncing' }, { status: 202 });
 }

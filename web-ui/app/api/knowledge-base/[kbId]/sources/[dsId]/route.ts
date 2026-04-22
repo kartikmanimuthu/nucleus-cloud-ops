@@ -4,6 +4,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { deleteVectors } from '@/lib/knowledge-base/embedder';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 import type { DataSource } from '@/lib/knowledge-base/types';
 
 function sanitize(ds: DataSource): DataSource {
@@ -56,6 +57,22 @@ export async function PUT(
   await KnowledgeBaseService.updateDataSource(kbId, dsId, updates, tenantId);
   const updated = await KnowledgeBaseService.getDataSource(kbId, dsId, tenantId);
 
+  AuditService.logUserAction({
+    eventType: 'kb.datasource.updated',
+    severity: 'medium',
+    apiRoute: 'PUT /api/knowledge-base/[kbId]/sources/[dsId]',
+    httpMethod: 'PUT',
+    action: 'Updated Data Source',
+    resourceType: 'kb',
+    resourceId: dsId,
+    resourceName: updated?.name || dsId,
+    user: session?.user?.email || 'unknown',
+    userType: 'user',
+    status: 'success',
+    details: `Updated data source "${updated?.name || dsId}" in knowledge base ${kbId}`,
+    metadata: { tenantId, kbId },
+  }).catch(() => {});
+
   return NextResponse.json({ dataSource: sanitize(updated!) });
 }
 
@@ -81,6 +98,22 @@ export async function DELETE(
     KnowledgeBaseService.updateDataSourceCount(kbId, -1, tenantId),
     KnowledgeBaseService.updateVectorCount(kbId, -ds.vectorCount, tenantId),
   ]);
+
+  AuditService.logUserAction({
+    eventType: 'kb.datasource.deleted',
+    severity: 'high',
+    apiRoute: 'DELETE /api/knowledge-base/[kbId]/sources/[dsId]',
+    httpMethod: 'DELETE',
+    action: 'Deleted Data Source',
+    resourceType: 'kb',
+    resourceId: dsId,
+    resourceName: ds.name || dsId,
+    user: session?.user?.email || 'unknown',
+    userType: 'user',
+    status: 'success',
+    details: `Deleted data source "${ds.name || dsId}" from knowledge base ${kbId}`,
+    metadata: { tenantId, kbId },
+  }).catch(() => {});
 
   return NextResponse.json({ success: true });
 }

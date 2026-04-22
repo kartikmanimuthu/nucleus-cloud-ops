@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -20,18 +20,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { X, ChevronDown, ChevronUp } from "lucide-react";
-import {
-  Activity,
-  AlertTriangle,
-  XCircle,
-  Monitor,
-  Zap,
-  Server,
-  Globe,
-} from "lucide-react";
 
 interface AuditFiltersProps {
-  onFiltersChange?: (filters: any) => void;
+  onFiltersChange?: (filters: Record<string, string | undefined>) => void;
 }
 
 export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
@@ -42,28 +33,36 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
   const [resourceId, setResourceId] = useState("");
   const [selectedSeverity, setSelectedSeverity] = useState("all");
   const [selectedSource, setSelectedSource] = useState("all");
+  const [selectedResourceType, setSelectedResourceType] = useState("all");
+  const [selectedUserType, setSelectedUserType] = useState("all");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
 
-  const severityOptions = [
-    { value: "all", label: "All Severities", icon: null },
-    { value: "info", label: "Info", icon: <Activity className="h-4 w-4 text-info" /> },
-    { value: "low", label: "Low", icon: <Activity className="h-4 w-4 text-success" /> },
-    { value: "medium", label: "Medium", icon: <AlertTriangle className="h-4 w-4 text-warning" /> },
-    { value: "high", label: "High", icon: <AlertTriangle className="h-4 w-4 text-warning" /> },
-    { value: "critical", label: "Critical", icon: <XCircle className="h-4 w-4 text-destructive" /> },
-  ];
+  // Dynamic filter values from DB
+  const [filterOptions, setFilterOptions] = useState<{
+    sources: string[];
+    resourceTypes: string[];
+    severities: string[];
+    userTypes: string[];
+  }>({ sources: [], resourceTypes: [], severities: [], userTypes: [] });
 
-  const sourceOptions = [
-    { value: "all", label: "All Sources", icon: null },
-    { value: "web-ui", label: "Web UI", icon: <Monitor className="h-4 w-4" /> },
-    { value: "lambda", label: "Lambda Function", icon: <Zap className="h-4 w-4" /> },
-    { value: "system", label: "System", icon: <Server className="h-4 w-4" /> },
-    { value: "api", label: "API", icon: <Globe className="h-4 w-4" /> },
-  ];
+  useEffect(() => {
+    fetch('/api/audit/filters')
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          setFilterOptions({
+            sources: result.data.sources || [],
+            resourceTypes: result.data.resourceTypes || [],
+            severities: result.data.severities || [],
+            userTypes: result.data.userTypes || [],
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
-  // Derive active filters from current state — no stale closure risk
   const computeActiveFilters = (
-    cId: string, eId: string, ip: string, rId: string, sev: string, src: string
+    cId: string, eId: string, ip: string, rId: string, sev: string, src: string, rt: string, ut: string
   ) => {
     const active: string[] = [];
     if (cId) active.push("correlationId");
@@ -72,11 +71,13 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
     if (rId) active.push("resourceId");
     if (sev !== "all") active.push("severity");
     if (src !== "all") active.push("source");
+    if (rt !== "all") active.push("resourceType");
+    if (ut !== "all") active.push("userType");
     return active;
   };
 
   const buildFilters = (
-    cId: string, eId: string, ip: string, rId: string, sev: string, src: string
+    cId: string, eId: string, ip: string, rId: string, sev: string, src: string, rt: string, ut: string
   ) => ({
     correlationId: cId || undefined,
     executionId: eId || undefined,
@@ -84,11 +85,13 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
     resourceId: rId || undefined,
     severity: sev !== "all" ? sev : undefined,
     source: src !== "all" ? src : undefined,
+    resourceType: rt !== "all" ? rt : undefined,
+    userType: ut !== "all" ? ut : undefined,
   });
 
   const applyFilters = () => {
-    setActiveFilters(computeActiveFilters(correlationId, executionId, ipAddress, resourceId, selectedSeverity, selectedSource));
-    onFiltersChange?.(buildFilters(correlationId, executionId, ipAddress, resourceId, selectedSeverity, selectedSource));
+    setActiveFilters(computeActiveFilters(correlationId, executionId, ipAddress, resourceId, selectedSeverity, selectedSource, selectedResourceType, selectedUserType));
+    onFiltersChange?.(buildFilters(correlationId, executionId, ipAddress, resourceId, selectedSeverity, selectedSource, selectedResourceType, selectedUserType));
   };
 
   const clearAllFilters = () => {
@@ -98,6 +101,8 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
     setResourceId("");
     setSelectedSeverity("all");
     setSelectedSource("all");
+    setSelectedResourceType("all");
+    setSelectedUserType("all");
     setActiveFilters([]);
     onFiltersChange?.({});
   };
@@ -110,6 +115,8 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
       rId: filterName === "resourceId" ? "" : resourceId,
       sev: filterName === "severity" ? "all" : selectedSeverity,
       src: filterName === "source" ? "all" : selectedSource,
+      rt: filterName === "resourceType" ? "all" : selectedResourceType,
+      ut: filterName === "userType" ? "all" : selectedUserType,
     };
     if (filterName === "correlationId") setCorrelationId("");
     if (filterName === "executionId") setExecutionId("");
@@ -117,8 +124,10 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
     if (filterName === "resourceId") setResourceId("");
     if (filterName === "severity") setSelectedSeverity("all");
     if (filterName === "source") setSelectedSource("all");
-    setActiveFilters(computeActiveFilters(next.cId, next.eId, next.ip, next.rId, next.sev, next.src));
-    onFiltersChange?.(buildFilters(next.cId, next.eId, next.ip, next.rId, next.sev, next.src));
+    if (filterName === "resourceType") setSelectedResourceType("all");
+    if (filterName === "userType") setSelectedUserType("all");
+    setActiveFilters(computeActiveFilters(next.cId, next.eId, next.ip, next.rId, next.sev, next.src, next.rt, next.ut));
+    onFiltersChange?.(buildFilters(next.cId, next.eId, next.ip, next.rId, next.sev, next.src, next.rt, next.ut));
   };
 
   return (
@@ -192,12 +201,10 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {severityOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    <div className="flex items-center space-x-2">
-                      {option.icon}
-                      <span>{option.label}</span>
-                    </div>
+                <SelectItem value="all">All Severities</SelectItem>
+                {filterOptions.severities.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -210,12 +217,45 @@ export function AuditFilters({ onFiltersChange }: AuditFiltersProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {sourceOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    <div className="flex items-center space-x-2">
-                      {option.icon}
-                      <span>{option.label}</span>
-                    </div>
+                <SelectItem value="all">All Sources</SelectItem>
+                {filterOptions.sources.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Resource Type</Label>
+            <Select value={selectedResourceType} onValueChange={setSelectedResourceType}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Resource Types</SelectItem>
+                {filterOptions.resourceTypes.map((rt) => (
+                  <SelectItem key={rt} value={rt}>
+                    {rt.charAt(0).toUpperCase() + rt.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>User Type</Label>
+            <Select value={selectedUserType} onValueChange={setSelectedUserType}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All User Types</SelectItem>
+                {filterOptions.userTypes.map((ut) => (
+                  <SelectItem key={ut} value={ut}>
+                    {ut.charAt(0).toUpperCase() + ut.slice(1)}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -11,7 +11,8 @@
 import { NextResponse } from 'next/server';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { cancelRun } from '@/lib/agent-ops/run-manager';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 
 export async function POST(
     req: Request,
@@ -46,6 +47,23 @@ export async function POST(
             content: 'Run cancelled by user.',
             metadata: { wasActive },
         });
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.run.cancelled',
+            severity: 'medium',
+            apiRoute: 'POST /api/agent-ops/[runId]/cancel',
+            httpMethod: 'POST',
+            action: 'Cancelled Agent Run',
+            resourceType: 'agent',
+            resourceId: runId,
+            resourceName: runId,
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Cancelled agent run ${runId}`,
+            metadata: { tenantId, wasActive },
+        }).catch(() => {});
 
         return NextResponse.json({ runId, status: 'cancelled', wasActive });
 

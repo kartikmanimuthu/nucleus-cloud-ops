@@ -65,15 +65,19 @@ export async function POST(
 
             // Log audit for failure
             await AuditService.logResourceAction({
+                eventType: 'schedule.schedule.executed',
                 action: "Execute Schedule",
-                resourceType: "schedule",
+                resourceType: "Schedule",
                 resourceId: schedule.id,
                 resourceName: schedule.name,
                 status: 'error',
+                severity: 'high',
                 details: `Manual execution enqueue failed: ${errorMessage}`,
                 user: userEmail || "unknown-web-user",
-                source: "web-ui",
+                source: "platform",
                 tenantId,
+                apiRoute: 'POST /api/schedules/[scheduleId]/execute',
+                httpMethod: 'POST',
                 metadata: { tenantId },
             });
 
@@ -87,24 +91,28 @@ export async function POST(
             );
         }
 
-        // 3. Update schedule metadata
+        // 3. Update schedule metadata (skip audit — the "Execute Schedule" event below is the real one)
         await ScheduleService.updateSchedule(schedule.id, {
             lastExecution: executionTime,
             executionCount: (schedule.executionCount || 0) + 1,
             active: true
-        }, (schedule.accounts && schedule.accounts[0]) || 'unknown', tenantId);
+        }, (schedule.accounts && schedule.accounts[0]) || 'unknown', tenantId, true);
 
         // 4. Log Audit
         await AuditService.logResourceAction({
+            eventType: 'schedule.schedule.executed',
             action: "Execute Schedule",
-            resourceType: "schedule",
+            resourceType: "Schedule",
             resourceId: schedule.id,
             resourceName: schedule.name,
             status: 'success',
+            severity: 'high',
             details: `Manual execution triggered via Dashboard (Async). Execution running in background.`,
             user: userEmail || "unknown-web-user",
-            source: "web-ui",
+            source: "platform",
             tenantId,
+            apiRoute: 'POST /api/schedules/[scheduleId]/execute',
+            httpMethod: 'POST',
             metadata: { tenantId },
         });
 

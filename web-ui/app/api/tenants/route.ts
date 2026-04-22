@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth-session";
 import { getPrismaClient } from "@/lib/db/pg-config";
+import { AuditService } from "@/lib/audit-service";
 import { z } from "zod";
 
 const createTenantSchema = z.object({
@@ -12,8 +13,9 @@ const createTenantSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+    let session: Awaited<ReturnType<typeof getAuthSession>> = null;
     try {
-        const session = await getAuthSession();
+        session = await getAuthSession();
         if (!session?.user) {
             return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
         }
@@ -72,6 +74,22 @@ export async function POST(req: NextRequest) {
 
         console.log(`API - POST /api/tenants - Created tenant ${result.id} (slug: ${result.slug})`);
 
+        AuditService.logUserAction({
+            eventType: 'tenant.organization.created',
+            severity: 'high',
+            apiRoute: 'POST /api/tenants',
+            httpMethod: 'POST',
+            action: 'Created Organization',
+            resourceType: 'tenant',
+            resourceId: result.id,
+            resourceName: name,
+            user: session.user.email || session.user.id,
+            userType: 'user',
+            status: 'success',
+            details: `Created organization "${name}" (slug: ${slug})`,
+            metadata: { tenantId: result.id, name, slug },
+        }).catch(() => {});
+
         return NextResponse.json(
             { success: true, tenantId: result.id, slug: result.slug },
             { status: 201 }
@@ -84,6 +102,21 @@ export async function POST(req: NextRequest) {
             );
         }
         console.error("API - POST /api/tenants - Error:", error);
+        AuditService.logUserAction({
+            eventType: 'tenant.organization.created',
+            severity: 'high',
+            apiRoute: 'POST /api/tenants',
+            httpMethod: 'POST',
+            action: 'Created Organization',
+            resourceType: 'tenant',
+            resourceId: 'unknown',
+            resourceName: 'unknown',
+            user: session?.user?.email || session?.user?.id || 'unknown',
+            userType: 'user',
+            status: 'error',
+            details: `Failed to create organization: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            metadata: {},
+        }).catch(() => {});
         return NextResponse.json(
             { error: "Failed to create organization. Please try again." },
             { status: 500 }

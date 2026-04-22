@@ -11,7 +11,8 @@ import {
     deleteScheduledTask,
 } from '@/lib/agent-ops/scheduled-task-service';
 import { registerTask, unregisterTask } from '@/lib/agent-ops/scheduler-engine';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 
 type Ctx = { params: Promise<{ taskId: string }> };
 
@@ -41,6 +42,24 @@ export async function PATCH(req: Request, { params }: Ctx) {
         if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
         // Re-register with updated cron if task is active
         if (task.taskStatus === 'active') registerTask(task);
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.task.updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/agent-ops/scheduled-tasks/[taskId]',
+            httpMethod: 'PATCH',
+            action: 'Updated Scheduled Task',
+            resourceType: 'agent',
+            resourceId: taskId,
+            resourceName: task.name || taskId,
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Updated scheduled task "${task.name || taskId}"`,
+            metadata: { tenantId },
+        }).catch(() => {});
+
         return NextResponse.json({ task });
     } catch (err) {
         return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 });
@@ -58,6 +77,24 @@ export async function DELETE(req: Request, { params }: Ctx) {
 
         unregisterTask(taskId);
         await deleteScheduledTask(tenantId, taskId);
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.task.deleted',
+            severity: 'medium',
+            apiRoute: 'DELETE /api/agent-ops/scheduled-tasks/[taskId]',
+            httpMethod: 'DELETE',
+            action: 'Deleted Scheduled Task',
+            resourceType: 'agent',
+            resourceId: taskId,
+            resourceName: existing.name || taskId,
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: `Deleted scheduled task "${existing.name || taskId}"`,
+            metadata: { tenantId },
+        }).catch(() => {});
+
         return NextResponse.json({ success: true });
     } catch (err) {
         return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 });

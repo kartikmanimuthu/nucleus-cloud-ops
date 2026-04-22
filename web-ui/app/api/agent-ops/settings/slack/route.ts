@@ -7,7 +7,8 @@
 
 import { NextResponse } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 import type { SlackIntegrationConfig } from '@/lib/agent-ops/types';
 
 const CONFIG_KEY = 'agent-ops-slack';
@@ -63,6 +64,23 @@ export async function PUT(req: Request) {
         await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);
 
         console.log('[API /agent-ops/settings/slack] Saved Slack config');
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.settings.slack_updated',
+            severity: 'medium',
+            apiRoute: 'PUT /api/agent-ops/settings/slack',
+            httpMethod: 'PUT',
+            action: 'Updated Slack Settings',
+            resourceType: 'agent',
+            resourceId: 'slack-integration',
+            resourceName: 'Slack Integration',
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: 'Updated Slack integration settings',
+            metadata: { tenantId },
+        }).catch(() => {});
 
         return NextResponse.json({
             success: true,

@@ -158,8 +158,15 @@ export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    // Show success feedback (could implement toast if available)
     console.log("Copied to clipboard");
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return {
+      date: date.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' }),
+      time: date.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+    };
   };
 
   const viewCorrelatedEvents = (correlationId: string) => {
@@ -182,6 +189,7 @@ export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
               <TableHead>Resource</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Severity</TableHead>
+              <TableHead>Source</TableHead>
               <TableHead>Details</TableHead>
               <TableHead className="w-[70px]">Actions</TableHead>
             </TableRow>
@@ -193,10 +201,10 @@ export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
                   <TableCell>
                     <div className="space-y-1">
                       <div className="text-sm font-medium">
-                        {new Date(log.timestamp).toLocaleDateString()}
+                        {formatTimestamp(log.timestamp).date}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {new Date(log.timestamp).toLocaleTimeString()}
+                        {formatTimestamp(log.timestamp).time} IST
                       </div>
                     </div>
                   </TableCell>
@@ -254,6 +262,11 @@ export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
                   </TableCell>
                   <TableCell>{getSeverityBadge(log.severity)}</TableCell>
                   <TableCell>
+                    <Badge variant="outline" className="text-xs">
+                      {log.source}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
                     <div className="max-w-[300px]">
                       <p className="text-sm text-muted-foreground truncate">
                         {log.details}
@@ -300,7 +313,7 @@ export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={9} className="text-center py-12">
                   <Activity className="mx-auto h-12 w-12 text-muted-foreground" />
                   <h3 className="mt-2 text-sm font-semibold">
                     No audit logs found

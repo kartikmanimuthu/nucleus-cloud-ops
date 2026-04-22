@@ -165,7 +165,7 @@ describe('AccountService', () => {
 
             expect(AuditService.logUserAction).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    action: 'Create Account',
+                    action: 'Created Account',
                     resourceType: 'account',
                     status: 'success',
                 })
@@ -204,7 +204,7 @@ describe('AccountService', () => {
 
             expect(AuditService.logUserAction).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    action: 'Update Account',
+                    action: 'Updated Account',
                     resourceType: 'account',
                     status: 'success',
                 })
@@ -236,7 +236,7 @@ describe('AccountService', () => {
 
             expect(AuditService.logUserAction).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    action: 'Delete Account',
+                    action: 'Deleted Account',
                     resourceType: 'account',
                     user: 'alice',
                     status: 'success',

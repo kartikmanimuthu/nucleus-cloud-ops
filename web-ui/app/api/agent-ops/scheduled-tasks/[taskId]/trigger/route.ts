@@ -3,7 +3,8 @@ import { getScheduledTask, updateLastRun } from '@/lib/agent-ops/scheduled-task-
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { notifyScheduledRunResult } from '@/lib/agent-ops/scheduled-notifier';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import { AuditService } from '@/lib/audit-service';
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'internal-worker-key';
 
@@ -42,6 +43,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ taskId:
             mcpServerIds: task.mcpServerIds,
             trigger: { taskId: task.taskId, taskName: task.name, scheduledAt },
         });
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.task.triggered',
+            severity: 'medium',
+            apiRoute: 'POST /api/agent-ops/scheduled-tasks/[taskId]/trigger',
+            httpMethod: 'POST',
+            action: 'Triggered Scheduled Task',
+            resourceType: 'agent',
+            resourceId: taskId,
+            resourceName: task.name || taskId,
+            user: session?.user?.email || 'system',
+            userType: 'user',
+            status: 'success',
+            details: `Triggered scheduled task "${task.name || taskId}", created run ${run.runId}`,
+            metadata: { tenantId, runId: run.runId },
+        }).catch(() => {});
 
         // Fire-and-forget
         executeAgentRun(run)

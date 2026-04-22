@@ -32,8 +32,8 @@ export async function handleDiscoveryScan(jobData: unknown): Promise<void> {
 
   await writeAuditLog({
     tenantId,
-    eventType: 'discovery.scan.started',
-    action: 'scan_started',
+    eventType: 'inventory.discovery.scan_started',
+    action: 'Discovery Scan Started',
     resourceId: scanId,
     status: 'info',
     severity: 'info',
@@ -98,8 +98,8 @@ export async function handleDiscoveryScan(jobData: unknown): Promise<void> {
 
   await writeAuditLog({
     tenantId,
-    eventType: `discovery.scan.${status}`,
-    action: `scan_${status}`,
+    eventType: `inventory.discovery.scan_${status}`,
+    action: `Discovery Scan ${status === 'failed' ? 'Failed' : 'Completed'}`,
     resourceId: scanId,
     status: status === 'failed' ? 'error' : 'success',
     severity: status === 'failed' ? 'high' : 'info',

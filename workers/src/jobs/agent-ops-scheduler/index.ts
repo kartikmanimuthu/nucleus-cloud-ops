@@ -1,12 +1,60 @@
 import type PgBoss from 'pg-boss';
 import { createLogger } from '../../lib/logger.js';
 import type { JobExecutor } from '../../executor/index.js';
+import { Pool, type PoolClient } from 'pg';
 
 const log = createLogger('agent-ops-scheduler');
 
 const QUEUE_PREFIX = 'agent-ops-task';
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'internal-worker-key';
 const WEB_UI_BASE_URL = process.env.WEB_UI_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+
+let _pool: Pool | null = null;
+function getPool(): Pool {
+    if (!_pool) {
+        _pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+    }
+    return _pool;
+}
+
+async function writeAuditLog(entry: {
+    tenantId: string;
+    eventType: string;
+    action: string;
+    resourceId: string;
+    status: string;
+    severity: string;
+    details: string;
+    metadata?: Record<string, unknown>;
+}): Promise<void> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        const id = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const logId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        await client.query(
+            `INSERT INTO audit_logs
+               (id, "tenantId", "logId", timestamp, "eventType", action,
+                "user", "userType", "resourceType", "resourceId",
+                status, severity, details, metadata, "expiresAt", source)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+             ON CONFLICT DO NOTHING`,
+            [
+                id, entry.tenantId, logId, new Date(),
+                entry.eventType, entry.action,
+                'system', 'system',
+                'agent', entry.resourceId,
+                entry.status, entry.severity, entry.details,
+                entry.metadata ? JSON.stringify(entry.metadata) : null,
+                expiresAt, 'system',
+            ],
+        );
+    } catch (error) {
+        log.error('Error writing audit log', { error: error instanceof Error ? error.message : String(error) });
+    } finally {
+        client.release();
+    }
+}
 
 export interface TaskTickData {
     taskId: string;
@@ -36,6 +84,17 @@ export async function handleAgentOpsTick(jobData: unknown): Promise<void> {
     const { taskId, tenantId } = jobData as TaskTickData;
     log.info(`Tick: task=${taskId} tenant=${tenantId}`);
 
+    await writeAuditLog({
+        tenantId,
+        eventType: 'agent.task.cron_triggered',
+        action: 'Cron Triggered Task',
+        resourceId: taskId,
+        status: 'info',
+        severity: 'info',
+        details: `Agent ops scheduler triggered task ${taskId}`,
+        metadata: { taskId, tenantId },
+    });
+
     try {
         const url = `${WEB_UI_BASE_URL}/api/agent-ops/scheduled-tasks/${taskId}/trigger`;
         const res = await fetch(url, {
@@ -51,12 +110,45 @@ export async function handleAgentOpsTick(jobData: unknown): Promise<void> {
         if (!res.ok) {
             const body = await res.text();
             log.error(`Trigger failed for task ${taskId}: ${res.status} ${body}`);
+
+            await writeAuditLog({
+                tenantId,
+                eventType: 'agent.task.cron_failed',
+                action: 'Cron Trigger Failed',
+                resourceId: taskId,
+                status: 'error',
+                severity: 'high',
+                details: `Agent ops scheduler trigger failed for task ${taskId}: ${res.status}`,
+                metadata: { taskId, tenantId, statusCode: res.status },
+            });
         } else {
             const data = await res.json() as { runId: string };
             log.info(`Triggered task ${taskId}: runId=${data.runId}`);
+
+            await writeAuditLog({
+                tenantId,
+                eventType: 'agent.task.cron_completed',
+                action: 'Cron Trigger Completed',
+                resourceId: taskId,
+                status: 'success',
+                severity: 'info',
+                details: `Agent ops scheduler triggered task ${taskId}, runId=${data.runId}`,
+                metadata: { taskId, tenantId, runId: data.runId },
+            });
         }
     } catch (err) {
         log.error(`Trigger error for task ${taskId}`, { error: String(err) });
+
+        await writeAuditLog({
+            tenantId,
+            eventType: 'agent.task.cron_failed',
+            action: 'Cron Trigger Error',
+            resourceId: taskId,
+            status: 'error',
+            severity: 'high',
+            details: `Agent ops scheduler error for task ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
+            metadata: { taskId, tenantId },
+        });
     }
 }
 

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { ProviderModelService } from '@/lib/provider-model-service';
+import { AuditService } from '@/lib/audit-service';
 
 const BEDROCK_MODELS = [
     { id: 'bedrock:global.anthropic.claude-sonnet-4-6', label: 'Claude 4.6 Sonnet', provider: 'bedrock' },
@@ -55,6 +56,8 @@ export async function POST(request: NextRequest) {
 
     try {
         const tenantId = await getSessionTenantId();
+        const session = await getAuthSession();
+        const callerEmail = session?.user?.email ?? 'unknown';
         const body = await request.json();
         const { name, baseUrl, apiKey, models } = body;
 
@@ -75,9 +78,42 @@ export async function POST(request: NextRequest) {
             models,
         });
 
+        AuditService.logUserAction({
+            eventType: 'integration.provider.created',
+            severity: 'high',
+            apiRoute: 'POST /api/settings/providers',
+            httpMethod: 'POST',
+            action: 'Created Provider',
+            resourceType: 'integration',
+            resourceId: provider.id,
+            resourceName: name.trim(),
+            user: callerEmail,
+            userType: 'user',
+            status: 'success',
+            details: `Created provider "${name.trim()}"`,
+            metadata: { tenantId, baseUrl: baseUrl.trim(), modelCount: models.length },
+        }).catch(() => {});
+
         return NextResponse.json({ success: true, data: provider }, { status: 201 });
     } catch (error) {
         console.error('API - Error creating provider:', error);
+
+        AuditService.logUserAction({
+            eventType: 'integration.provider.created',
+            severity: 'high',
+            apiRoute: 'POST /api/settings/providers',
+            httpMethod: 'POST',
+            action: 'Created Provider',
+            resourceType: 'integration',
+            resourceId: 'unknown',
+            resourceName: '',
+            user: 'unknown',
+            userType: 'user',
+            status: 'error',
+            details: `Failed to create provider: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            metadata: {},
+        }).catch(() => {});
+
         return NextResponse.json(
             { success: false, error: error instanceof Error ? error.message : 'Failed to create provider' },
             { status: 500 },

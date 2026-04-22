@@ -10,6 +10,8 @@ import {
     listThreads,
     createThread,
 } from '../../../../lib/deep-agent/db/chat-history-store';
+import { AuditService } from '@/lib/audit-service';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 
 export async function GET(req: NextRequest) {
     try {
@@ -33,6 +35,32 @@ export async function POST(req: NextRequest) {
             body.title || 'New conversation',
             body.model || 'default',
         );
+
+        let tenantId = 'unknown';
+        let userEmail = 'unknown';
+        try {
+            tenantId = await getSessionTenantId();
+            const session = await getAuthSession();
+            userEmail = session?.user?.email || 'unknown';
+        } catch {}
+
+        AuditService.logUserAction({
+            action: 'chat.thread.created',
+            eventType: 'chat.thread.created',
+            severity: 'low',
+            apiRoute: 'POST /api/deep-agent/threads',
+            httpMethod: 'POST',
+            resourceType: 'Thread',
+            resourceId: threadId,
+            resourceName: body.title || 'New conversation',
+            user: userEmail,
+            userType: 'user',
+            status: 'success',
+            details: `Created deep agent thread`,
+            tenantId,
+            metadata: { tenantId },
+        }).catch(() => {});
+
         return NextResponse.json({ thread }, { status: 201 });
     } catch (err: any) {
         console.error('[DeepAgent] Create thread error:', err);

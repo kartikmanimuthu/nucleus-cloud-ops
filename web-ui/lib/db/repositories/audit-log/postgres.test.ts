@@ -33,7 +33,7 @@ const makeAuditRow = (overrides: Record<string, unknown> = {}) => ({
     accountId: null,
     duration: null,
     errorCode: null,
-    source: 'web-ui',
+    source: 'platform',
     expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     ...overrides,
 });
@@ -69,7 +69,7 @@ describe('AuditLogPostgresRepository', () => {
                 userType: 'user',
                 status: 'success',
                 severity: 'info',
-                source: 'web-ui',
+                source: 'platform',
             });
             const after = Date.now();
 
@@ -94,7 +94,7 @@ describe('AuditLogPostgresRepository', () => {
                     userType: 'system',
                     status: 'info',
                     severity: 'info',
-                    source: 'web-ui',
+                    source: 'platform',
                 })
             ).resolves.toBeUndefined();
         });
@@ -110,7 +110,7 @@ describe('AuditLogPostgresRepository', () => {
                 userType: 'admin',
                 status: 'success',
                 severity: 'info',
-                source: 'web-ui',
+                source: 'platform',
                 ...(({ tenantId: 'tenant-xyz' } as unknown) as Record<string, never>),
             } as any);
 
@@ -206,7 +206,7 @@ describe('AuditLogPostgresRepository — tenant isolation', () => {
             userType: 'user',
             status: 'success',
             severity: 'info',
-            source: 'web-ui',
+            source: 'platform',
             ...({ tenantId: 'tenant-test' } as any),
         } as any);
         expect(getTenantClient).toHaveBeenCalledWith('tenant-test');

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { getCustomRole, updateCustomRole, deleteCustomRole } from '@/lib/rbac/custom-role-service';
 import type { PermissionSet } from '@/lib/rbac/types';
+import { AuditService } from '@/lib/audit-service';
 
 export async function GET(
     _request: NextRequest,
@@ -39,6 +40,8 @@ export async function PUT(
     try {
         const { roleId } = await params;
         const tenantId = await getSessionTenantId();
+        const session = await getAuthSession();
+        const callerEmail = session?.user?.email ?? 'unknown';
         const body = await request.json();
         const { name, permissions } = body as { name: string; permissions: PermissionSet };
 
@@ -53,9 +56,43 @@ export async function PUT(
         }
 
         const role = await updateCustomRole(tenantId, roleId, { name: name.trim(), permissions });
+
+        AuditService.logUserAction({
+            eventType: 'rbac.role.updated',
+            severity: 'high',
+            apiRoute: 'PUT /api/settings/roles/[roleId]',
+            httpMethod: 'PUT',
+            action: 'Updated Role',
+            resourceType: 'rbac',
+            resourceId: roleId,
+            resourceName: name.trim(),
+            user: callerEmail,
+            userType: 'user',
+            status: 'success',
+            details: `Updated custom role "${name.trim()}"`,
+            metadata: { tenantId, permissions },
+        }).catch(() => {});
+
         return NextResponse.json({ success: true, data: role });
     } catch (error) {
         console.error('API - Error updating role:', error);
+
+        AuditService.logUserAction({
+            eventType: 'rbac.role.updated',
+            severity: 'high',
+            apiRoute: 'PUT /api/settings/roles/[roleId]',
+            httpMethod: 'PUT',
+            action: 'Updated Role',
+            resourceType: 'rbac',
+            resourceId: (await params).roleId,
+            resourceName: '',
+            user: 'unknown',
+            userType: 'user',
+            status: 'error',
+            details: `Failed to update role: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            metadata: {},
+        }).catch(() => {});
+
         const message = error instanceof Error ? error.message : 'Failed to update role';
         return NextResponse.json({ success: false, error: message }, { status: 500 });
     }
@@ -72,10 +109,47 @@ export async function DELETE(
     try {
         const { roleId } = await params;
         const tenantId = await getSessionTenantId();
+        const session = await getAuthSession();
+        const callerEmail = session?.user?.email ?? 'unknown';
+
         await deleteCustomRole(tenantId, roleId);
+
+        AuditService.logUserAction({
+            eventType: 'rbac.role.deleted',
+            severity: 'high',
+            apiRoute: 'DELETE /api/settings/roles/[roleId]',
+            httpMethod: 'DELETE',
+            action: 'Deleted Role',
+            resourceType: 'rbac',
+            resourceId: roleId,
+            resourceName: roleId,
+            user: callerEmail,
+            userType: 'user',
+            status: 'success',
+            details: `Deleted custom role "${roleId}"`,
+            metadata: { tenantId },
+        }).catch(() => {});
+
         return NextResponse.json({ success: true });
     } catch (error) {
         console.error('API - Error deleting role:', error);
+
+        AuditService.logUserAction({
+            eventType: 'rbac.role.deleted',
+            severity: 'high',
+            apiRoute: 'DELETE /api/settings/roles/[roleId]',
+            httpMethod: 'DELETE',
+            action: 'Deleted Role',
+            resourceType: 'rbac',
+            resourceId: (await params).roleId,
+            resourceName: '',
+            user: 'unknown',
+            userType: 'user',
+            status: 'error',
+            details: `Failed to delete role: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            metadata: {},
+        }).catch(() => {});
+
         return NextResponse.json(
             { success: false, error: error instanceof Error ? error.message : 'Failed to delete role' },
             { status: 500 }
