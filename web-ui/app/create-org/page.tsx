@@ -158,6 +158,7 @@ export default function CreateOrgPage() {
                     </div>
 
                     <form onSubmit={handleSubmit(onSubmit)} noValidate>
+                        <fieldset disabled={isLoading} className="border-0 p-0 m-0 min-w-0">
                         <div className="space-y-4">
                             {/* Org name field */}
                             <div className="space-y-2">
@@ -276,6 +277,7 @@ export default function CreateOrgPage() {
                                 )}
                             </Button>
                         </div>
+                        </fieldset>
                     </form>
                 </div>
             </div>

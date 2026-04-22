@@ -22,7 +22,7 @@ const vpcCidrConfig = config.get("vpcCidr") ?? "10.0.0.0/16";
 
 const vpc = new awsx.ec2.Vpc("nucleus-vpc", {
     cidrBlock: vpcCidrConfig,
-    availabilityZoneNames: ["us-east-1a", "us-east-1b"],
+    availabilityZoneNames: ["ap-south-1a", "ap-south-1b"],
     enableDnsHostnames: true,
     enableDnsSupport: true,
     natGateways: { strategy: "OnePerAz" },
@@ -139,5 +139,5 @@ export const publicSubnetIds = vpc.publicSubnetIds;
 export const privateSubnetIds = vpc.privateSubnetIds;
 export { databaseSubnetIds };
 export { intraSubnetIds };
-export const availabilityZones = pulumi.output(["us-east-1a", "us-east-1b"]);
+export const availabilityZones = pulumi.output(["ap-south-1a", "ap-south-1b"]);
 export const dbSubnetGroupName = dbSubnetGroup.name;

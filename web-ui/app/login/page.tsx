@@ -121,14 +121,15 @@ export default function LoginPage() {
 
                     {/* Tabs */}
                     <Tabs defaultValue="credentials">
-                        <TabsList className="grid w-full grid-cols-2 mb-6">
-                            <TabsTrigger value="credentials">Email &amp; Password</TabsTrigger>
-                            <TabsTrigger value="sso">SSO</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-2 mb-6" aria-disabled={isLoading || isSsoLoading}>
+                            <TabsTrigger value="credentials" disabled={isLoading || isSsoLoading}>Email &amp; Password</TabsTrigger>
+                            <TabsTrigger value="sso" disabled={isLoading || isSsoLoading}>SSO</TabsTrigger>
                         </TabsList>
 
                         {/* Credentials tab */}
                         <TabsContent value="credentials">
                             <form onSubmit={handleSubmit(onCredentialsSubmit)} noValidate>
+                                <fieldset disabled={isLoading} className="border-0 p-0 m-0 min-w-0">
                                 <div className="space-y-4">
                                     {/* Email field */}
                                     <div className="space-y-2">
@@ -183,7 +184,14 @@ export default function LoginPage() {
                                     <div className="flex justify-end">
                                         <a
                                             href="/api/auth/forgot-password"
-                                            className="text-sm text-primary hover:underline underline-offset-4"
+                                            className={cn(
+                                                "text-sm text-primary underline-offset-4",
+                                                isLoading
+                                                    ? "pointer-events-none opacity-50"
+                                                    : "hover:underline"
+                                            )}
+                                            aria-disabled={isLoading}
+                                            tabIndex={isLoading ? -1 : undefined}
                                         >
                                             Forgot password?
                                         </a>
@@ -215,6 +223,7 @@ export default function LoginPage() {
                                         )}
                                     </Button>
                                 </div>
+                                </fieldset>
                             </form>
                         </TabsContent>
 
