@@ -1,3 +1,4 @@
 config:
   aws:region: ap-south-1
   nucleus-networking:vpcCidr: 10.0.0.0/16
+encryptionsalt: v1:2BLqHurb92I=:v1:UMUwH4ixvhAVIBRy:i8ElmyuF2TrLn0kgW9YwVBxCvfoJsw==

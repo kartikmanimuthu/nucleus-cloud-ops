@@ -377,7 +377,7 @@ const bastionInstanceProfile = new aws.iam.InstanceProfile("bastion-instance-pro
 // No inbound rules — SSM agent initiates outbound connections to SSM endpoints
 const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {
     name: "nucleus-cloud-ops-bastion-sg",
-    description: "Bastion — SSM only, no inbound SSH",
+    description: "Bastion - SSM only, no inbound SSH",
     vpcId: vpcId,
     egress: [
         {
@@ -1416,16 +1416,5 @@ export const ephemeralWorkerTaskDefArn = ephemeralWorkerTaskDef.arn;
 // const s3VectorsTemplate = fs.readFileSync(path.join(__dirname, "s3-vectors-template.json"), "utf-8");
 // const s3VectorsCfnStack = new aws.cloudformation.Stack("s3-vectors-stack", { ... });
 
-const s3TablesTemplate = fs.readFileSync(
-    path.join(__dirname, "s3-tables-template.json"),
-    "utf-8"
-);
-
-const s3TablesCfnStack = new aws.cloudformation.Stack("s3-tables-stack", {
-    name: "nucleus-cloud-ops-s3-tables-stack",
-    templateBody: s3TablesTemplate,
-    capabilities: ["CAPABILITY_IAM"],
-});
-
 // export const s3VectorsCfnStackId = s3VectorsCfnStack.id; // disabled
-export const s3TablesCfnStackId = s3TablesCfnStack.id;
+// s3-tables-stack removed — not needed in lean setup
