@@ -36,26 +36,45 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
     // Global tick — every hour (minimum granularity)
     await boss.schedule(JOB_NAME, '0 * * * *', {}, { tz: 'UTC' });
 
+    // batchSize: 1 prevents concurrent full scans
     await boss.work<SchedulerEvent>(
         JOB_NAME,
+        { batchSize: 1 },
         async (jobs) => {
             const tenants = await getActiveTenants();
+            const now = Date.now();
+
+            // Determine which tenants are due for a scan
+            const dueTenants: Array<{ id: string; name: string }> = [];
             for (const tenant of tenants) {
                 const config = await getTenantJobConfig(tenant.id, 'scheduler-cron');
                 const thresholdMs = config.intervalMinutes * 60 * 1000;
                 const lastRun = config.lastRunAt ? new Date(config.lastRunAt).getTime() : 0;
-                if (Date.now() - lastRun < thresholdMs) {
+                if (now - lastRun >= thresholdMs) {
+                    dueTenants.push(tenant);
+                } else {
                     log.info('Skipping tenant — interval not elapsed', {
                         tenantId: tenant.id,
                         intervalMinutes: config.intervalMinutes,
                         lastRunAt: config.lastRunAt,
                     });
-                    continue;
                 }
-                for (const job of jobs) {
-                    await executor.execute(JOB_NAME, job.data);
-                }
-                await updateTenantJobLastRun(tenant.id, 'scheduler-cron', new Date().toISOString());
+            }
+
+            if (dueTenants.length === 0) {
+                log.info('No tenants due for scan this tick');
+                return;
+            }
+
+            // Run the full scan once (runFullScan iterates all tenants internally)
+            for (const job of jobs) {
+                await executor.execute(JOB_NAME, job.data);
+            }
+
+            // Update lastRunAt for all due tenants
+            const runAt = new Date().toISOString();
+            for (const tenant of dueTenants) {
+                await updateTenantJobLastRun(tenant.id, 'scheduler-cron', runAt);
             }
         },
     );

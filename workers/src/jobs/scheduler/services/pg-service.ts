@@ -399,7 +399,12 @@ export async function getTenantJobConfig(
         const data = result.rows[0].data;
         return jobType === 'scheduler-cron'
             ? { intervalMinutes: data.intervalMinutes ?? 30, lastRunAt: data.lastRunAt ?? null }
-            : { period: data.period ?? 'daily', lastRunAt: data.lastRunAt ?? null };
+            : (() => {
+                const rawPeriod = data.period;
+                const validPeriods = ['daily', 'weekly', 'monthly'] as const;
+                const period = validPeriods.includes(rawPeriod) ? rawPeriod : 'daily';
+                return { period, lastRunAt: data.lastRunAt ?? null };
+            })();
     } catch (error) {
         logger.error('[pg-service] Error fetching tenant job config', { tenantId, jobType, error });
         return jobType === 'scheduler-cron'

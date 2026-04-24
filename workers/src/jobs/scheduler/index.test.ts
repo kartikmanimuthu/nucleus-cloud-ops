@@ -77,7 +77,7 @@ describe('scheduler job registration', () => {
 
   it('should call executor.execute in boss.work callback', async () => {
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][1];
+    const workCallback = mockWork.mock.calls[0][2];
     await workCallback([{ id: 'job-1', data: {} }]);
     expect(mockExecute).toHaveBeenCalledWith('scheduler-scan', {});
   });
@@ -88,7 +88,7 @@ describe('scheduler job registration', () => {
     vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: recentRun });
 
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][1];
+    const workCallback = mockWork.mock.calls[0][2];
     await workCallback([{ id: 'job-1', data: {} }]);
 
     expect(pgService.updateTenantJobLastRun).not.toHaveBeenCalled();
@@ -100,7 +100,7 @@ describe('scheduler job registration', () => {
     vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: oldRun });
 
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][1];
+    const workCallback = mockWork.mock.calls[0][2];
     await workCallback([{ id: 'job-1', data: {} }]);
 
     expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
@@ -111,7 +111,7 @@ describe('scheduler job registration', () => {
     vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
 
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][1];
+    const workCallback = mockWork.mock.calls[0][2];
     await workCallback([{ id: 'job-1', data: {} }]);
 
     expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));

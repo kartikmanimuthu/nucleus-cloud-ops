@@ -42,7 +42,7 @@ export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
                     setNextEligibleAt(data.data.nextEligibleAt);
                 }
             })
-            .catch(() => {/* keep defaults */})
+            .catch(() => setError("Failed to load discovery settings"))
             .finally(() => setLoading(false));
     }, []);
 
@@ -58,6 +58,11 @@ export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
             });
             const data = await res.json();
             if (!data.success) throw new Error(data.error || "Failed to save");
+            // Re-fetch to get updated nextEligibleAt
+            const refreshed = await fetch("/api/settings/discovery").then(r => r.json());
+            if (refreshed.success) {
+                setNextEligibleAt(refreshed.data.nextEligibleAt);
+            }
             setSuccess(true);
             setTimeout(() => setSuccess(false), 3000);
         } catch (err) {
