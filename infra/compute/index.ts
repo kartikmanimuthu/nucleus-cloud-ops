@@ -341,7 +341,7 @@ const postgresInstance = new aws.rds.Instance("postgres", {
 // Store full connection string in Secrets Manager (needs postgresInstance.address)
 new aws.secretsmanager.SecretVersion("database-url-version", {
     secretId: databaseUrlSm.id,
-    secretString: pulumi.interpolate`postgresql://nucleus_admin:${dbPasswordRandom.result}@${postgresInstance.address}:5432/nucleus?sslmode=require`,
+    secretString: pulumi.interpolate`postgresql://nucleus_admin:${dbPasswordRandom.result}@${postgresInstance.address}:5432/nucleus?sslmode=require&uselibpqcompat=true`,
 });
 
 
@@ -433,35 +433,7 @@ const ecrRepository = new aws.ecr.Repository("web-ui-ecr-repo", {
     forceDelete: false,
 });
 
-// ECR Lifecycle Policy — retain last 30 images, expire untagged after 7 days
-new aws.ecr.LifecyclePolicy("web-ui-ecr-lifecycle", {
-    repository: ecrRepository.name,
-    policy: JSON.stringify({
-        rules: [
-            {
-                rulePriority: 1,
-                description: "Expire untagged images after 7 days",
-                selection: {
-                    tagStatus: "untagged",
-                    countType: "sinceImagePushed",
-                    countUnit: "days",
-                    countNumber: 7,
-                },
-                action: { type: "expire" },
-            },
-            {
-                rulePriority: 2,
-                description: "Keep last 30 tagged images",
-                selection: {
-                    tagStatus: "any",
-                    countType: "imageCountMoreThan",
-                    countNumber: 30,
-                },
-                action: { type: "expire" },
-            },
-        ],
-    }),
-});
+// ECR Lifecycle Policy — intentionally omitted; all images are retained indefinitely
 
 // ECR public login — authenticate Docker to public.ecr.aws before building
 // images so base image pulls (e.g. public.ecr.aws/docker/library/node) succeed.
@@ -490,7 +462,7 @@ const webUiImage = new awsx.ecr.Image("web-ui-image", {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
     cacheFrom: [pulumi.interpolate`${ecrRepository.repositoryUrl}:latest`],
-}, { dependsOn: [ecrPublicLogin] });
+}, { dependsOn: [ecrPublicLogin], retainOnDelete: true });
 
 // ECS Cluster
 const ecsCluster = new aws.ecs.Cluster("web-ui-ecs-cluster", {
@@ -639,14 +611,14 @@ new aws.iam.RolePolicy("ecs-task-logs-policy", {
     ),
 });
 
-// WebUI Task Definition — ARM64, FARGATE, 512 CPU / 1024 MiB
+// WebUI Task Definition — ARM64, FARGATE, 2048 CPU / 4096 MiB
 // retainOnDelete: true — Pulumi must NOT deactivate old task definition revisions on replace.
 // ECS task definitions are immutable revisions; deleting the Pulumi resource deactivates the
 // revision in AWS, which breaks rollback. Retain ensures all historical revisions stay ACTIVE.
 const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
     family: "nucleus-cloud-ops-web-ui-task",
-    cpu: "512",
-    memory: "1024",
+    cpu: "2048",
+    memory: "4096",
     networkMode: "awsvpc",
     requiresCompatibilities: ["FARGATE"],
     executionRoleArn: ecsTaskExecutionRole.arn,
@@ -1033,35 +1005,7 @@ const workersEcrRepo = new aws.ecr.Repository("workers-ecr-repo", {
     forceDelete: false,
 });
 
-// ECR Lifecycle Policy — retain last 30 images, expire untagged after 7 days
-new aws.ecr.LifecyclePolicy("workers-ecr-lifecycle", {
-    repository: workersEcrRepo.name,
-    policy: JSON.stringify({
-        rules: [
-            {
-                rulePriority: 1,
-                description: "Expire untagged images after 7 days",
-                selection: {
-                    tagStatus: "untagged",
-                    countType: "sinceImagePushed",
-                    countUnit: "days",
-                    countNumber: 7,
-                },
-                action: { type: "expire" },
-            },
-            {
-                rulePriority: 2,
-                description: "Keep last 30 tagged images",
-                selection: {
-                    tagStatus: "any",
-                    countType: "imageCountMoreThan",
-                    countNumber: 30,
-                },
-                action: { type: "expire" },
-            },
-        ],
-    }),
-});
+// ECR Lifecycle Policy — intentionally omitted; all images are retained indefinitely
 
 // Explicit source hash — combines workers/ + prisma/ so any change forces a rebuild.
 const workersSrcHash = crypto.createHash("sha256")
@@ -1081,7 +1025,7 @@ const workersImage = new awsx.ecr.Image("workers-image", {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
     cacheFrom: [pulumi.interpolate`${workersEcrRepo.repositoryUrl}:latest`],
-}, { dependsOn: [ecrPublicLogin] });
+}, { dependsOn: [ecrPublicLogin], retainOnDelete: true });
 
 const workersLogGroup = new aws.cloudwatch.LogGroup("workers-log-group", {
     name: "/ecs/nucleus-cloud-ops-workers",
@@ -1315,8 +1259,8 @@ const workersSecurityGroup = new aws.ec2.SecurityGroup("workers-sg", {
 
 const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
     family: "nucleus-cloud-ops-workers-task",
-    cpu: "512",
-    memory: "1024",
+    cpu: "2048",
+    memory: "4096",
     networkMode: "awsvpc",
     requiresCompatibilities: ["FARGATE"],
     executionRoleArn: ecsTaskExecutionRole.arn,
