@@ -42,11 +42,6 @@ export interface ResourceCount {
     count: number;
 }
 
-export interface VectorSearchResult {
-    resource: InventoryResource;
-    distance: number;
-}
-
 export interface IInventoryRepository {
     listResources(filters: InventoryFilters): Promise<InventoryPage>;
     getResource(
@@ -59,10 +54,4 @@ export interface IInventoryRepository {
     upsertBatch(resources: Omit<InventoryResource, 'id'>[]): Promise<number>;
     getResourceCounts(tenantId: string): Promise<ResourceCount[]>;
     deleteResourcesByAccount(tenantId: string, accountId: string): Promise<number>;
-    searchByVector(
-        tenantId: string,
-        embedding: number[],
-        topK?: number,
-        filters?: { accountId?: string; region?: string }
-    ): Promise<VectorSearchResult[]>;
 }

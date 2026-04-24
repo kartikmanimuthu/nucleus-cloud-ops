@@ -343,25 +343,12 @@ model InventoryResource {
   discoveredAt DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  embedding    Unsupported("vector(1024)")?
-  contentHash  String?
   searchVector Unsupported("tsvector")?
 
   @@unique([tenantId, accountId, resourceType, resourceId])
   @@index([tenantId, resourceType])
   @@index([tenantId, accountId])
   @@map("inventory_resources")
-}
-
-// InventoryVectorKey — tracks vector keys per account for stale cleanup (KB-01)
-// Replaces DynamoDB INVENTORY_VECTORS#<accountId> / KEYS pattern from vector_processor
-model InventoryVectorKey {
-  id         String   @id @default(cuid())
-  accountId  String   @unique
-  vectorKeys String[] @default([])
-  updatedAt  DateTime @updatedAt
-
-  @@map("inventory_vector_keys")
 }
 
 // InventorySyncStatus — tracks per-scan metadata (replaces DynamoDB SYNC#INVENTORY pattern)
