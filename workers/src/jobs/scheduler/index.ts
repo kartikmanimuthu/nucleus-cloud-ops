@@ -35,8 +35,8 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
   // Create queue first (required in pg-boss v10 before schedule/work)
   await boss.createQueue(JOB_NAME);
 
-  // Register cron — every 30 minutes, enqueue a full scan job
-  await boss.schedule(JOB_NAME, '*/30 * * * *', {}, {
+  // Register cron — every hour, enqueue a full scan job
+  await boss.schedule(JOB_NAME, '0 * * * *', {}, {
     tz: 'UTC',
   });
 

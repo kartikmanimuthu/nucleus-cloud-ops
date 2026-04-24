@@ -41,10 +41,44 @@ const region = aws.config.region ?? "us-east-1";
 const config = new pulumi.Config();
 const appUrl = config.get("appUrl") ?? "https://placeholder.cloudfront.net";
 const subscriptionEmails = config.get("subscriptionEmails") ?? "";
-const crossAccountRoleName = config.get("crossAccountRoleName") ?? "NucleusAccess";
-const vectorBucketName = config.get("vectorBucketName") ?? "";
-const nextauthSecret = config.requireSecret("nextauthSecret");
-const dbPassword = config.requireSecret("dbPassword");
+const crossAccountRoleName = "NucleusAccess";
+const vectorBucketName = "";
+const appName = "nucleus-cloud-ops";
+
+// Dynamically generated — stored in AWS Secrets Manager, never in Pulumi config
+const nextauthSecretRandom = new random.RandomPassword("nextauth-secret-random", {
+    length: 32,
+    special: false,
+    keepers: { version: "1" },
+});
+
+const dbPasswordRandom = new random.RandomPassword("db-password-random", {
+    length: 24,
+    special: false,
+    keepers: { version: "1" },
+});
+
+const nextauthSecretSm = new aws.secretsmanager.Secret("nextauth-secret", {
+    name: `${appName}/nextauth-secret`,
+    description: "NextAuth.js secret for JWT signing",
+    recoveryWindowInDays: 0,
+});
+
+new aws.secretsmanager.SecretVersion("nextauth-secret-version", {
+    secretId: nextauthSecretSm.id,
+    secretString: nextauthSecretRandom.result,
+});
+
+const databaseUrlSm = new aws.secretsmanager.Secret("database-url", {
+    name: `${appName}/database-url`,
+    description: "Full PostgreSQL connection string for ECS tasks",
+    recoveryWindowInDays: 0,
+});
+
+// database-url-version is created after postgresInstance (needs .address output)
+
+const nextauthSecret = nextauthSecretRandom.result;
+const dbPassword = dbPasswordRandom.result;
 
 // Phase 7+: Networking stack is deployed — use requireOutput() to enforce dependency.
 // requireOutput() throws at preview time if networking stack is not deployed,
@@ -64,7 +98,6 @@ const intraSubnetIds = networking.requireOutput("intraSubnetIds") as pulumi.Outp
 const availabilityZones = networking.requireOutput("availabilityZones") as pulumi.Output<string[]>;
 const dbSubnetGroupName = networking.requireOutput("dbSubnetGroupName") as pulumi.Output<string>;
 
-const appName = "nucleus-cloud-ops";
 const webUiStackName = "nucleus-cloud-ops-web-ui";
 
 // ============================================================================
@@ -305,11 +338,89 @@ const postgresInstance = new aws.rds.Instance("postgres", {
     tags: { Name: "nucleus-cloud-ops-postgres" },
 }, { retainOnDelete: false });
 
-// DATABASE_URL — secret-wrapped connection string
-const databaseUrl = pulumi.secret(
-    pulumi.interpolate`postgresql://nucleus_admin:${dbPassword}@${postgresInstance.address}:5432/nucleus`
-);
+// Store full connection string in Secrets Manager (needs postgresInstance.address)
+new aws.secretsmanager.SecretVersion("database-url-version", {
+    secretId: databaseUrlSm.id,
+    secretString: pulumi.interpolate`postgresql://nucleus_admin:${dbPasswordRandom.result}@${postgresInstance.address}:5432/nucleus?sslmode=require&uselibpqcompat=true`,
+});
 
+
+
+// ============================================================================
+// BASTION HOST (SSM Session Manager — no SSH, private subnet only)
+// ============================================================================
+
+// IAM role — SSM managed instance core only, no SSH key needed
+const bastionRole = new aws.iam.Role("bastion-role", {
+    name: "nucleus-cloud-ops-bastion-role",
+    assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: { Service: "ec2.amazonaws.com" },
+            Action: "sts:AssumeRole",
+        }],
+    }),
+    tags: { Name: "nucleus-cloud-ops-bastion-role" },
+});
+
+new aws.iam.RolePolicyAttachment("bastion-ssm-policy", {
+    role: bastionRole.name,
+    policyArn: "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
+});
+
+const bastionInstanceProfile = new aws.iam.InstanceProfile("bastion-instance-profile", {
+    name: "nucleus-cloud-ops-bastion-profile",
+    role: bastionRole.name,
+});
+
+// No inbound rules — SSM agent initiates outbound connections to SSM endpoints
+const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {
+    name: "nucleus-cloud-ops-bastion-sg",
+    description: "Bastion - SSM only, no inbound SSH",
+    vpcId: vpcId,
+    egress: [
+        {
+            fromPort: 443,
+            toPort: 443,
+            protocol: "tcp",
+            cidrBlocks: ["0.0.0.0/0"],
+            description: "HTTPS to SSM endpoints (via NAT or VPC endpoints)",
+        },
+        {
+            fromPort: 5432,
+            toPort: 5432,
+            protocol: "tcp",
+            cidrBlocks: [vpcCidr],
+            description: "PostgreSQL tunnel to RDS",
+        },
+    ],
+    tags: { Name: "nucleus-cloud-ops-bastion-sg" },
+});
+
+// Latest Amazon Linux 2023 ARM64 AMI (SSM agent pre-installed)
+const bastionAmi = aws.ec2.getAmiOutput({
+    mostRecent: true,
+    owners: ["amazon"],
+    filters: [
+        { name: "name", values: ["al2023-ami-*-arm64"] },
+        { name: "architecture", values: ["arm64"] },
+        { name: "virtualization-type", values: ["hvm"] },
+    ],
+});
+
+// t4g.nano in first private subnet — no public IP, reachable only via SSM
+const bastionInstance = new aws.ec2.Instance("bastion", {
+    ami: bastionAmi.id,
+    instanceType: "t4g.nano",
+    subnetId: privateSubnetIds.apply(ids => ids[0]),
+    iamInstanceProfile: bastionInstanceProfile.name,
+    vpcSecurityGroupIds: [bastionSg.id],
+    associatePublicIpAddress: false,
+    tags: { Name: "nucleus-cloud-ops-bastion" },
+});
+
+export const bastionInstanceId = bastionInstance.id;
 
 // ============================================================================
 // ECS + ALB + CLOUDFRONT
@@ -322,35 +433,7 @@ const ecrRepository = new aws.ecr.Repository("web-ui-ecr-repo", {
     forceDelete: false,
 });
 
-// ECR Lifecycle Policy — retain last 30 images, expire untagged after 7 days
-new aws.ecr.LifecyclePolicy("web-ui-ecr-lifecycle", {
-    repository: ecrRepository.name,
-    policy: JSON.stringify({
-        rules: [
-            {
-                rulePriority: 1,
-                description: "Expire untagged images after 7 days",
-                selection: {
-                    tagStatus: "untagged",
-                    countType: "sinceImagePushed",
-                    countUnit: "days",
-                    countNumber: 7,
-                },
-                action: { type: "expire" },
-            },
-            {
-                rulePriority: 2,
-                description: "Keep last 30 tagged images",
-                selection: {
-                    tagStatus: "any",
-                    countType: "imageCountMoreThan",
-                    countNumber: 30,
-                },
-                action: { type: "expire" },
-            },
-        ],
-    }),
-});
+// ECR Lifecycle Policy — intentionally omitted; all images are retained indefinitely
 
 // ECR public login — authenticate Docker to public.ecr.aws before building
 // images so base image pulls (e.g. public.ecr.aws/docker/library/node) succeed.
@@ -379,7 +462,7 @@ const webUiImage = new awsx.ecr.Image("web-ui-image", {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
     cacheFrom: [pulumi.interpolate`${ecrRepository.repositoryUrl}:latest`],
-}, { dependsOn: [ecrPublicLogin] });
+}, { dependsOn: [ecrPublicLogin], retainOnDelete: true });
 
 // ECS Cluster
 const ecsCluster = new aws.ecs.Cluster("web-ui-ecs-cluster", {
@@ -409,6 +492,21 @@ const ecsTaskExecutionRole = new aws.iam.Role("ecs-task-execution-role", {
 new aws.iam.RolePolicyAttachment("ecs-task-execution-role-policy", {
     role: ecsTaskExecutionRole.name,
     policyArn: "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+});
+
+new aws.iam.RolePolicy("ecs-execution-role-secrets-policy", {
+    role: ecsTaskExecutionRole.id,
+    policy: pulumi.all([nextauthSecretSm.arn, databaseUrlSm.arn]).apply(
+        ([nextauthArn, dbArn]) =>
+            JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [{
+                    Effect: "Allow",
+                    Action: ["secretsmanager:GetSecretValue"],
+                    Resource: [nextauthArn, dbArn],
+                }],
+            })
+    ),
 });
 
 // ECS Task Role — application permissions
@@ -513,14 +611,14 @@ new aws.iam.RolePolicy("ecs-task-logs-policy", {
     ),
 });
 
-// WebUI Task Definition — ARM64, FARGATE, 512 CPU / 1024 MiB
+// WebUI Task Definition — ARM64, FARGATE, 2048 CPU / 4096 MiB
 // retainOnDelete: true — Pulumi must NOT deactivate old task definition revisions on replace.
 // ECS task definitions are immutable revisions; deleting the Pulumi resource deactivates the
 // revision in AWS, which breaks rollback. Retain ensures all historical revisions stay ACTIVE.
 const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
     family: "nucleus-cloud-ops-web-ui-task",
-    cpu: "512",
-    memory: "1024",
+    cpu: "2048",
+    memory: "4096",
     networkMode: "awsvpc",
     requiresCompatibilities: ["FARGATE"],
     executionRoleArn: ecsTaskExecutionRole.arn,
@@ -540,13 +638,14 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         ecsTaskRole.arn,
         webUiLogGroup.name,
         accountId,
-        nextauthSecret,
-        databaseUrl,
         webUiImage.imageUri,
+        nextauthSecretSm.arn,
+        databaseUrlSm.arn,
     ]).apply(([
         cognitoPoolId, cognitoClientId, cognitoClientSecret, identityPoolId,
         inventoryBucketN, kbStagingBucketN, agentTempBucketN, ecsTaskRoleArnVal,
-        webUiLogGroupN, acctId, nextauthSecretVal, databaseUrlVal, imageUri,
+        webUiLogGroupN, acctId, imageUri,
+        nextauthSecretArn, databaseUrlArn,
     ]) => JSON.stringify([{
         name: "WebUIContainer",
         image: imageUri,
@@ -560,6 +659,10 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
                 "awslogs-stream-prefix": "web-ui",
             },
         },
+        secrets: [
+            { name: "NEXTAUTH_SECRET", valueFrom: nextauthSecretArn },
+            { name: "DATABASE_URL", valueFrom: databaseUrlArn },
+        ],
         environment: [
             { name: "NODE_ENV", value: "production" },
             { name: "PORT", value: "3000" },
@@ -580,7 +683,6 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID", value: identityPoolId },
             { name: "NEXTAUTH_URL", value: appUrl },
             { name: "NEXT_PUBLIC_NEXTAUTH_URL", value: appUrl },
-            { name: "NEXTAUTH_SECRET", value: nextauthSecretVal },
             { name: "COGNITO_ISSUER", value: `https://cognito-idp.${region}.amazonaws.com/${cognitoPoolId}` },
             { name: "NEXT_PUBLIC_COGNITO_ISSUER", value: `https://cognito-idp.${region}.amazonaws.com/${cognitoPoolId}` },
             { name: "AWS_LAMBDA_EXECUTION_ROLE_ARN", value: ecsTaskRoleArnVal },
@@ -604,7 +706,6 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "LANGFUSE_PUBLIC_KEY", value: "" },
             { name: "LANGFUSE_SECRET_KEY", value: "" },
             { name: "LANGFUSE_HOST", value: "https://cloud.langfuse.com" },
-            { name: "DATABASE_URL", value: databaseUrlVal },
             // PostgreSQL feature flags
             { name: "USE_PG_ACCOUNTS", value: "true" },
             { name: "USE_PG_SCHEDULES", value: "true" },
@@ -827,7 +928,7 @@ new aws.iam.RolePolicy("ecs-task-rds-connect-policy", {
 
 // RDS PostgreSQL exports
 export const postgresEndpoint = postgresInstance.address;
-export { databaseUrl };
+
 
 // ============================================================================
 // CLOUDFRONT DISTRIBUTION
@@ -904,35 +1005,7 @@ const workersEcrRepo = new aws.ecr.Repository("workers-ecr-repo", {
     forceDelete: false,
 });
 
-// ECR Lifecycle Policy — retain last 30 images, expire untagged after 7 days
-new aws.ecr.LifecyclePolicy("workers-ecr-lifecycle", {
-    repository: workersEcrRepo.name,
-    policy: JSON.stringify({
-        rules: [
-            {
-                rulePriority: 1,
-                description: "Expire untagged images after 7 days",
-                selection: {
-                    tagStatus: "untagged",
-                    countType: "sinceImagePushed",
-                    countUnit: "days",
-                    countNumber: 7,
-                },
-                action: { type: "expire" },
-            },
-            {
-                rulePriority: 2,
-                description: "Keep last 30 tagged images",
-                selection: {
-                    tagStatus: "any",
-                    countType: "imageCountMoreThan",
-                    countNumber: 30,
-                },
-                action: { type: "expire" },
-            },
-        ],
-    }),
-});
+// ECR Lifecycle Policy — intentionally omitted; all images are retained indefinitely
 
 // Explicit source hash — combines workers/ + prisma/ so any change forces a rebuild.
 const workersSrcHash = crypto.createHash("sha256")
@@ -952,7 +1025,7 @@ const workersImage = new awsx.ecr.Image("workers-image", {
         BUILDX_NO_DEFAULT_ATTESTATIONS: "1",
     },
     cacheFrom: [pulumi.interpolate`${workersEcrRepo.repositoryUrl}:latest`],
-}, { dependsOn: [ecrPublicLogin] });
+}, { dependsOn: [ecrPublicLogin], retainOnDelete: true });
 
 const workersLogGroup = new aws.cloudwatch.LogGroup("workers-log-group", {
     name: "/ecs/nucleus-cloud-ops-workers",
@@ -1101,12 +1174,12 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
     containerDefinitions: pulumi.all([
         kbStagingBucket.bucket,
         ephemeralWorkersLogGroup.name,
-        databaseUrl,
         snsTopic.arn,
         workersImage.imageUri,
+        databaseUrlSm.arn,
     ]).apply(([
         kbStagingBucketN,
-        ephLogGroupN, databaseUrlVal, snsTopicArn, imageUri,
+        ephLogGroupN, snsTopicArn, imageUri, databaseUrlArn,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
         image: imageUri,
@@ -1119,10 +1192,12 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
                 "awslogs-stream-prefix": "ephemeral",
             },
         },
+        secrets: [
+            { name: "DATABASE_URL", valueFrom: databaseUrlArn },
+        ],
         environment: [
             { name: "NODE_ENV", value: "production" },
             { name: "AWS_REGION", value: region },
-            { name: "DATABASE_URL", value: databaseUrlVal.includes("?") ? `${databaseUrlVal}&sslmode=no-verify` : `${databaseUrlVal}?sslmode=no-verify` },
             { name: "SNS_TOPIC_ARN", value: snsTopicArn },
             { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
             { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
@@ -1184,8 +1259,8 @@ const workersSecurityGroup = new aws.ec2.SecurityGroup("workers-sg", {
 
 const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
     family: "nucleus-cloud-ops-workers-task",
-    cpu: "512",
-    memory: "1024",
+    cpu: "2048",
+    memory: "4096",
     networkMode: "awsvpc",
     requiresCompatibilities: ["FARGATE"],
     executionRoleArn: ecsTaskExecutionRole.arn,
@@ -1197,17 +1272,17 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
     containerDefinitions: pulumi.all([
         kbStagingBucket.bucket,
         workersLogGroup.name,
-        databaseUrl,
         snsTopic.arn,
         workersImage.imageUri,
         ecsCluster.arn,
         ephemeralWorkerTaskDef.arn,
         workersSecurityGroup.id,
         privateSubnetIds.apply(ids => ids.join(",")),
+        databaseUrlSm.arn,
     ]).apply(([
         kbStagingBucketN,
-        workersLogGroupN, databaseUrlVal, snsTopicArn, imageUri,
-        clusterArn, ephTaskDefArn, workersSgId, subnetsJoined,
+        workersLogGroupN, snsTopicArn, imageUri,
+        clusterArn, ephTaskDefArn, workersSgId, subnetsJoined, databaseUrlArn,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
         image: imageUri,
@@ -1220,10 +1295,12 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
                 "awslogs-stream-prefix": "workers",
             },
         },
+        secrets: [
+            { name: "DATABASE_URL", valueFrom: databaseUrlArn },
+        ],
         environment: [
             { name: "NODE_ENV", value: "production" },
             { name: "AWS_REGION", value: region },
-            { name: "DATABASE_URL", value: databaseUrlVal.includes("?") ? `${databaseUrlVal}&sslmode=no-verify` : `${databaseUrlVal}?sslmode=no-verify` },
             { name: "SNS_TOPIC_ARN", value: snsTopicArn },
             { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
             { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
@@ -1283,16 +1360,5 @@ export const ephemeralWorkerTaskDefArn = ephemeralWorkerTaskDef.arn;
 // const s3VectorsTemplate = fs.readFileSync(path.join(__dirname, "s3-vectors-template.json"), "utf-8");
 // const s3VectorsCfnStack = new aws.cloudformation.Stack("s3-vectors-stack", { ... });
 
-const s3TablesTemplate = fs.readFileSync(
-    path.join(__dirname, "s3-tables-template.json"),
-    "utf-8"
-);
-
-const s3TablesCfnStack = new aws.cloudformation.Stack("s3-tables-stack", {
-    name: "nucleus-cloud-ops-s3-tables-stack",
-    templateBody: s3TablesTemplate,
-    capabilities: ["CAPABILITY_IAM"],
-});
-
 // export const s3VectorsCfnStackId = s3VectorsCfnStack.id; // disabled
-export const s3TablesCfnStackId = s3TablesCfnStack.id;
+// s3-tables-stack removed — not needed in lean setup

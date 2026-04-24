@@ -156,8 +156,8 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
     expireInSeconds: 1800,
   });
 
-  // Every 5 minutes
-  await boss.schedule('discovery-fan-out', '*/5 * * * *', {}, { tz: 'UTC' });
+  // Once a day at midnight UTC
+  await boss.schedule('discovery-fan-out', '0 0 * * *', {}, { tz: 'UTC' });
 
   // Fan-out: one discovery-scan job per tenant
   await boss.work<DiscoveryFanOutJob>(
@@ -192,5 +192,5 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
     await executor.execute('discovery-scan', job.data);
   });
 
-  log.info('Registered queues', { queues: ['discovery-fan-out', 'discovery-scan'], cron: '*/5 * * * *' });
+  log.info('Registered queues', { queues: ['discovery-fan-out', 'discovery-scan'], cron: '0 0 * * *' });
 }
