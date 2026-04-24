@@ -2,26 +2,31 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Search } from "lucide-react";
 
-const PERIODS = [
-    { label: "Daily", value: "daily" },
-    { label: "Weekly", value: "weekly" },
-] as const;
+type Period = "daily" | "weekly" | "monthly";
 
-type DiscoveryPeriod = typeof PERIODS[number]["value"];
+const PRESETS: { label: string; value: Period; description: string }[] = [
+    { label: "Daily", value: "daily", description: "Scan all accounts once per day" },
+    { label: "Weekly", value: "weekly", description: "Scan all accounts once per week" },
+    { label: "Monthly", value: "monthly", description: "Scan all accounts once per month" },
+];
+
+function formatDate(iso: string | null): string {
+    if (!iso) return "Never";
+    return new Date(iso).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+    });
+}
 
 export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
-    const [period, setPeriod] = useState<DiscoveryPeriod>("daily");
+    const [period, setPeriod] = useState<Period>("daily");
+    const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+    const [nextEligibleAt, setNextEligibleAt] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -31,9 +36,13 @@ export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
         fetch("/api/settings/discovery")
             .then((r) => r.json())
             .then((data) => {
-                if (data.success) setPeriod(data.data.period);
+                if (data.success) {
+                    setPeriod(data.data.period);
+                    setLastRunAt(data.data.lastRunAt);
+                    setNextEligibleAt(data.data.nextEligibleAt);
+                }
             })
-            .catch(() => {/* keep default */})
+            .catch(() => {/* keep defaults */})
             .finally(() => setLoading(false));
     }, []);
 
@@ -65,31 +74,46 @@ export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     <Search className="h-5 w-5" />
-                    Discovery Frequency
+                    Discovery Scan Frequency
                 </CardTitle>
                 <CardDescription>
-                    Configure how often resource discovery scans run for your organization.
+                    Configure how often the inventory discovery scan runs for your organization.
+                    Discovery is resource-intensive — daily or less frequent is recommended.
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 <div className="space-y-2">
-                    <Label>Scan Period</Label>
+                    <Label>Frequency</Label>
                     <Select
                         value={period}
-                        onValueChange={(val) => setPeriod(val as DiscoveryPeriod)}
+                        onValueChange={(val) => setPeriod(val as Period)}
                         disabled={!canEdit}
                     >
                         <SelectTrigger className="w-full max-w-xs">
-                            <SelectValue placeholder="Select period" />
+                            <SelectValue placeholder="Select frequency" />
                         </SelectTrigger>
                         <SelectContent>
-                            {PERIODS.map((p) => (
+                            {PRESETS.map((p) => (
                                 <SelectItem key={p.value} value={p.value}>
                                     {p.label}
                                 </SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
+                    <p className="text-sm text-muted-foreground">
+                        {PRESETS.find((p) => p.value === period)?.description}
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                        <p className="text-muted-foreground">Last run</p>
+                        <p className="font-medium">{formatDate(lastRunAt)}</p>
+                    </div>
+                    <div>
+                        <p className="text-muted-foreground">Next eligible</p>
+                        <p className="font-medium">{formatDate(nextEligibleAt)}</p>
+                    </div>
                 </div>
 
                 {canEdit && (

@@ -18,10 +18,21 @@ const log = createLogger('discovery');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const PERIOD_MS: Record<string, number> = {
-    daily: 24 * 60 * 60 * 1000,
-    weekly: 7 * 24 * 60 * 60 * 1000,
-};
+export function periodToMs(period: 'daily' | 'weekly' | 'monthly'): number {
+    switch (period) {
+        case 'daily':   return 24 * 60 * 60 * 1000;
+        case 'weekly':  return 7 * 24 * 60 * 60 * 1000;
+        case 'monthly': return 30 * 24 * 60 * 60 * 1000;
+    }
+}
+
+export function shouldRunTenant(
+    lastRunAt: string | null,
+    period: 'daily' | 'weekly' | 'monthly'
+): boolean {
+    if (!lastRunAt) return true;
+    return Date.now() - new Date(lastRunAt).getTime() >= periodToMs(period);
+}
 
 function loadScanConfigs() {
     const scanfilePath = process.env.SCANFILE_PATH ?? join(__dirname, 'scanfile.json');
@@ -171,10 +182,8 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
             const tenants = await getAllTenants();
             for (const tenant of tenants) {
                 const config = await getTenantJobConfig(tenant.id, 'discovery-cron');
-                const thresholdMs = PERIOD_MS[config.period] ?? PERIOD_MS.daily;
-                const lastRun = config.lastRunAt ? new Date(config.lastRunAt).getTime() : 0;
-                if (Date.now() - lastRun < thresholdMs) {
-                    log.info('Skipping tenant — period not elapsed', {
+                if (!shouldRunTenant(config.lastRunAt, config.period)) {
+                    log.info('Skipping discovery — interval not elapsed', {
                         tenantId: tenant.id,
                         period: config.period,
                         lastRunAt: config.lastRunAt,
