@@ -1,8 +1,6 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { OrganizationSettingsForm } from "@/components/settings/organization-settings-form";
-import { SchedulerSettings } from "@/components/settings/scheduler-settings";
-import { DiscoverySettings } from "@/components/settings/discovery-settings";
 
 export default async function OrganizationSettingsPage() {
     const session = await getServerSession(authOptions);
@@ -13,8 +11,6 @@ export default async function OrganizationSettingsPage() {
     return (
         <div className="space-y-6">
             <OrganizationSettingsForm />
-            <SchedulerSettings canEdit={canEdit} />
-            <DiscoverySettings canEdit={canEdit} />
         </div>
     );
 }

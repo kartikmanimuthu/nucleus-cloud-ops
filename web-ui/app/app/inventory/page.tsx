@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { RefreshCw, Download, Search, Filter, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, Download, Search, Filter, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X, SlidersHorizontal, Settings } from "lucide-react";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { toast } from "sonner";
 import { ClientAccountService } from "@/lib/client-account-service";
@@ -45,6 +46,7 @@ interface InventoryStatus {
 const PAGE_SIZES = [10, 20, 50, 100, 200, 500];
 
 export default function InventoryPage() {
+    const router = useRouter();
     const [resources, setResources] = useState<Resource[]>([]);
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
@@ -278,6 +280,9 @@ export default function InventoryPage() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="icon" onClick={() => router.push("/app/inventory/settings")} title="Inventory Settings">
+                            <Settings className="h-5 w-5" />
+                        </Button>
                         <Button variant="outline" onClick={() => { fetchResourcesRef.current(); fetchSyncStatus(); }} disabled={loading}>
                             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                             Refresh
