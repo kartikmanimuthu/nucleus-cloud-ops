@@ -55,7 +55,7 @@ export async function disconnectPrisma(): Promise<void> {
  * Exported so tests can verify coverage.
  *
  * NOTE: Models without tenantId (e.g. AuthUser, AuthAccount, AuthSession,
- * VerificationToken, InventoryVectorKey, InventorySyncStatus, ScheduledTaskLock)
+ * VerificationToken, InventorySyncStatus, ScheduledTaskLock)
  * are intentionally excluded — they are either platform-level or keyed differently.
  */
 export const TENANT_SCOPED_MODELS = new Set([
