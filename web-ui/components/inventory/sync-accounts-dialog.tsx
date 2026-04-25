@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatDistanceToNow } from "date-fns";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -132,7 +133,7 @@ export function SyncAccountsDialog({
 
     const handleClose = () => {
         if (!syncing) {
-            setSelected(new Set());
+            setSelected(new Set(accounts.map(a => a.accountId)));
             setJobStates({});
             onOpenChange(false);
         }
@@ -205,6 +206,11 @@ export function SyncAccountsDialog({
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-medium truncate">{account.name}</p>
                                                 <p className="text-xs text-muted-foreground">{account.accountId}</p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {account.lastValidated
+                                                        ? formatDistanceToNow(new Date(account.lastValidated), { addSuffix: true })
+                                                        : "never synced"}
+                                                </p>
                                             </div>
                                             <div className="flex items-center gap-2 shrink-0">
                                                 <Badge variant={isConnected ? "default" : "destructive"}>
@@ -221,19 +227,20 @@ export function SyncAccountsDialog({
                     </div>
                 )}
 
-                <DialogFooter className="gap-2">
-                    <Button variant="outline" onClick={handleClose} disabled={syncing}>
-                        Cancel
-                    </Button>
-                    <Button onClick={handleSync} disabled={syncing || accounts.length === 0}>
-                        {syncing ? (
-                            <><Loader2 className="h-4 w-4 animate-spin mr-2" />Queuing...</>
-                        ) : selected.size === accounts.length ? (
-                            <><RefreshCw className="h-4 w-4 mr-2" />Sync All</>
-                        ) : (
-                            <><RefreshCw className="h-4 w-4 mr-2" />Sync {selected.size} Account{selected.size > 1 ? "s" : ""}</>
-                        )}
-                    </Button>
+                <DialogFooter className="flex items-center justify-between sm:justify-between gap-2">
+                    <span className="text-sm text-muted-foreground">{selected.size} selected</span>
+                    <div className="flex gap-2">
+                        <Button variant="outline" onClick={handleClose} disabled={syncing}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleSync} disabled={syncing || selected.size === 0}>
+                            {syncing ? (
+                                <><Loader2 className="h-4 w-4 animate-spin mr-2" />Queuing...</>
+                            ) : (
+                                <><RefreshCw className="h-4 w-4 mr-2" />Sync Selected</>
+                            )}
+                        </Button>
+                    </div>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
