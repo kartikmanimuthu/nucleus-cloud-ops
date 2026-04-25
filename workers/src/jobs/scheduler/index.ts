@@ -33,8 +33,8 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
 
     await boss.createQueue(JOB_NAME);
 
-    // Global tick — every hour (minimum granularity)
-    await boss.schedule(JOB_NAME, '0 * * * *', {}, { tz: 'UTC' });
+    // Global tick — every 5 min (matches minimum supported tenant interval)
+    await boss.schedule(JOB_NAME, '*/5 * * * *', {}, { tz: 'UTC' });
 
     // batchSize: 1 prevents concurrent full scans
     await boss.work<SchedulerEvent>(
