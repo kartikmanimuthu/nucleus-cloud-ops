@@ -12,6 +12,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Clock } from "lucide-react";
+import { toast } from "sonner";
 
 const PRESETS = [
     { label: "Every 5 minutes", value: 5 },
@@ -27,7 +28,6 @@ export function SchedulerSettings({ canEdit }: { canEdit: boolean }) {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState(false);
 
     useEffect(() => {
         fetch("/api/scheduler/settings")
@@ -42,7 +42,6 @@ export function SchedulerSettings({ canEdit }: { canEdit: boolean }) {
     async function handleSave() {
         setSaving(true);
         setError(null);
-        setSuccess(false);
         try {
             const res = await fetch("/api/scheduler/settings", {
                 method: "PUT",
@@ -51,8 +50,7 @@ export function SchedulerSettings({ canEdit }: { canEdit: boolean }) {
             });
             const data = await res.json();
             if (!data.success) throw new Error(data.error || "Failed to save");
-            setSuccess(true);
-            setTimeout(() => setSuccess(false), 3000);
+            toast.success("Scheduler settings saved");
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to save");
         } finally {
@@ -99,7 +97,6 @@ export function SchedulerSettings({ canEdit }: { canEdit: boolean }) {
                         <Button onClick={handleSave} disabled={saving} size="sm">
                             {saving ? "Saving..." : "Save"}
                         </Button>
-                        {success && <span className="text-sm text-green-600">Saved</span>}
                         {error && <span className="text-sm text-destructive">{error}</span>}
                     </div>
                 )}
