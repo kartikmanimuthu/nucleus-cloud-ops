@@ -359,3 +359,82 @@ export async function getTenantSchedulerConfig(tenantId: string): Promise<{ inte
         client.release();
     }
 }
+
+export type JobType = 'scheduler-cron' | 'discovery-cron';
+
+export interface SchedulerJobConfig {
+    intervalMinutes: number;
+    lastRunAt: string | null;
+}
+
+export interface DiscoveryJobConfig {
+    period: 'daily' | 'weekly' | 'monthly';
+    lastRunAt: string | null;
+}
+
+/** Fetch the job config for a tenant by job type, returning typed defaults if not configured. */
+export async function getTenantJobConfig(
+    tenantId: string,
+    jobType: 'scheduler-cron'
+): Promise<SchedulerJobConfig>;
+export async function getTenantJobConfig(
+    tenantId: string,
+    jobType: 'discovery-cron'
+): Promise<DiscoveryJobConfig>;
+export async function getTenantJobConfig(
+    tenantId: string,
+    jobType: JobType
+): Promise<SchedulerJobConfig | DiscoveryJobConfig> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        const result = await client.query(
+            `SELECT data FROM tenant_configs WHERE "tenantId" = $1 AND "configKey" = $2 LIMIT 1`,
+            [tenantId, jobType]
+        );
+        if (result.rows.length === 0) {
+            return jobType === 'scheduler-cron'
+                ? { intervalMinutes: 30, lastRunAt: null }
+                : { period: 'daily', lastRunAt: null };
+        }
+        const data = result.rows[0].data;
+        return jobType === 'scheduler-cron'
+            ? { intervalMinutes: data.intervalMinutes ?? 30, lastRunAt: data.lastRunAt ?? null }
+            : (() => {
+                const rawPeriod = data.period;
+                const validPeriods = ['daily', 'weekly', 'monthly'] as const;
+                const period = validPeriods.includes(rawPeriod) ? rawPeriod : 'daily';
+                return { period, lastRunAt: data.lastRunAt ?? null };
+            })();
+    } catch (error) {
+        logger.error('[pg-service] Error fetching tenant job config', { tenantId, jobType, error });
+        return jobType === 'scheduler-cron'
+            ? { intervalMinutes: 30, lastRunAt: null }
+            : { period: 'daily', lastRunAt: null };
+    } finally {
+        client.release();
+    }
+}
+
+/** Upsert the lastRunAt timestamp for a tenant job config row. */
+export async function updateTenantJobLastRun(
+    tenantId: string,
+    jobType: JobType,
+    lastRunAt: string
+): Promise<void> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        await client.query(
+            `INSERT INTO tenant_configs ("id", "tenantId", "configKey", data, "updatedAt", "updatedBy")
+             VALUES (gen_random_uuid()::text, $1, $2, $3::jsonb, now(), 'worker')
+             ON CONFLICT ("tenantId", "configKey")
+             DO UPDATE SET data = tenant_configs.data || $3::jsonb, "updatedAt" = now()`,
+            [tenantId, jobType, JSON.stringify({ lastRunAt })]
+        );
+        logger.debug('[pg-service] Updated lastRunAt for tenant job', { tenantId, jobType, lastRunAt });
+    } catch (error) {
+        logger.error('[pg-service] Error updating tenant job lastRunAt', { tenantId, jobType, error });
+        // Non-fatal — next tick will re-run the tenant
+    } finally {
+        client.release();
+    }
+}

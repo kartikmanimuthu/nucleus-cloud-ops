@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { RefreshCw, Download, Search, Filter, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, Download, Search, Filter, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X, SlidersHorizontal, Settings } from "lucide-react";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { toast } from "sonner";
 import { ClientAccountService } from "@/lib/client-account-service";
@@ -14,6 +15,7 @@ import { UIAccount } from "@/lib/types";
 import { ResourceDetailDialog, ResourceDetailProps } from "@/components/inventory/resource-detail-dialog";
 import { AskAIDialog } from "@/components/inventory/ask-ai-dialog";
 import { ResourceGrid } from "@/components/inventory/resource-grid";
+import { SyncAccountsDialog } from "@/components/inventory/sync-accounts-dialog";
 import { cn } from "@/lib/utils";
 import { RESOURCE_TYPE_OPTIONS, REGION_OPTIONS } from "@/lib/resource-types";
 import { getColumnsForType } from "@/lib/inventory/column-registry";
@@ -45,9 +47,9 @@ interface InventoryStatus {
 const PAGE_SIZES = [10, 20, 50, 100, 200, 500];
 
 export default function InventoryPage() {
+    const router = useRouter();
     const [resources, setResources] = useState<Resource[]>([]);
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [inventoryStatus, setInventoryStatus] = useState<InventoryStatus | null>(null);
 
@@ -64,6 +66,9 @@ export default function InventoryPage() {
 
     // Ask AI Dialog
     const [askAIOpen, setAskAIOpen] = useState(false);
+
+    // Sync Accounts Dialog
+    const [syncDialogOpen, setSyncDialogOpen] = useState(false);
 
     // Applied filters (what the API actually uses)
     const [searchTerm, setSearchTerm] = useState("");
@@ -162,32 +167,6 @@ export default function InventoryPage() {
         }
     };
 
-    const handleSync = async () => {
-        setSyncing(true);
-        try {
-            const response = await fetch("/api/inventory/sync", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({}),
-            });
-            const data = await response.json();
-
-            if (response.ok) {
-                toast.success("Execution started in the background. It may take a few minutes to complete.", {
-                    description: `Scan ID: ${data.scanId?.substring(0, 8) || "N/A"}`,
-                    duration: 5000,
-                });
-                fetchSyncStatus();
-            } else {
-                toast.error(data.error || "Failed to trigger sync");
-            }
-        } catch {
-            toast.error("Failed to trigger sync");
-        } finally {
-            setSyncing(false);
-        }
-    };
-
     const handleExport = async () => {
         setExporting(true);
         try {
@@ -278,6 +257,9 @@ export default function InventoryPage() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="icon" onClick={() => router.push("/app/inventory/settings")} title="Inventory Settings">
+                            <Settings className="h-5 w-5" />
+                        </Button>
                         <Button variant="outline" onClick={() => { fetchResourcesRef.current(); fetchSyncStatus(); }} disabled={loading}>
                             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                             Refresh
@@ -290,8 +272,8 @@ export default function InventoryPage() {
                             {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
                             Export
                         </Button>
-                        <Button onClick={handleSync} disabled={syncing}>
-                            {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                        <Button onClick={() => setSyncDialogOpen(true)}>
+                            <RefreshCw className="h-4 w-4 mr-2" />
                             Sync Now
                         </Button>
                     </div>
@@ -630,6 +612,22 @@ export default function InventoryPage() {
                     accountId: selectedAccounts.length === 1 ? selectedAccounts[0] : undefined,
                     region: region !== "all" ? region : undefined,
                     resourceType: resourceType !== "all" ? resourceType : undefined,
+                }}
+            />
+
+            {/* Sync Accounts Dialog */}
+            <SyncAccountsDialog
+                open={syncDialogOpen}
+                onOpenChange={setSyncDialogOpen}
+                accounts={accounts}
+                onSyncStarted={(count) => {
+                    toast.success(
+                        count === 1
+                            ? "Sync started for 1 account. It may take a few minutes to complete."
+                            : `Sync started for ${count} accounts. It may take a few minutes to complete.`,
+                        { duration: 5000 }
+                    );
+                    fetchSyncStatus();
                 }}
             />
         </>

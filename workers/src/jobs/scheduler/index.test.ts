@@ -17,7 +17,6 @@ const mockExecutor = {
   execute: mockExecute,
 };
 
-// Mock the scheduler service
 vi.mock('./services/scheduler-service.js', () => ({
   runFullScan: vi.fn().mockResolvedValue({
     success: true,
@@ -41,6 +40,19 @@ vi.mock('./services/scheduler-service.js', () => ({
   }),
 }));
 
+vi.mock('./services/pg-service.js', () => ({
+  getActiveTenants: vi.fn().mockResolvedValue([
+    { id: 'tenant-1', name: 'Tenant One' },
+  ]),
+  getTenantSchedulerConfig: vi.fn().mockResolvedValue({ intervalMinutes: 60 }),
+  getTenantJobConfig: vi.fn().mockResolvedValue({ intervalMinutes: 60, lastRunAt: null }),
+  updateTenantJobLastRun: vi.fn().mockResolvedValue(undefined),
+  getSchedules: vi.fn().mockResolvedValue([]),
+  getAccounts: vi.fn().mockResolvedValue([]),
+  getScheduleById: vi.fn().mockResolvedValue(null),
+  logExecution: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { register } from './index.js';
 
 describe('scheduler job registration', () => {
@@ -48,39 +60,60 @@ describe('scheduler job registration', () => {
     vi.clearAllMocks();
   });
 
-  it('should register cron schedule and worker', async () => {
+  it('should register cron as */5 * * * *', async () => {
     await register(mockBoss, mockExecutor);
-
-    // Should schedule a cron
     expect(mockSchedule).toHaveBeenCalledWith(
       'scheduler-scan',
-      '*/30 * * * *',
-      expect.any(Object),
-      expect.any(Object),
-    );
-
-    // Should register a worker
-    expect(mockWork).toHaveBeenCalledWith(
-      'scheduler-scan',
-      expect.objectContaining({ batchSize: 1 }),
-      expect.any(Function),
+      '*/5 * * * *',
+      {},
+      { tz: 'UTC' }
     );
   });
 
   it('should register handler with executor', async () => {
     await register(mockBoss, mockExecutor);
-
     expect(mockRegisterHandler).toHaveBeenCalledWith('scheduler-scan', expect.any(Function));
   });
 
   it('should call executor.execute in boss.work callback', async () => {
     await register(mockBoss, mockExecutor);
-
-    // Extract the boss.work callback and invoke it
     const workCallback = mockWork.mock.calls[0][2];
-    const fakeJob = { id: 'job-1', data: { triggeredBy: 'system' } };
-    await workCallback([fakeJob]);
+    await workCallback([{ id: 'job-1', data: {} }]);
+    expect(mockExecute).toHaveBeenCalledWith('scheduler-scan', {});
+  });
 
-    expect(mockExecute).toHaveBeenCalledWith('scheduler-scan', fakeJob.data);
+  it('should skip tenant when interval has not elapsed', async () => {
+    const pgService = await import('./services/pg-service.js');
+    const recentRun = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 min ago
+    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: recentRun });
+
+    await register(mockBoss, mockExecutor);
+    const workCallback = mockWork.mock.calls[0][2];
+    await workCallback([{ id: 'job-1', data: {} }]);
+
+    expect(pgService.updateTenantJobLastRun).not.toHaveBeenCalled();
+  });
+
+  it('should run tenant and update lastRunAt when interval has elapsed', async () => {
+    const pgService = await import('./services/pg-service.js');
+    const oldRun = new Date(Date.now() - 90 * 60 * 1000).toISOString(); // 90 min ago
+    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: oldRun });
+
+    await register(mockBoss, mockExecutor);
+    const workCallback = mockWork.mock.calls[0][2];
+    await workCallback([{ id: 'job-1', data: {} }]);
+
+    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
+  });
+
+  it('should always run tenant when lastRunAt is null', async () => {
+    const pgService = await import('./services/pg-service.js');
+    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
+
+    await register(mockBoss, mockExecutor);
+    const workCallback = mockWork.mock.calls[0][2];
+    await workCallback([{ id: 'job-1', data: {} }]);
+
+    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
   });
 });
