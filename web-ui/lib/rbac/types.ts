@@ -25,6 +25,7 @@ export const SUBJECT_TO_MODULE: Record<string, Module> = {
     Account: 'Accounts',
     Schedule: 'Schedules',
     Resource: 'Inventory',
+    Discovery: 'Inventory',
     User: 'Settings',
     Role: 'Settings',
     Tenant: 'Settings',
