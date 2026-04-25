@@ -85,6 +85,7 @@ export function SyncAccountsDialog({
                 const ok = await triggerSync();
                 if (ok) {
                     toast.success("Full sync queued", { description: "Scanning all accounts in the background." });
+                    setSelected(new Set(accounts.map(a => a.accountId)));
                     onOpenChange(false);
                     onSyncStarted(selected.size);
                 } else {
@@ -115,10 +116,12 @@ export function SyncAccountsDialog({
 
             if (failed === 0) {
                 toast.success(`${ids.length} account scan${ids.length > 1 ? "s" : ""} queued`);
+                setSelected(new Set(accounts.map(a => a.accountId)));
                 onOpenChange(false);
                 onSyncStarted(selected.size);
             } else if (succeeded > 0) {
                 toast.warning(`Sync started for ${succeeded} of ${selected.size} accounts. ${failed} already in progress.`);
+                setSelected(new Set(accounts.map(a => a.accountId)));
                 onOpenChange(false);
                 onSyncStarted(succeeded);
             } else {
@@ -208,12 +211,15 @@ export function SyncAccountsDialog({
                                                 <p className="text-xs text-muted-foreground">{account.accountId}</p>
                                                 <p className="text-xs text-muted-foreground">
                                                     {account.lastValidated
-                                                        ? formatDistanceToNow(new Date(account.lastValidated), { addSuffix: true })
+                                                        ? `synced ${formatDistanceToNow(new Date(account.lastValidated), { addSuffix: true })}`
                                                         : "never synced"}
                                                 </p>
                                             </div>
                                             <div className="flex items-center gap-2 shrink-0">
-                                                <Badge variant={isConnected ? "default" : "destructive"}>
+                                                <Badge
+                                                    variant={account.connectionStatus === "connected" ? "default" : "destructive"}
+                                                    className={account.connectionStatus === "connected" ? "bg-green-500 text-white text-xs shrink-0" : "text-xs shrink-0"}
+                                                >
                                                     {account.connectionStatus ?? "unknown"}
                                                 </Badge>
                                                 {job === "queued" && <Loader2 className="h-4 w-4 animate-spin text-blue-500" />}
