@@ -15,6 +15,7 @@ import { UIAccount } from "@/lib/types";
 import { ResourceDetailDialog, ResourceDetailProps } from "@/components/inventory/resource-detail-dialog";
 import { AskAIDialog } from "@/components/inventory/ask-ai-dialog";
 import { ResourceGrid } from "@/components/inventory/resource-grid";
+import { SyncAccountsDialog } from "@/components/inventory/sync-accounts-dialog";
 import { cn } from "@/lib/utils";
 import { RESOURCE_TYPE_OPTIONS, REGION_OPTIONS } from "@/lib/resource-types";
 import { getColumnsForType } from "@/lib/inventory/column-registry";
@@ -66,6 +67,9 @@ export default function InventoryPage() {
 
     // Ask AI Dialog
     const [askAIOpen, setAskAIOpen] = useState(false);
+
+    // Sync Accounts Dialog
+    const [syncDialogOpen, setSyncDialogOpen] = useState(false);
 
     // Applied filters (what the API actually uses)
     const [searchTerm, setSearchTerm] = useState("");
@@ -295,7 +299,7 @@ export default function InventoryPage() {
                             {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
                             Export
                         </Button>
-                        <Button onClick={handleSync} disabled={syncing}>
+                        <Button onClick={() => setSyncDialogOpen(true)} disabled={syncing}>
                             {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                             Sync Now
                         </Button>
@@ -636,6 +640,15 @@ export default function InventoryPage() {
                     region: region !== "all" ? region : undefined,
                     resourceType: resourceType !== "all" ? resourceType : undefined,
                 }}
+            />
+
+            {/* Sync Accounts Dialog */}
+            <SyncAccountsDialog
+                open={syncDialogOpen}
+                onOpenChange={setSyncDialogOpen}
+                accounts={accounts}
+                syncStatuses={inventoryStatus?.accounts ?? []}
+                onSyncComplete={() => { fetchSyncStatus(); }}
             />
         </>
     );
