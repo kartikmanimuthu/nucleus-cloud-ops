@@ -50,7 +50,6 @@ export default function InventoryPage() {
     const router = useRouter();
     const [resources, setResources] = useState<Resource[]>([]);
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [inventoryStatus, setInventoryStatus] = useState<InventoryStatus | null>(null);
 
@@ -168,32 +167,6 @@ export default function InventoryPage() {
         }
     };
 
-    const handleSync = async () => {
-        setSyncing(true);
-        try {
-            const response = await fetch("/api/inventory/sync", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({}),
-            });
-            const data = await response.json();
-
-            if (response.ok) {
-                toast.success("Execution started in the background. It may take a few minutes to complete.", {
-                    description: `Scan ID: ${data.scanId?.substring(0, 8) || "N/A"}`,
-                    duration: 5000,
-                });
-                fetchSyncStatus();
-            } else {
-                toast.error(data.error || "Failed to trigger sync");
-            }
-        } catch {
-            toast.error("Failed to trigger sync");
-        } finally {
-            setSyncing(false);
-        }
-    };
-
     const handleExport = async () => {
         setExporting(true);
         try {
@@ -299,8 +272,8 @@ export default function InventoryPage() {
                             {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
                             Export
                         </Button>
-                        <Button onClick={() => setSyncDialogOpen(true)} disabled={syncing}>
-                            {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                        <Button onClick={() => setSyncDialogOpen(true)}>
+                            <RefreshCw className="h-4 w-4 mr-2" />
                             Sync Now
                         </Button>
                     </div>
@@ -647,8 +620,15 @@ export default function InventoryPage() {
                 open={syncDialogOpen}
                 onOpenChange={setSyncDialogOpen}
                 accounts={accounts}
-                syncStatuses={inventoryStatus?.accounts ?? []}
-                onSyncComplete={() => { fetchSyncStatus(); }}
+                onSyncStarted={(count) => {
+                    toast.success(
+                        count === 1
+                            ? "Sync started for 1 account. It may take a few minutes to complete."
+                            : `Sync started for ${count} accounts. It may take a few minutes to complete.`,
+                        { duration: 5000 }
+                    );
+                    fetchSyncStatus();
+                }}
             />
         </>
     );
