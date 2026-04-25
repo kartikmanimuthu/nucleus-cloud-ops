@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Nucleus Cloud Ops
 
 AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops agent powered by AWS Bedrock.
@@ -8,50 +12,65 @@ AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops age
 | -------------- | ---------------------------------------------------------- |
 | Frontend       | Next.js 15, React 19, Tailwind CSS, Radix UI               |
 | AI Agent       | LangGraph, LangChain, AWS Bedrock (Claude 4.5 Sonnet), MCP |
-| Infrastructure | Pulumi (networking + compute), ECS Fargate, CloudFront |
-| Auth           | NextAuth.js                                                |
-| Testing        | Vitest (web-ui), Jest (root)                               |
+| Infrastructure | Pulumi (networking + compute), ECS Fargate, CloudFront     |
+| Database       | PostgreSQL via Prisma ORM (pgvector enabled)               |
+| Auth           | NextAuth.js (Cognito + Credentials)                        |
+| Testing        | Vitest (web-ui, workers), Jest (root), Playwright (E2E)    |
 
 ## Key Commands
 
 ```bash
-
-# Setup AWS Profile
+# Setup
 export AWS_PROFILE=PLATFORM-ADMIN
 
-# Local development
-cd web-ui && npm run dev        # Next.js dev server → http://localhost:3000
+# Local database (required before dev)
+docker compose up -d postgres          # starts pgvector/pgvector:pg16 on :5432
+
+# Local development — dev server runs on port 3001 (not 3000)
+cd web-ui && npm run dev               # auto-runs prisma migrate deploy first
+
+# Database
+cd web-ui && npm run db:migrate        # create + apply new migration
+cd web-ui && npm run db:generate       # regenerate Prisma client after schema change
+cd web-ui && npm run db:studio         # Prisma Studio UI
+
+# Workers
+cd workers && npm run dev              # pg-boss worker process (tsx --watch)
 
 # Testing
-cd web-ui && npm run test       # Vitest (web-ui)
-npm test                        # Jest (root)
+cd web-ui && npm run test              # Vitest (web-ui)
+cd workers && npm run test             # Vitest (workers)
+npm test                               # Jest (root)
+cd lambda/scheduler && npm run test    # Vitest (scheduler Lambda)
 
 # Linting
-cd web-ui && npm run lint       # ESLint for web-ui
+cd web-ui && npm run lint
+cd lambda/scheduler && npm run lint
 
 # Build
-cd web-ui && npm run build      # Next.js production build
-npm run build                   # Compile TypeScript (root)
+cd web-ui && npm run build
+npm run build                          # Compile TypeScript (root)
 
-# Deploy — Pulumi (networking + compute)
+# Deploy — always networking first, then compute
 cd infra/networking && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
 cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
+cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi preview --stack prod  # preview first
 ```
 
 ## Environment Setup
 
 ```bash
 # 1. Install dependencies
-npm install
-cd web-ui && npm install
+npm install && cd web-ui && npm install && cd ../workers && npm install
 
 # 2. Configure environment
 cp web-ui/.env.local.example web-ui/.env.local
-# Required vars: AWS_REGION, DYNAMODB_TABLE_NAME, DYNAMODB_AUDIT_TABLE_NAME, NEXTAUTH_SECRET
-# Optional (AI agent): DYNAMODB_CHECKPOINT_TABLE, DYNAMODB_WRITES_TABLE, TAVILY_API_KEY
+# Required: DATABASE_URL, AWS_REGION, NEXTAUTH_SECRET, COGNITO_USER_POOL_ID, COGNITO_USER_POOL_CLIENT_ID
+# Optional (AI agent): TAVILY_API_KEY, LANGFUSE_* vars
 
-# 3. AWS credentials
-export AWS_PROFILE=your-profile   # or configure ~/.aws/credentials
+# 3. Start Postgres and run migrations
+docker compose up -d postgres
+cd web-ui && npm run db:migrate
 ```
 
 ## Project Structure
@@ -59,113 +78,73 @@ export AWS_PROFILE=your-profile   # or configure ~/.aws/credentials
 ```
 nucleus-cloud-ops/
 ├── web-ui/
-│   ├── app/              # Next.js app router (pages + API routes)
-│   ├── components/       # React UI components
-│   │   └── agent/        # Agent-specific UI (chat, ops panel)
+│   ├── app/              # Next.js App Router — pages under app/app/, API routes under app/api/
+│   ├── components/       # React UI components, organized by domain
 │   ├── lib/
-│   │   ├── agent/        # AI agent implementation (LangGraph)
-│   │   │   ├── fast-agent.ts       # Quick response agent
-│   │   │   ├── planning-agent.ts   # Multi-step planning agent
-│   │   │   └── agent-shared.ts     # Shared tools, prompts, state
-│   │   └── ...           # AWS clients, DynamoDB helpers, utilities
+│   │   ├── agent/        # LangGraph AI agents (fast, planning, deep)
+│   │   ├── db/           # Prisma client, repository factory, per-domain repositories
+│   │   └── rbac/         # CASL-based RBAC (authorize.ts, types.ts)
 │   └── hooks/            # Custom React hooks
-├── lib/                  # Shared TypeScript utilities
-├── infra/                # Pulumi infrastructure
-│   ├── networking/       # VPC, subnets, subnet groups
-│   ├── compute/          # ECS, Lambda, RDS, DynamoDB, Cognito, CloudFront
-│   ├── bootstrap/        # One-time S3 state + KMS key setup
-│   ├── build-lambdas.sh  # Builds Lambda zip artifacts
-│   └── build-images.sh   # Builds and pushes WebUI Docker image
-├── lambda/               # Lambda functions (scheduler, discovery, vector)
-├── bin/                  # Entry points
-├── docs/                 # Architecture, schema design, PRD
-└── test/                 # Jest tests
+├── workers/              # pg-boss background job workers
+│   └── src/jobs/         # scheduler/, discovery/, kb-sync/
+├── prisma/
+│   ├── schema.prisma     # Single source of truth for all models
+│   └── seed.ts           # Database seed
+├── lambda/               # Lambda functions (scheduler, discovery, vector_processor, kb_sync_processor)
+├── infra/
+│   ├── networking/       # Pulumi: VPC, subnets
+│   └── compute/          # Pulumi: ECS, Lambda, RDS, Cognito, CloudFront
+├── tests/e2e/            # Playwright E2E tests
+└── docs/                 # Architecture, schema design, PRD
 ```
 
-## Coding Conventions
+## Database — PostgreSQL + Prisma
 
-- **TypeScript everywhere**, strict mode enabled
-- **React**: functional components + hooks only, no class components
-- **Styling**: Radix UI primitives + Tailwind CSS utility classes
-- **AWS**: SDK v3 only (`@aws-sdk/client-*`) — never SDK v2
-- **Agent**: LangGraph `StateGraph` for all agent workflows
-- **API**: Next.js API routes in `web-ui/app/api/`
+All persistent state is in PostgreSQL. DynamoDB has been fully removed.
 
-## Workers (pg-boss)
+- Schema: `prisma/schema.prisma` — single source of truth for all models
+- Prisma client output: `web-ui/node_modules/.prisma/client` (web-ui) and `workers/node_modules/.prisma/client` (workers) — run `db:generate` in both after schema changes
+- Connection pool: `connection_limit=10` for ECS (web-ui), `connection_limit=3` for Lambda (set in `DATABASE_URL` query param)
 
-Background job processing has moved from AWS Lambda to pg-boss workers running in a single Node.js process.
+**Multi-tenant safety** — every query must be scoped to a tenant:
 
-```
-workers/
-├── src/
-│   ├── jobs/
-│   │   ├── scheduler/    # Resource start/stop scheduling
-│   │   ├── discovery/    # Multi-account resource scanning
-│   │   └── kb-sync/      # Knowledge base sync (S3, Bitbucket, Confluence)
-│   └── lib/
-│       └── logger.ts     # Structured logger (createLogger, LOG_LEVEL env var)
-└── package.json          # pg-boss ^10.1.5
+```typescript
+// Always use getTenantClient(), never getPrismaClient() directly in business logic
+import { getTenantClient } from '@/lib/db/pg-config';
+const db = getTenantClient(tenantId);
+await db.account.findMany(); // automatically adds WHERE tenant_id = tenantId
 ```
 
-- Workers use `createLogger('service-name')` from `workers/src/lib/logger.ts` — not raw console
-- pg-boss also used in web-ui (`pg-boss` ^10.4.2) for job submission
-- Per-tenant cron scheduling configured via `GET/PUT /api/settings/scheduler`
+**Repository pattern** — never call Prisma directly from services or API routes:
+
+```typescript
+import { getAccountRepository } from '@/lib/db/repository-factory';
+const repo = getAccountRepository();
+await repo.listByTenant(tenantId);
+```
+
+Repositories live in `web-ui/lib/db/repositories/<domain>/` with `interface.ts` + `postgres.ts`.
+
+**Gotcha:** `$executeRaw` is NOT intercepted by the tenant extension — callers must manually add `WHERE tenant_id = $1`.
 
 ## Agent Architecture
 
-The AI agent lives in `web-ui/lib/agent/`. Key patterns:
+Three agent types in `web-ui/lib/agent/`, all entered via `graph-factory.ts`:
 
-- Tools are defined with `DynamicStructuredTool` from LangChain
-- Agent state uses LangGraph `Annotation` for type-safe state management
-- Cross-account AWS calls always go through `sts:AssumeRole`
-- Checkpoints stored in DynamoDB (`DYNAMODB_CHECKPOINT_TABLE`)
-
-## Constraints
-
-- **DO NOT** modify `infra/networking/index.ts` or `infra/compute/index.ts` without running `pulumi preview --stack prod` first
-- **DynamoDB single-table design** — consult `docs/schema-design.md` before adding entities
-- **Never hardcode AWS credentials** — all cross-account ops use STS AssumeRole
-- **Git**: main branch is `master-v1`; active feature work on `pg-boss-migration`
-- **Audit log** every action that modifies AWS resources (existing pattern in `lib/agent/`)
-
-## DynamoDB Single-Table Patterns
-
-Two tables in use — consult `docs/schema-design.md` before adding any entity:
-
-- **NucleusAppTable** (single-table design): `pk` + `sk` as strings; GSI1 uses `gsi1pk` / `gsi1sk`
-- **NucleusAuditTable**: immutable logs with TTL via `expire_at` (30-day retention)
-
-Key PK/SK patterns:
-
-| Entity            | PK                        | SK                         |
-| ----------------- | ------------------------- | -------------------------- |
-| Account           | `ACCOUNT#<AccountId>`   | `METADATA`               |
-| Schedule          | `SCHEDULE#<ScheduleId>` | `METADATA`               |
-| Targeted Resource | `SCHEDULE#<ScheduleId>` | `RESOURCE#<ResourceArn>` |
-
-GSI1 patterns for list queries: `TYPE#ACCOUNT`, `TYPE#SCHEDULE`, `ACCOUNT#<AccountId>`
-
-**Always** use `@aws-sdk/lib-dynamodb` (DocumentClient) — never the raw DynamoDB client.
-
-## Agent Architecture (Detailed)
-
-Three agent types in `web-ui/lib/agent/`:
-
-- **fast-agent.ts** — Reflection loop (generator → tools → reflector → revise), MAX_REFLECT_ITERATIONS=5
-- **planning-agent.ts** — Multi-step (planner → executor → reflector → reviser), MAX_ITERATIONS=30
+- **fast-agent.ts** — Reflection loop (generator → tools → reflector → revise), `MAX_REFLECT_ITERATIONS=5`
+- **planning-agent.ts** — Multi-step (planner → executor → reflector → reviser), `MAX_ITERATIONS=30`
 - **deep-agent.ts** — Extended thinking with MongoDB persistence
 
 Key shared modules:
 
-| File                    | Purpose                                                                   |
-| ----------------------- | ------------------------------------------------------------------------- |
-| `agent-shared.ts`     | State types (ReflectionState), message sanitization, checkpointer init    |
-| `model-factory.ts`    | ChatBedrockConverse init, tool assembly                                   |
-| `tools.ts`            | Tool definitions (execute_command, read_file, write_file, glob, grep, S3) |
-| `prompt-templates.ts` | Reusable prompt fragments (CORE_PRINCIPLES, buildBaseIdentity, etc.)      |
-| `mcp-config.ts`       | MCP server definitions and merge logic                                    |
-| `mcp-manager.ts`      | MCP server lifecycle (connect/disconnect, credential injection)           |
-| `mcp-tools.ts`        | LangChain tool wrappers for MCP resources                                 |
+| File                | Purpose                                                                    |
+| ------------------- | -------------------------------------------------------------------------- |
+| `agent-shared.ts`   | `ReflectionState`, `sanitizeMessagesForBedrock()`                          |
+| `model-factory.ts`  | `ChatBedrockConverse` init, tool assembly                                  |
+| `tools.ts`          | Tool definitions (execute_command, read_file, write_file, glob, grep, S3)  |
+| `prompt-templates.ts` | Reusable prompt fragments (`CORE_PRINCIPLES`, `buildBaseIdentity`, etc.) |
+| `mcp-manager.ts`    | MCP server lifecycle (connect/disconnect, credential injection)            |
+| `persistence.ts`    | LangGraph checkpointer + chat history (PostgreSQL-backed)                  |
 
 Tool definition pattern:
 
@@ -177,17 +156,25 @@ export const myTool = tool(
 );
 ```
 
-**Critical:** Messages must be sanitized before Bedrock calls — orphaned `tool_call` IDs without matching `tool_result` cause `ValidationException`. Use `sanitizeMessagesForBedrock()` from `agent-shared.ts`.
+**Critical:** Sanitize messages before every Bedrock call — orphaned `tool_call` IDs without a matching `tool_result` cause `ValidationException`. Use `sanitizeMessagesForBedrock()` from `agent-shared.ts`.
+
+## Workers (pg-boss)
+
+Background jobs run in `workers/` as a single Node.js process using pg-boss:
+
+- `workers/src/jobs/scheduler/` — resource start/stop scheduling
+- `workers/src/jobs/discovery/` — multi-account resource scanning
+- `workers/src/jobs/kb-sync/` — knowledge base sync (S3, Bitbucket, Confluence)
+- Workers use `createLogger('service-name')` from `workers/src/lib/logger.ts` — not raw `console`
+- web-ui submits jobs via `boss-client.ts`; per-tenant cron via `GET/PUT /api/settings/scheduler`
 
 ## API Route Conventions
 
-All routes in `web-ui/app/api/` follow these patterns:
-
-- **Auth/RBAC**: `authorize()` from `@/lib/rbac/authorize` — every mutating route needs this
-- **Services**: import from `@/lib/<domain>-service.ts` (e.g., `account-service.ts`, `audit-service.ts`)
-- **AWS clients**: `getDynamoDBDocumentClient()` from `@/lib/aws-config`
-- **Responses**: always `NextResponse.json(data, { status: N })`
+- **Auth/RBAC**: `authorize(action, Subject)` from `@/lib/rbac/authorize` on every mutating route
+- **Data access**: use repository factory (`@/lib/db/repository-factory`), not Prisma directly
+- **Responses**: `NextResponse.json({ success: true, data }, { status: N })` or `{ success: false, error: string }`
 - **Session**: `getServerSession(authOptions)` or `getSessionUserId()` from `@/lib/auth-session`
+- **Audit**: every action modifying AWS resources must call `AuditService` from `@/lib/audit-service`
 
 ## Component Patterns
 
@@ -241,7 +228,7 @@ npx playwright test --ui
 npx playwright show-report
 
 # Generate test code interactively (codegen)
-npx playwright codegen http://localhost:3000
+npx playwright codegen http://localhost:3001
 ```
 
 ### Using Playwright MCP for Testing
@@ -357,7 +344,7 @@ All infrastructure is managed by **Pulumi** — no CDK.
 | Stack | Tool | Manages |
 |-------|------|---------|
 | `infra/networking` | Pulumi | VPC, subnets, subnet groups |
-| `infra/compute` | Pulumi | ECS, Lambda, RDS, DynamoDB, Cognito, CloudFront |
+| `infra/compute` | Pulumi | ECS, Lambda, RDS PostgreSQL, Cognito, CloudFront |
 
 Pulumi state: `s3://nucleus-pulumi-state` · Secrets: `awskms://alias/pulumi-secrets`
 
@@ -409,21 +396,13 @@ cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
-**DynamoDB to PostgreSQL Migration**
+Multi-tenant AWS Cloud Operations Platform. All 10 DynamoDB tables have been migrated to PostgreSQL (Prisma ORM + repository pattern). Auth supports Cognito + Credentials with custom RBAC, per-tenant roles, email invitations, and org switching. Background jobs run via pg-boss workers.
 
-Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL. This includes business data tables (single-table design NucleusAppTable, audit, inventory, agent ops, RBAC), LangGraph persistence tables (checkpoints, writes, chat history, memory), and the potentially-unused AgentConversationsTable. The migration uses Prisma ORM with a repository pattern. DynamoDB has been fully removed — all USE_PG_* flags are true and DynamoDB repos/dynamoose models have been deleted.
-
-**Core Value:** Every DynamoDB table is migrated to PostgreSQL with full test coverage (unit + E2E) and verified data migration scripts, enabling server-side filtering, real transactions, relational joins, and proper pagination across the entire platform.
-
-### Constraints
-
-- **AWS Profile**: All migration scripts use `AWS_PROFILE=PLATFORM-ADMIN` for DynamoDB access
-- **Zero downtime**: Feature flags per entity enable instant rollback; DynamoDB tables never deleted during migration
+Active constraints:
 - **ORM**: Prisma ORM with repository pattern; schema at `prisma/schema.prisma`
-- **Python Lambda**: Discovery Lambda stays Python; add psycopg2 for PostgreSQL access (no TypeScript rewrite)
-- **Multi-tenant safety**: Every PostgreSQL query must include `WHERE tenant_id = $1` -- enforce in repository layer
-- **Dual-write for high-risk**: Schedules + Audit phase should dual-write to both backends during validation period
-- **Existing tests**: All existing Vitest/Jest/Playwright tests must continue passing throughout migration
+- **Multi-tenant safety**: Every query scoped via `getTenantClient(tenantId)` — `$executeRaw` is NOT intercepted, scope manually
+- **Python Lambda**: Discovery Lambda stays Python (no TypeScript rewrite)
+- **AWS Profile**: `PLATFORM-ADMIN` for all production operations
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
@@ -457,8 +436,7 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - Recharts (latest) - Charts and analytics
 - Monaco Editor ^4.7.0 - Code editor component
 - fumadocs-core/mdx/ui ^14.7.7 - Documentation pages
-- dynamoose ^4.1.5 - DynamoDB ORM (web-ui)
-- `@aws-sdk/lib-dynamodb` ^3.821.0 - DynamoDB DocumentClient (web-ui)
+- `@prisma/client` - PostgreSQL ORM (web-ui + workers)
 - mongodb ^7.1.0 - MongoDB client (deep agent checkpointing)
 - `@langchain/langgraph-checkpoint-mongodb` ^1.2.0 - LangGraph MongoDB checkpointer
 - Vitest ^4.0.18 (web-ui), Vitest ^2.1.8 (scheduler Lambda) - Unit tests
@@ -487,9 +465,9 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - `uuid` ^13.0.0 - ID generation
 ## Configuration
 - Root: `.env.example` contains AWS account, Pulumi config, Langfuse vars
-- Web-UI: `web-ui/.env.local.example` contains AWS region, Cognito IDs, DynamoDB table names, NextAuth, Jira, Slack, MongoDB, Langfuse vars
+- Web-UI: `web-ui/.env.local.example` contains AWS region, Cognito IDs, DATABASE_URL, NextAuth, Jira, Slack, MongoDB, Langfuse vars
 - Scheduler Lambda: `lambda/scheduler/.env.example`
-- Key required vars: `AWS_REGION`, `APP_TABLE_NAME`, `AUDIT_TABLE_NAME`, `NEXTAUTH_SECRET`, `COGNITO_USER_POOL_ID`, `COGNITO_USER_POOL_CLIENT_ID`
+- Key required vars: `DATABASE_URL`, `AWS_REGION`, `NEXTAUTH_SECRET`, `COGNITO_USER_POOL_ID`, `COGNITO_USER_POOL_CLIENT_ID`
 - Root: `tsconfig.json` (ES2020, commonjs, strict mode)
 - Web-UI: `web-ui/tsconfig.json`, `web-ui/next.config.mjs` (standalone output, MDX via fumadocs)
 - Web-UI: `web-ui/tailwind.config.ts`, `web-ui/postcss.config.mjs`
@@ -527,7 +505,7 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - Lambda handlers: `src/index.ts`
 - React components: `PascalCase` named exports (e.g., `export function AccountsList(...)`)
 - Service classes: `PascalCase` class with static methods (e.g., `class AccountService { static async getAccounts(...) }`)
-- Utility functions: `camelCase` (e.g., `cn()`, `useDebounce()`, `handleDynamoDBError()`)
+- Utility functions: `camelCase` (e.g., `cn()`, `useDebounce()`)
 - Hooks: `use` prefix + camelCase (e.g., `useDebounce`, `useDebouncedCallback`)
 - Types/interfaces: `PascalCase` (e.g., `UIAccount`, `AccountMetadata`, `ReflectionState`)
 - Enum-style string constants: `SCREAMING_SNAKE_CASE` (e.g., `AGENT_OPS_TABLE_NAME`, `TTL_30_DAYS`, `MAX_REFLECT_ITERATIONS`)
@@ -563,8 +541,7 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - `console.error` for caught errors: `'API - Error fetching accounts:', error`
 - Web-ui API routes: raw `console.log`/`console.error` (no structured logging)
 - Workers: use `createLogger('service-name')` from `workers/src/lib/logger.ts` — supports LOG_LEVEL env var
-- Always `getDynamoDBDocumentClient()` from `@/lib/aws-config` — never instantiate DynamoDB directly
-- Always `@aws-sdk/lib-dynamodb` (DocumentClient) — never raw DynamoDB client
+- Data access via repository factory (`@/lib/db/repository-factory`) — never call Prisma directly from routes
 - Cross-account calls via `STSClient + AssumeRoleCommand` — never hardcode credentials
 - `authorize(action, Subject)` from `@/lib/rbac/authorize` — returns `null` (OK) or `NextResponse` (403)
 - Actions: `'read' | 'create' | 'update' | 'delete'`
@@ -586,7 +563,7 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 ## Layers
 - Purpose: Defines and provisions all AWS resources
 - Location: `infra/networking/`, `infra/compute/`
-- Contains: VPC/networking, ECS Fargate cluster, DynamoDB tables, Lambda functions, CloudFront, Cognito, S3 buckets, SQS queues, EventBridge rules
+- Contains: VPC/networking, ECS Fargate cluster, RDS PostgreSQL, Lambda functions, CloudFront, Cognito, S3 buckets, SQS queues, EventBridge rules
 - Depends on: Pulumi (`@pulumi/aws`, `@pulumi/pulumi`, `@pulumi/awsx`, `@pulumi/command`)
 - Key stacks: `infra/networking` → `infra/compute` (dependency order must be preserved)
 - Purpose: Serves the React UI and handles all HTTP API requests
@@ -597,13 +574,13 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - Purpose: Business logic for each domain — accounts, schedules, audit, inventory, etc.
 - Location: `web-ui/lib/`
 - Key files: `account-service.ts`, `schedule-service.ts`, `audit-service.ts`, `schedule-execution-service.ts`, `tenant-config-service.ts`
-- Pattern: Static classes (e.g. `AccountService.getAccounts()`); all DynamoDB access via `getDynamoDBDocumentClient()` from `aws-config.ts`
-- Depends on: `web-ui/lib/aws-config.ts` for DynamoDB client + table names
+- Pattern: Static classes (e.g. `AccountService.getAccounts()`); all data access via repository factory (`@/lib/db/repository-factory`)
+- Depends on: `web-ui/lib/db/pg-config.ts` for Prisma client + `getTenantClient()`
 - Purpose: LangGraph-powered AI agents for cloud operations tasks
 - Location: `web-ui/lib/agent/`
 - Three agent types:
 - Entry: `graph-factory.ts` exports `createFastGraph`, `createReflectionGraph`, `createDeepGraph`
-- Shared: `agent-shared.ts` (state types, `ReflectionState`, `sanitizeMessagesForBedrock`), `model-factory.ts` (ChatBedrockConverse init, tool assembly), `persistence.ts` (DynamoDBSaver checkpointer + DynamoDBStore + DynamoDBChatMessageHistory)
+- Shared: `agent-shared.ts` (state types, `ReflectionState`, `sanitizeMessagesForBedrock`), `model-factory.ts` (ChatBedrockConverse init, tool assembly), `persistence.ts` (PostgreSQL-backed checkpointer + chat history)
 - Purpose: Role-based access control for all mutating API routes
 - Location: `web-ui/lib/rbac/`
 - Pattern: Every mutating route calls `authorize(action, subject)` from `web-ui/lib/rbac/authorize.ts` before proceeding; uses CASL library for ABAC conditions
@@ -616,11 +593,11 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - Domain folders: `agent/`, `agent-ops/`, `inventory/`, `accounts/`, `schedules/`, `audit/`, `knowledge-base/`, `channels/`, `deep-agent/`
 - Primitives: `web-ui/components/ui/` — Radix-based shadcn/ui components (do not modify)
 ## Data Flow
-- LangGraph thread state: DynamoDBSaver checkpointer (DYNAMODB_CHECKPOINT_TABLE + DYNAMODB_WRITES_TABLE), with optional S3 offload for large checkpoints
-- Long-term agent memory: DynamoDBStore with Bedrock embeddings (DYNAMODB_MEMORY_TABLE), 90-day TTL
-- Chat session history: DynamoDBChatMessageHistory (DYNAMODB_CHAT_HISTORY_TABLE), 30-day TTL
-- App config state (accounts, schedules): NucleusAppTable (single-table design, GSI1/GSI2/GSI3)
-- Audit logs: NucleusAuditTable (immutable, 30-day TTL via `expire_at`)
+- LangGraph thread state: PostgreSQL-backed checkpointer (`persistence.ts`), with optional S3 offload for large checkpoints
+- Long-term agent memory: PostgreSQL store with Bedrock embeddings, 90-day TTL
+- Chat session history: PostgreSQL (`agent_chat_history` table), 30-day TTL
+- App config state (accounts, schedules, RBAC): PostgreSQL via Prisma repositories
+- Audit logs: `audit_log` table (immutable, 30-day TTL via `expire_at`)
 ## Key Design Patterns
 ## Entry Points
 - Location: `web-ui/app/layout.tsx`
@@ -628,24 +605,23 @@ Migrating all 10 DynamoDB tables in the Nucleus Cloud Ops platform to PostgreSQL
 - Responsibilities: Wraps all pages in `ThemeProvider`, `ThemeConfigProvider`, `LayoutWrapper`, NextAuth `Providers`
 - Location: `web-ui/app/api/chat/route.ts`
 - Triggers: POST from chat UI component
-- Responsibilities: Auth, thread lock, graph selection, streaming, DynamoDB message persistence
+- Responsibilities: Auth, thread lock, graph selection, streaming, PostgreSQL message persistence
 - Location: `web-ui/app/api/ask-ai/route.ts`
 - Triggers: POST from inventory Ask AI dialog
-- Responsibilities: Embed question, query S3 Vectors, fetch DynamoDB resources, stream answer via Claude
+- Responsibilities: Embed question, query S3 Vectors, fetch PostgreSQL resources, stream answer via Claude
 - Location: `lambda/scheduler/src/index.ts`
 - Triggers: EventBridge cron (every 30 min) or manual invocation
 - Responsibilities: Full or partial schedule scan, STS AssumeRole, resource start/stop
 - Location: `lambda/discovery/src/main.py`
 - Triggers: ECS task or scheduled invocation
-- Responsibilities: Multi-account parallel resource scan, DynamoDB inventory writes, S3 normalized output
+- Responsibilities: Multi-account parallel resource scan, PostgreSQL inventory writes, S3 normalized output
 - Location: `infra/compute/index.ts`
 - Triggers: `pulumi up --stack prod`
-- Responsibilities: Provisions all compute resources (ECS, Lambda, RDS, DynamoDB, Cognito, CloudFront)
+- Responsibilities: Provisions all compute resources (ECS, Lambda, RDS PostgreSQL, Cognito, CloudFront)
 ## Error Handling
 - API routes: `try/catch` → `NextResponse.json({ error }, { status: 5xx })`
 - Agent stream: Abort errors (client disconnect) handled silently; real errors logged and propagated via `controller.error()`
 - Lambda: Top-level try/catch in handler returns `{ success: false, errors: [...] }` SchedulerResult
-- DynamoDB: `handleDynamoDBError()` utility in `web-ui/lib/aws-config.ts` maps DynamoDB error codes to user-friendly messages
 ## Cross-Cutting Concerns
 <!-- GSD:architecture-end -->
 
