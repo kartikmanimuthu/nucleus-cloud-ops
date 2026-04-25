@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -13,14 +13,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { UIAccount } from "@/lib/types";
 
-export interface AccountSyncStatus {
-    accountId: string;
-    accountName: string;
-    lastSyncedAt?: string;
-    lastSyncStatus?: string;
-    lastSyncResourceCount?: number;
-}
-
 interface SyncAccountsDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -28,7 +20,7 @@ interface SyncAccountsDialogProps {
     onSyncStarted: (count: number) => void;
 }
 
-type JobState = "idle" | "queued" | "error";
+type JobState = "queued" | "error";
 
 export function SyncAccountsDialog({
     open,
@@ -41,11 +33,23 @@ export function SyncAccountsDialog({
     const [syncing, setSyncing] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
 
-    const filteredAccounts = accounts.filter(a =>
-        !searchQuery ||
-        a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.accountId.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    // Fix #1: reset selection/state whenever the dialog opens
+    useEffect(() => {
+        if (open) {
+            setSelected(new Set(accounts.map(a => a.accountId)));
+            setJobStates({});
+            setSearchQuery("");
+        }
+    }, [open, accounts]);
+
+    // Fix #7: memoize filtered list
+    const filteredAccounts = useMemo(() => {
+        if (!searchQuery) return accounts;
+        const q = searchQuery.toLowerCase();
+        return accounts.filter(a =>
+            a.name.toLowerCase().includes(q) || a.accountId.toLowerCase().includes(q)
+        );
+    }, [accounts, searchQuery]);
 
     const allSelected = accounts.length > 0 && selected.size === accounts.length;
     const someSelected = selected.size > 0 && !allSelected;
@@ -67,13 +71,18 @@ export function SyncAccountsDialog({
         });
     };
 
-    const triggerSync = async (accountId?: string): Promise<boolean> => {
+    // Fix #2: return structured result so callers can surface the error message
+    const triggerSync = async (accountId?: string): Promise<{ ok: boolean; error?: string }> => {
         const res = await fetch("/api/inventory/sync", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(accountId ? { accountId } : {}),
         });
-        return res.ok;
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            return { ok: false, error: data.error || "Failed to queue sync" };
+        }
+        return { ok: true };
     };
 
     const handleSync = async () => {
@@ -82,16 +91,15 @@ export function SyncAccountsDialog({
         try {
             if (selected.size === accounts.length) {
                 // Full sync — no accountId
-                const ok = await triggerSync();
-                if (ok) {
+                const result = await triggerSync();
+                if (result.ok) {
                     toast.success("Full sync queued", { description: "Scanning all accounts in the background." });
-                    setSelected(new Set(accounts.map(a => a.accountId)));
                     onOpenChange(false);
                     onSyncStarted(selected.size);
                 } else {
-                    toast.error("Failed to queue sync — a job may already be running.");
+                    toast.error(result.error ?? "Failed to queue sync — a job may already be running.");
                 }
-                setSyncing(false);
+                // Fix #5: removed redundant setSyncing(false) here; finally handles it
                 return;
             }
 
@@ -103,9 +111,9 @@ export function SyncAccountsDialog({
 
             const results = await Promise.allSettled(
                 ids.map(async (id) => {
-                    const ok = await triggerSync(id);
-                    setJobStates((prev) => ({ ...prev, [id]: ok ? "queued" : "error" }));
-                    return { id, ok };
+                    const result = await triggerSync(id);
+                    setJobStates((prev) => ({ ...prev, [id]: result.ok ? "queued" : "error" }));
+                    return { id, ok: result.ok };
                 })
             );
 
@@ -116,12 +124,10 @@ export function SyncAccountsDialog({
 
             if (failed === 0) {
                 toast.success(`${ids.length} account scan${ids.length > 1 ? "s" : ""} queued`);
-                setSelected(new Set(accounts.map(a => a.accountId)));
                 onOpenChange(false);
                 onSyncStarted(selected.size);
             } else if (succeeded > 0) {
                 toast.warning(`Sync started for ${succeeded} of ${selected.size} accounts. ${failed} already in progress.`);
-                setSelected(new Set(accounts.map(a => a.accountId)));
                 onOpenChange(false);
                 onSyncStarted(succeeded);
             } else {
@@ -134,10 +140,9 @@ export function SyncAccountsDialog({
         }
     };
 
+    // Fix #1: effect handles reset on next open; just close here
     const handleClose = () => {
         if (!syncing) {
-            setSelected(new Set(accounts.map(a => a.accountId)));
-            setJobStates({});
             onOpenChange(false);
         }
     };
@@ -189,7 +194,7 @@ export function SyncAccountsDialog({
                                 {filteredAccounts.map((account) => {
                                     const job = jobStates[account.accountId];
                                     const isChecked = selected.has(account.accountId);
-                                    const isConnected = account.connectionStatus === "connected";
+                                    // Fix #3: removed unused isConnected variable
 
                                     return (
                                         <div
