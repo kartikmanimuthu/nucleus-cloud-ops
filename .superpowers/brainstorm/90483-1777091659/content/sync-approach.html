@@ -1,0 +1,68 @@
+<h2>How should "Sync Now" work?</h2>
+<p class="subtitle">Pick the interaction pattern for triggering per-account or full sync</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Dropdown Button</h3>
+      <p>Clicking "Sync Now" opens a dropdown with "Sync All Accounts" at the top, then each account listed below. One click to trigger.</p>
+      <div style="margin-top:12px;display:inline-block;border:1px solid #7c3aed;border-radius:6px;overflow:hidden;font-size:13px;">
+        <div style="background:#7c3aed;color:#fff;padding:6px 14px;display:flex;align-items:center;gap:6px;">
+          <span>↻</span> Sync Now <span style="margin-left:4px;">▾</span>
+        </div>
+        <div style="background:#1e1e2e;color:#ccc;border-top:1px solid #333;">
+          <div style="padding:6px 14px;border-bottom:1px solid #333;color:#a78bfa;font-weight:600;">↻ Sync All Accounts</div>
+          <div style="padding:6px 14px;border-bottom:1px solid #2a2a3e;">STX-DATA-AP (767…)</div>
+          <div style="padding:6px 14px;">STX-PROD-US (123…)</div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:12px;">
+        <div class="pros"><h4>Pros</h4><ul><li>Fewest clicks</li><li>Always visible</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Long list with many accounts</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Modal / Dialog</h3>
+      <p>Clicking "Sync Now" opens a dialog with checkboxes for each account. User selects one, many, or all, then confirms.</p>
+      <div style="margin-top:12px;background:#1e1e2e;border:1px solid #333;border-radius:8px;padding:14px;font-size:13px;color:#ccc;max-width:280px;">
+        <div style="font-weight:600;color:#fff;margin-bottom:10px;">Select accounts to sync</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;color:#a78bfa;"><span>☑</span> All Accounts</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span>☑</span> STX-DATA-AP (767…)</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;"><span>☐</span> STX-PROD-US (123…)</div>
+        <div style="display:flex;gap:8px;">
+          <div style="background:#7c3aed;color:#fff;padding:5px 12px;border-radius:5px;">Sync Selected</div>
+          <div style="border:1px solid #444;color:#aaa;padding:5px 12px;border-radius:5px;">Cancel</div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:12px;">
+        <div class="pros"><h4>Pros</h4><ul><li>Multi-select support</li><li>Scales to many accounts</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Extra click to confirm</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Split Button</h3>
+      <p>Left side triggers "Sync All" immediately. Right chevron opens a dropdown to pick a specific account.</p>
+      <div style="margin-top:12px;display:inline-flex;border:1px solid #7c3aed;border-radius:6px;overflow:hidden;font-size:13px;">
+        <div style="background:#7c3aed;color:#fff;padding:6px 14px;">↻ Sync All</div>
+        <div style="background:#6d28d9;color:#fff;padding:6px 10px;border-left:1px solid #9f67ff;">▾</div>
+      </div>
+      <div style="margin-top:4px;background:#1e1e2e;border:1px solid #333;border-radius:6px;font-size:13px;color:#ccc;display:inline-block;">
+        <div style="padding:6px 14px;border-bottom:1px solid #2a2a3e;">STX-DATA-AP (767…)</div>
+        <div style="padding:6px 14px;">STX-PROD-US (123…)</div>
+      </div>
+      <div class="pros-cons" style="margin-top:12px;">
+        <div class="pros"><h4>Pros</h4><ul><li>One-click for common case</li><li>Clean separation</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Slightly unfamiliar pattern</li><li>No multi-select</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>

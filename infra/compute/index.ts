@@ -596,6 +596,31 @@ new aws.iam.RolePolicy("ecs-task-s3vectors-policy", {
     }),
 });
 
+// 5h. Cognito IDP — user management (invitations, admin ops)
+new aws.iam.RolePolicy("ecs-task-cognito-idp-policy", {
+    role: ecsTaskRole.id,
+    policy: userPool.arn.apply(poolArn =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [{
+                Effect: "Allow",
+                Action: [
+                    "cognito-idp:AdminCreateUser",
+                    "cognito-idp:AdminDeleteUser",
+                    "cognito-idp:AdminGetUser",
+                    "cognito-idp:AdminUpdateUserAttributes",
+                    "cognito-idp:AdminSetUserPassword",
+                    "cognito-idp:AdminAddUserToGroup",
+                    "cognito-idp:AdminRemoveUserFromGroup",
+                    "cognito-idp:ListUsers",
+                    "cognito-idp:ListGroups",
+                ],
+                Resource: [poolArn],
+            }],
+        })
+    ),
+});
+
 // 5g. CloudWatch Logs
 new aws.iam.RolePolicy("ecs-task-logs-policy", {
     role: ecsTaskRole.id,

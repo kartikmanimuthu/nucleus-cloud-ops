@@ -124,8 +124,16 @@ export default function AuditClientAPI({
       if (selectedEventType !== "all") filters.eventType = selectedEventType;
       if (selectedStatus !== "all") filters.status = selectedStatus;
       if (selectedUser !== "all") filters.user = selectedUser;
-      if (dateRange?.from) filters.startDate = dateRange.from.toISOString();
-      if (dateRange?.to) filters.endDate = dateRange.to.toISOString();
+      if (dateRange?.from) {
+        const start = new Date(dateRange.from);
+        start.setHours(0, 0, 0, 0);
+        filters.startDate = start.toISOString();
+      }
+      if (dateRange?.to) {
+        const end = new Date(dateRange.to);
+        end.setHours(23, 59, 59, 999);
+        filters.endDate = end.toISOString();
+      }
       if (searchTerm) filters.searchTerm = searchTerm;
 
       // Logic for pagination

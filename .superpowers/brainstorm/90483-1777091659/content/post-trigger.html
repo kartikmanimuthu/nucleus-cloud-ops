@@ -1,0 +1,75 @@
+<h2>After clicking "Sync Selected" — what happens?</h2>
+<p class="subtitle">Pick the post-trigger experience</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Close modal + toast notification</h3>
+      <p>Modal closes immediately. A toast appears at the bottom-right (same as today) with the scan ID. User continues working.</p>
+      <div style="margin-top:10px;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#ccc;max-width:300px;">
+        <div style="display:flex;align-items:flex-start;gap:8px;">
+          <span style="color:#22c55e;font-size:16px;">✓</span>
+          <div>
+            <div style="color:#e2e8f0;font-weight:600;">Sync started for 3 accounts</div>
+            <div style="color:#666;margin-top:2px;">Running in background. Scan ID: c20351bc</div>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:10px;">
+        <div class="pros"><h4>Pros</h4><ul><li>Simple, non-blocking</li><li>Matches existing behavior</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>No per-account progress</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Modal transitions to progress view</h3>
+      <p>Modal stays open and shows a live progress list — each account shows queued → running → done/error status.</p>
+      <div style="margin-top:10px;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px 14px;font-size:12px;color:#ccc;max-width:300px;">
+        <div style="font-weight:700;color:#fff;margin-bottom:10px;">Syncing 3 accounts…</div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #222;">
+          <span style="color:#22c55e;">✓</span>
+          <span style="color:#e2e8f0;">STX-DATA-AP</span>
+          <span style="margin-left:auto;color:#22c55e;font-size:11px;">done · 579 resources</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #222;">
+          <span style="color:#a78bfa;animation:spin 1s linear infinite;">↻</span>
+          <span style="color:#e2e8f0;">STX-PROD-US</span>
+          <span style="margin-left:auto;color:#a78bfa;font-size:11px;">scanning…</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;">
+          <span style="color:#555;">○</span>
+          <span style="color:#888;">STX-DEV-EU</span>
+          <span style="margin-left:auto;color:#555;font-size:11px;">queued</span>
+        </div>
+        <div style="margin-top:10px;text-align:right;">
+          <div style="border:1px solid #444;color:#aaa;padding:5px 12px;border-radius:5px;display:inline-block;">Close</div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:10px;">
+        <div class="pros"><h4>Pros</h4><ul><li>Visible per-account progress</li><li>Errors surface immediately</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>More complex to build</li><li>Blocks modal until done (or user closes)</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Close modal + inline status in the stats bar</h3>
+      <p>Modal closes. The "Accounts Synced" stat card updates live with a spinner and per-account status as jobs complete.</p>
+      <div style="margin-top:10px;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:10px 14px;font-size:12px;color:#ccc;max-width:300px;">
+        <div style="color:#888;font-size:11px;margin-bottom:4px;">ACCOUNTS SYNCED</div>
+        <div style="color:#fff;font-size:18px;font-weight:700;">1 / 3 <span style="color:#a78bfa;font-size:13px;">↻ syncing…</span></div>
+        <div style="color:#666;font-size:11px;margin-top:4px;">STX-DATA-AP ✓ · STX-PROD-US ↻ · STX-DEV-EU ○</div>
+      </div>
+      <div class="pros-cons" style="margin-top:10px;">
+        <div class="pros"><h4>Pros</h4><ul><li>Non-blocking</li><li>Progress always visible</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Stats bar gets busy</li><li>Harder to implement live polling</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>

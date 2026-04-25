@@ -118,12 +118,12 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
       if (searchTerm) filters.searchTerm = searchTerm;
       if (dateRange?.from) {
         const start = new Date(dateRange.from);
-        start.setUTCHours(0, 0, 0, 0);
+        start.setHours(0, 0, 0, 0);
         filters.startDate = start.toISOString();
       }
       if (dateRange?.to) {
         const end = new Date(dateRange.to);
-        end.setUTCHours(23, 59, 59, 999);
+        end.setHours(23, 59, 59, 999);
         filters.endDate = end.toISOString();
       }
       // Merge advanced filters (correlationId, executionId, ipAddress, resourceId, severity, source)
