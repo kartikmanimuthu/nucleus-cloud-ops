@@ -60,11 +60,11 @@ describe('scheduler job registration', () => {
     vi.clearAllMocks();
   });
 
-  it('should register cron as 0 * * * *', async () => {
+  it('should register cron as */5 * * * *', async () => {
     await register(mockBoss, mockExecutor);
     expect(mockSchedule).toHaveBeenCalledWith(
       'scheduler-scan',
-      '0 * * * *',
+      '*/5 * * * *',
       {},
       { tz: 'UTC' }
     );
