@@ -52,7 +52,9 @@ export async function POST(request: NextRequest) {
                 userEmail,
             },
             {
-                singletonKey: `tenant:${tenantId}`,
+                singletonKey: accountId
+                    ? `tenant:${tenantId}:account:${accountId}`
+                    : `tenant:${tenantId}`,
                 retryLimit: 2,
                 retryDelay: 60,
                 retryBackoff: true,
