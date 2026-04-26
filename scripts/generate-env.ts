@@ -98,12 +98,7 @@ function mapOutputsToEnvVars(outputs: Record<string, string>): Record<string, st
     set("INVENTORY_TABLE_NAME", o.inventoryTableName);
 
     // S3 buckets
-    set("CHECKPOINT_S3_BUCKET", o.checkpointBucketName);
     set("APP_BUCKET_NAME", o.appBucketName);
-    // Legacy env vars — kept for backward compat during rollout, all point to APP_BUCKET_NAME
-    set("AGENT_TEMP_BUCKET", o.appBucketName);
-    set("KB_STAGING_BUCKET_NAME", o.appBucketName);
-    set("INVENTORY_BUCKET_NAME", o.appBucketName);
 
     // SQS queues
     set("KB_SYNC_QUEUE_URL", o.kbSyncQueueUrl);
