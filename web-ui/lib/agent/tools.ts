@@ -422,14 +422,14 @@ const s3Client = new S3Client({});
 const getS3Key = (threadId: string, key: string) => {
     const sanitizedThreadId = threadId.replace(/[^a-zA-Z0-9_-]/g, '_');
     const sanitizedKey = key.replace(/^\/+/, '');
-    return `${sanitizedThreadId}/${sanitizedKey}`;
+    return `agent-temp/${sanitizedThreadId}/${sanitizedKey}`;
 };
 
 export const writeFileToS3Tool = tool(
     async ({ key, content, thread_id }: { key: string; content: string; thread_id: string }) => {
-        const bucketName = process.env.AGENT_TEMP_BUCKET;
+        const bucketName = process.env.APP_BUCKET_NAME;
         if (!bucketName) {
-            return 'Error: AGENT_TEMP_BUCKET environment variable is not set.';
+            return 'Error: APP_BUCKET_NAME environment variable is not set.';
         }
 
         const s3Key = getS3Key(thread_id, key);
@@ -464,9 +464,9 @@ export const writeFileToS3Tool = tool(
 
 export const getFileFromS3Tool = tool(
     async ({ key, thread_id }: { key: string; thread_id: string }) => {
-        const bucketName = process.env.AGENT_TEMP_BUCKET;
+        const bucketName = process.env.APP_BUCKET_NAME;
         if (!bucketName) {
-            return 'Error: AGENT_TEMP_BUCKET environment variable is not set.';
+            return 'Error: APP_BUCKET_NAME environment variable is not set.';
         }
 
         const s3Key = getS3Key(thread_id, key);
