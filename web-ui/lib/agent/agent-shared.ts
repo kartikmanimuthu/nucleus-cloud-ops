@@ -338,43 +338,61 @@ export function getRecentMessages(messages: BaseMessage[], maxMessages: number =
  * Call this function immediately before invoking modelWithTools.
  */
 export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage[] {
+    // Pass 1: collect every tool_call_id that already has a ToolMessage response
+    // anywhere in the array (not just consecutively after the AI message).
+    const answeredToolCallIds = new Set<string>();
+    for (const msg of messages) {
+        if (msg._getType() === 'tool') {
+            const toolCallId: string | undefined = (msg as any).tool_call_id;
+            if (toolCallId) answeredToolCallIds.add(toolCallId);
+        }
+    }
+
+    // Pass 2: rebuild the array, inserting synthetic ToolMessages for any
+    // AI tool_call IDs that have no matching ToolMessage in the conversation.
     const result: BaseMessage[] = [];
 
     for (let i = 0; i < messages.length; i++) {
         const msg = messages[i];
         result.push(msg);
 
-        // Only care about AI messages that have tool_calls
         if (msg._getType() !== 'ai') continue;
         const aiMsg = msg as AIMessage;
-        if (!aiMsg.tool_calls || aiMsg.tool_calls.length === 0) continue;
 
-        // Collect the tool_call IDs that need to be matched
-        const pendingIds = new Set(aiMsg.tool_calls.map(tc => tc.id).filter(Boolean));
+        // Collect tool_call IDs from both normalized tool_calls AND raw Bedrock
+        // content blocks (type=tool_use). After checkpoint round-trips the two
+        // can diverge.
+        const pendingIds = new Map<string, string>(); // id → name
+        if (aiMsg.tool_calls && aiMsg.tool_calls.length > 0) {
+            for (const tc of aiMsg.tool_calls) {
+                if (tc.id) pendingIds.set(tc.id, tc.name ?? 'unknown');
+            }
+        }
+        if (Array.isArray(aiMsg.content)) {
+            for (const block of aiMsg.content as any[]) {
+                if (block?.type === 'tool_use' && block?.id) {
+                    if (!pendingIds.has(block.id)) pendingIds.set(block.id, block.name ?? 'unknown');
+                }
+            }
+        }
         if (pendingIds.size === 0) continue;
 
-        // Scan ahead to consume matching ToolMessages
-        const coveredIds = new Set<string>();
+        // Consume consecutive ToolMessages (the normal case)
         let j = i + 1;
         while (j < messages.length && messages[j]._getType() === 'tool') {
-            const toolMsg = messages[j] as any;
-            const toolCallId: string | undefined = toolMsg.tool_call_id;
-            if (toolCallId && pendingIds.has(toolCallId)) {
-                coveredIds.add(toolCallId);
-            }
             result.push(messages[j]);
             j++;
         }
-        // Advance outer index past the consumed tool messages
         i = j - 1;
 
-        // For any tool_call IDs that had no matching ToolMessage, insert a synthetic one
-        for (const toolCall of aiMsg.tool_calls) {
-            if (!toolCall.id || coveredIds.has(toolCall.id)) continue;
+        // Insert synthetic placeholders for any tool_call IDs that have no
+        // matching ToolMessage anywhere in the conversation.
+        for (const [id, name] of pendingIds) {
+            if (answeredToolCallIds.has(id)) continue;
             result.push(new ToolMessage({
                 content: '[Tool result unavailable — synthetic placeholder]',
-                tool_call_id: toolCall.id,
-                name: toolCall.name,
+                tool_call_id: id,
+                name,
             }));
         }
     }

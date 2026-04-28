@@ -19,29 +19,33 @@ function extractMessageContent(message: ChatMessage): string {
             if (part.type === 'text' && part.text) {
                 lines.push(part.text);
             } else if (part.type === 'reasoning' && part.text) {
-                // Include reasoning/thinking content
                 lines.push('**Thinking:**');
                 lines.push('```');
                 lines.push(part.text);
                 lines.push('```');
-            } else if (part.type === 'tool-invocation') {
+            } else if (part.toolCallId || (part.type?.startsWith('tool-') && part.type !== 'text') || part.type === 'dynamic-tool') {
+                // AI SDK v5: tool parts use type "tool-{toolName}" (e.g. "tool-execute_command")
+                // with input/output fields instead of the old "tool-invocation" with args/result
+                const toolName = part.toolName || (part.type?.startsWith('tool-') ? part.type.replace('tool-', '') : 'Unknown');
+                const args = part.args || part.input;
+                const result = part.result || part.output;
+
                 lines.push('');
-                lines.push(`**Tool: \`${part.toolName || 'Unknown'}\`**`);
-                if (part.args && Object.keys(part.args).length > 0) {
+                lines.push(`**Tool: \`${toolName}\`**`);
+                if (args && typeof args === 'object' && Object.keys(args).length > 0) {
                     lines.push('');
                     lines.push('*Input:*');
                     lines.push('```json');
-                    lines.push(JSON.stringify(part.args, null, 2));
+                    lines.push(JSON.stringify(args, null, 2));
                     lines.push('```');
                 }
-                if (part.result) {
+                if (result) {
                     lines.push('');
                     lines.push('*Output:*');
                     lines.push('```');
-                    // Handle result - could be string or object
-                    const resultStr = typeof part.result === 'string'
-                        ? part.result
-                        : JSON.stringify(part.result, null, 2);
+                    const resultStr = typeof result === 'string'
+                        ? result
+                        : JSON.stringify(result, null, 2);
                     lines.push(resultStr);
                     lines.push('```');
                 }

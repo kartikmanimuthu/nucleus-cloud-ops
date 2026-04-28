@@ -28,8 +28,10 @@ export async function resolveModelConfig(
     }
 
     if (providerType === 'openai-compatible') {
-        const modelId = parts[1];
-        const providerRecordId = parts[2];
+        // providerRecordId is always the last segment (UUID); modelId is everything in between
+        // This handles model IDs that contain colons (e.g. "qwen3.6:35b-a3b")
+        const providerRecordId = parts[parts.length - 1];
+        const modelId = parts.slice(1, -1).join(':');
 
         if (!providerRecordId) {
             throw new Error('Provider record ID is required for openai-compatible models');

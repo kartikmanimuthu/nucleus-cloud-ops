@@ -275,6 +275,7 @@ export async function POST(req: Request) {
                 input as any,
                 {
                     version: "v2",
+                    recursionLimit: 100,
                     configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId },
                     ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
                 }

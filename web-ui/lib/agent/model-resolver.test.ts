@@ -51,6 +51,25 @@ describe('resolveModelConfig', () => {
             .rejects.toThrow('Provider not found or disabled');
     });
 
+    it('resolves openai-compatible model with colon in model ID (e.g. qwen3.6:35b-a3b)', async () => {
+        mockGetProvider.mockResolvedValue({
+            id: 'prov-uuid',
+            baseUrl: 'http://ollama:11434/v1',
+            apiKey: null,
+            models: [{ id: 'qwen3.6:35b-a3b', label: 'Qwen 3.6 35B' }],
+            isEnabled: true,
+        });
+        const result = await resolveModelConfig('openai-compatible:qwen3.6:35b-a3b:prov-uuid', 'tenant-1');
+        expect(result).toEqual({
+            provider: 'openai-compatible',
+            modelId: 'qwen3.6:35b-a3b',
+            baseUrl: 'http://ollama:11434/v1',
+            apiKey: undefined,
+            maxTokens: undefined,
+        });
+        expect(mockGetProvider).toHaveBeenCalledWith('prov-uuid', 'tenant-1');
+    });
+
     it('throws when model not in provider model list', async () => {
         mockGetProvider.mockResolvedValue({
             id: 'prov-uuid', isEnabled: true, baseUrl: 'http://vllm:8000/v1',

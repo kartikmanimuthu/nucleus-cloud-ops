@@ -46,7 +46,7 @@ export function ProviderSettings() {
     const [formName, setFormName] = useState("");
     const [formBaseUrl, setFormBaseUrl] = useState("");
     const [formApiKey, setFormApiKey] = useState("");
-    const [formModels, setFormModels] = useState<ProviderModel[]>([{ id: "", label: "" }]);
+    const [formModels, setFormModels] = useState<ProviderModel[]>([{ id: "", label: "", maxTokens: 8000 }]);
     const [saving, setSaving] = useState(false);
 
     const fetchProviders = useCallback(async () => {
@@ -150,14 +150,19 @@ export function ProviderSettings() {
         setFormName("");
         setFormBaseUrl("");
         setFormApiKey("");
-        setFormModels([{ id: "", label: "" }]);
+        setFormModels([{ id: "", label: "", maxTokens: 8000 }]);
     };
 
-    const addModelField = () => setFormModels([...formModels, { id: "", label: "" }]);
+    const addModelField = () => setFormModels([...formModels, { id: "", label: "", maxTokens: 8000 }]);
 
-    const updateModelField = (index: number, field: "id" | "label", value: string) => {
+    const updateModelField = (index: number, field: "id" | "label" | "maxTokens", value: string) => {
         const updated = [...formModels];
-        updated[index] = { ...updated[index], [field]: value };
+        if (field === "maxTokens") {
+            const parsed = parseInt(value, 10);
+            updated[index] = { ...updated[index], maxTokens: isNaN(parsed) ? 8000 : Math.min(200000, Math.max(1, parsed)) };
+        } else {
+            updated[index] = { ...updated[index], [field]: value };
+        }
         setFormModels(updated);
     };
 
@@ -219,7 +224,10 @@ export function ProviderSettings() {
                             <CardContent>
                                 <div className="flex flex-wrap gap-2">
                                     {(p.models as ProviderModel[]).map((m) => (
-                                        <Badge key={m.id} variant="secondary">{m.label || m.id}</Badge>
+                                        <Badge key={m.id} variant="secondary">
+                                            {m.label || m.id}
+                                            {m.maxTokens && <span className="ml-1 text-xs opacity-60">{(m.maxTokens / 1000).toFixed(0)}k</span>}
+                                        </Badge>
                                     ))}
                                 </div>
                                 {testResult?.id === p.id && (
@@ -234,7 +242,7 @@ export function ProviderSettings() {
             )}
 
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="max-w-lg">
+                <DialogContent className="max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>Add LLM Provider</DialogTitle>
                         <DialogDescription>
@@ -257,10 +265,25 @@ export function ProviderSettings() {
                         <div>
                             <Label>Models</Label>
                             <div className="space-y-2 mt-1">
+                                <div className="flex gap-2 text-xs text-muted-foreground px-1">
+                                    <span className="flex-1">Model ID</span>
+                                    <span className="w-40">Display label</span>
+                                    <span className="w-32">Max tokens</span>
+                                    {formModels.length > 1 && <span className="w-8" />}
+                                </div>
                                 {formModels.map((m, i) => (
-                                    <div key={i} className="flex gap-2">
+                                    <div key={i} className="flex gap-2 items-center">
                                         <Input placeholder="Model ID (e.g. meta-llama/Llama-3.3-70B)" value={m.id} onChange={(e) => updateModelField(i, "id", e.target.value)} />
-                                        <Input placeholder="Display label" value={m.label} onChange={(e) => updateModelField(i, "label", e.target.value)} className="w-48" />
+                                        <Input placeholder="Display label" value={m.label} onChange={(e) => updateModelField(i, "label", e.target.value)} className="w-40" />
+                                        <Input
+                                            placeholder="Max tokens"
+                                            type="number"
+                                            min={1}
+                                            max={200000}
+                                            value={m.maxTokens ?? 8000}
+                                            onChange={(e) => updateModelField(i, "maxTokens", e.target.value)}
+                                            className="w-32"
+                                        />
                                         {formModels.length > 1 && (
                                             <Button variant="ghost" size="sm" onClick={() => removeModelField(i)}>
                                                 <Trash2 className="h-4 w-4" />

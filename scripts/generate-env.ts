@@ -120,9 +120,14 @@ function mapOutputsToEnvVars(outputs: Record<string, string>): Record<string, st
     set("COGNITO_IDENTITY_POOL_ID", o.cognitoIdentityPoolId);
     set("NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID", o.cognitoIdentityPoolId);
 
+    // Derive region from pool ID (e.g. "ap-south-1_xxx" → "ap-south-1")
+    const awsRegion = o.cognitoUserPoolId?.split("_")[0] ?? "ap-south-1";
+    set("AWS_REGION", awsRegion);
+    set("NEXT_PUBLIC_AWS_REGION", awsRegion);
+
     // Cognito domain — constructed from prefix
     if (o.cognitoDomainPrefix) {
-        const region = o.cognitoUserPoolId?.split("_")[0] ?? "us-east-1";
+        const region = awsRegion;
         const domain = `${o.cognitoDomainPrefix}.auth.${region}.amazoncognito.com`;
         set("COGNITO_DOMAIN", domain);
         set("NEXT_PUBLIC_COGNITO_DOMAIN", domain);
@@ -153,8 +158,7 @@ function mapOutputsToEnvVars(outputs: Record<string, string>): Record<string, st
 // ---------------------------------------------------------------------------
 
 const STATIC_ENV: Record<string, string> = {
-    AWS_REGION: "us-east-1",
-    NEXT_PUBLIC_AWS_REGION: "us-east-1",
+    // AWS_REGION is derived from cognitoUserPoolId in mapOutputsToEnvVars — not hardcoded here
     NODE_ENV: "production",
     PORT: "3000",
     BEDROCK_MODEL_ID: "amazon.titan-embed-text-v2:0",
