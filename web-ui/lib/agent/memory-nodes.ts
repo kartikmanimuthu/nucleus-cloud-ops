@@ -150,11 +150,11 @@ export function createMemorySaveNode(deps: MemoryNodeDeps) {
 - Do NOT re-save facts that already exist in the known memories below
 
 **Return format:** A JSON array of objects:
-\`\`\`json
+` + '```' + `json
 [{ "namespace": ["infra", "123456789"], "key": "prod-cluster-region", "value": { "fact": "Production ECS cluster runs in us-east-1", "source": "discovered via describe-clusters", "confidence": "high" } }]
-\`\`\`
+` + '```' + `
 
-Return an empty array \`[]\` if nothing new is worth saving.`
+Return an empty array ` + '`[]`' + ` if nothing new is worth saving.`
         );
 
         const extractInput = new HumanMessage({
