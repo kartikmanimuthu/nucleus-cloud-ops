@@ -188,7 +188,7 @@ Extract memories to save.`
             }> = JSON.parse(jsonMatch[0]);
 
             const toSave = memories.filter(m =>
-                m.confidence === undefined || m.value?.confidence === "high" || m.value?.confidence === "medium"
+                m.value?.confidence === "high" || m.value?.confidence === "medium"
             );
 
             if (toSave.length === 0) {
