@@ -104,57 +104,42 @@ const webUiStackName = "nucleus-cloud-ops-web-ui";
 // S3 BUCKETS
 // ============================================================================
 
-// 1. AgentTempBucket — temporary agent storage (1-day expiry)
-const agentTempBucket = new aws.s3.BucketV2("agent-temp-bucket", {
-    bucket: pulumi.interpolate`${appName}-agent-temp-${accountId}-${region}`,
+// Single unified bucket — all features use namespaced prefixes:
+//   agent-temp/tenants/{tenantId}/...     (1-day expiry)
+//   kb-staging/tenants/{tenantId}/...     (1-day expiry)
+//   inventory-raw/tenants/{tenantId}/...  (365-day expiry)
+//   inventory-exports/tenants/{tenantId}/... (7-day expiry)
+//   assets/tenants/{tenantId}/...         (no expiry)
+const appBucket = new aws.s3.BucketV2("app-bucket", {
+    bucket: pulumi.interpolate`${appName}-${accountId}-${region}`,
     forceDestroy: false,
 }, { retainOnDelete: true });
 
-new aws.s3.BucketLifecycleConfigurationV2("agent-temp-bucket-lifecycle", {
-    bucket: agentTempBucket.id,
-    rules: [{
-        id: "expire-all-1d",
-        status: "Enabled",
-        filter: {},
-        expiration: { days: 1 },
-    }],
-});
-
-// 3. KBStagingBucket — KB sync staging (1-day expiry)
-const kbStagingBucket = new aws.s3.BucketV2("kb-staging-bucket", {
-    bucket: pulumi.interpolate`${appName}-kb-staging-${accountId}-${region}`,
-    forceDestroy: false,
-}, { retainOnDelete: true });
-
-new aws.s3.BucketLifecycleConfigurationV2("kb-staging-bucket-lifecycle", {
-    bucket: kbStagingBucket.id,
-    rules: [{
-        id: "expire-all-1d",
-        status: "Enabled",
-        filter: {},
-        expiration: { days: 1 },
-    }],
-});
-
-// 4. InventoryBucket — auto-discovery raw data + exports
-const inventoryBucket = new aws.s3.BucketV2("inventory-bucket", {
-    bucket: pulumi.interpolate`${appName}-inventory-${accountId}-${region}`,
-    forceDestroy: false,
-}, { retainOnDelete: true });
-
-new aws.s3.BucketLifecycleConfigurationV2("inventory-bucket-lifecycle", {
-    bucket: inventoryBucket.id,
+new aws.s3.BucketLifecycleConfigurationV2("app-bucket-lifecycle", {
+    bucket: appBucket.id,
     rules: [
         {
-            id: "raw-expire-365d",
+            id: "agent-temp-expire-1d",
             status: "Enabled",
-            filter: { prefix: "raw/" },
+            filter: { prefix: "agent-temp/" },
+            expiration: { days: 1 },
+        },
+        {
+            id: "kb-staging-expire-1d",
+            status: "Enabled",
+            filter: { prefix: "kb-staging/" },
+            expiration: { days: 1 },
+        },
+        {
+            id: "inventory-raw-expire-365d",
+            status: "Enabled",
+            filter: { prefix: "inventory-raw/" },
             expiration: { days: 365 },
         },
         {
-            id: "exports-expire-7d",
+            id: "inventory-exports-expire-7d",
             status: "Enabled",
-            filter: { prefix: "exports/" },
+            filter: { prefix: "inventory-exports/" },
             expiration: { days: 7 },
         },
     ],
@@ -211,9 +196,10 @@ const userPoolClient = new aws.cognito.UserPoolClient("web-ui-user-pool-client",
     allowedOauthScopes: ["openid", "email", "profile", "aws.cognito.signin.user.admin"],
     callbackUrls: [
         "http://localhost:3000/api/auth/callback/cognito",
+        "http://localhost:3001/api/auth/callback/cognito",
         `${appUrl}/api/auth/callback/cognito`,
     ],
-    logoutUrls: ["http://localhost:3000", appUrl],
+    logoutUrls: ["http://localhost:3000", "http://localhost:3001", appUrl],
     preventUserExistenceErrors: "ENABLED",
     enableTokenRevocation: true,
     accessTokenValidity: 1,
@@ -523,13 +509,10 @@ const ecsTaskRole = new aws.iam.Role("ecs-task-role", {
 });
 
 
-// 5b. S3 — read/write on 3 buckets
+// 5b. S3 — read/write on unified app bucket
 new aws.iam.RolePolicy("ecs-task-s3-policy", {
     role: ecsTaskRole.id,
-    policy: pulumi.all([
-        agentTempBucket.arn,
-        inventoryBucket.arn, kbStagingBucket.arn,
-    ]).apply(([atArn, invArn, kbArn]) =>
+    policy: appBucket.arn.apply(arn =>
         JSON.stringify({
             Version: "2012-10-17",
             Statement: [{
@@ -538,11 +521,7 @@ new aws.iam.RolePolicy("ecs-task-s3-policy", {
                     "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
                     "s3:ListBucket", "s3:GetBucketLocation",
                 ],
-                Resource: [
-                    atArn, `${atArn}/*`,
-                    invArn, `${invArn}/*`,
-                    kbArn, `${kbArn}/*`,
-                ],
+                Resource: [arn, `${arn}/*`],
             }],
         })
     ),
@@ -656,19 +635,15 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         userPool.id,
         userPoolClient.id,
         userPoolClient.clientSecret,
-        identityPool.id,
-        inventoryBucket.bucket,
-        kbStagingBucket.bucket,
-        agentTempBucket.bucket,
-        ecsTaskRole.arn,
+        appBucket.bucket,
         webUiLogGroup.name,
         accountId,
         webUiImage.imageUri,
         nextauthSecretSm.arn,
         databaseUrlSm.arn,
     ]).apply(([
-        cognitoPoolId, cognitoClientId, cognitoClientSecret, identityPoolId,
-        inventoryBucketN, kbStagingBucketN, agentTempBucketN, ecsTaskRoleArnVal,
+        cognitoPoolId, cognitoClientId, cognitoClientSecret,
+        appBucketN,
         webUiLogGroupN, acctId, imageUri,
         nextauthSecretArn, databaseUrlArn,
     ]) => JSON.stringify([{
@@ -693,55 +668,20 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "PORT", value: "3000" },
             { name: "AWS_REGION", value: region },
             { name: "NEXT_PUBLIC_AWS_REGION", value: region },
-            { name: "NEXT_PUBLIC_HUB_ACCOUNT_ID", value: acctId },
             { name: "HUB_ACCOUNT_ID", value: acctId },
+            { name: "NEXT_PUBLIC_HUB_ACCOUNT_ID", value: acctId },
             { name: "COGNITO_USER_POOL_ID", value: cognitoPoolId },
-            { name: "NEXT_PUBLIC_COGNITO_USER_POOL_ID", value: cognitoPoolId },
-            { name: "COGNITO_USER_POOL_CLIENT_ID", value: cognitoClientId },
-            { name: "NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID", value: cognitoClientId },
-            { name: "COGNITO_CLIENT_SECRET", value: cognitoClientSecret },
-            { name: "COGNITO_DOMAIN", value: `nucleus-cloud-ops-web-ui-auth-${acctId}.auth.${region}.amazoncognito.com` },
-            { name: "NEXT_PUBLIC_COGNITO_DOMAIN", value: `nucleus-cloud-ops-web-ui-auth-${acctId}.auth.${region}.amazoncognito.com` },
-            { name: "COGNITO_REGION", value: region },
-            { name: "NEXT_PUBLIC_COGNITO_REGION", value: region },
-            { name: "COGNITO_IDENTITY_POOL_ID", value: identityPoolId },
-            { name: "NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID", value: identityPoolId },
-            { name: "NEXTAUTH_URL", value: appUrl },
-            { name: "NEXT_PUBLIC_NEXTAUTH_URL", value: appUrl },
-            { name: "COGNITO_ISSUER", value: `https://cognito-idp.${region}.amazonaws.com/${cognitoPoolId}` },
-            { name: "NEXT_PUBLIC_COGNITO_ISSUER", value: `https://cognito-idp.${region}.amazonaws.com/${cognitoPoolId}` },
-            { name: "AWS_LAMBDA_EXECUTION_ROLE_ARN", value: ecsTaskRoleArnVal },
-            { name: "NEXT_PUBLIC_AWS_LAMBDA_EXECUTION_ROLE_ARN", value: ecsTaskRoleArnVal },
-            { name: "AWS_USE_STS", value: "true" },
-            { name: "NEXT_PUBLIC_AWS_USE_STS", value: "true" },
             { name: "COGNITO_APP_CLIENT_ID", value: cognitoClientId },
             { name: "COGNITO_APP_CLIENT_SECRET", value: cognitoClientSecret },
+            { name: "COGNITO_ISSUER", value: `https://cognito-idp.${region}.amazonaws.com/${cognitoPoolId}` },
+            { name: "NEXTAUTH_URL", value: appUrl },
+            { name: "APP_BUCKET_NAME", value: appBucketN },
             { name: "DATA_DIR", value: "/tmp" },
-            { name: "EVENTBRIDGE_RULE_NAME", value: "nucleus-cloud-ops-rule" },
-            { name: "AGENT_TEMP_BUCKET", value: agentTempBucketN },
-            { name: "INVENTORY_BUCKET_NAME", value: inventoryBucketN },
-            { name: "VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
-            { name: "VECTOR_INDEX_NAME", value: "text-embeddings" },
             { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
-            { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
-            { name: "KB_VECTOR_INDEX_NAME", value: "knowledge-base-embeddings" },
-            { name: "KB_STAGING_BUCKET_NAME", value: kbStagingBucketN },
             { name: "ASK_AI_GENERATION_MODEL", value: "global.anthropic.claude-sonnet-4-6" },
             { name: "LANGFUSE_ENABLED", value: "false" },
-            { name: "LANGFUSE_PUBLIC_KEY", value: "" },
-            { name: "LANGFUSE_SECRET_KEY", value: "" },
             { name: "LANGFUSE_HOST", value: "https://cloud.langfuse.com" },
-            // PostgreSQL feature flags
-            { name: "USE_PG_ACCOUNTS", value: "true" },
             { name: "USE_PG_SCHEDULES", value: "true" },
-            { name: "USE_PG_AUDIT", value: "true" },
-            { name: "USE_PG_AUDIT_LOGS", value: "true" },
-            { name: "USE_PG_INVENTORY", value: "true" },
-            { name: "USE_PG_AGENT_OPS", value: "true" },
-            { name: "USE_PG_LANGGRAPH", value: "true" },
-            { name: "USE_PG_RBAC", value: "true" },
-            { name: "USE_PG_TENANT_CONFIG", value: "true" },
-            { name: "USE_PG_KB", value: "true" },
         ],
     }])),
 }, { retainOnDelete: true });
@@ -921,12 +861,8 @@ export const networkingVpcCidr = vpcCidr;
 // DynamoDB table name exports (for Phase 9/10 consumption via requireOutput)
 
 // S3 bucket exports
-export const agentTempBucketName = agentTempBucket.bucket;
-export const agentTempBucketArn = agentTempBucket.arn;
-export const kbStagingBucketName = kbStagingBucket.bucket;
-export const kbStagingBucketArn = kbStagingBucket.arn;
-export const inventoryBucketName = inventoryBucket.bucket;
-export const inventoryBucketArn = inventoryBucket.arn;
+export const appBucketName = appBucket.bucket;
+export const appBucketArn = appBucket.arn;
 
 // Cognito exports
 export const cognitoUserPoolId = userPool.id;
@@ -1130,14 +1066,14 @@ new aws.iam.RolePolicy("workers-s3vectors-policy", {
 
 new aws.iam.RolePolicy("workers-s3-policy", {
     role: workersTaskRole.id,
-    policy: pulumi.all([kbStagingBucket.arn]).apply(([bucketArn]) =>
+    policy: appBucket.arn.apply(arn =>
         JSON.stringify({
             Version: "2012-10-17",
             Statement: [
                 {
                     Effect: "Allow",
                     Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
-                    Resource: [bucketArn, `${bucketArn}/*`],
+                    Resource: [arn, `${arn}/*`],
                 },
                 {
                     Effect: "Allow",
@@ -1197,13 +1133,13 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
         operatingSystemFamily: "LINUX",
     },
     containerDefinitions: pulumi.all([
-        kbStagingBucket.bucket,
+        appBucket.bucket,
         ephemeralWorkersLogGroup.name,
         snsTopic.arn,
         workersImage.imageUri,
         databaseUrlSm.arn,
     ]).apply(([
-        kbStagingBucketN,
+        appBucketN,
         ephLogGroupN, snsTopicArn, imageUri, databaseUrlArn,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
@@ -1221,16 +1157,10 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
             { name: "DATABASE_URL", valueFrom: databaseUrlArn },
         ],
         environment: [
-            { name: "NODE_ENV", value: "production" },
             { name: "AWS_REGION", value: region },
-            { name: "SNS_TOPIC_ARN", value: snsTopicArn },
-            { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
-            { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
-            { name: "KB_VECTOR_INDEX_NAME", value: "knowledge-base-embeddings" },
-            { name: "KB_STAGING_BUCKET_NAME", value: kbStagingBucketN },
+            { name: "APP_BUCKET_NAME", value: appBucketN },
             { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
             { name: "USE_PG_SCHEDULES", value: "true" },
-            { name: "USE_PG_KB", value: "true" },
             { name: "LOG_LEVEL", value: "info" },
         ],
     }])),
@@ -1295,7 +1225,7 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
         operatingSystemFamily: "LINUX",
     },
     containerDefinitions: pulumi.all([
-        kbStagingBucket.bucket,
+        appBucket.bucket,
         workersLogGroup.name,
         snsTopic.arn,
         workersImage.imageUri,
@@ -1305,7 +1235,7 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
         privateSubnetIds.apply(ids => ids.join(",")),
         databaseUrlSm.arn,
     ]).apply(([
-        kbStagingBucketN,
+        appBucketN,
         workersLogGroupN, snsTopicArn, imageUri,
         clusterArn, ephTaskDefArn, workersSgId, subnetsJoined, databaseUrlArn,
     ]) => JSON.stringify([{
@@ -1324,23 +1254,17 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
             { name: "DATABASE_URL", valueFrom: databaseUrlArn },
         ],
         environment: [
-            { name: "NODE_ENV", value: "production" },
             { name: "AWS_REGION", value: region },
-            { name: "SNS_TOPIC_ARN", value: snsTopicArn },
-            { name: "CROSS_ACCOUNT_ROLE_NAME", value: crossAccountRoleName },
-            { name: "KB_VECTOR_BUCKET_NAME", value: vectorBucketName || "" },
-            { name: "KB_VECTOR_INDEX_NAME", value: "knowledge-base-embeddings" },
-            { name: "KB_STAGING_BUCKET_NAME", value: kbStagingBucketN },
+            { name: "APP_BUCKET_NAME", value: appBucketN },
             { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
             { name: "USE_PG_SCHEDULES", value: "true" },
-            { name: "USE_PG_KB", value: "true" },
             { name: "LOG_LEVEL", value: "info" },
+            { name: "WORKER_ARCH", value: "horizontal" },
             { name: "HORIZONTAL_CLUSTER_ARN", value: clusterArn },
             { name: "HORIZONTAL_TASK_DEF_ARN", value: ephTaskDefArn },
             { name: "HORIZONTAL_SUBNETS", value: subnetsJoined },
             { name: "HORIZONTAL_SECURITY_GROUP", value: workersSgId },
             { name: "HORIZONTAL_TASK_TIMEOUT_MS", value: "900000" },
-            { name: "WORKER_ARCH", value: "horizontal" },
         ],
     }])),
 }, { retainOnDelete: true });

@@ -10,7 +10,7 @@ const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'ap-south-1',
 });
 
-const INVENTORY_BUCKET = process.env.INVENTORY_BUCKET_NAME || '';
+const APP_BUCKET = process.env.APP_BUCKET_NAME || '';
 
 interface ExportParams {
     accountId?: string;
@@ -35,9 +35,9 @@ export async function POST(request: NextRequest) {
         const accountId = singleAccountId || (accountIds?.length === 1 ? accountIds[0] : undefined);
         const multiAccountIds = !accountId && accountIds && accountIds.length > 1 ? accountIds : undefined;
 
-        if (!INVENTORY_BUCKET) {
+        if (!APP_BUCKET) {
             return NextResponse.json(
-                { error: 'Inventory bucket not configured' },
+                { error: 'App bucket not configured' },
                 { status: 500 }
             );
         }
@@ -123,10 +123,10 @@ export async function POST(request: NextRequest) {
         // Upload to S3
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const uuid = crypto.randomUUID();
-        const fileName = `exports/inventory-${timestamp}-${uuid}.${format}`;
+        const fileName = `inventory-exports/tenants/${tenantId}/inventory-${timestamp}-${uuid}.${format}`;
 
         await s3Client.send(new PutObjectCommand({
-            Bucket: INVENTORY_BUCKET,
+            Bucket: APP_BUCKET,
             Key: fileName,
             Body: buffer,
             ContentType: format === 'csv'
@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
         const downloadUrl = await getSignedUrl(
             s3Client,
             new GetObjectCommand({
-                Bucket: INVENTORY_BUCKET,
+                Bucket: APP_BUCKET,
                 Key: fileName,
             }),
             { expiresIn: 3600 }

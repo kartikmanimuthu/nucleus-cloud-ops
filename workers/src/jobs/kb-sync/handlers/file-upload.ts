@@ -8,11 +8,8 @@ import type { FileUploadJob } from '../types.js';
 // Clients & config
 // ---------------------------------------------------------------------------
 
-// Use KB_STAGING_BUCKET_REGION when the staging bucket lives in a different
-// region than the general AWS_REGION (e.g. bucket in us-east-1, workers in ap-south-1).
-const stagingRegion = process.env.KB_STAGING_BUCKET_REGION || process.env.AWS_REGION || 'us-east-1';
-const s3 = new S3Client({ region: stagingRegion });
-const STAGING_BUCKET = process.env.KB_STAGING_BUCKET_NAME!;
+const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+const STAGING_BUCKET = process.env.APP_BUCKET_NAME!;
 
 // ---------------------------------------------------------------------------
 // File upload handler

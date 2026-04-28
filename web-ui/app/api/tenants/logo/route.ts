@@ -27,9 +27,9 @@ const saveLogoSchema = z.object({
  * Per D-12: client uploads directly to S3 via presigned URL.
  */
 export async function POST(req: NextRequest) {
-    if (!process.env.ASSETS_BUCKET_NAME) {
+    if (!process.env.APP_BUCKET_NAME) {
         return NextResponse.json(
-            { error: "Logo storage not configured (ASSETS_BUCKET_NAME missing)" },
+            { error: "Logo storage not configured (APP_BUCKET_NAME missing)" },
             { status: 500 }
         );
     }
@@ -49,11 +49,11 @@ export async function POST(req: NextRequest) {
         }
 
         const { contentType, size, ext } = parsed.data;
-        const s3Key = `logos/${tenantId}/${Date.now()}.${ext}`;
+        const s3Key = `assets/tenants/${tenantId}/logos/${Date.now()}.${ext}`;
 
         const s3 = new S3Client({ region: process.env.AWS_REGION });
         const command = new PutObjectCommand({
-            Bucket: process.env.ASSETS_BUCKET_NAME!,
+            Bucket: process.env.APP_BUCKET_NAME!,
             Key: s3Key,
             ContentType: contentType,
             ContentLength: size,
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
         // Build the public URL (CloudFront or direct S3)
         const publicUrl = process.env.ASSETS_CDN_URL
             ? `${process.env.ASSETS_CDN_URL}/${s3Key}`
-            : `https://${process.env.ASSETS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+            : `https://${process.env.APP_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
 
         console.log(`API - POST /api/tenants/logo - Generated presigned URL for tenant ${tenantId}`);
 
@@ -102,7 +102,7 @@ export async function PUT(req: NextRequest) {
 
         const publicUrl = process.env.ASSETS_CDN_URL
             ? `${process.env.ASSETS_CDN_URL}/${parsed.data.key}`
-            : `https://${process.env.ASSETS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${parsed.data.key}`;
+            : `https://${process.env.APP_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${parsed.data.key}`;
 
         await TenantSettingsService.saveLogo(
             tenantId,

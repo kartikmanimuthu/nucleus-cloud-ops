@@ -14,7 +14,7 @@ const SUPPORTED_EXT = new Set(['pdf', 'md', 'txt', 'csv', 'json', 'yaml', 'yml']
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
-const KB_STAGING_BUCKET = process.env.KB_STAGING_BUCKET_NAME!;
+const KB_STAGING_BUCKET = process.env.APP_BUCKET_NAME!;
 
 function isSupportedFile(mimeType: string, fileName: string): boolean {
   if (SUPPORTED_MIME.has(mimeType)) return true;
@@ -42,7 +42,7 @@ export async function POST(
   if (!isSupportedFile(file.type, file.name)) return NextResponse.json({ error: `Unsupported file type: ${file.type || file.name}` }, { status: 400 });
 
   // Stage file to S3
-  const stagingKey = `uploads/${kbId}/${randomUUID()}/${file.name}`;
+  const stagingKey = `kb-staging/tenants/${tenantId}/uploads/${kbId}/${randomUUID()}/${file.name}`;
   const buffer = Buffer.from(await file.arrayBuffer());
   await s3.send(new PutObjectCommand({
     Bucket: KB_STAGING_BUCKET,
