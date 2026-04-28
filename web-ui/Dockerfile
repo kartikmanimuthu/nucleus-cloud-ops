@@ -11,17 +11,24 @@ COPY web-ui/package.json web-ui/bun.lock* web-ui/package-lock.json ./
 # Install production dependencies only
 RUN bun install --frozen-lockfile --production
 
-# ── Stage 2: Build with Bun ──
-FROM oven/bun:1-slim AS builder
+# ── Stage 2: Install all deps with Bun (has the lockfile) ──
+FROM oven/bun:1-slim AS deps-all
+WORKDIR /app
+
+COPY web-ui/package.json web-ui/bun.lock* web-ui/package-lock.json ./
+
+RUN bun install --frozen-lockfile
+
+# ── Stage 3: Build with Node (Bun SSR breaks pages-router 404 prerender) ──
+FROM node:20-slim AS builder
 WORKDIR /app
 
 # Install openssl for Prisma engine binaries
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
-COPY web-ui/package.json web-ui/bun.lock* web-ui/package-lock.json ./
-
-# Install all dependencies (including devDependencies for build)
-RUN bun install --frozen-lockfile
+# Copy node_modules from Bun deps stage
+COPY --from=deps-all /app/node_modules ./node_modules
+COPY web-ui/package.json ./
 
 # Copy source code and prisma schema
 COPY web-ui/ .
@@ -41,10 +48,10 @@ ENV NEXT_PUBLIC_AWS_USE_STS=true
 # In Docker context, web-ui/ contents are at /app/ (not /app/web-ui/),
 # so patch the schema output path before generating.
 RUN sed -i 's|"../web-ui/node_modules/.prisma/client"|"../node_modules/.prisma/client"|' ./prisma/schema.prisma && \
-    bunx prisma@5 generate --schema=./prisma/schema.prisma
+    npx prisma@5 generate --schema=./prisma/schema.prisma
 
 # Build the application
-RUN bun run build
+RUN npm run build
 
 # ── Stage 3: Production runner (Bun) ──
 FROM oven/bun:1-slim AS runner
