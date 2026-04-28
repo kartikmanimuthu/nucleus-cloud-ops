@@ -353,7 +353,7 @@ Recent Assistant Output:
 ${truncateOutput(lastAiText, 1500)}
 
 Tool Results (most recent):
-${toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}] ${e.output}`).join('\n---\n')}
+${toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}] ${truncateOutput(e.output, 500)}`).join('\n---\n')}
 
 Plan Status:
 ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
@@ -374,7 +374,18 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
             const content = response.content as string;
             console.log(`[Reflector] Raw content: ${truncateOutput(content, 200)}`);
 
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            // Extract outermost JSON object using balanced-brace scan to avoid
+            // greedy regex capturing embedded JSON strings in large tool outputs.
+            let jsonStr: string | null = null;
+            const start = content.indexOf('{');
+            if (start !== -1) {
+                let depth = 0;
+                for (let i = start; i < content.length; i++) {
+                    if (content[i] === '{') depth++;
+                    else if (content[i] === '}') { depth--; if (depth === 0) { jsonStr = content.slice(start, i + 1); break; } }
+                }
+            }
+            const jsonMatch = jsonStr ? [jsonStr] : null;
             if (jsonMatch) {
                 try {
                     const parsed = JSON.parse(jsonMatch[0]);

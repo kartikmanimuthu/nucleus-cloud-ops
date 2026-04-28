@@ -149,6 +149,7 @@ export function buildAwsCliStandards(): string {
 - Before any mutation (create, update, delete, stop, start, modify, terminate): run the corresponding describe/list command first to confirm resource state.
 - Use --dry-run where supported (e.g., aws ec2 run-instances --dry-run) when operating in an unfamiliar account.
 - Cost Explorer: maximum 14 months lookback. Data has 24-48 hour delay.
+- MCP tool parameters: When a tool parameter schema specifies type "string", ALWAYS pass a plain string — never an array or object. For example, pass metrics as "UnblendedCost" (not ["UnblendedCost"]), and group_by as '{"Type":"DIMENSION","Key":"SERVICE"}' (a JSON string, not a raw object or array).
 - macOS runtime — use BSD date syntax for date arithmetic:
   - Correct: date -v-30d +%Y-%m-%d       (30 days ago)
   - Correct: date -v-3m +%Y-%m-01        (3 months ago, first of month)

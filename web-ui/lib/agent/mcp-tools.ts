@@ -84,6 +84,63 @@ function jsonSchemaToZodObject(schema: any): z.ZodObject<any> {
 }
 
 /**
+ * Coerce tool input values to match the expected MCP schema types.
+ *
+ * LLMs frequently send arrays where the MCP server expects a plain string
+ * (e.g. `metrics: ["UnblendedCost"]` instead of `metrics: "UnblendedCost"`,
+ * or `group_by: [{"Type":"DIMENSION","Key":"SERVICE"}]` instead of a JSON string).
+ * This burns iteration cycles as the agent retries with the same wrong types.
+ *
+ * We walk the schema and coerce mismatched values at the boundary so the MCP
+ * server receives valid input on the first call.
+ */
+function coerceInputToSchema(input: Record<string, any>, schema: any): Record<string, any> {
+    if (!schema?.properties) return input;
+
+    const coerced: Record<string, any> = { ...input };
+
+    for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+        if (!(key in coerced)) continue;
+        const value = coerced[key];
+
+        if (prop.type === 'string' && typeof value !== 'string') {
+            if (Array.isArray(value)) {
+                if (value.length === 1 && typeof value[0] === 'string') {
+                    coerced[key] = value[0];
+                } else {
+                    coerced[key] = JSON.stringify(value);
+                }
+                console.warn(`[MCPTools] Coerced "${key}" from array to string: ${coerced[key]}`);
+            } else if (typeof value === 'object' && value !== null) {
+                coerced[key] = JSON.stringify(value);
+                console.warn(`[MCPTools] Coerced "${key}" from object to string: ${coerced[key]}`);
+            } else if (typeof value === 'number' || typeof value === 'boolean') {
+                coerced[key] = String(value);
+            }
+        } else if ((prop.type === 'number' || prop.type === 'integer') && typeof value === 'string') {
+            const parsed = Number(value);
+            if (!isNaN(parsed)) {
+                coerced[key] = parsed;
+            }
+        } else if (prop.type === 'boolean' && typeof value === 'string') {
+            coerced[key] = value === 'true';
+        } else if (prop.type === 'array' && typeof value === 'string') {
+            try {
+                const parsed = JSON.parse(value);
+                if (Array.isArray(parsed)) coerced[key] = parsed;
+            } catch { /* leave as-is */ }
+        } else if (prop.type === 'object' && typeof value === 'string') {
+            try {
+                const parsed = JSON.parse(value);
+                if (typeof parsed === 'object' && parsed !== null) coerced[key] = parsed;
+            } catch { /* leave as-is */ }
+        }
+    }
+
+    return coerced;
+}
+
+/**
  * Format MCP tool result content into a string for LangChain.
  */
 function formatMCPResult(result: any): string {
@@ -164,12 +221,13 @@ export function createMCPTools(
         return tool(
             async (input: any) => {
                 try {
+                    const coercedInput = coerceInputToSchema(input, mcpTool.inputSchema);
                     console.log(`[MCPTools] Executing MCP tool: ${mcpTool.name} on server: ${mcpTool.mcpServerId}`);
 
                     const result = await mcpManager.executeTool(
                         mcpTool.mcpServerId,
                         mcpTool.name,
-                        input
+                        coercedInput
                     );
 
                     const formatted = formatMCPResult(result);
