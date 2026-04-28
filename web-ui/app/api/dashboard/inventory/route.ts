@@ -7,7 +7,7 @@ import type { TimeRange } from '@/lib/dashboard-types';
 const VALID_RANGES = new Set<TimeRange>(['24h', '7d', '30d', '90d']);
 
 export async function GET(request: NextRequest) {
-  const authError = await authorize('read', 'Account');
+  const authError = await authorize('read', 'Resource');
   if (authError) return authError;
 
   try {

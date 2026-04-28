@@ -277,7 +277,7 @@ export class DashboardService {
 
     const [runs, toolEvents, scheduledTasks, chatSessions, messageCount] = await Promise.all([
       db.agentOpsRun.findMany({ where: { createdAt: { gte: since } }, select: { source: true, status: true, durationMs: true, createdAt: true } }),
-      db.agentOpsEvent.findMany({ where: { createdAt: { gte: since }, eventType: 'tool_call' }, select: { toolName: true } }),
+      db.agentOpsEvent.findMany({ where: { createdAt: { gte: since }, eventType: 'tool_call' }, take: 10000, select: { toolName: true } }),
       db.scheduledTask.count({ where: { taskStatus: 'active' } }),
       db.chatSession.count({ where: { createdAt: { gte: since } } }),
       db.chatMessage.count({ where: { createdAt: { gte: since } } }),
@@ -405,7 +405,7 @@ export class DashboardService {
     const since = getTimeRangeDate(range);
 
     const [resources, accounts, latestSync] = await Promise.all([
-      db.inventoryResource.findMany({ select: { resourceType: true, region: true, accountId: true, status: true, discoveredAt: true } }),
+      db.inventoryResource.findMany({ take: 10000, select: { resourceType: true, region: true, accountId: true, status: true, discoveredAt: true } }),
       db.account.findMany({ select: { accountId: true, name: true } }),
       db.inventorySyncStatus.findFirst({ where: { tenantId }, orderBy: { syncedAt: 'desc' }, select: { syncedAt: true, accountsSynced: true } }),
     ]);

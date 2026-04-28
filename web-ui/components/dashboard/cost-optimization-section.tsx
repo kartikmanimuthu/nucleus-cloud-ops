@@ -21,7 +21,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  ResponsiveContainer,
 } from "recharts";
 import { DollarSign, TrendingDown, Target, Award } from "lucide-react";
 import { SectionSkeleton } from "./section-skeleton";
@@ -79,15 +78,13 @@ export function CostOptimizationSection({ timeRange, refreshKey }: CostOptimizat
                 config={{ savings: { label: "Savings ($)", color: "hsl(var(--chart-1))" } }}
                 className="h-[300px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data.trend}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Area type="monotone" dataKey="savings" stroke="hsl(var(--chart-1))" fill="hsl(var(--chart-1))" fillOpacity={0.2} strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <AreaChart data={data.trend}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="time" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Area type="monotone" dataKey="savings" stroke="hsl(var(--chart-1))" fill="hsl(var(--chart-1))" fillOpacity={0.2} strokeWidth={2} />
+                </AreaChart>
               </ChartContainer>
             </CardContent>
           </Card>
@@ -101,15 +98,13 @@ export function CostOptimizationSection({ timeRange, refreshKey }: CostOptimizat
                 config={{ savings: { label: "Savings ($)", color: "hsl(var(--chart-2))" } }}
                 className="h-[300px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.byAccount} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" tick={{ fontSize: 11 }} />
-                    <YAxis dataKey="accountName" type="category" tick={{ fontSize: 11 }} width={120} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="savings" fill="hsl(var(--chart-2))" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <BarChart data={data.byAccount} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis dataKey="accountName" type="category" tick={{ fontSize: 11 }} width={120} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="savings" fill="hsl(var(--chart-2))" radius={[0, 4, 4, 0]} />
+                </BarChart>
               </ChartContainer>
             </CardContent>
           </Card>
@@ -141,7 +136,7 @@ export function CostOptimizationSection({ timeRange, refreshKey }: CostOptimizat
             <Target className="h-4 w-4 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Optimized</p>
-              <p className="text-sm font-bold">{data.summary.resourcesOptimized} schedules</p>
+              <p className="text-sm font-bold">{data.summary.resourcesOptimized} resources</p>
             </div>
           </div>
         </div>

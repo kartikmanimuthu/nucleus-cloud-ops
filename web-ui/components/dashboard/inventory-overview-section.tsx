@@ -22,7 +22,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  ResponsiveContainer,
 } from "recharts";
 import { Database, Globe, Server, Plus, Play, Square, Minus } from "lucide-react";
 import { SectionSkeleton } from "./section-skeleton";
@@ -88,28 +87,26 @@ export function InventoryOverviewSection({ timeRange, refreshKey }: InventoryOve
                 config={{ count: { label: "Resources", color: "hsl(var(--chart-1))" } }}
                 className="h-[300px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={data.byType}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={90}
-                      dataKey="count"
-                      nameKey="resourceType"
-                      label={({ resourceType, percent }) => `${resourceType.toUpperCase()} ${(percent * 100).toFixed(0)}%`}
-                    >
-                      {data.byType.map((entry) => (
-                        <Cell key={entry.resourceType} fill={TYPE_COLORS[entry.resourceType.toLowerCase()] || "#8884d8"} />
-                      ))}
-                    </Pie>
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-foreground text-2xl font-bold">
-                      {data.summary.totalResources}
-                    </text>
-                  </PieChart>
-                </ResponsiveContainer>
+                <PieChart>
+                  <Pie
+                    data={data.byType}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={90}
+                    dataKey="count"
+                    nameKey="resourceType"
+                    label={({ resourceType, percent }) => `${resourceType.toUpperCase()} ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {data.byType.map((entry) => (
+                      <Cell key={entry.resourceType} fill={TYPE_COLORS[entry.resourceType.toLowerCase()] || "#8884d8"} />
+                    ))}
+                  </Pie>
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-foreground text-2xl font-bold">
+                    {data.summary.totalResources}
+                  </text>
+                </PieChart>
               </ChartContainer>
             </CardContent>
           </Card>
@@ -123,15 +120,13 @@ export function InventoryOverviewSection({ timeRange, refreshKey }: InventoryOve
                 config={{ count: { label: "Resources", color: "hsl(var(--chart-2))" } }}
                 className="h-[300px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.byRegion}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="region" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={60} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="count" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <BarChart data={data.byRegion}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="region" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={60} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                </BarChart>
               </ChartContainer>
             </CardContent>
           </Card>
@@ -153,25 +148,23 @@ export function InventoryOverviewSection({ timeRange, refreshKey }: InventoryOve
                 }}
                 className="h-[250px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={data.byAccount.map((a) => {
-                      const row: Record<string, string | number> = { accountName: a.accountName };
-                      for (const b of a.breakdown) row[b.resourceType.toLowerCase()] = b.count;
-                      return row;
-                    })}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="accountName" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="ec2" stackId="a" fill="#3b82f6" />
-                    <Bar dataKey="ecs" stackId="a" fill="#8b5cf6" />
-                    <Bar dataKey="rds" stackId="a" fill="#f59e0b" />
-                    <Bar dataKey="asg" stackId="a" fill="#10b981" />
-                    <Bar dataKey="docdb" stackId="a" fill="#ef4444" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <BarChart
+                  data={data.byAccount.map((a) => {
+                    const row: Record<string, string | number> = { accountName: a.accountName };
+                    for (const b of a.breakdown) row[b.resourceType.toLowerCase()] = b.count;
+                    return row;
+                  })}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="accountName" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="ec2" stackId="a" fill="#3b82f6" />
+                  <Bar dataKey="ecs" stackId="a" fill="#8b5cf6" />
+                  <Bar dataKey="rds" stackId="a" fill="#f59e0b" />
+                  <Bar dataKey="asg" stackId="a" fill="#10b981" />
+                  <Bar dataKey="docdb" stackId="a" fill="#ef4444" />
+                </BarChart>
               </ChartContainer>
             </CardContent>
           </Card>

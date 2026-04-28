@@ -21,7 +21,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  ResponsiveContainer,
 } from "recharts";
 import { Activity, CheckCircle, Clock, Server, XCircle, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -95,16 +94,14 @@ export function OperationalHealthSection({ timeRange, refreshKey }: OperationalH
                 config={{ success: { label: "Success", color: "#10b981" }, failed: { label: "Failed", color: "#ef4444" } }}
                 className="h-[300px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={data.executionTimeline}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Line type="monotone" dataKey="success" stroke="#10b981" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="failed" stroke="#ef4444" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <LineChart data={data.executionTimeline}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="time" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line type="monotone" dataKey="success" stroke="#10b981" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="failed" stroke="#ef4444" strokeWidth={2} dot={false} />
+                </LineChart>
               </ChartContainer>
             </CardContent>
           </Card>
@@ -118,17 +115,15 @@ export function OperationalHealthSection({ timeRange, refreshKey }: OperationalH
                 config={{ success: { label: "Success", color: "#10b981" }, partialFail: { label: "Partial Fail", color: "#f59e0b" }, fullFail: { label: "Full Fail", color: "#ef4444" } }}
                 className="h-[300px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.executionBySchedule}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="scheduleName" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={60} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="success" stackId="a" fill="#10b981" />
-                    <Bar dataKey="partialFail" stackId="a" fill="#f59e0b" />
-                    <Bar dataKey="fullFail" stackId="a" fill="#ef4444" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <BarChart data={data.executionBySchedule}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="scheduleName" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={60} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="success" stackId="a" fill="#10b981" />
+                  <Bar dataKey="partialFail" stackId="a" fill="#f59e0b" />
+                  <Bar dataKey="fullFail" stackId="a" fill="#ef4444" />
+                </BarChart>
               </ChartContainer>
             </CardContent>
           </Card>

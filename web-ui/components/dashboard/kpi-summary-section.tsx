@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   ChartContainer,
 } from "@/components/ui/chart";
-import { AreaChart, Area, ResponsiveContainer } from "recharts";
+import { AreaChart, Area } from "recharts";
 import {
   DollarSign,
   Server,
@@ -121,18 +121,16 @@ function KpiStatCard({ card }: { card: KpiCard }) {
               config={{ value: { label: card.label, color: "hsl(var(--chart-1))" } }}
               className="h-8 w-full"
             >
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={sparklineData}>
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    stroke="hsl(var(--chart-1))"
-                    fill="hsl(var(--chart-1))"
-                    fillOpacity={0.1}
-                    strokeWidth={1.5}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <AreaChart data={sparklineData}>
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="hsl(var(--chart-1))"
+                  fill="hsl(var(--chart-1))"
+                  fillOpacity={0.1}
+                  strokeWidth={1.5}
+                />
+              </AreaChart>
             </ChartContainer>
           </div>
         )}

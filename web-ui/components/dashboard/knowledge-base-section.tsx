@@ -14,7 +14,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
+import { PieChart, Pie, Cell } from "recharts";
 import { BookOpen, Database, FileText, AlertCircle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SectionSkeleton } from "./section-skeleton";
@@ -130,28 +130,26 @@ export function KnowledgeBaseSection({ refreshKey }: KnowledgeBaseSectionProps) 
                 config={{ vectorCount: { label: "Vectors", color: "hsl(var(--chart-1))" } }}
                 className="h-[300px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={data.bySourceType}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={90}
-                      dataKey="vectorCount"
-                      nameKey="sourceType"
-                      label={({ sourceType, percent }) => `${sourceType} ${(percent * 100).toFixed(0)}%`}
-                    >
-                      {data.bySourceType.map((entry) => (
-                        <Cell key={entry.sourceType} fill={SOURCE_TYPE_COLORS[entry.sourceType] || "#8884d8"} />
-                      ))}
-                    </Pie>
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-foreground text-2xl font-bold">
-                      {data.summary.totalVectors}
-                    </text>
-                  </PieChart>
-                </ResponsiveContainer>
+                <PieChart>
+                  <Pie
+                    data={data.bySourceType}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={90}
+                    dataKey="vectorCount"
+                    nameKey="sourceType"
+                    label={({ sourceType, percent }) => `${sourceType} ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {data.bySourceType.map((entry) => (
+                      <Cell key={entry.sourceType} fill={SOURCE_TYPE_COLORS[entry.sourceType] || "#8884d8"} />
+                    ))}
+                  </Pie>
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-foreground text-2xl font-bold">
+                    {data.summary.totalVectors}
+                  </text>
+                </PieChart>
               </ChartContainer>
             </CardContent>
           </Card>

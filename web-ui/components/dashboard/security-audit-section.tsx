@@ -26,7 +26,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  ResponsiveContainer,
 } from "recharts";
 import { Shield, CheckCircle, AlertTriangle, Users, Monitor, User } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -97,17 +96,15 @@ export function SecurityAuditSection({ timeRange, refreshKey }: SecurityAuditSec
                 }}
                 className="h-[250px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={data.timeline}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Line type="monotone" dataKey="success" stroke="#10b981" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="warning" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="error" stroke="#ef4444" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <LineChart data={data.timeline}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="time" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line type="monotone" dataKey="success" stroke="#10b981" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="warning" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="error" stroke="#ef4444" strokeWidth={2} dot={false} />
+                </LineChart>
               </ChartContainer>
             </CardContent>
           </Card>
@@ -121,15 +118,13 @@ export function SecurityAuditSection({ timeRange, refreshKey }: SecurityAuditSec
                 config={{ count: { label: "Events", color: "hsl(var(--chart-1))" } }}
                 className="h-[250px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.byType}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="eventType" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={60} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="count" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <BarChart data={data.byType}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="eventType" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={60} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="count" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                </BarChart>
               </ChartContainer>
             </CardContent>
           </Card>
@@ -143,28 +138,26 @@ export function SecurityAuditSection({ timeRange, refreshKey }: SecurityAuditSec
                 config={{ count: { label: "Events", color: "hsl(var(--chart-2))" } }}
                 className="h-[250px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={data.byStatus}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
-                      dataKey="count"
-                      nameKey="status"
-                      label={({ status, percent }) => `${status} ${(percent * 100).toFixed(0)}%`}
-                    >
-                      {data.byStatus.map((entry) => (
-                        <Cell key={entry.status} fill={STATUS_COLORS[entry.status] || "#8884d8"} />
-                      ))}
-                    </Pie>
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-foreground text-xl font-bold">
-                      {data.summary.totalEvents}
-                    </text>
-                  </PieChart>
-                </ResponsiveContainer>
+                <PieChart>
+                  <Pie
+                    data={data.byStatus}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    dataKey="count"
+                    nameKey="status"
+                    label={({ status, percent }) => `${status} ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {data.byStatus.map((entry) => (
+                      <Cell key={entry.status} fill={STATUS_COLORS[entry.status] || "#8884d8"} />
+                    ))}
+                  </Pie>
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="fill-foreground text-xl font-bold">
+                    {data.summary.totalEvents}
+                  </text>
+                </PieChart>
               </ChartContainer>
             </CardContent>
           </Card>
@@ -181,16 +174,14 @@ export function SecurityAuditSection({ timeRange, refreshKey }: SecurityAuditSec
                 }}
                 className="h-[250px]"
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data.userVsSystem}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Area type="monotone" dataKey="user" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.4} />
-                    <Area type="monotone" dataKey="system" stackId="1" stroke="#6b7280" fill="#6b7280" fillOpacity={0.4} />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <AreaChart data={data.userVsSystem}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="time" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Area type="monotone" dataKey="user" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.4} />
+                  <Area type="monotone" dataKey="system" stackId="1" stroke="#6b7280" fill="#6b7280" fillOpacity={0.4} />
+                </AreaChart>
               </ChartContainer>
             </CardContent>
           </Card>
