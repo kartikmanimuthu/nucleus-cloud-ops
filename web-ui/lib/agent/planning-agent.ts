@@ -27,6 +27,7 @@ import {
     CORE_PRINCIPLES,
 } from "./prompt-templates";
 import { createAgentModels, assembleTools } from "./model-factory";
+import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 
 // Factory function to create a configured reflection graph
 export async function createReflectionGraph(config: GraphConfig) {
@@ -65,11 +66,16 @@ export async function createReflectionGraph(config: GraphConfig) {
     const modelWithTools = model.bindTools!(tools);
     const toolNode = new ToolNode(tools);
 
+    // --- Memory Nodes ---
+    const memoryDeps = { reflectorModel, tenantId, userId: config.userId, store };
+    const memoryRecallNode = createMemoryRecallNode(memoryDeps);
+    const memorySaveNode = createMemorySaveNode(memoryDeps);
+
     // ---------------------------------------------------------------------------
     // PLANNER NODE
     // ---------------------------------------------------------------------------
     async function planNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        const { messages } = state;
+        const { messages, memoryContext } = state;
         const lastMessage = messages[messages.length - 1];
         const taskDescription = typeof lastMessage.content === 'string'
             ? lastMessage.content
@@ -85,6 +91,7 @@ export async function createReflectionGraph(config: GraphConfig) {
 Your role is to decompose the user's task into a precise, dependency-ordered execution plan.
 ${effectiveSkillSection}
 ${CORE_PRINCIPLES}
+${memoryContext ? `\n## Relevant Context from Memory\n${memoryContext}\n` : ''}
 ## Planning Methodology
 
 Work through three phases when building the plan:
@@ -161,7 +168,7 @@ Only return the JSON array, nothing else.`);
     // GENERATOR (EXECUTOR) NODE
     // ---------------------------------------------------------------------------
     async function generateNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        const { messages, plan, iterationCount } = state;
+        const { messages, plan, iterationCount, memoryContext } = state;
 
         console.log(`\n================================================================================`);
         console.log(`⚡ [EXECUTOR] Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
@@ -176,6 +183,7 @@ Only return the JSON array, nothing else.`);
 Your role is to execute the current plan step precisely and completely using available tools.
 ${effectiveSkillSection}
 ${CORE_PRINCIPLES}
+${memoryContext ? `\n## Relevant Context from Memory\n${memoryContext}\n` : ''}
 ## Current Execution Context
 
 Current Step: ${currentStep}
@@ -621,14 +629,17 @@ ${summaryContent}`;
     // GRAPH CONSTRUCTION
     // ---------------------------------------------------------------------------
     const workflow = new StateGraph<ReflectionState>({ channels: graphState })
+        .addNode("memory_recall", memoryRecallNode)
         .addNode("planner", planNode)
         .addNode("generate", generateNode)
         .addNode("tools", collectingToolNode)
         .addNode("reflect", reflectNode)
         .addNode("revise", reviseNode)
         .addNode("final", finalNode)
+        .addNode("memory_save", memorySaveNode)
 
-        .addEdge(START, "planner")
+        .addEdge(START, "memory_recall")
+        .addEdge("memory_recall", "planner")
         .addEdge("planner", "generate")
 
         .addConditionalEdges("generate", shouldContinueFromGenerate, {
@@ -652,7 +663,8 @@ ${summaryContent}`;
             reflect: "reflect"
         })
 
-        .addEdge("final", END);
+        .addEdge("final", "memory_save")
+        .addEdge("memory_save", END);
 
     if (autoApprove) {
         console.log(`[Graph] Creating graph with autoApprove=true (no interrupts)`);
