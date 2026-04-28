@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { SectionSkeleton } from "./section-skeleton";
 import { SectionError } from "./section-error";
+import { SectionEmpty } from "./section-empty";
 import type { TimeRange, KpiResponse, KpiCard } from "@/lib/dashboard-types";
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -66,7 +67,7 @@ export function KpiSummarySection({ timeRange, refreshKey }: KpiSummarySectionPr
 
   if (loading) return <SectionSkeleton title="Key Metrics" chartCount={3} />;
   if (error) return <SectionError title="Key Metrics" message={error} onRetry={fetchData} />;
-  if (!data) return null;
+  if (!data || data.cards.length === 0) return <SectionEmpty title="Key Metrics" message="No metrics available for the selected period." />;
 
   return (
     <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">

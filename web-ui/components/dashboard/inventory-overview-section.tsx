@@ -24,7 +24,7 @@ import {
   CartesianGrid,
   ResponsiveContainer,
 } from "recharts";
-import { Database, Globe, Server, Plus, Play, Square } from "lucide-react";
+import { Database, Globe, Server, Plus, Play, Square, Minus } from "lucide-react";
 import { SectionSkeleton } from "./section-skeleton";
 import { SectionError } from "./section-error";
 import { SectionEmpty } from "./section-empty";
@@ -177,7 +177,7 @@ export function InventoryOverviewSection({ timeRange, refreshKey }: InventoryOve
           </Card>
         )}
 
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-7">
           <div className="flex items-center gap-2 rounded-lg border p-3">
             <Database className="h-4 w-4 text-muted-foreground" />
             <div>
@@ -211,6 +211,13 @@ export function InventoryOverviewSection({ timeRange, refreshKey }: InventoryOve
             <div>
               <p className="text-xs text-muted-foreground">Stopped</p>
               <p className="text-sm font-bold">{data.summary.stopped}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border p-3">
+            <Minus className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <p className="text-xs text-muted-foreground">Other</p>
+              <p className="text-sm font-bold">{data.summary.other}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 rounded-lg border p-3">

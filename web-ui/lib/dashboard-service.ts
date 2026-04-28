@@ -13,6 +13,18 @@ import { getTimeRangeDate } from '@/lib/dashboard-types';
 
 const DEFAULT_HOURLY_COST = 0.10;
 
+// Per-resource-type cost map ($/hr). Used when resourceType is available on execution data.
+// NOTE: ScheduleExecution does not currently carry a resourceType field, so per-type costing
+// cannot be applied to execution-level aggregations. HOURLY_COST_MAP is defined here and ready
+// for use once resource-type data is surfaced on executions.
+const HOURLY_COST_MAP: Record<string, number> = {
+  EC2: 0.10,
+  RDS: 0.15,
+  ECS: 0.08,
+  ASG: 0.10,
+  DocumentDB: 0.12,
+};
+
 function bucketTimestamp(date: Date, range: TimeRange): string {
   if (range === '24h') {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:00`;
@@ -180,7 +192,8 @@ export class DashboardService {
 
     const totalSavings = executions.reduce((sum, e) => sum + e.resourcesStopped * DEFAULT_HOURLY_COST, 0);
     const daysInRange = range === '24h' ? 1 : range === '7d' ? 7 : range === '30d' ? 30 : 90;
-    const uniqueSchedules = new Set(executions.filter(e => e.resourcesStopped > 0).map(e => e.scheduleId));
+    // Sum of resourcesStopped across all executions — total resource stop actions in the period.
+    const resourcesOptimized = executions.reduce((sum, e) => sum + e.resourcesStopped, 0);
 
     return {
       trend,
@@ -189,7 +202,7 @@ export class DashboardService {
         totalSavings,
         avgDailySavings: daysInRange > 0 ? totalSavings / daysInRange : 0,
         topAccount: byAccount[0]?.accountName || 'N/A',
-        resourcesOptimized: uniqueSchedules.size,
+        resourcesOptimized,
       },
     };
   }
