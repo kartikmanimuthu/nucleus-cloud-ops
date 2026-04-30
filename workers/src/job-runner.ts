@@ -15,7 +15,7 @@ const log = createLogger('job-runner');
 const AGENT_OPS_PREFIX = 'agent-ops-task:';
 
 // Well-known job name → handler mapping
-const HANDLERS: Record<string, (jobData: unknown) => Promise<void>> = {
+const HANDLERS: Record<string, (jobData: unknown) => Promise<unknown>> = {
     'scheduler-scan': handleSchedulerJob,
     'discovery-scan': handleDiscoveryScan,
     'kb-sync': handleKbSyncJob,

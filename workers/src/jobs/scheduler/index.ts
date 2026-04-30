@@ -3,13 +3,13 @@ import { createLogger } from '../../lib/logger.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { runFullScan, runPartialScan } from './services/scheduler-service.js';
 import { getActiveTenants, getTenantJobConfig, updateTenantJobLastRun } from './services/pg-service.js';
-import type { SchedulerEvent } from './types/index.js';
+import type { SchedulerEvent, SchedulerResult } from './types/index.js';
 
 const log = createLogger('scheduler');
 
 const JOB_NAME = 'scheduler-scan';
 
-export async function handleSchedulerJob(jobData: unknown): Promise<void> {
+export async function handleSchedulerJob(jobData: unknown) {
     const event = jobData as SchedulerEvent | undefined;
     const isPartialScan = event?.scheduleId || event?.scheduleName;
     const triggeredBy = event?.triggeredBy || 'system';
@@ -22,9 +22,11 @@ export async function handleSchedulerJob(jobData: unknown): Promise<void> {
     if (isPartialScan) {
         const result = await runPartialScan(event as SchedulerEvent, triggeredBy);
         log.info('Partial scan complete', { result });
+        return result;
     } else {
         const result = await runFullScan(triggeredBy);
         log.info('Full scan complete', { result });
+        return result;
     }
 }
 
@@ -67,14 +69,21 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
             }
 
             // Run the full scan once (runFullScan iterates all tenants internally)
+            let processedTenantIds: string[] = [];
             for (const job of jobs) {
-                await executor.execute(JOB_NAME, job.data);
+                const scanResult = (await executor.execute(JOB_NAME, job.data)) as SchedulerResult;
+                processedTenantIds = scanResult.processedTenantIds || [];
             }
 
-            // Update lastRunAt for all due tenants
+            // Only update lastRunAt for tenants that had actual work
+            // (schedules > 0 AND accounts > 0). Tenants with no work are
+            // skipped so they retry on the next tick.
             const runAt = new Date().toISOString();
+            const processedSet = new Set(processedTenantIds);
             for (const tenant of dueTenants) {
-                await updateTenantJobLastRun(tenant.id, 'scheduler-cron', runAt);
+                if (processedSet.has(tenant.id)) {
+                    await updateTenantJobLastRun(tenant.id, 'scheduler-cron', runAt);
+                }
             }
         },
     );

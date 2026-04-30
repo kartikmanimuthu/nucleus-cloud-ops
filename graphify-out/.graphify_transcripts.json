@@ -1,0 +1,2 @@
+  warning: could not transcribe /Users/kartik/.superset/worktrees/nucleus-cloud-ops/bug-fixes/docs/screenshots/ai_ops_agent.mp4: Video transcription requires faster-whisper. Run: pip install 'graphifyy[video]'
+[]

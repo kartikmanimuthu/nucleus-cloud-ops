@@ -1,0 +1,32 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e46]:
+      - generic [ref=e47]:
+        - img [ref=e66]
+        - generic [ref=e68]: Nucleus Ops
+      - generic [ref=e69]:
+        - heading "Create your organization" [level=1] [ref=e70]
+        - paragraph [ref=e71]: Set up your workspace to get started
+      - group [ref=e73]:
+        - generic [ref=e74]:
+          - generic [ref=e75]:
+            - text: Organization name
+            - textbox "Organization name" [ref=e76]:
+              - /placeholder: Acme Corp
+              - text: Graphify Test
+          - generic [ref=e77]:
+            - text: Slug
+            - generic [ref=e78]:
+              - textbox "Slug" [ref=e79]:
+                - /placeholder: acme-corp
+                - text: graphify-test
+              - img [ref=e81]
+            - paragraph [ref=e84]: Lowercase letters, numbers, and hyphens only. 3-50 characters.
+            - paragraph [ref=e85]: Slug is available
+          - button "Create organization" [ref=e86] [cursor=pointer]
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e40] [cursor=pointer]:
+    - img [ref=e41]
+  - alert [ref=e11]
