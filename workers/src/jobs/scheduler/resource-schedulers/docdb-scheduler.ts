@@ -115,6 +115,7 @@ export async function processDocDBResource(
                     status: 'success',
                     details: `Started DocDB cluster ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
                     severity: 'medium',
+                tenantId: schedule.tenantId,
                     accountId: metadata.account.accountId,
                     region: metadata.region,
                 });
@@ -162,6 +163,7 @@ export async function processDocDBResource(
                 status: 'success',
                 details: `Stopped DocDB cluster ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
                 severity: 'medium',
+                tenantId: schedule.tenantId,
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
@@ -204,6 +206,7 @@ export async function processDocDBResource(
             status: 'error',
             details: `Failed to ${action} DocDB cluster ${resource.id}: ${errorMessage}`,
             severity: 'high',
+                tenantId: schedule.tenantId,
             accountId: metadata.account.accountId,
             region: metadata.region,
         });

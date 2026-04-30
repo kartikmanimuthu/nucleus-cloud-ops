@@ -101,6 +101,7 @@ export async function processASGResource(
                 status: 'success',
                 details: `Stopped ASG ${asgName} for schedule ${schedule.name}. Previous state: minSize=${currentMinSize}, maxSize=${currentMaxSize}, desiredCapacity=${currentDesiredCapacity}`,
                 severity: 'medium',
+                tenantId: schedule.tenantId,
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
@@ -144,6 +145,7 @@ export async function processASGResource(
                 status: 'success',
                 details: `Started ASG ${asgName} for schedule ${schedule.name}. Restored state: minSize=${targetMinSize}, maxSize=${targetMaxSize}, desiredCapacity=${targetDesiredCapacity}`,
                 severity: 'medium',
+                tenantId: schedule.tenantId,
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
@@ -190,6 +192,7 @@ export async function processASGResource(
             status: 'error',
             details: `Failed to ${action} ASG ${asgName}: ${errorMessage}`,
             severity: 'high',
+                tenantId: schedule.tenantId,
             accountId: metadata.account.accountId,
             region: metadata.region,
         });

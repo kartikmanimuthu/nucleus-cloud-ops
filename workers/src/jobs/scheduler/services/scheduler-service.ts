@@ -175,25 +175,29 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
 
     const overallStatus = totalFailed > 0 ? (totalStarted + totalStopped > 0 ? 'warning' : 'error') : 'success';
 
-    await createAuditLog({
-        type: 'audit_log',
-        eventType: 'schedule.execution.completed',
-        action: 'full_scan',
-        user: 'system',
-        userType: 'system',
-        resourceType: 'Schedule',
-        resourceId: executionId,
-        status: overallStatus,
-        details: `Full scan completed: ${totalStarted} started, ${totalStopped} stopped, ${totalFailed} failed`,
-        severity: totalFailed > 0 ? 'medium' : 'low',
-        metadata: {
-            schedulesProcessed: totalSchedulesProcessed,
-            resourcesStarted: totalStarted,
-            resourcesStopped: totalStopped,
-            resourcesFailed: totalFailed,
-            scheduleDetails: processedSchedules,
-        },
-    });
+    // Write per-tenant audit logs so each tenant can see the full scan in their audit grid
+    for (const tenantId of processedTenantIds) {
+        await createAuditLog({
+            type: 'audit_log',
+            eventType: 'schedule.execution.completed',
+            action: 'full_scan',
+            user: 'system',
+            userType: 'system',
+            resourceType: 'Schedule',
+            resourceId: executionId,
+            status: overallStatus,
+            details: `Full scan completed: ${totalStarted} started, ${totalStopped} stopped, ${totalFailed} failed`,
+            severity: totalFailed > 0 ? 'medium' : 'low',
+            tenantId,
+            metadata: {
+                schedulesProcessed: totalSchedulesProcessed,
+                resourcesStarted: totalStarted,
+                resourcesStopped: totalStopped,
+                resourcesFailed: totalFailed,
+                scheduleDetails: processedSchedules,
+            },
+        });
+    }
 
     logger.info('Full scan completed', { totalStarted, totalStopped, totalFailed });
 
@@ -249,6 +253,7 @@ export async function runPartialScan(
             status: 'error',
             details: `Partial scan failed: Schedule not found: ${scheduleId}`,
             severity: 'high',
+            tenantId: event.tenantId,
             metadata: {
                 scheduleId,
                 triggeredBy,
@@ -281,6 +286,7 @@ export async function runPartialScan(
             status: overallStatus,
             details: `Partial scan completed for "${schedule.name}": ${result.started} started, ${result.stopped} stopped, ${result.failed} failed`,
             severity: result.failed > 0 ? 'medium' : 'low',
+            tenantId: event.tenantId,
             metadata: {
                 scheduleId: schedule.scheduleId,
                 scheduleName: schedule.name,
@@ -316,6 +322,7 @@ export async function runPartialScan(
             status: 'error',
             details: `Partial scan failed for "${schedule.name}": ${error instanceof Error ? error.message : String(error)}`,
             severity: 'high',
+            tenantId: event.tenantId,
             metadata: {
                 scheduleId: schedule.scheduleId,
                 scheduleName: schedule.name,

@@ -295,6 +295,7 @@ export async function createExecutionAuditLog(
         status: overallStatus,
         details,
         severity: summary.resourcesFailed > 0 ? 'medium' : 'low',
+        tenantId: schedule.tenantId || 'system',
         metadata: {
             executionId,
             scheduleId: schedule.scheduleId,
