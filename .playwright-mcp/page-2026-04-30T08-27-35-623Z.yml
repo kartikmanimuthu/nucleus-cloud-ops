@@ -1,0 +1,114 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e87]:
+      - generic [ref=e88]:
+        - generic [ref=e89]:
+          - button "G Graphify Test" [ref=e90] [cursor=pointer]:
+            - generic [ref=e92]: G
+            - generic [ref=e93]: Graphify Test
+            - img [ref=e94]
+          - generic [ref=e97]:
+            - button "Toggle theme" [ref=e98] [cursor=pointer]:
+              - img
+              - img
+              - generic [ref=e99]: Toggle theme
+            - button [ref=e100] [cursor=pointer]:
+              - img
+        - navigation [ref=e101]:
+          - link "Dashboard" [ref=e102] [cursor=pointer]:
+            - /url: /app/dashboard
+            - button "Dashboard" [ref=e103]:
+              - img
+              - text: Dashboard
+          - link "AWS Accounts" [ref=e104] [cursor=pointer]:
+            - /url: /app/accounts
+            - button "AWS Accounts" [ref=e105]:
+              - img
+              - text: AWS Accounts
+          - link "AI Ops" [ref=e106] [cursor=pointer]:
+            - /url: /app/agent
+            - button "AI Ops" [ref=e107]:
+              - img
+              - text: AI Ops
+          - link "Agent Ops" [ref=e108] [cursor=pointer]:
+            - /url: /app/agent-ops
+            - button "Agent Ops" [ref=e109]:
+              - img
+              - text: Agent Ops
+          - link "Channels" [ref=e110] [cursor=pointer]:
+            - /url: /app/channels
+            - button "Channels" [ref=e111]:
+              - img
+              - text: Channels
+          - link "Cost Scheduler" [ref=e112] [cursor=pointer]:
+            - /url: /app/schedules
+            - button "Cost Scheduler" [ref=e113]:
+              - img
+              - text: Cost Scheduler
+          - link "Inventory Discovery" [ref=e114] [cursor=pointer]:
+            - /url: /app/inventory
+            - button "Inventory Discovery" [ref=e115]:
+              - img
+              - text: Inventory Discovery
+          - link "Knowledge Base" [ref=e116] [cursor=pointer]:
+            - /url: /app/knowledge-base
+            - button "Knowledge Base" [active] [ref=e117]:
+              - img
+              - text: Knowledge Base
+          - link "Audit Logs" [ref=e118] [cursor=pointer]:
+            - /url: /app/audit
+            - button "Audit Logs" [ref=e119]:
+              - img
+              - text: Audit Logs
+          - link "Settings" [ref=e120] [cursor=pointer]:
+            - /url: /app/settings
+            - button "Settings" [ref=e121]:
+              - img
+              - text: Settings
+          - button "Members & Permissions" [ref=e123] [cursor=pointer]:
+            - generic [ref=e124]:
+              - img
+              - text: Members & Permissions
+            - img
+        - generic [ref=e125]:
+          - link "Website" [ref=e126] [cursor=pointer]:
+            - /url: /
+            - button "Website" [ref=e127]:
+              - img
+              - text: Website
+          - link "Docs" [ref=e128] [cursor=pointer]:
+            - /url: /docs
+            - button "Docs" [ref=e129]:
+              - img
+              - text: Docs
+        - button "U User test@graphify.io" [ref=e131] [cursor=pointer]:
+          - generic [ref=e133]: U
+          - generic [ref=e134]:
+            - paragraph [ref=e135]: User
+            - paragraph [ref=e136]: test@graphify.io
+      - main [ref=e137]:
+        - generic [ref=e517]:
+          - generic [ref=e518]:
+            - generic [ref=e519]:
+              - img [ref=e520]
+              - generic [ref=e522]:
+                - heading "Knowledge Base" [level=1] [ref=e523]
+                - paragraph [ref=e524]: Manage your knowledge bases and the documents they contain.
+            - button "Create Knowledge Base" [ref=e525] [cursor=pointer]:
+              - img
+              - text: Create Knowledge Base
+          - generic [ref=e526]:
+            - img [ref=e527]
+            - generic [ref=e531]:
+              - paragraph [ref=e532]: No knowledge bases yet
+              - paragraph [ref=e533]: Create your first knowledge base to start ingesting documents.
+            - button "Create Knowledge Base" [ref=e534] [cursor=pointer]:
+              - img
+              - text: Create Knowledge Base
+    - region "Notifications (F8)":
+      - list
+    - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e40] [cursor=pointer]:
+    - img [ref=e41]
+  - alert [ref=e11]
+  - generic [ref=e515]: tenant.organization.created

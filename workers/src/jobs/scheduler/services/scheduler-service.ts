@@ -75,6 +75,8 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
         status: 'success' | 'partial' | 'error';
     }> = [];
 
+    let processedTenantIds: string[] = [];
+
     if (USE_PG_SCHEDULES) {
         // D-07: Iterate all active tenants sequentially
         const tenants = await getActiveTenants();
@@ -82,7 +84,7 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
 
         if (tenants.length === 0) {
             logger.info('No active tenants to process');
-            return createResult(executionId, 'full', startTime, 0, 0, 0, 0);
+            return createResult(executionId, 'full', startTime, 0, 0, 0, 0, []);
         }
 
         // D-09: Process tenants sequentially
@@ -91,6 +93,11 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
             const schedules = (await getSchedulesPg(tenant.id)).filter(s => s.type === 'schedule');
             const accounts = await getAccountsPg(tenant.id);
             logger.info(`Tenant ${tenant.name}: ${schedules.length} active schedules, ${accounts.length} accounts`);
+
+            if (schedules.length === 0 || accounts.length === 0) {
+                continue;
+            }
+            processedTenantIds.push(tenant.id);
 
             for (const schedule of schedules) {
                 logger.debug(`Processing schedule: ${schedule.scheduleId} (${schedule.name})`, { schedule });
@@ -131,7 +138,7 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
 
         if (schedules.length === 0) {
             logger.info('No active schedules to process');
-            return createResult(executionId, 'full', startTime, 0, 0, 0, 0);
+            return createResult(executionId, 'full', startTime, 0, 0, 0, 0, []);
         }
 
         for (const schedule of schedules) {
@@ -168,25 +175,29 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
 
     const overallStatus = totalFailed > 0 ? (totalStarted + totalStopped > 0 ? 'warning' : 'error') : 'success';
 
-    await createAuditLog({
-        type: 'audit_log',
-        eventType: 'schedule.execution.completed',
-        action: 'full_scan',
-        user: 'system',
-        userType: 'system',
-        resourceType: 'Schedule',
-        resourceId: executionId,
-        status: overallStatus,
-        details: `Full scan completed: ${totalStarted} started, ${totalStopped} stopped, ${totalFailed} failed`,
-        severity: totalFailed > 0 ? 'medium' : 'low',
-        metadata: {
-            schedulesProcessed: totalSchedulesProcessed,
-            resourcesStarted: totalStarted,
-            resourcesStopped: totalStopped,
-            resourcesFailed: totalFailed,
-            scheduleDetails: processedSchedules,
-        },
-    });
+    // Write per-tenant audit logs so each tenant can see the full scan in their audit grid
+    for (const tenantId of processedTenantIds) {
+        await createAuditLog({
+            type: 'audit_log',
+            eventType: 'schedule.execution.completed',
+            action: 'full_scan',
+            user: 'system',
+            userType: 'system',
+            resourceType: 'Schedule',
+            resourceId: executionId,
+            status: overallStatus,
+            details: `Full scan completed: ${totalStarted} started, ${totalStopped} stopped, ${totalFailed} failed`,
+            severity: totalFailed > 0 ? 'medium' : 'low',
+            tenantId,
+            metadata: {
+                schedulesProcessed: totalSchedulesProcessed,
+                resourcesStarted: totalStarted,
+                resourcesStopped: totalStopped,
+                resourcesFailed: totalFailed,
+                scheduleDetails: processedSchedules,
+            },
+        });
+    }
 
     logger.info('Full scan completed', { totalStarted, totalStopped, totalFailed });
 
@@ -197,7 +208,8 @@ export async function runFullScan(triggeredBy: 'system' | 'web-ui' = 'system'): 
         totalSchedulesProcessed,
         totalStarted,
         totalStopped,
-        totalFailed
+        totalFailed,
+        processedTenantIds
     );
 }
 
@@ -241,6 +253,7 @@ export async function runPartialScan(
             status: 'error',
             details: `Partial scan failed: Schedule not found: ${scheduleId}`,
             severity: 'high',
+            tenantId: event.tenantId,
             metadata: {
                 scheduleId,
                 triggeredBy,
@@ -273,6 +286,7 @@ export async function runPartialScan(
             status: overallStatus,
             details: `Partial scan completed for "${schedule.name}": ${result.started} started, ${result.stopped} stopped, ${result.failed} failed`,
             severity: result.failed > 0 ? 'medium' : 'low',
+            tenantId: event.tenantId,
             metadata: {
                 scheduleId: schedule.scheduleId,
                 scheduleName: schedule.name,
@@ -292,7 +306,8 @@ export async function runPartialScan(
             1,
             result.started,
             result.stopped,
-            result.failed
+            result.failed,
+            [event.tenantId]
         );
     } catch (error) {
         // Log audit for partial scan failure
@@ -307,6 +322,7 @@ export async function runPartialScan(
             status: 'error',
             details: `Partial scan failed for "${schedule.name}": ${error instanceof Error ? error.message : String(error)}`,
             severity: 'high',
+            tenantId: event.tenantId,
             metadata: {
                 scheduleId: schedule.scheduleId,
                 scheduleName: schedule.name,
@@ -683,7 +699,8 @@ function createResult(
     schedulesProcessed: number,
     resourcesStarted: number,
     resourcesStopped: number,
-    resourcesFailed: number
+    resourcesFailed: number,
+    processedTenantIds?: string[]
 ): SchedulerResult {
     return {
         success: resourcesFailed === 0,
@@ -694,5 +711,6 @@ function createResult(
         resourcesStopped,
         resourcesFailed,
         duration: Date.now() - startTime,
+        processedTenantIds,
     };
 }

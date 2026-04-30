@@ -95,6 +95,7 @@ export async function processRDSResource(
                 status: 'success',
                 details: `Started RDS instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
                 severity: 'medium',
+                tenantId: schedule.tenantId,
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
@@ -127,6 +128,7 @@ export async function processRDSResource(
                 status: 'success',
                 details: `Stopped RDS instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
                 severity: 'medium',
+                tenantId: schedule.tenantId,
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
@@ -171,6 +173,7 @@ export async function processRDSResource(
             status: 'error',
             details: `Failed to ${action} RDS instance ${resource.id}: ${errorMessage}`,
             severity: 'high',
+                tenantId: schedule.tenantId,
             accountId: metadata.account.accountId,
             region: metadata.region,
         });

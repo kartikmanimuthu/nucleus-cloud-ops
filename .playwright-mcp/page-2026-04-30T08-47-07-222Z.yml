@@ -1,0 +1,10 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - heading "settings" [level=2] [ref=e3]
+    - img [ref=e4]
+  - generic [ref=e5]:
+    - heading "inventory" [level=2] [ref=e6]
+    - img [ref=e7]
+  - generic [ref=e8]:
+    - heading "audit" [level=2] [ref=e9]
+    - img [ref=e10]

@@ -26,6 +26,8 @@ export interface SchedulerResult {
     resourcesFailed: number;
     duration: number;
     errors?: string[];
+    /** Tenant IDs that had actual work (schedules > 0 and accounts > 0). Caller uses this to update lastRunAt. */
+    processedTenantIds?: string[];
 }
 
 // DynamoDB Entity Types

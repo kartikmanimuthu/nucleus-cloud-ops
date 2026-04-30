@@ -95,6 +95,7 @@ export async function processEC2Resource(
                 status: 'success',
                 details: `Started EC2 instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
                 severity: 'medium',
+                tenantId: schedule.tenantId,
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
@@ -127,6 +128,7 @@ export async function processEC2Resource(
                 status: 'success',
                 details: `Stopped EC2 instance ${resource.id} (${resource.name}) for schedule ${schedule.name}`,
                 severity: 'medium',
+                tenantId: schedule.tenantId,
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
@@ -171,6 +173,7 @@ export async function processEC2Resource(
             status: 'error',
             details: `Failed to ${action} EC2 instance ${resource.id}: ${errorMessage}`,
             severity: 'high',
+                tenantId: schedule.tenantId,
             accountId: metadata.account.accountId,
             region: metadata.region,
         });

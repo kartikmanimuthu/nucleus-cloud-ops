@@ -160,6 +160,7 @@ export async function processECSResource(
                     status: 'success',
                     details: `Stopped ECS service ${serviceName} for schedule ${schedule.name}. Previous desiredCount: ${currentDesiredCount}`,
                     severity: 'medium',
+                tenantId: schedule.tenantId,
                     accountId: metadata.account.accountId,
                     region: metadata.region,
                 });
@@ -242,6 +243,7 @@ export async function processECSResource(
                                         status: 'success',
                                         details: `Stopped backing ASG ${asgName} as ECS Cluster ${clusterArn} became idle`,
                                         severity: 'medium',
+                tenantId: schedule.tenantId,
                                         accountId: metadata.account.accountId,
                                         region: metadata.region,
                                     });
@@ -341,6 +343,7 @@ export async function processECSResource(
                             status: 'success',
                             details: `Restored backing ASG ${state.name} before starting ECS Service ${serviceName}`,
                             severity: 'medium',
+                tenantId: schedule.tenantId,
                             accountId: metadata.account.accountId,
                             region: metadata.region,
                         });
@@ -392,6 +395,7 @@ export async function processECSResource(
                                     status: 'warning',
                                     details: `Restored backing ASG ${asgName} with fallback default (1) as no state was captured`,
                                     severity: 'medium',
+                tenantId: schedule.tenantId,
                                     accountId: metadata.account.accountId,
                                     region: metadata.region,
                                 });
@@ -424,6 +428,7 @@ export async function processECSResource(
                 status: 'success',
                 details: `Started ECS service ${serviceName} for schedule ${schedule.name}. Restored desiredCount: ${targetDesiredCount}`,
                 severity: 'medium',
+                tenantId: schedule.tenantId,
                 accountId: metadata.account.accountId,
                 region: metadata.region,
             });
@@ -476,6 +481,7 @@ export async function processECSResource(
             status: 'error',
             details: `Failed to ${action} ECS service ${serviceName}: ${errorMessage}`,
             severity: 'high',
+                tenantId: schedule.tenantId,
             accountId: metadata.account.accountId,
             region: metadata.region,
         });
