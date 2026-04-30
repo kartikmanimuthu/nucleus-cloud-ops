@@ -90,16 +90,16 @@
 10. `POST()` - 14 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `ecsServicesDeep()` --calls--> `String()`  [INFERRED]
-  workers/src/jobs/discovery/services/custom-scanners.ts → web-ui/components/audit/audit-client-component.tsx
-- `wafv2Deep()` --calls--> `String()`  [INFERRED]
-  workers/src/jobs/discovery/services/custom-scanners.ts → web-ui/components/audit/audit-client-component.tsx
+- `String()` --calls--> `ecsServicesDeep()`  [INFERRED]
+  web-ui/components/audit/audit-client-component.tsx → workers/src/jobs/discovery/services/custom-scanners.ts
+- `String()` --calls--> `wafv2Deep()`  [INFERRED]
+  web-ui/components/audit/audit-client-component.tsx → workers/src/jobs/discovery/services/custom-scanners.ts
 - `POST()` --calls--> `getEmbedding()`  [INFERRED]
   web-ui/app/api/knowledge-base/query/route.ts → workers/src/jobs/kb-sync/lib/embedding.ts
-- `verify()` --calls--> `String()`  [INFERRED]
-  scripts/verify-migration.ts → web-ui/components/audit/audit-client-component.tsx
-- `fetchStackOutputs()` --calls--> `String()`  [INFERRED]
-  scripts/generate-env.ts → web-ui/components/audit/audit-client-component.tsx
+- `String()` --calls--> `verify()`  [INFERRED]
+  web-ui/components/audit/audit-client-component.tsx → scripts/verify-migration.ts
+- `String()` --calls--> `fetchStackOutputs()`  [INFERRED]
+  web-ui/components/audit/audit-client-component.tsx → scripts/generate-env.ts
 
 ## Communities
 
