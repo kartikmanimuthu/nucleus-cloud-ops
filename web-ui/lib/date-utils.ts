@@ -1,78 +1,110 @@
 "use client";
 
-// Utility for consistent date formatting across server and client
-// Prevents hydration mismatches caused by locale differences
+import { format, formatInTimeZone } from "date-fns-tz";
 
-export function formatDate(dateString: string | Date, options?: {
-    includeTime?: boolean;
-    format?: 'short' | 'long' | 'medium';
-}): string {
-    if (!dateString) return 'N/A';
+// ── Presets ────────────────────────────────────────────────────────────────
+// Fixed format strings to avoid hydration mismatches between server/client.
+// NEVER use toLocaleString() in components — always go through these presets.
 
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+const PRESETS = {
+    shortDate: "MMM dd, yyyy", // Jan 15, 2025
+    longDate: "MMMM dd, yyyy", // January 15, 2025
+    shortDateTime: "MMM dd, yyyy HH:mm", // Jan 15, 2025 14:30
+    longDateTime: "MMM dd, yyyy HH:mm:ss", // Jan 15, 2025 14:30:45
+    longDateTimeWithZone: "MMM dd, yyyy HH:mm:ss zzz", // Jan 15, 2025 14:30:45 IST
+    iso: "yyyy-MM-dd'T'HH:mm:ssXXX", // 2025-01-15T14:30:45+05:30
+    timeOnly: "HH:mm", // 14:30
+    timeWithSeconds: "HH:mm:ss", // 14:30:45
+    timeWithSecondsZone: "HH:mm:ss zzz", // 14:30:45 IST
+} as const;
 
-    if (isNaN(date.getTime())) return 'Invalid Date';
+export type DatePreset = keyof typeof PRESETS;
 
-    const { includeTime = false, format = 'medium' } = options || {};
+// ── Public API ───────────────────────────────────────────────────────────────
 
-    // Use consistent formatting to avoid server/client hydration mismatches
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+/**
+ * Format a date to a tenant-aware display string.
+ *
+ * @param input   ISO-8601 string, Date object, or timestamp (assumed UTC).
+ * @param preset  Named format preset.
+ * @param timeZone  IANA timezone (e.g. "Asia/Kolkata", "America/New_York").
+ *                  If omitted, falls back to UTC with an explicit suffix.
+ */
+export function formatDate(
+    input: string | Date | number | null | undefined,
+    preset: DatePreset = "shortDate",
+    timeZone?: string
+): string {
+    if (input == null) return "N/A";
 
-    let formattedDate = '';
+    const date =
+        typeof input === "string"
+            ? new Date(input)
+            : typeof input === "number"
+              ? new Date(input)
+              : input;
 
-    switch (format) {
-        case 'long':
-            formattedDate = `${day}/${month}/${year}`;
-            break;
-        case 'medium':
-        default:
-            formattedDate = `${month}/${day}/${year}`;
-            break;
+    if (isNaN(date.getTime())) return "Invalid Date";
+
+    const fmt = PRESETS[preset];
+
+    if (!timeZone) {
+        // SaaS standard: when tenant timezone is unknown, show UTC explicitly
+        return formatInTimeZone(date, "UTC", fmt) + " UTC";
     }
 
-    if (includeTime) {
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        const seconds = String(date.getSeconds()).padStart(2, '0');
-        return `${formattedDate} ${hours}:${minutes}:${seconds}`;
-    }
-
-    return formattedDate;
+    return formatInTimeZone(date, timeZone, fmt);
 }
 
-export function formatTime(dateString: string | Date): string {
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
-
-    if (isNaN(date.getTime())) {
-        return 'Invalid Time';
-    }
-
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
-
-    return `${hours}:${minutes}:${seconds}`;
+/**
+ * Format only the time portion of a date.
+ */
+export function formatTime(
+    input: string | Date | number | null | undefined,
+    timeZone?: string
+): string {
+    return formatDateTime(input, "timeWithSeconds", timeZone);
 }
 
-export function formatDateTime(dateString: string | Date): string {
-    return formatDate(dateString, { includeTime: true });
+/**
+ * Format a date with both date and time.
+ */
+export function formatDateTime(
+    input: string | Date | number | null | undefined,
+    preset: DatePreset = "shortDate",
+    timeZone?: string
+): string {
+    return formatDate(input, preset, timeZone);
 }
 
-export function getRelativeTime(dateString: string | Date): string {
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+/**
+ * Relative time string (e.g. "Just now", "5m ago", "2h ago", "3d ago").
+ * Falls back to shortDate format for anything older than a week.
+ */
+export function getRelativeTime(
+    input: string | Date | number,
+    timeZone?: string
+): string {
+    const date =
+        typeof input === "string"
+            ? new Date(input)
+            : typeof input === "number"
+              ? new Date(input)
+              : input;
+
+    if (isNaN(date.getTime())) return "Invalid Date";
+
     const now = new Date();
-    const diffInMs = now.getTime() - date.getTime();
+    const diffMs = now.getTime() - date.getTime();
 
-    const minutes = Math.floor(diffInMs / (1000 * 60));
-    const hours = Math.floor(diffInMs / (1000 * 60 * 60));
-    const days = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+    const minutes = Math.floor(diffMs / (1000 * 60));
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (minutes < 1) return 'Just now';
+    if (minutes < 1) return "Just now";
     if (minutes < 60) return `${minutes}m ago`;
     if (hours < 24) return `${hours}h ago`;
     if (days < 7) return `${days}d ago`;
 
-    return formatDate(date);
+    return formatDateTime(date, "shortDate", timeZone);
 }

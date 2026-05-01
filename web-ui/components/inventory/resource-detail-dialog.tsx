@@ -10,6 +10,8 @@ import { Copy, ExternalLink, Server, Database, Cloud, Tag, Clock, MapPin, Box } 
 import { toast } from "sonner";
 import { getServiceName, getAwsConsoleUrl } from "@/lib/resource-types";
 import { getColumnsForType } from "@/lib/inventory/column-registry";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from '@/lib/tenant-context';
 
 export interface ResourceDetailProps {
     resourceId: string;
@@ -66,6 +68,8 @@ function formatMetaValue(value: unknown): string {
 
 export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceDetailDialogProps) {
     if (!resource) return null;
+
+    const { timezone } = useTenant();
 
     const copyToClipboard = (text: string, label: string) => {
         navigator.clipboard.writeText(text);
@@ -189,7 +193,7 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                                         <div className="text-sm font-medium">Last Discovered</div>
                                         <div className="text-sm text-muted-foreground">
                                             {resource.lastDiscoveredAt
-                                                ? new Date(resource.lastDiscoveredAt).toLocaleString()
+                                                ? formatDateTime(resource.lastDiscoveredAt, "shortDate", timezone)
                                                 : "Never"}
                                         </div>
                                     </div>

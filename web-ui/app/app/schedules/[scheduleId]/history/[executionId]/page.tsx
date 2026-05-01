@@ -26,6 +26,7 @@ import {
   Cpu,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 
 import { use } from "react";
 
@@ -38,6 +39,7 @@ interface ExecutionDetailsPageProps {
 
 export default function ExecutionDetailsPage({ params }: ExecutionDetailsPageProps) {
   const { scheduleId, executionId } = use(params);
+  const { timezone } = useTenant();
   const router = useRouter();
   const [execution, setExecution] = useState<any>(null);
   const [schedule, setSchedule] = useState<any>(null);
@@ -165,7 +167,7 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
                 Execution Details
               </h1>
               <p className="text-muted-foreground">
-                {schedule?.name} • {formatDateTime(execution.executionTime || execution.startTime)}
+                {schedule?.name} • {formatDateTime(execution.executionTime || execution.startTime, 'longDateTime', timezone)}
               </p>
             </div>
           </div>
@@ -186,7 +188,7 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
               <div className="space-y-1">
                 <span className="text-sm text-muted-foreground">Start Time</span>
                 <div className="text-sm font-medium">
-                  {formatDateTime(execution.executionTime || execution.startTime)}
+                  {formatDateTime(execution.executionTime || execution.startTime, 'longDateTime', timezone)}
                 </div>
               </div>
               <div className="space-y-1">

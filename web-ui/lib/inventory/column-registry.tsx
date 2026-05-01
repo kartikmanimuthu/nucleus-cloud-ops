@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { ArrowUpDown, Tag, Server, Database, Cloud, Box } from "lucide-react";
 import { Resource } from "./types";
 import { getServiceName } from "@/lib/resource-types";
+import { formatDate } from "@/lib/date-utils";
 
 // ---------------------------------------------------------------------------
 // Cell Renderers
@@ -200,7 +201,7 @@ const LAST_DISCOVERED_COL: ColumnDef<Resource> = {
     cell: ({ getValue }) => {
         const val = getValue() as string;
         return val
-            ? <span className="text-muted-foreground">{new Date(val).toLocaleDateString()}</span>
+            ? <span className="text-muted-foreground">{formatDate(val, 'shortDate')}</span>
             : <span className="text-muted-foreground">—</span>;
     },
     size: 130,
@@ -1008,7 +1009,7 @@ const ACM_COLS: ColumnDef<Resource>[] = [
             const date = new Date(val);
             const daysLeft = Math.ceil((date.getTime() - Date.now()) / 86400000);
             const color = daysLeft < 30 ? "text-red-500" : daysLeft < 90 ? "text-yellow-500" : "text-muted-foreground";
-            return <span className={color}>{date.toLocaleDateString()}</span>;
+            return <span className={color}>{formatDate(date, 'shortDate')}</span>;
         },
         size: 110,
         meta: { label: "Expires" },
@@ -1280,7 +1281,7 @@ const IAM_ROLE_COLS: ColumnDef<Resource>[] = [
         header: "Created",
         cell: ({ getValue }) => {
             const val = getValue() as string | undefined;
-            return val ? <span className="text-muted-foreground">{new Date(val).toLocaleDateString()}</span> : <span className="text-muted-foreground">—</span>;
+            return val ? <span className="text-muted-foreground">{formatDate(val, 'shortDate')}</span> : <span className="text-muted-foreground">—</span>;
         },
         size: 110,
         meta: { label: "Created" },

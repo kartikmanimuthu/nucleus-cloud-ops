@@ -1,4 +1,5 @@
 import type { AgentOpsRun, AgentOpsEvent } from "./types"
+import { formatDateTime } from '@/lib/date-utils';
 
 const EVENT_META: Record<string, { label: string; bg: string; color: string }> = {
     planning: { label: "Planning", bg: "#dbeafe", color: "#1d4ed8" },
@@ -17,11 +18,8 @@ const TIMELINE_COLORS: Record<string, string> = {
     final: "#16a34a", error: "#ef4444",
 }
 
-function formatTime(iso: string) {
-    return new Date(iso).toLocaleString("en-US", {
-        month: "short", day: "numeric", year: "numeric",
-        hour: "2-digit", minute: "2-digit", second: "2-digit",
-    })
+function formatTime(iso: string, timeZone?: string) {
+    return formatDateTime(iso, 'longDateTime', timeZone);
 }
 
 function formatDuration(ms?: number) {
@@ -85,7 +83,7 @@ function eventLabelBadge(eventType: string, isThinking: boolean) {
     return `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:${meta.bg};color:${meta.color};">${label}</span>`
 }
 
-export function buildRunReportHtml(run: AgentOpsRun, events: AgentOpsEvent[]): string {
+export function buildRunReportHtml(run: AgentOpsRun, events: AgentOpsEvent[], timeZone?: string): string {
     const tokenTotals = events.reduce(
         (acc, e) => {
             if (e.metadata) {
@@ -131,7 +129,7 @@ export function buildRunReportHtml(run: AgentOpsRun, events: AgentOpsEvent[]): s
             <span style="${S.eventNode}">${esc(e.node)}</span>
             ${e.toolName ? `<span style="${S.eventTool}">${esc(e.toolName)}</span>` : ""}
             ${tokens > 0 ? `<span style="${S.eventTokens}">${tokens} tk</span>` : ""}
-            <span style="${S.eventTime}">${new Date(e.createdAt).toLocaleTimeString()}</span>
+            <span style="${S.eventTime}">${formatTime(e.createdAt, timeZone)}</span>
           </div>
           ${argsBlock}
           ${contentBlock}
@@ -197,8 +195,8 @@ export function buildRunReportHtml(run: AgentOpsRun, events: AgentOpsEvent[]): s
   <!-- Meta grid row 2 -->
   <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin-bottom:24px;">
     <tr>
-      ${metaCard("Started", formatTime(run.createdAt))}
-      ${run.completedAt ? metaCard("Completed", formatTime(run.completedAt)) : "<td></td>"}
+      ${metaCard("Started", formatTime(run.createdAt, timeZone))}
+      ${run.completedAt ? metaCard("Completed", formatTime(run.completedAt, timeZone)) : "<td></td>"}
       <td></td><td></td><td></td>
     </tr>
   </table>
@@ -229,7 +227,7 @@ export function buildRunReportHtml(run: AgentOpsRun, events: AgentOpsEvent[]): s
 
   <!-- Footer -->
   <div style="${S.footer}">
-    Generated ${new Date().toLocaleString()} · Nucleus Cloud Ops
+    Generated ${formatDateTime(new Date(), 'longDateTime', timeZone)} · Nucleus Cloud Ops
   </div>
 
 </body>

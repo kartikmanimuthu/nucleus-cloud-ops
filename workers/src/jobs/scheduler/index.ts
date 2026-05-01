@@ -71,8 +71,10 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
             // Run the full scan once (runFullScan iterates all tenants internally)
             let processedTenantIds: string[] = [];
             for (const job of jobs) {
-                const scanResult = (await executor.execute(JOB_NAME, job.data)) as SchedulerResult;
-                processedTenantIds = scanResult.processedTenantIds || [];
+                const scanResult = (await executor.execute(JOB_NAME, job.data)) as SchedulerResult | undefined;
+                if (scanResult?.processedTenantIds) {
+                    processedTenantIds = scanResult.processedTenantIds;
+                }
             }
 
             // Only update lastRunAt for tenants that had actual work

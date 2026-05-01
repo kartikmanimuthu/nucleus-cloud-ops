@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { cn } from '@/lib/utils';
+import { formatTime } from '@/lib/date-utils';
+import { useTenant } from '@/lib/tenant-context';
 import { ThreadSidebar } from './thread-sidebar';
 import { TodoPanel } from './todo-panel';
 import { ApprovalDialog } from './approval-dialog';
@@ -737,6 +739,7 @@ function RenderMarkdown({ content }: { content: string }) {
 // ---------------------------------------------------------------------------
 
 function MessageBubble({ message, isLoading }: { message: ChatMessage; isLoading?: boolean }) {
+  const { timezone } = useTenant();
   const isUser = message.role === 'user';
   const hasToolCalls = (message.toolCalls ?? []).length > 0;
   const hasApproval = !!message.approvalRequest;
@@ -839,7 +842,7 @@ function MessageBubble({ message, isLoading }: { message: ChatMessage; isLoading
           <span className="text-sm">{summaryIcon}</span>
           <span>{summaryLabel}</span>
           <span className="ml-auto text-[10px] text-muted-foreground font-normal">
-            {new Date(approval.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {formatTime(approval.timestamp, timezone)}
           </span>
         </div>,
       );
@@ -893,7 +896,7 @@ function MessageBubble({ message, isLoading }: { message: ChatMessage; isLoading
 
         {/* Timestamp */}
         <span className="text-[10px] text-muted-foreground px-1 select-none">
-          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {formatTime(message.timestamp, timezone)}
         </span>
       </div>
 

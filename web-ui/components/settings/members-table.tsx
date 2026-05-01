@@ -20,6 +20,8 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { formatDate } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 
 const PAGE_SIZE = 10;
 
@@ -46,6 +48,7 @@ export function MembersTable({
     availableRoles: string[];
     onRoleChange: (memberId: string, newRole: string) => Promise<void>;
 }) {
+    const { timezone } = useTenant();
     const [page, setPage] = useState(0);
 
     if (error) {
@@ -108,7 +111,7 @@ export function MembersTable({
                                 )}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
-                                {new Date(m.assignedAt).toLocaleDateString()}
+                                {formatDate(m.assignedAt, 'shortDate', timezone)}
                             </TableCell>
                         </TableRow>
                     ))}

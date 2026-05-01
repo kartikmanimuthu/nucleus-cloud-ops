@@ -38,7 +38,8 @@ import { DeleteScheduleDialog } from "./delete-schedule-dialog";
 import { DuplicateScheduleDialog } from "./duplicate-schedule-dialog";
 import { UISchedule } from "@/lib/types";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
-import { formatDate } from "@/lib/date-utils";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from '@/lib/tenant-context';
 import { useToast } from "@/hooks/use-toast";
 
 interface SchedulesGridProps {
@@ -62,6 +63,7 @@ export function SchedulesGrid({
     useState<UISchedule | null>(null);
   const [loadingActions, setLoadingActions] = useState<string | null>(null);
   const { toast } = useToast();
+  const { timezone } = useTenant();
 
   const toggleScheduleStatus = async (schedule: UISchedule) => {
     try {
@@ -307,7 +309,7 @@ export function SchedulesGrid({
                 </div>
                 {schedule.nextExecution ? (
                   <div className="text-sm">
-                    {formatDate(schedule.nextExecution, { includeTime: true })}
+                    {formatDateTime(schedule.nextExecution, "shortDateTime", timezone)}
                   </div>
                 ) : (
                   <span className="text-sm text-muted-foreground">

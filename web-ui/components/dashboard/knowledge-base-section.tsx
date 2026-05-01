@@ -17,6 +17,8 @@ import {
 import { PieChart, Pie, Cell } from "recharts";
 import { BookOpen, Database, FileText, AlertCircle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatDate } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 import { SectionSkeleton } from "./section-skeleton";
 import { SectionError } from "./section-error";
 import { SectionEmpty } from "./section-empty";
@@ -43,6 +45,7 @@ interface KnowledgeBaseSectionProps {
 export function KnowledgeBaseSection({ refreshKey }: KnowledgeBaseSectionProps) {
   const [data, setData] = useState<KnowledgeBaseResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const { timezone } = useTenant();
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -109,7 +112,7 @@ export function KnowledgeBaseSection({ refreshKey }: KnowledgeBaseSectionProps) 
                               <div className="h-2 w-2 rounded-full bg-yellow-500" />
                             )}
                             {ds.lastSyncAt && (
-                              <span className="text-muted-foreground">{new Date(ds.lastSyncAt).toLocaleDateString()}</span>
+                              <span className="text-muted-foreground">{formatDate(ds.lastSyncAt, 'shortDate', timezone)}</span>
                             )}
                           </div>
                         </div>
@@ -188,7 +191,7 @@ export function KnowledgeBaseSection({ refreshKey }: KnowledgeBaseSectionProps) 
             <Clock className="h-4 w-4 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Last Sync</p>
-              <p className="text-sm font-bold">{data.summary.lastSyncAt ? new Date(data.summary.lastSyncAt).toLocaleDateString() : 'Never'}</p>
+              <p className="text-sm font-bold">{data.summary.lastSyncAt ? formatDate(data.summary.lastSyncAt, 'shortDate', timezone) : 'Never'}</p>
             </div>
           </div>
         </div>
