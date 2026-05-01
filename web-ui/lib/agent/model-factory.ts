@@ -50,12 +50,12 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
         return {
             main: new ChatOpenAI({
                 ...openaiConfig,
-                maxTokens: config.maxTokens || 8192,
+                maxTokens: config.maxTokens || 40000,
                 streaming: true,
             }),
             reflector: new ChatOpenAI({
                 ...openaiConfig,
-                maxTokens: 2048,
+                maxTokens: 4096,
                 streaming: false,
             }),
         };
@@ -64,15 +64,16 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
     // Default: Bedrock
     const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null';
     const bedrockConfig = { region, model: config.modelId, temperature: 0 };
+    const defaultMaxTokens = config.maxTokens || 4096;
     return {
         main: new ChatBedrockConverse({
             ...bedrockConfig,
-            maxTokens: config.maxTokens || 8192,
+            maxTokens: defaultMaxTokens,
             streaming: true,
         }),
         reflector: new ChatBedrockConverse({
             ...bedrockConfig,
-            maxTokens: 2048,
+            maxTokens: Math.min(defaultMaxTokens, 2048),
             streaming: false,
         }),
     };
