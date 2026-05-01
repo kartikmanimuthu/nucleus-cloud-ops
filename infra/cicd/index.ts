@@ -111,3 +111,256 @@ new aws.kms.KeyPolicy("pipeline-artifacts-key-policy", {
         }),
     ),
 });
+
+// ---------------------------------------------------------------------------
+// IAM Policy — CodePipeline Core (S3, CodeBuild, CloudWatch, KMS)
+// ---------------------------------------------------------------------------
+new aws.iam.RolePolicy("codepipeline-core-policy", {
+    role: codePipelineRole.id,
+    policy: pulumi.all([artifactBucket.arn, artifactKmsKey.arn, accountId, region]).apply(
+        ([bucketArn, keyArn, accId, reg]) =>
+            JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        Sid: "S3ArtifactAccess",
+                        Effect: "Allow",
+                        Action: ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+                        Resource: [bucketArn, `${bucketArn}/*`],
+                    },
+                    {
+                        Sid: "KMSArtifactEncryption",
+                        Effect: "Allow",
+                        Action: [
+                            "kms:Encrypt",
+                            "kms:Decrypt",
+                            "kms:ReEncrypt*",
+                            "kms:GenerateDataKey*",
+                            "kms:DescribeKey",
+                        ],
+                        Resource: keyArn,
+                    },
+                    {
+                        Sid: "CodeBuildAccess",
+                        Effect: "Allow",
+                        Action: [
+                            "codebuild:StartBuild",
+                            "codebuild:BatchGetBuilds",
+                            "codebuild:BatchGetReports",
+                        ],
+                        Resource: `arn:aws:codebuild:${reg}:${accId}:project/${appName}-*`,
+                    },
+                    {
+                        Sid: "CloudWatchLogs",
+                        Effect: "Allow",
+                        Action: [
+                            "logs:CreateLogGroup",
+                            "logs:CreateLogStream",
+                            "logs:PutLogEvents",
+                        ],
+                        Resource: `arn:aws:logs:${reg}:${accId}:log-group:/aws/codebuild/${appName}-*:*`,
+                    },
+                    {
+                        Sid: "CodeStarConnection",
+                        Effect: "Allow",
+                        Action: ["codestar-connections:UseConnection"],
+                        Resource: githubConnectionArn,
+                    },
+                ],
+            }),
+    ),
+});
+
+// ---------------------------------------------------------------------------
+// IAM Policy — Pulumi Deploy Permissions (broad, scoped to nucleus-* prefix where possible)
+// ---------------------------------------------------------------------------
+new aws.iam.RolePolicy("pulumi-deploy-policy", {
+    role: codePipelineRole.id,
+    policy: pulumi.all([accountId, region]).apply(([accId, reg]) =>
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                {
+                    Sid: "EC2",
+                    Effect: "Allow",
+                    Action: "ec2:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "ECS",
+                    Effect: "Allow",
+                    Action: "ecs:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "Lambda",
+                    Effect: "Allow",
+                    Action: "lambda:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "RDS",
+                    Effect: "Allow",
+                    Action: "rds:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "Cognito",
+                    Effect: "Allow",
+                    Action: ["cognito-idp:*", "cognito-identity:*"],
+                    Resource: "*",
+                },
+                {
+                    Sid: "CloudFront",
+                    Effect: "Allow",
+                    Action: "cloudfront:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "IAM",
+                    Effect: "Allow",
+                    Action: [
+                        "iam:CreateRole",
+                        "iam:DeleteRole",
+                        "iam:GetRole",
+                        "iam:ListRoles",
+                        "iam:PutRolePolicy",
+                        "iam:DeleteRolePolicy",
+                        "iam:GetRolePolicy",
+                        "iam:ListRolePolicies",
+                        "iam:AttachRolePolicy",
+                        "iam:DetachRolePolicy",
+                        "iam:CreatePolicy",
+                        "iam:DeletePolicy",
+                        "iam:GetPolicy",
+                        "iam:ListPolicies",
+                        "iam:CreateInstanceProfile",
+                        "iam:DeleteInstanceProfile",
+                        "iam:GetInstanceProfile",
+                        "iam:AddRoleToInstanceProfile",
+                        "iam:RemoveRoleFromInstanceProfile",
+                        "iam:PassRole",
+                        "iam:UpdateAssumeRolePolicy",
+                        "iam:TagRole",
+                        "iam:UntagRole",
+                        "iam:ListInstanceProfilesForRole",
+                        "iam:ListAttachedRolePolicies",
+                    ],
+                    Resource: "*",
+                },
+                {
+                    Sid: "S3",
+                    Effect: "Allow",
+                    Action: "s3:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "SecretsManager",
+                    Effect: "Allow",
+                    Action: "secretsmanager:*",
+                    Resource: `arn:aws:secretsmanager:${reg}:${accId}:secret:${appName}/*`,
+                },
+                {
+                    Sid: "SQS",
+                    Effect: "Allow",
+                    Action: "sqs:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "EventBridge",
+                    Effect: "Allow",
+                    Action: "events:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "CloudWatchLogsAll",
+                    Effect: "Allow",
+                    Action: "logs:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "ACM",
+                    Effect: "Allow",
+                    Action: "acm:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "ELB",
+                    Effect: "Allow",
+                    Action: "elasticloadbalancing:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "ECR",
+                    Effect: "Allow",
+                    Action: "ecr:*",
+                    Resource: `arn:aws:ecr:${reg}:${accId}:repository/${appName}*`,
+                },
+                {
+                    Sid: "ECRPublic",
+                    Effect: "Allow",
+                    Action: "ecr-public:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "SSM",
+                    Effect: "Allow",
+                    Action: "ssm:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "SNS",
+                    Effect: "Allow",
+                    Action: "sns:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "Route53",
+                    Effect: "Allow",
+                    Action: "route53:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "KMS",
+                    Effect: "Allow",
+                    Action: "kms:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "AutoScaling",
+                    Effect: "Allow",
+                    Action: "autoscaling:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "ResourceGroupsTagging",
+                    Effect: "Allow",
+                    Action: [
+                        "tag:GetResources",
+                        "tag:GetTagKeys",
+                        "tag:GetTagValues",
+                    ],
+                    Resource: "*",
+                },
+                {
+                    Sid: "STS",
+                    Effect: "Allow",
+                    Action: ["sts:GetCallerIdentity", "sts:AssumeRole"],
+                    Resource: "*",
+                },
+                {
+                    Sid: "DynamoDB",
+                    Effect: "Allow",
+                    Action: "dynamodb:*",
+                    Resource: "*",
+                },
+                {
+                    Sid: "CloudWatchMetrics",
+                    Effect: "Allow",
+                    Action: "cloudwatch:*",
+                    Resource: "*",
+                },
+            ],
+        }),
+    ),
+});
