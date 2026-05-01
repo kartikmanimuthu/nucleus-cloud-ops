@@ -15,10 +15,9 @@ import { HumanMessage } from '@langchain/core/messages';
 import { createDynamicExecutorGraph } from './executor-graphs';
 import { agentOpsService } from './agent-ops-service';
 import { getMCPManager } from '../agent/mcp-manager';
-import { postClarificationToSlack, postApprovalRequestToSlack } from './slack-notifier';
-import { postClarificationToJira } from './jira-notifier';
 import { registerRun, cleanupRun, isAborted } from './run-manager';
-import type { AgentOpsRun, AgentEventType, SlackTriggerMeta, JiraTriggerMeta, JiraIntegrationConfig } from './types';
+import type { AgentOpsRun, AgentEventType } from './types';
+import type { GatewayEventBus } from '@/lib/gateway/event-bus';
 
 const SANDBOX_BASE = '/tmp/agent-ops';
 
@@ -52,7 +51,7 @@ function deriveUserId(run: AgentOpsRun): string {
 
 // ─── Main Executor ────────────────────────────────────────────────────────────
 
-export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
+export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventBus): Promise<void> {
     const { runId, tenantId, taskDescription, accountId, accountName, threadId, mcpServerIds } = run as any;
     const autoApprove = (run as any).autoApprove ?? false;
     const startTime = Date.now();
@@ -179,20 +178,13 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 content: question, metadata: { missingInfo },
             });
 
-            try {
-                const freshRun = await agentOpsService.getRun(tenantId, runId);
-                if (freshRun?.source === 'slack') {
-                    await postClarificationToSlack(question, freshRun, (freshRun.trigger as SlackTriggerMeta).responseUrl);
-                } else if (freshRun?.source === 'jira') {
-                    const { TenantConfigService } = await import('../tenant-config-service');
-                    const jiraConfig = await TenantConfigService.getConfig<JiraIntegrationConfig>('agent-ops-jira').catch(() => undefined);
-                    const jiraTrigger = freshRun.trigger as JiraTriggerMeta;
-                    if (jiraTrigger.issueKey) {
-                        await postClarificationToJira(question, runId, jiraTrigger.issueKey, jiraConfig ?? undefined);
-                    }
-                }
-            } catch (notifyErr) {
-                console.warn(`[AgentExecutor] Clarification notify failed (non-fatal):`, notifyErr);
+            if (eventBus) {
+                eventBus.emit({
+                    type: 'hil:clarification',
+                    runId, tenantId,
+                    timestamp: new Date(),
+                    data: { question },
+                });
             }
             return;
         }
@@ -214,22 +206,13 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 content: `Awaiting plan approval:\n${planSteps.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n')}`,
                 metadata: { planSteps },
             });
-            try {
-                const freshRun = await agentOpsService.getRun(tenantId, runId);
-                if (freshRun?.source === 'slack') {
-                    const msgTs = await postApprovalRequestToSlack(freshRun, planSteps);
-                    if (msgTs) await agentOpsService.updateApprovalMessageTs(tenantId, runId, msgTs);
-                } else if (freshRun?.source === 'jira') {
-                    const { postApprovalRequestToJira } = await import('./jira-notifier');
-                    const { TenantConfigService } = await import('../tenant-config-service');
-                    const jiraConfig = await TenantConfigService.getConfig<JiraIntegrationConfig>('agent-ops-jira').catch(() => undefined);
-                    const jiraTrigger = freshRun.trigger as JiraTriggerMeta;
-                    if (jiraTrigger.issueKey) {
-                        await postApprovalRequestToJira(freshRun, planSteps, jiraTrigger.issueKey, undefined, jiraConfig ?? undefined);
-                    }
-                }
-            } catch (notifyErr) {
-                console.warn(`[AgentExecutor] Approval notify failed (non-fatal):`, notifyErr);
+            if (eventBus) {
+                eventBus.emit({
+                    type: 'hil:plan_approval',
+                    runId, tenantId,
+                    timestamp: new Date(),
+                    data: { planSteps },
+                });
             }
             return;
         }
@@ -249,26 +232,13 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 content: `Awaiting approval for mutative tools: ${pendingTools.join(', ')}`,
                 metadata: { pendingTools },
             });
-            try {
-                const freshRun = await agentOpsService.getRun(tenantId, runId);
-                if (freshRun?.source === 'slack') {
-                    const msgTs = await postApprovalRequestToSlack(
-                        freshRun,
-                        [`Execute: ${pendingTools.join(', ')}`],
-                        pendingTools,
-                    );
-                    if (msgTs) await agentOpsService.updateApprovalMessageTs(tenantId, runId, msgTs);
-                } else if (freshRun?.source === 'jira') {
-                    const { postApprovalRequestToJira } = await import('./jira-notifier');
-                    const { TenantConfigService } = await import('../tenant-config-service');
-                    const jiraConfig = await TenantConfigService.getConfig<JiraIntegrationConfig>('agent-ops-jira').catch(() => undefined);
-                    const jiraTrigger = freshRun.trigger as JiraTriggerMeta;
-                    if (jiraTrigger.issueKey) {
-                        await postApprovalRequestToJira(freshRun, [`Execute: ${pendingTools.join(', ')}`], jiraTrigger.issueKey, pendingTools, jiraConfig ?? undefined);
-                    }
-                }
-            } catch (notifyErr) {
-                console.warn(`[AgentExecutor] Tool approval notify failed (non-fatal):`, notifyErr);
+            if (eventBus) {
+                eventBus.emit({
+                    type: 'hil:tool_approval',
+                    runId, tenantId,
+                    timestamp: new Date(),
+                    data: { pendingTools },
+                });
             }
             return;
         }
@@ -308,6 +278,16 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
 
         console.log(`[AgentExecutor] ✅ Run ${runId} completed in ${durationMs}ms | Tokens: ${totalInputTokens}→${totalOutputTokens}`);
 
+        if (eventBus) {
+            const freshRun = await agentOpsService.getRun(tenantId, runId);
+            eventBus.emit({
+                type: 'run:completed',
+                runId, tenantId,
+                timestamp: new Date(),
+                data: { run: freshRun ?? run },
+            });
+        }
+
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
 
@@ -324,6 +304,12 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 content: 'Run was cancelled by user.',
                 metadata: { durationMs: Date.now() - startTime },
             });
+            if (eventBus) {
+                eventBus.emit({
+                    type: 'run:cancelled', runId, tenantId,
+                    timestamp: new Date(), data: {},
+                });
+            }
         } else {
             console.error(`[AgentExecutor] ❌ Run ${runId} failed:`, errorMsg);
             await agentOpsService.updateRunStatus(tenantId, runId, 'failed', { error: errorMsg });
@@ -332,6 +318,12 @@ export async function executeAgentRun(run: AgentOpsRun): Promise<void> {
                 content: errorMsg,
                 metadata: { stack: (error instanceof Error ? error.stack : '')?.slice(0, 2000) },
             });
+            if (eventBus) {
+                eventBus.emit({
+                    type: 'run:failed', runId, tenantId,
+                    timestamp: new Date(), data: { error: errorMsg },
+                });
+            }
         }
     } finally {
         cleanupRun(runId);
@@ -488,7 +480,7 @@ async function processLangGraphEvent(
  * injecting approvalStatus='approved' into the state so routeFromPlanner
  * routes to 'generate' instead of 'approval_gate'.
  */
-export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
+export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEventBus): Promise<void> {
     const { runId, tenantId, threadId, mcpServerIds, accountId, accountName } = run as any;
     const startTime = Date.now();
 
@@ -608,14 +600,13 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
                 content: `Awaiting approval for mutative tools: ${allPending.join(', ')}`,
                 metadata: { pendingTools: allPending },
             });
-            try {
-                const freshRun = await agentOpsService.getRun(tenantId, runId);
-                if (freshRun?.source === 'slack') {
-                    const msgTs = await postApprovalRequestToSlack(freshRun, [`Execute: ${allPending.join(', ')}`], allPending);
-                    if (msgTs) await agentOpsService.updateApprovalMessageTs(tenantId, runId, msgTs);
-                }
-            } catch (notifyErr) {
-                console.warn(`[AgentExecutor] Tool approval notify failed (non-fatal):`, notifyErr);
+            if (eventBus) {
+                eventBus.emit({
+                    type: 'hil:tool_approval',
+                    runId, tenantId,
+                    timestamp: new Date(),
+                    data: { pendingTools: allPending },
+                });
             }
             return;
         }
@@ -656,6 +647,16 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
 
         console.log(`[AgentExecutor] ✅ Resumed run ${runId} completed in ${durationMs}ms`);
 
+        if (eventBus) {
+            const freshRun = await agentOpsService.getRun(tenantId, runId);
+            eventBus.emit({
+                type: 'run:completed',
+                runId, tenantId,
+                timestamp: new Date(),
+                data: { run: freshRun ?? run },
+            });
+        }
+
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         const isAbortError = errorMsg === 'This operation was aborted'
@@ -664,6 +665,12 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
 
         if (isAbortError) {
             await agentOpsService.updateRunStatus(tenantId, runId, 'cancelled');
+            if (eventBus) {
+                eventBus.emit({
+                    type: 'run:cancelled', runId, tenantId,
+                    timestamp: new Date(), data: {},
+                });
+            }
         } else {
             console.error(`[AgentExecutor] ❌ Resumed run ${runId} failed:`, errorMsg);
             await agentOpsService.updateRunStatus(tenantId, runId, 'failed', { error: errorMsg });
@@ -672,6 +679,12 @@ export async function resumeApprovedRun(run: AgentOpsRun): Promise<void> {
                 content: errorMsg,
                 metadata: { stack: (error instanceof Error ? error.stack : '')?.slice(0, 2000) },
             });
+            if (eventBus) {
+                eventBus.emit({
+                    type: 'run:failed', runId, tenantId,
+                    timestamp: new Date(), data: { error: errorMsg },
+                });
+            }
         }
     } finally {
         cleanupRun(runId);
