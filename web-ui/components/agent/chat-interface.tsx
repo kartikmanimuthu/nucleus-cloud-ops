@@ -32,6 +32,8 @@ import {
   FileText,
   ChevronDown,
   Clock,
+  Database,
+  BookOpen,
 } from "lucide-react";
 import {
   copyToClipboard,
@@ -117,6 +119,8 @@ type AgentPhase =
   | "reflection"
   | "revision"
   | "final"
+  | "memory_recall"
+  | "memory_save"
   | "text";
 
 // Parse phase from content
@@ -148,6 +152,16 @@ function parsePhaseFromContent(content: string): {
     return {
       phase: "final",
       cleanContent: content.replace("FINAL_PHASE_START\n", ""),
+    };
+  } else if (content.startsWith("MEMORY_RECALL_PHASE_START\n")) {
+    return {
+      phase: "memory_recall",
+      cleanContent: content.replace("MEMORY_RECALL_PHASE_START\n", ""),
+    };
+  } else if (content.startsWith("MEMORY_SAVE_PHASE_START\n")) {
+    return {
+      phase: "memory_save",
+      cleanContent: content.replace("MEMORY_SAVE_PHASE_START\n", ""),
     };
   }
   return { phase: "text", cleanContent: content };
@@ -205,6 +219,20 @@ const phaseConfig: Record<
     borderColor: "border-muted",
     bgColor: "bg-muted/10",
     textColor: "text-muted-foreground",
+  },
+  memory_recall: {
+    icon: BookOpen,
+    label: "MEMORY RECALL",
+    borderColor: "border-emerald-500",
+    bgColor: "bg-emerald-500/5",
+    textColor: "text-emerald-600",
+  },
+  memory_save: {
+    icon: Database,
+    label: "MEMORY SAVE",
+    borderColor: "border-emerald-500",
+    bgColor: "bg-emerald-500/5",
+    textColor: "text-emerald-600",
   },
 };
 
@@ -655,6 +683,8 @@ export function ChatInterface({
         if (part.text.includes("REFLECTION_PHASE_START")) return "Reflecting";
         if (part.text.includes("REVISION_PHASE_START")) return "Revising";
         if (part.text.includes("FINAL_PHASE_START")) return "Finalizing";
+        if (part.text.includes("MEMORY_RECALL_PHASE_START")) return "Recalling";
+        if (part.text.includes("MEMORY_SAVE_PHASE_START")) return "Saving";
       }
     }
     return "Processing";
@@ -885,7 +915,7 @@ export function ChatInterface({
 
     // Skip rendering if content is just the phase marker with no actual content
     const cleanedContent = content
-      .replace(/^(PLANNING_PHASE_START|EXECUTION_PHASE_START|REFLECTION_PHASE_START|REVISION_PHASE_START|FINAL_PHASE_START)\n*/i, '')
+      .replace(/^(PLANNING_PHASE_START|EXECUTION_PHASE_START|REFLECTION_PHASE_START|REVISION_PHASE_START|FINAL_PHASE_START|MEMORY_RECALL_PHASE_START|MEMORY_SAVE_PHASE_START)\n*/i, '')
       .trim();
 
     if (!cleanedContent) {

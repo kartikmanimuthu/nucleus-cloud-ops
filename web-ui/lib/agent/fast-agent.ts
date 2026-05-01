@@ -27,6 +27,7 @@ import {
     CORE_PRINCIPLES,
 } from "./prompt-templates";
 import { createAgentModels, assembleTools } from "./model-factory";
+import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
 export async function createFastGraph(config: GraphConfig) {
@@ -59,15 +60,21 @@ export async function createFastGraph(config: GraphConfig) {
     const { main: model, reflector: reflectorModel } = createAgentModels(modelConfig);
 
     // --- Tool Assembly (fast-agent does not use S3 tools) ---
-    const tools = await assembleTools({ includeS3Tools: false, includeMemoryTools: !!store, userId: config.userId, mcpServerIds, tenantId, accounts });
+    // Memory tools excluded — memory_recall and memory_save graph nodes handle memory deterministically
+    const tools = await assembleTools({ includeS3Tools: false, includeMemoryTools: false, userId: config.userId, mcpServerIds, tenantId, accounts });
     const modelWithTools = model.bindTools!(tools);
     const toolNode = new ToolNode(tools);
+
+    // --- Memory Nodes ---
+    const memoryDeps = { reflectorModel, tenantId, userId: config.userId, store };
+    const memoryRecallNode = createMemoryRecallNode(memoryDeps);
+    const memorySaveNode = createMemorySaveNode(memoryDeps);
 
     // ---------------------------------------------------------------------------
     // AGENT NODE
     // ---------------------------------------------------------------------------
     async function agentNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        const { messages, iterationCount } = state;
+        const { messages, iterationCount, memoryContext } = state;
 
         console.log(`\n================================================================================`);
         console.log(`🚀 [FAST AGENT] Generator Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
@@ -76,6 +83,10 @@ export async function createFastGraph(config: GraphConfig) {
 
         const baseIdentity = buildBaseIdentity(selectedSkill);
 
+        const memorySection = memoryContext
+            ? `\n## Relevant Context from Memory\n${memoryContext}\n`
+            : '';
+
         const systemPrompt = new SystemMessage(`${baseIdentity}
 ${effectiveSkillSection}
 ${CORE_PRINCIPLES}
@@ -83,7 +94,7 @@ ${awsCliStandards}
 ${autoApproveGuidance}
 ${operationalWorkflows}
 ${accountContext}
-
+${memorySection}
 ## Conversation Continuity
 
 Review the full conversation history before responding:
@@ -275,7 +286,7 @@ Please provide your critique.`
     // ---------------------------------------------------------------------------
     // CONDITIONAL EDGES
     // ---------------------------------------------------------------------------
-    function shouldContinue(state: ReflectionState): "tools" | "reflect" | "__end__" {
+    function shouldContinue(state: ReflectionState): "tools" | "reflect" | "memory_save" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
@@ -287,22 +298,22 @@ Please provide your critique.`
         // Hard cap: if too many total iterations, stop regardless
         if (iterationCount >= MAX_ITERATIONS) {
             console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached. Stopping.`);
-            return END;
+            return "memory_save";
         }
 
         // Soft cap: if we've exceeded the reflection cycle limit, accept the answer as-is
         // This prevents the reflection loop from burning tokens on diminishing returns
         if (iterationCount >= MAX_REFLECT_ITERATIONS) {
             console.log(`⚠️ Max reflection cycles (${MAX_REFLECT_ITERATIONS}) reached. Accepting answer.`);
-            return END;
+            return "memory_save";
         }
 
         return "reflect";
     }
 
-    function shouldContinueFromReflect(state: ReflectionState): "agent" | "__end__" {
+    function shouldContinueFromReflect(state: ReflectionState): "agent" | "memory_save" {
         if (state.isComplete) {
-            return END;
+            return "memory_save";
         }
         return "agent";
     }
@@ -311,24 +322,28 @@ Please provide your critique.`
     // GRAPH CONSTRUCTION
     // ---------------------------------------------------------------------------
     const workflow = new StateGraph<ReflectionState>({ channels: graphState })
+        .addNode("memory_recall", memoryRecallNode)
         .addNode("agent", agentNode)
         .addNode("tools", collectingToolNode)
         .addNode("reflect", reflectNode)
+        .addNode("memory_save", memorySaveNode)
 
-        .addEdge(START, "agent")
+        .addEdge(START, "memory_recall")
+        .addEdge("memory_recall", "agent")
 
         .addConditionalEdges("agent", shouldContinue, {
             tools: "tools",
             reflect: "reflect",
-            __end__: END
+            memory_save: "memory_save"
         })
 
         .addConditionalEdges("reflect", shouldContinueFromReflect, {
             agent: "agent",
-            __end__: END
+            memory_save: "memory_save"
         })
 
-        .addEdge("tools", "agent");
+        .addEdge("tools", "agent")
+        .addEdge("memory_save", END);
 
     if (autoApprove) {
         return workflow.compile({ checkpointer, ...(store && { store }) });

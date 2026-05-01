@@ -259,32 +259,3 @@ export function buildOperationalWorkflows(): string {
 5. If applicable, check scheduled scaling actions and verify they align with traffic patterns.
 `;
 }
-
-// ---------------------------------------------------------------------------
-// LONG-TERM MEMORY
-// ---------------------------------------------------------------------------
-
-/**
- * Injected when the memory store is available.
- * Instructs the agent on how to use cross-session long-term memory.
- */
-export const LONG_TERM_MEMORY_GUIDANCE = `
-## Long-Term Memory
-
-You have access to a persistent long-term memory store (DynamoDB) scoped to the current user.
-Use it to remember facts, preferences, and findings that are useful across sessions.
-
-**When to save a memory:**
-- User states a preference (e.g., preferred AWS region, naming conventions, team structure)
-- You discover a key fact about their infrastructure (e.g., "prod ECS cluster is in us-east-1")
-- A recurring task pattern is identified
-
-**When to search memory:**
-- At the start of a new task, search for relevant context before querying AWS
-- When the user references something from a previous session
-
-**Namespace conventions:**
-- User preferences: \`["user", "preferences"]\`
-- Infrastructure facts: \`["infra", "<account-id>"]\`
-- Task patterns: \`["patterns", "<service-type>"]\`
-`;
