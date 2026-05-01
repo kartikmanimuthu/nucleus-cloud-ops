@@ -23,7 +23,7 @@ const region = aws.config.region ?? "ap-south-1";
 // ---------------------------------------------------------------------------
 const artifactBucket = new aws.s3.BucketV2("pipeline-artifacts", {
     bucket: pulumi.interpolate`${appName}-pipeline-artifacts-${accountId}-${region}`,
-    forceDestroy: true,
+    forceDestroy: false,
 }, { retainOnDelete: true });
 
 // Block public access
@@ -80,7 +80,7 @@ const codePipelineRole = new aws.iam.Role("codepipeline-role", {
 // Allow the role to use the KMS key
 new aws.kms.KeyPolicy("pipeline-artifacts-key-policy", {
     keyId: artifactKmsKey.id,
-    policy: pulumi.all([artifactKmsKey.arn, accountId]).apply(([keyArn, accId]) =>
+    policy: pulumi.all([artifactKmsKey.arn, accountId, codePipelineRole.arn]).apply(([keyArn, accId, roleArn]) =>
         JSON.stringify({
             Version: "2012-10-17",
             Statement: [
@@ -95,13 +95,14 @@ new aws.kms.KeyPolicy("pipeline-artifacts-key-policy", {
                     Sid: "Allow CodePipeline and CodeBuild",
                     Effect: "Allow",
                     Principal: {
-                        AWS: `arn:aws:iam::${accId}:role/${appName}-codepipeline-role`,
+                        AWS: roleArn,
                     },
                     Action: [
                         "kms:Encrypt",
                         "kms:Decrypt",
                         "kms:ReEncrypt*",
                         "kms:GenerateDataKey*",
+                        "kms:CreateGrant",
                         "kms:DescribeKey",
                     ],
                     Resource: "*",
