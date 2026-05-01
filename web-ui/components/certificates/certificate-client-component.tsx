@@ -1,17 +1,17 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { CertificateGrid, type CertificateRow } from "./certificate-grid";
-import { CertificateSidePanel } from "./certificate-side-panel";
 import { UploadCertificateDialog } from "./upload-certificate-dialog";
 import { DeleteCertificateDialog } from "./delete-certificate-dialog";
 
 export function CertificateClientComponent() {
+    const router = useRouter();
     const [certificates, setCertificates] = useState<CertificateRow[]>([]);
     const [loading, setLoading] = useState(true);
-    const [selected, setSelected] = useState<CertificateRow | null>(null);
     const [uploadOpen, setUploadOpen] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<CertificateRow | null>(null);
 
@@ -33,21 +33,9 @@ export function CertificateClientComponent() {
         fetchCertificates();
     }, [fetchCertificates]);
 
-    const handleReimport = async (certId: string, accountId: string) => {
-        const res = await fetch(`/api/certificates/${certId}/reimport`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ accountId }),
-        });
-        const json = await res.json();
-        if (!json.success) {
-            throw new Error(json.error || "Reimport failed");
-        }
-    };
-
     return (
         <div className="flex h-full">
-            <div className={`flex-1 flex flex-col min-w-0 ${selected ? "pr-0" : ""}`}>
+            <div className="flex-1 flex flex-col min-w-0">
                 <div className="flex items-center justify-between p-6 pb-4">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight">Certificate Manager</h1>
@@ -69,8 +57,8 @@ export function CertificateClientComponent() {
                     ) : (
                         <CertificateGrid
                             data={certificates}
-                            onRowClick={setSelected}
-                            onDownload={async cert => {
+                            onRowClick={(cert) => router.push(`/app/certificates/${cert.id}`)}
+                            onDownload={async (cert) => {
                                 const res = await fetch(`/api/certificates/${cert.id}/download`);
                                 const json = await res.json();
                                 if (json.success) {
@@ -83,14 +71,6 @@ export function CertificateClientComponent() {
                 </div>
             </div>
 
-            {selected && (
-                <CertificateSidePanel
-                    certificate={selected}
-                    onClose={() => setSelected(null)}
-                    onReimport={handleReimport}
-                />
-            )}
-
             <UploadCertificateDialog
                 open={uploadOpen}
                 onOpenChange={setUploadOpen}
@@ -100,8 +80,8 @@ export function CertificateClientComponent() {
             <DeleteCertificateDialog
                 certificate={deleteTarget}
                 open={!!deleteTarget}
-                onOpenChange={v => { if (!v) setDeleteTarget(null); }}
-                onDeleted={() => { setSelected(null); fetchCertificates(); }}
+                onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}
+                onDeleted={() => { fetchCertificates(); }}
             />
         </div>
     );
