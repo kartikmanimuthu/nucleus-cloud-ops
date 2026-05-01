@@ -1,0 +1,5 @@
+name: nucleus-cicd
+runtime: nodejs
+description: Nucleus Cloud Ops — AWS CodePipeline CI/CD
+backend:
+  url: s3://nucleus-pulumi-state?region=us-east-1&awssdk=v2
