@@ -14,6 +14,8 @@ import {
 } from "lucide-react"
 import type { AgentOpsRun, AgentOpsEvent, AgentEventType } from "@/lib/agent-ops/types"
 import { exportRunToPdf } from "@/lib/agent-ops/export-pdf"
+import { formatDateTime, formatTime } from "@/lib/date-utils"
+import { useTenant } from '@/lib/tenant-context'
 
 const EVENT_TYPE_CONFIG: Record<AgentEventType, { label: string; icon: typeof Brain; color: string; bg: string }> = {
     planning:    { label: "Planning",    icon: Brain,        color: "text-blue-500",   bg: "border-blue-400" },
@@ -63,7 +65,7 @@ function EventRow({ event, idx }: { event: AgentOpsEvent; idx: number }) {
                         )}
                     </div>
                     <span className="text-xs text-muted-foreground shrink-0">
-                        {new Date(event.createdAt).toLocaleTimeString()}
+                        {formatTime(event.createdAt, timezone)}
                     </span>
                 </div>
 
@@ -123,6 +125,7 @@ export default function RunDetailPage() {
     const router = useRouter()
     const runId = params.runId as string
     const tenantId = searchParams.get("tenantId") || "default"
+    const { timezone } = useTenant()
 
     const [run, setRun] = useState<AgentOpsRun | null>(null)
     const [events, setEvents] = useState<AgentOpsEvent[]>([])
@@ -198,11 +201,7 @@ export default function RunDetailPage() {
         return () => clearInterval(interval)
     }, [fetchDetail, run?.status])
 
-    const formatTime = (iso: string) =>
-        new Date(iso).toLocaleString("en-US", {
-            month: "short", day: "numeric", year: "numeric",
-            hour: "2-digit", minute: "2-digit", second: "2-digit",
-        })
+    const formatRunDateTime = (iso: string) => formatDateTime(iso, "longDateTime", timezone)
 
     const formatDuration = (ms?: number) => {
         if (!ms) return "—"
@@ -327,7 +326,7 @@ export default function RunDetailPage() {
                 <Card>
                     <CardContent className="pt-4 pb-3 px-4">
                         <div className="text-xs text-muted-foreground mb-1">Started</div>
-                        <div className="font-medium text-sm">{formatTime(run.createdAt)}</div>
+                        <div className="font-medium text-sm">{formatRunDateTime(run.createdAt)}</div>
                     </CardContent>
                 </Card>
                 <Card>
@@ -424,7 +423,7 @@ export default function RunDetailPage() {
                                 {rejecting ? "Rejecting…" : "Reject"}
                             </Button>
                             <span className="text-xs text-muted-foreground ml-auto">
-                                Source: <span className="capitalize">{run.source}</span> · Triggered {new Date(run.createdAt).toLocaleTimeString()}
+                                Source: <span className="capitalize">{run.source}</span> · Triggered {formatTime(run.createdAt, timezone)}
                             </span>
                         </div>
                     </CardContent>

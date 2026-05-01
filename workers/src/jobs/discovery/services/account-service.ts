@@ -76,7 +76,7 @@ export async function updateAccountSyncStatus(
            "lastSyncResourceCount" = $7
        WHERE "tenantId" = $1
          AND "accountId" = $2`,
-      [tenantId, accountId, connectionStatus, status.lastSyncError || null, new Date(), new Date(status.lastSyncedAt), status.lastSyncResourceCount],
+      [tenantId, accountId, connectionStatus, status.lastSyncError || null, new Date().toISOString(), status.lastSyncedAt, status.lastSyncResourceCount],
     );
   } catch (error) {
     log.error('Error updating account sync status', { tenantId, accountId, error: error instanceof Error ? error.message : String(error) });

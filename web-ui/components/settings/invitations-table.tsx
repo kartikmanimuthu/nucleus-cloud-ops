@@ -13,6 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { formatDate } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 
 const PAGE_SIZE = 10;
 import {
@@ -86,6 +88,7 @@ export function InvitationsTable({
     // sentFlash: Record<invitationId, boolean> — shows "Sent" for 2s
     const [sentFlash, setSentFlash] = useState<Record<string, boolean>>({});
     const [revokingId, setRevokingId] = useState<string | null>(null);
+    const { timezone } = useTenant();
     const [page, setPage] = useState(0);
 
     // Reset page when invitations list changes
@@ -182,10 +185,10 @@ export function InvitationsTable({
                                     <Badge variant="secondary">{inv.role}</Badge>
                                 </TableCell>
                                 <TableCell className="text-muted-foreground text-sm">
-                                    {new Date(inv.createdAt).toLocaleDateString()}
+                                    {formatDate(inv.createdAt, 'shortDate', timezone)}
                                 </TableCell>
                                 <TableCell className="text-muted-foreground text-sm">
-                                    {new Date(inv.expiresAt).toLocaleDateString()}
+                                    {formatDate(inv.expiresAt, 'shortDate', timezone)}
                                 </TableCell>
                                 <TableCell>
                                     <StatusBadge status={inv.status} />

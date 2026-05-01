@@ -19,6 +19,8 @@ import {
   RefreshCw,
   Clock,
 } from "lucide-react"
+import { formatDateTime, formatDate } from "@/lib/date-utils"
+import { useTenant } from '@/lib/tenant-context'
 
 interface AccountDetailsDialogProps {
   account: any
@@ -115,6 +117,7 @@ const mockActivity = [
 ]
 
 export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDetailsDialogProps) {
+  const { timezone } = useTenant()
   const validateConnection = () => {
     console.log("Validating connection for account:", account.id)
   }
@@ -193,7 +196,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                     {getStatusBadge(account.connectionStatus)}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Last validated: {new Date(account.lastValidated).toLocaleString()}
+                    Last validated: {formatDateTime(account.lastValidated, "shortDate", timezone)}
                   </p>
                 </CardContent>
               </Card>
@@ -316,7 +319,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                     <div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Created:</span>
-                        <span>{new Date(account.createdAt).toLocaleDateString()}</span>
+                        <span>{formatDate(account.createdAt, 'shortDate', timezone)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Created By:</span>
@@ -326,7 +329,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                     <div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Last Updated:</span>
-                        <span>{new Date(account.updatedAt).toLocaleDateString()}</span>
+                        <span>{formatDate(account.updatedAt, 'shortDate', timezone)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Updated By:</span>
@@ -383,7 +386,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                           <span>{resource.region}</span>
                           <span>•</span>
                           <Clock className="h-3 w-3" />
-                          <span>Last action: {new Date(resource.lastAction).toLocaleString()}</span>
+                          <span>Last action: {formatDateTime(resource.lastAction, "shortDate", timezone)}</span>
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {resource.tags.map((tag: any, index: number) => (
@@ -429,7 +432,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                         <div className="flex items-center space-x-2 text-sm">
                           <Clock className="h-3 w-3 text-muted-foreground" />
                           <span className="text-muted-foreground">
-                            Next execution: {new Date(schedule.nextExecution).toLocaleString()}
+                            Next execution: {formatDateTime(schedule.nextExecution, "shortDate", timezone)}
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-1">
@@ -466,7 +469,7 @@ export function AccountDetailsDialog({ account, open, onOpenChange }: AccountDet
                         <div className="flex items-center justify-between">
                           <div className="font-medium">{activity.action}</div>
                           <span className="text-sm text-muted-foreground">
-                            {new Date(activity.timestamp).toLocaleString()}
+                            {formatDateTime(activity.timestamp, "shortDate", timezone)}
                           </span>
                         </div>
                         <p className="text-sm text-muted-foreground">{activity.details}</p>

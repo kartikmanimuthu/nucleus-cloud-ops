@@ -39,7 +39,8 @@ import { DeleteScheduleDialog } from "./delete-schedule-dialog";
 import { DuplicateScheduleDialog } from "./duplicate-schedule-dialog";
 import { UISchedule } from "@/lib/types";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
-import { formatDate } from "@/lib/date-utils";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from '@/lib/tenant-context';
 import { useToast } from "@/hooks/use-toast";
 
 interface SchedulesTableProps {
@@ -65,6 +66,7 @@ export function SchedulesTable({
     useState<UISchedule | null>(null);
   const [loadingActions, setLoadingActions] = useState<string | null>(null);
   const { toast } = useToast();
+  const { timezone } = useTenant();
 
   const allSelected =
     schedules.length > 0 && selectedSchedules.length === schedules.length;
@@ -199,7 +201,7 @@ export function SchedulesTable({
                       <span>•</span>
                       <span>
                         {schedule.createdAt
-                          ? formatDate(schedule.createdAt)
+                          ? formatDateTime(schedule.createdAt, "shortDate", timezone)
                           : "Unknown date"}
                       </span>
                     </div>
@@ -313,11 +315,9 @@ export function SchedulesTable({
                 <TableCell className="whitespace-nowrap">
                   {schedule.nextExecution ? (
                     <div className="text-sm">
-                      <div>{formatDate(schedule.nextExecution)}</div>
+                      <div>{formatDateTime(schedule.nextExecution, "shortDate", timezone)}</div>
                       <div className="text-xs text-muted-foreground">
-                        {formatDate(schedule.nextExecution, {
-                          includeTime: true,
-                        })}
+                        {formatDateTime(schedule.nextExecution, "shortDateTime", timezone)}
                       </div>
                     </div>
                   ) : (

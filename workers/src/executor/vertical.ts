@@ -10,12 +10,12 @@ export class VerticalExecutor implements JobExecutor {
         this.registry.set(jobName, handler);
     }
 
-    async execute(jobName: string, jobData: unknown): Promise<void> {
+    async execute(jobName: string, jobData: unknown): Promise<unknown> {
         const handler = this.registry.get(jobName);
         if (!handler) {
             throw new Error(`No handler registered for job: ${jobName}`);
         }
         log.debug('Executing job in-process', { jobName });
-        await handler(jobData);
+        return await handler(jobData);
     }
 }

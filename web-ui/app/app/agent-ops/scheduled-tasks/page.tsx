@@ -12,6 +12,9 @@ import {
 import type { ScheduledTask } from "@/lib/agent-ops/types"
 import { ScheduledTaskDialog } from "@/components/agent-ops/scheduled-task-dialog"
 
+import { formatDateTime } from "@/lib/date-utils"
+import { useTenant } from '@/lib/tenant-context'
+
 function StatusBadge({ status }: { status: ScheduledTask["taskStatus"] }) {
     if (status === "active") return <Badge variant="secondary" className="text-green-600">Active</Badge>
     if (status === "paused") return <Badge variant="outline">Paused</Badge>
@@ -22,6 +25,7 @@ export default function ScheduledTasksPage() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const tenantId = searchParams.get("tenantId") || "default"
+    const { timezone } = useTenant()
     const [tasks, setTasks] = useState<ScheduledTask[]>([])
     const [loading, setLoading] = useState(true)
     const [actionIds, setActionIds] = useState<Set<string>>(new Set())
@@ -81,7 +85,7 @@ export default function ScheduledTasksPage() {
     })
 
     const formatTime = (iso?: string) => iso
-        ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+        ? formatDateTime(iso, 'shortDateTime', timezone)
         : "—"
 
     const stats = {

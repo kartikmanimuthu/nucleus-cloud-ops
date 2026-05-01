@@ -4,6 +4,7 @@
  * Provides functionality to copy chat to clipboard and export to markdown
  */
 
+import { formatDateTime } from './date-utils';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ChatMessage = any; // Use any to handle the complex AI SDK message structure
 
@@ -68,12 +69,12 @@ function extractMessageContent(message: ChatMessage): string {
 /**
  * Format messages as markdown for clipboard/export
  */
-export function formatMessagesAsMarkdown(messages: ChatMessage[]): string {
+export function formatMessagesAsMarkdown(messages: ChatMessage[], timeZone?: string): string {
     const lines: string[] = [];
 
     lines.push('# DevOps Agent Conversation');
     lines.push('');
-    lines.push(`*Exported on ${new Date().toLocaleString()}*`);
+    lines.push(`*Exported on ${formatDateTime(new Date(), 'longDateTime', timeZone)}*`);
     lines.push('');
     lines.push('---');
     lines.push('');

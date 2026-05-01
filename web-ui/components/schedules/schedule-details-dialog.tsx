@@ -30,7 +30,8 @@ import {
   CheckCircle,
   Loader2,
 } from "lucide-react";
-import { formatDate } from "@/lib/date-utils";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from '@/lib/tenant-context';
 import { ExecutionDetailsDialog } from "./execution-details-dialog";
 
 interface ScheduleDetailsDialogProps {
@@ -63,6 +64,7 @@ export function ScheduleDetailsDialog({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedExecution, setSelectedExecution] = useState<ExecutionRecord | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const { timezone } = useTenant();
 
   // Fetch execution history when dialog opens
   useEffect(() => {
@@ -217,12 +219,10 @@ export function ScheduleDetailsDialog({
                   {schedule.nextExecution ? (
                     <div>
                       <div className="text-sm font-medium">
-                        {formatDate(schedule.nextExecution)}
+                        {formatDateTime(schedule.nextExecution, "shortDate", timezone)}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {formatDate(schedule.nextExecution, {
-                          includeTime: true,
-                        })}
+                        {formatDateTime(schedule.nextExecution, "shortDateTime", timezone)}
                       </p>
                     </div>
                   ) : (
@@ -424,7 +424,7 @@ export function ScheduleDetailsDialog({
                           <span className="text-muted-foreground">
                             Created:
                           </span>
-                          <span>{formatDate(schedule.createdAt)}</span>
+                          <span>{formatDateTime(schedule.createdAt, "shortDate", timezone)}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">
@@ -436,7 +436,7 @@ export function ScheduleDetailsDialog({
                           <span className="text-muted-foreground">
                             Last Updated:
                           </span>
-                          <span>{formatDate(schedule.updatedAt)}</span>
+                          <span>{formatDateTime(schedule.updatedAt, "shortDate", timezone)}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">
@@ -496,11 +496,11 @@ export function ScheduleDetailsDialog({
                             {getStatusBadge(execution.status)}
                             <div className="flex flex-col">
                               <span className="text-sm font-medium">
-                                {formatDate(execution.startTime)}
+                                {formatDateTime(execution.startTime, "shortDate", timezone)}
                               </span>
                               <span className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {formatDate(execution.startTime, { includeTime: true }).split(' ')[1]}
+                                {formatDateTime(execution.startTime, "timeWithSecondsZone", timezone)}
                               </span>
                             </div>
                           </div>

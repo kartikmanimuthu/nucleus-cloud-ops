@@ -41,6 +41,8 @@ import type {
   AgentOpsStatus,
 } from "@/lib/agent-ops/types";
 import { NewRunDialog } from "@/components/agent-ops/new-run-dialog";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from '@/lib/tenant-context';
 
 const SOURCE_ICONS: Record<TriggerSource, typeof Zap> = {
   slack: MessageSquare,
@@ -70,6 +72,7 @@ export default function AgentOpsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tenantId = searchParams.get("tenantId") || "default";
+  const { timezone } = useTenant();
   const [runs, setRuns] = useState<AgentOpsRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
@@ -122,14 +125,7 @@ export default function AgentOpsPage() {
     return `${(ms / 60000).toFixed(1)}m`;
   };
 
-  const formatTime = (iso: string) => {
-    return new Date(iso).toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+  const formatTime = (iso: string) => formatDateTime(iso, "shortDateTime", timezone);
 
   // Stats
   const stats = {

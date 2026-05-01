@@ -133,14 +133,14 @@ export async function logExecution(execution: {
                 execution.scheduleId,
                 execution.accountId,
                 execution.status,
-                new Date(execution.executionTime),
+                execution.executionTime,
                 execution.resourcesStarted ?? 0,
                 execution.resourcesStopped ?? 0,
                 execution.resourcesFailed ?? 0,
                 execution.duration ?? null,
                 execution.errorMessage ?? null,
                 execution.scheduleMetadata ? JSON.stringify(execution.scheduleMetadata) : null,
-                expiresAt,
+                expiresAt.toISOString(),
             ]
         );
 
@@ -220,13 +220,13 @@ export async function createAuditLog(entry: {
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
              ON CONFLICT DO NOTHING`,
             [
-                id, tenantId, logId, new Date(),
+                id, tenantId, logId, new Date().toISOString(),
                 entry.eventType, entry.action,
                 entry.user, entry.userType,
                 entry.resourceType, entry.resourceId,
                 entry.status, entry.severity, entry.details,
                 entry.metadata ? JSON.stringify(entry.metadata) : null,
-                entry.accountId ?? null, entry.region ?? null, expiresAt,
+                entry.accountId ?? null, entry.region ?? null, expiresAt.toISOString(),
             ]
         );
         logger.debug(`[pg-service] Audit log written: ${entry.eventType} / ${entry.action}`);

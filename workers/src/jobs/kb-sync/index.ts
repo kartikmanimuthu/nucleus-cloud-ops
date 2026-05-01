@@ -37,13 +37,13 @@ async function writeAuditLog(entry: {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        ON CONFLICT DO NOTHING`,
       [
-        id, entry.tenantId, logId, new Date(),
+        id, entry.tenantId, logId, new Date().toISOString(),
         entry.eventType, entry.action,
         'system', 'system',
         'kb', entry.resourceId,
         entry.status, entry.severity, entry.details,
         entry.metadata ? JSON.stringify(entry.metadata) : null,
-        expiresAt, 'system',
+        expiresAt.toISOString(), 'system',
       ],
     );
   } catch (error) {

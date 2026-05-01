@@ -34,6 +34,8 @@ import {
 } from "lucide-react";
 import { AuditLogDetailsDialog } from "./audit-log-details-dialog";
 import { AuditLog } from "@/lib/types";
+import { formatDate, formatTime } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 
 interface AuditLogsTableProps {
   logs: AuditLog[];
@@ -41,6 +43,7 @@ interface AuditLogsTableProps {
 }
 
 export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
+  const { timezone } = useTenant();
   const [viewingLog, setViewingLog] = useState<AuditLog | null>(null);
 
   const getStatusIcon = (status: string) => {
@@ -162,10 +165,9 @@ export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
   };
 
   const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
     return {
-      date: date.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric' }),
-      time: date.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+      date: formatDate(timestamp, 'shortDate', timezone),
+      time: formatDate(timestamp, 'timeWithSecondsZone', timezone),
     };
   };
 
@@ -204,7 +206,7 @@ export function AuditLogsTable({ logs, onFilter }: AuditLogsTableProps) {
                         {formatTimestamp(log.timestamp).date}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {formatTimestamp(log.timestamp).time} IST
+                        {formatTimestamp(log.timestamp).time}
                       </div>
                     </div>
                   </TableCell>

@@ -29,6 +29,8 @@ import {
   MapPin,
 } from "lucide-react";
 import { AuditLog } from "@/lib/types";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 
 interface AuditLogDetailsDialogProps {
   log: AuditLog;
@@ -41,6 +43,8 @@ export function AuditLogDetailsDialog({
   open,
   onOpenChange,
 }: AuditLogDetailsDialogProps) {
+  const { timezone } = useTenant();
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "success":
@@ -98,7 +102,7 @@ export function AuditLogDetailsDialog({
                       Timestamp
                     </label>
                     <p className="text-sm">
-                      {new Date(log.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} IST
+                      {formatDateTime(log.timestamp, 'longDateTimeWithZone', timezone)}
                     </p>
                   </div>
                 </div>
