@@ -37,7 +37,8 @@ import {
 } from "lucide-react";
 import { UIAccount } from "@/lib/types";
 import { ClientAccountService } from "@/lib/client-account-service";
-import { formatDate } from "@/lib/date-utils";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from '@/lib/tenant-context';
 import { DeleteAccountDialog } from "@/components/accounts/delete-account-dialog";
 import { useToast } from "@/hooks/use-toast";
 
@@ -54,6 +55,7 @@ export function AccountsTable({
   const [deletingAccount, setDeletingAccount] = useState<UIAccount | null>(null);
   const [loadingActions, setLoadingActions] = useState<string | null>(null);
   const { toast } = useToast();
+  const { timezone } = useTenant();
 
   const validateConnection = async (accountId: string) => {
     try {
@@ -285,7 +287,7 @@ export function AccountsTable({
                   <TableCell>
                     <div className="text-sm text-muted-foreground">
                       {account.createdAt
-                        ? formatDate(account.createdAt)
+                        ? formatDateTime(account.createdAt, "shortDate", timezone)
                         : "N/A"}
                     </div>
                   </TableCell>

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { AuditLog } from "@/lib/types";
 import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 
 export function AuditLogs({
   auditLogs,
@@ -32,6 +33,8 @@ export function AuditLogs({
 }) {
   // const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   // const [loading, setLoading] = useState(true);
+  const { timezone } = useTenant();
+
   // const [error, setError] = useState<string | null>(null);
 
   // useEffect(() => {
@@ -179,7 +182,7 @@ export function AuditLogs({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{log.action}</p>
                     <p className="text-sm text-muted-foreground truncate">
-                      {log.resource} • {formatDateTime(log.timestamp)}
+                      {log.resource} • {formatDateTime(log.timestamp, 'longDateTime', timezone)}
                     </p>
                   </div>
                   <div className="flex-shrink-0">

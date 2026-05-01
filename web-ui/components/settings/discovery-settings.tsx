@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Search } from "lucide-react";
 import { toast } from "sonner";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 
 type Period = "daily" | "weekly" | "monthly";
 
@@ -16,15 +18,8 @@ const PRESETS: { label: string; value: Period; description: string }[] = [
     { label: "Monthly", value: "monthly", description: "Scan all accounts once per month" },
 ];
 
-function formatDate(iso: string | null): string {
-    if (!iso) return "Never";
-    return new Date(iso).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-    });
-}
-
 export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
+    const { timezone } = useTenant();
     const [period, setPeriod] = useState<Period>("daily");
     const [lastRunAt, setLastRunAt] = useState<string | null>(null);
     const [nextEligibleAt, setNextEligibleAt] = useState<string | null>(null);
@@ -110,11 +105,11 @@ export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
                 <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                         <p className="text-muted-foreground">Last run</p>
-                        <p className="font-medium">{formatDate(lastRunAt)}</p>
+                        <p className="font-medium">{formatDateTime(lastRunAt, "shortDateTime", timezone)}</p>
                     </div>
                     <div>
                         <p className="text-muted-foreground">Next eligible</p>
-                        <p className="font-medium">{formatDate(nextEligibleAt)}</p>
+                        <p className="font-medium">{formatDateTime(nextEligibleAt, "shortDateTime", timezone)}</p>
                     </div>
                 </div>
 

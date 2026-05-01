@@ -12,6 +12,8 @@ import {
 } from "lucide-react"
 import type { ScheduledTask, AgentOpsRun, AgentOpsStatus } from "@/lib/agent-ops/types"
 import { ScheduledTaskDialog } from "@/components/agent-ops/scheduled-task-dialog"
+import { formatDateTime } from "@/lib/date-utils"
+import { useTenant } from '@/lib/tenant-context'
 
 const STATUS_CONFIG: Record<AgentOpsStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: typeof Clock }> = {
     queued: { label: "Queued", variant: "outline", icon: Clock },
@@ -28,6 +30,7 @@ export default function ScheduledTaskDetailPage() {
     const searchParams = useSearchParams()
     const router = useRouter()
     const tenantId = searchParams.get("tenantId") || "default"
+    const { timezone } = useTenant()
 
     const [task, setTask] = useState<ScheduledTask | null>(null)
     const [runs, setRuns] = useState<AgentOpsRun[]>([])
@@ -88,7 +91,7 @@ export default function ScheduledTaskDetailPage() {
     })
 
     const formatTime = (iso?: string) => iso
-        ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+        ? formatDateTime(iso, 'shortDateTime', timezone)
         : "—"
 
     const formatDuration = (ms?: number) => {

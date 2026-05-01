@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useSession } from "next-auth/react";
+import { useTenant } from "@/lib/tenant-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,7 @@ const TIMEZONES = Intl.supportedValuesOf("timeZone");
 
 export function OrganizationSettingsForm() {
     const { data: session } = useSession();
+    const { refetch: refetchTenant } = useTenant();
     const [slug, setSlug] = useState("");
     const [currentLogoUrl, setCurrentLogoUrl] = useState<string | null>(null);
     const [logoError, setLogoError] = useState<string | null>(null);
@@ -127,6 +129,7 @@ export function OrganizationSettingsForm() {
             }
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 3000);
+            await refetchTenant();
         } catch {
             setSaveError("Failed to save settings.");
         }

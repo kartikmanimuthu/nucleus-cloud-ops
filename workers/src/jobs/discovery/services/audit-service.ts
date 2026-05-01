@@ -31,13 +31,13 @@ export async function writeAuditLog(entry: {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        ON CONFLICT DO NOTHING`,
       [
-        id, entry.tenantId, logId, new Date(),
+        id, entry.tenantId, logId, new Date().toISOString(),
         entry.eventType, entry.action,
         'system', 'system',
         'discovery', entry.resourceId,
         entry.status, entry.severity, entry.details,
         entry.metadata ? JSON.stringify(entry.metadata) : null,
-        entry.accountId ?? null, entry.region ?? null, expiresAt,
+        entry.accountId ?? null, entry.region ?? null, expiresAt.toISOString(),
         'system',
       ],
     );

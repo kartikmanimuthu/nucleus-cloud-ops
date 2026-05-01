@@ -41,7 +41,8 @@ import {
 } from "lucide-react";
 import { DeleteScheduleDialog } from "./delete-schedule-dialog";
 import { DuplicateScheduleDialog } from "./duplicate-schedule-dialog";
-import { formatDate } from "@/lib/date-utils";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from '@/lib/tenant-context';
 import { ClientScheduleService } from "@/lib/client-schedule-service";
 import { UISchedule } from "@/lib/types";
 
@@ -56,6 +57,7 @@ export function SchedulesList({ schedules, loading, error }: { schedules: UISche
   );
   const [duplicatingSchedule, setDuplicatingSchedule] =
     useState<UISchedule | null>(null);
+  const { timezone } = useTenant();
 
   // Load schedules from DynamoDB
   // const loadSchedules = async () => {
@@ -252,12 +254,10 @@ export function SchedulesList({ schedules, loading, error }: { schedules: UISche
                     <TableCell>
                       {schedule.nextExecution ? (
                         <div className="text-sm">
-                          {formatDate(schedule.nextExecution)}
+                          {formatDateTime(schedule.nextExecution, "shortDate", timezone)}
                           <br />
                           <span className="text-xs text-muted-foreground">
-                            {formatDate(schedule.nextExecution, {
-                              includeTime: true,
-                            })}
+                            {formatDateTime(schedule.nextExecution, "shortDateTime", timezone)}
                           </span>
                         </div>
                       ) : (

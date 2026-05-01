@@ -24,6 +24,8 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Database, Globe, Server, Plus, Play, Square, Minus } from "lucide-react";
+import { formatDate } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 import { SectionSkeleton } from "./section-skeleton";
 import { SectionError } from "./section-error";
 import { SectionEmpty } from "./section-empty";
@@ -45,6 +47,7 @@ interface InventoryOverviewSectionProps {
 export function InventoryOverviewSection({ timeRange, refreshKey }: InventoryOverviewSectionProps) {
   const [data, setData] = useState<InventoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const { timezone } = useTenant();
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -189,7 +192,7 @@ export function InventoryOverviewSection({ timeRange, refreshKey }: InventoryOve
             <Server className="h-4 w-4 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Last Scan</p>
-              <p className="text-sm font-bold">{data.summary.lastScanAt ? new Date(data.summary.lastScanAt).toLocaleDateString() : 'Never'}</p>
+              <p className="text-sm font-bold">{data.summary.lastScanAt ? formatDate(data.summary.lastScanAt, 'shortDate', timezone) : 'Never'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 rounded-lg border p-3">

@@ -29,7 +29,8 @@ import {
   Cpu,
   Info,
 } from "lucide-react";
-import { formatDate } from "@/lib/date-utils";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from '@/lib/tenant-context';
 
 interface ExecutionDetailsDialogProps {
   execution: any;
@@ -42,6 +43,7 @@ export function ExecutionDetailsDialog({
   open,
   onOpenChange,
 }: ExecutionDetailsDialogProps) {
+  const { timezone } = useTenant();
   if (!execution) return null;
 
   const getStatusIcon = (status: string) => {
@@ -122,7 +124,7 @@ export function ExecutionDetailsDialog({
                   <div className="space-y-1">
                     <span className="text-sm text-muted-foreground">Start Time</span>
                     <div className="text-sm font-medium">
-                      {formatDate(execution.startTime, { includeTime: true })}
+                      {formatDateTime(execution.startTime, "longDateTimeWithZone", timezone)}
                     </div>
                   </div>
                   <div className="space-y-1">

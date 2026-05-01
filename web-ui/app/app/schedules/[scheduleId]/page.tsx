@@ -33,7 +33,8 @@ import {
   Play,
 } from "lucide-react";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
-import { formatDate, formatDateTime } from "@/lib/date-utils";
+import { formatDateTime } from "@/lib/date-utils";
+import { useTenant } from '@/lib/tenant-context';
 import { UISchedule } from "@/lib/types";
 
 import { use } from "react";
@@ -61,6 +62,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
   const { scheduleId } = use(params);
   const router = useRouter();
   const { toast } = useToast();
+  const { timezone } = useTenant();
   const [schedule, setSchedule] = useState<UISchedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -441,7 +443,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                     <Label className="text-sm font-medium">Created</Label>
                     <p className="text-sm text-muted-foreground">
                       {schedule.createdAt
-                        ? formatDate(schedule.createdAt)
+                        ? formatDateTime(schedule.createdAt, undefined, timezone)
                         : "N/A"}
                     </p>
                   </div>
@@ -449,7 +451,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                     <Label className="text-sm font-medium">Last Updated</Label>
                     <p className="text-sm text-muted-foreground">
                       {schedule.updatedAt
-                        ? formatDate(schedule.updatedAt)
+                        ? formatDateTime(schedule.updatedAt, undefined, timezone)
                         : "N/A"}
                     </p>
                   </div>
@@ -504,7 +506,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                             {getExecutionStatusIcon(execution.status)}
                             <div>
                               <p className="font-medium">
-                                {formatDateTime(execution.executionTime)}
+                                {formatDateTime(execution.executionTime, 'longDateTime', timezone)}
                               </p>
                               <p className="text-sm text-muted-foreground">
                                 {execution.errorMessage || `Started: ${execution.resourcesStarted}, Stopped: ${execution.resourcesStopped}, Failed: ${execution.resourcesFailed}`}

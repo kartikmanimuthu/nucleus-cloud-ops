@@ -32,6 +32,8 @@ import {
 } from "lucide-react";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
+import { formatDateTime, formatDate } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 
 
 interface AccountDetailPageProps {
@@ -73,6 +75,7 @@ interface AccountActivity {
 export default function AccountDetailPage({ params }: AccountDetailPageProps) {
   const router = useRouter();
   const { accountId } = use(params);
+  const { timezone } = useTenant();
   const [account, setAccount] = useState<UIAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -358,7 +361,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                 <p className="text-xs text-muted-foreground mt-1">
                   Last validated:{" "}
                   {account.lastValidated
-                    ? new Date(account.lastValidated).toLocaleString()
+                    ? formatDateTime(account.lastValidated, 'shortDate', timezone)
                     : "Never"}
                 </p>
               </CardContent>
@@ -517,7 +520,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                       <span className="text-muted-foreground">Created:</span>
                       <span>
                         {account.createdAt
-                          ? new Date(account.createdAt).toLocaleDateString()
+                          ? formatDate(account.createdAt, 'shortDate', timezone)
                           : "N/A"}
                       </span>
                     </div>
@@ -533,7 +536,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                       </span>
                       <span>
                         {account.updatedAt
-                          ? new Date(account.updatedAt).toLocaleDateString()
+                          ? formatDate(account.updatedAt, 'shortDate', timezone)
                           : "N/A"}
                       </span>
                     </div>
@@ -672,7 +675,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                             <Clock className="h-3 w-3 text-muted-foreground" />
                             <span className="text-muted-foreground">
                               Next execution:{" "}
-                              {new Date(schedule.nextExecution).toLocaleString()}
+                              {formatDateTime(schedule.nextExecution, 'shortDate', timezone)}
                             </span>
                           </div>
                         )}
@@ -744,7 +747,7 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                             )}
                           </div>
                           <span className="text-sm text-muted-foreground">
-                            {new Date(activityItem.timestamp).toLocaleString()}
+                            {formatDateTime(activityItem.timestamp, 'shortDate', timezone)}
                           </span>
                         </div>
                         <p className="text-sm text-muted-foreground">

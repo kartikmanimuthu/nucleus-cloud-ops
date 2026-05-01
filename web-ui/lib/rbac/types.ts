@@ -33,6 +33,7 @@ export const SUBJECT_TO_MODULE: Record<string, Module> = {
     Agent: 'AIOps',
     KnowledgeBase: 'AIOps', // Agent + KnowledgeBase collapsed into AI Ops (D-02)
     Billing: 'Settings',
+    Certificate: 'Settings',
     all: 'Settings',        // wildcard fallback
 };
 

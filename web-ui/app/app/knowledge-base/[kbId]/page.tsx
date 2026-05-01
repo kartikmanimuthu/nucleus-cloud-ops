@@ -21,6 +21,8 @@ import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import type { DataSource, DataSourceType, KnowledgeBase } from '@/lib/knowledge-base/types';
+import { formatDateTime, formatDate } from '@/lib/date-utils';
+import { useTenant } from '@/lib/tenant-context';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -116,7 +118,7 @@ function ViewDialog({ ds, open, onClose }: { ds: DataSource; open: boolean; onCl
           {ds.lastSyncAt && (
             <div className="flex justify-between">
               <span className="text-muted-foreground">Last synced</span>
-              <span className="font-medium">{new Date(ds.lastSyncAt).toLocaleString()}</span>
+              <span className="font-medium">{formatDateTime(ds.lastSyncAt, undefined, timezone)}</span>
             </div>
           )}
           {rows.length > 0 && (
@@ -241,6 +243,7 @@ export default function KnowledgeBaseDetailPage() {
   const router = useRouter();
   const params = useParams<{ kbId: string }>();
   const kbId = params.kbId;
+  const { timezone } = useTenant();
 
   const [kb, setKb] = useState<KnowledgeBase | null>(null);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
@@ -499,7 +502,7 @@ export default function KnowledgeBaseDetailPage() {
                       <p className="text-xs text-muted-foreground">
                         {SOURCE_TYPE_LABELS[ds.sourceType]}
                         {ds.vectorCount > 0 && ` · ${ds.vectorCount.toLocaleString()} vectors`}
-                        {ds.lastSyncAt && ` · Synced ${new Date(ds.lastSyncAt).toLocaleDateString()}`}
+                        {ds.lastSyncAt && ` · Synced ${formatDate(ds.lastSyncAt, 'shortDate', timezone)}`}
                       </p>
                     </div>
 

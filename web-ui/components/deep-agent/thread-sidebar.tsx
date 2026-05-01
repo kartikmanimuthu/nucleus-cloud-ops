@@ -10,6 +10,8 @@ import {
   Brain,
 } from 'lucide-react';
 import type { DeepAgentThread } from '@/lib/deep-agent/types';
+import { getRelativeTime } from '@/lib/date-utils';
+import { useTenant } from '@/lib/tenant-context';
 
 type ThreadStub = Omit<DeepAgentThread, 'messages'>;
 
@@ -28,23 +30,13 @@ export function ThreadSidebar({
   onNewThread,
   onDeleteThread,
 }: ThreadSidebarProps) {
+  const { timezone } = useTenant();
   const [search, setSearch] = useState('');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const filtered = threads.filter(t =>
     t.title.toLowerCase().includes(search.toLowerCase()),
   );
-
-  function formatDate(iso: string): string {
-    const d = new Date(iso);
-    const now = new Date();
-    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
-
-    if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' });
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  }
 
   return (
     <div className="w-60 shrink-0 border-r border-border bg-card flex flex-col">
@@ -119,7 +111,7 @@ export function ThreadSidebar({
                       {thread.title}
                     </p>
                     <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {formatDate(thread.updatedAt)}
+                      {getRelativeTime(thread.updatedAt, timezone)}
                     </p>
                   </div>
                 </button>

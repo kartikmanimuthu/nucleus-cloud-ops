@@ -17,6 +17,8 @@ import { AskAIDialog } from "@/components/inventory/ask-ai-dialog";
 import { ResourceGrid } from "@/components/inventory/resource-grid";
 import { SyncAccountsDialog } from "@/components/inventory/sync-accounts-dialog";
 import { cn } from "@/lib/utils";
+import { formatDate, formatTime } from "@/lib/date-utils";
+import { useTenant } from "@/lib/tenant-context";
 import { RESOURCE_TYPE_OPTIONS, REGION_OPTIONS } from "@/lib/resource-types";
 import { getColumnsForType } from "@/lib/inventory/column-registry";
 import type { Resource } from "@/lib/inventory/types";
@@ -48,6 +50,7 @@ const PAGE_SIZES = [10, 20, 50, 100, 200, 500];
 
 export default function InventoryPage() {
     const router = useRouter();
+    const { timezone } = useTenant();
     const [resources, setResources] = useState<Resource[]>([]);
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);
@@ -308,10 +311,10 @@ export default function InventoryPage() {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {lastSyncedAt ? new Date(lastSyncedAt).toLocaleDateString() : "Never"}
+                                {lastSyncedAt ? formatDate(lastSyncedAt, 'shortDate', timezone) : "Never"}
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                {lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString() : "Click Sync Now"}
+                                {lastSyncedAt ? formatTime(lastSyncedAt, timezone) : "Click Sync Now"}
                             </p>
                         </CardContent>
                     </Card>
