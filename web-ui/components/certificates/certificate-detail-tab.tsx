@@ -32,6 +32,7 @@ export function CertificateDetailTab({ certificateId }: CertificateDetailTabProp
     const [loading, setLoading] = useState(true);
     const [showBody, setShowBody] = useState(false);
     const [showKey, setShowKey] = useState(false);
+    const [showChain, setShowChain] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
 
     useEffect(() => {
@@ -164,8 +165,8 @@ export function CertificateDetailTab({ certificateId }: CertificateDetailTabProp
             {detail.s3ChainKey && renderBlock(
                 "Certificate Chain",
                 content?.chain,
-                true,
-                () => {},
+                showChain,
+                setShowChain,
                 "chain"
             )}
         </div>

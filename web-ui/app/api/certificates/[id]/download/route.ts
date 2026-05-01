@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCertificateRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import JSZip from 'jszip';
 
 export async function GET(
     request: NextRequest,
@@ -24,34 +24,37 @@ export async function GET(
         const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
         const bucket = process.env.APP_BUCKET_NAME || '';
 
-        const [bodyUrl, chainUrl, keyUrl] = await Promise.all([
-            getSignedUrl(
-                s3Client,
-                new GetObjectCommand({ Bucket: bucket, Key: cert.s3BodyKey }),
-                { expiresIn: 3600 }
-            ),
+        // Load all three parts from S3
+        const [bodyObj, chainObj, keyObj] = await Promise.all([
+            s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3BodyKey })),
             cert.s3ChainKey
-                ? getSignedUrl(
-                      s3Client,
-                      new GetObjectCommand({ Bucket: bucket, Key: cert.s3ChainKey }),
-                      { expiresIn: 3600 }
-                  )
+                ? s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3ChainKey }))
                 : Promise.resolve(null),
-            getSignedUrl(
-                s3Client,
-                new GetObjectCommand({ Bucket: bucket, Key: cert.s3PrivateKeyKey }),
-                { expiresIn: 3600 }
-            ),
+            s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3PrivateKeyKey })),
         ]);
 
-        return NextResponse.json({
-            success: true,
-            data: {
-                bodyUrl,
-                chainUrl,
-                privateKeyUrl: keyUrl,
-                name: cert.name,
-                domainName: cert.domainName,
+        const bodyContent = await bodyObj.Body!.transformToString();
+        const chainContent = chainObj ? await chainObj.Body!.transformToString() : null;
+        const keyContent = await keyObj.Body!.transformToString();
+
+        // Build ZIP
+        const zip = new JSZip();
+        zip.file(`${cert.name || 'certificate'}_body.pem`, bodyContent);
+        if (chainContent) {
+            zip.file(`${cert.name || 'certificate'}_chain.pem`, chainContent);
+        }
+        zip.file(`${cert.name || 'certificate'}_private.key`, keyContent);
+
+        const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+
+        const safeName = (cert.name || 'certificate').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = `${safeName}.zip`;
+
+        return new NextResponse(zipBuffer, {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/zip',
+                'Content-Disposition': `attachment; filename="${filename}"`,
             },
         });
     } catch (error: unknown) {

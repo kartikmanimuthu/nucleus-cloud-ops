@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ShieldCheck, UploadCloud } from "lucide-react";
 import { CertificateDetailTab } from "./certificate-detail-tab";
 import { CertificateAccountsTab } from "./certificate-accounts-tab";
-import { CertificateResourcesTab } from "./certificate-resources-tab";
+import { DeployCertificateDialog } from "./deploy-certificate-dialog";
 import { daysUntilExpiry, getExpiryColor } from "@/lib/certificate-utils";
 
 interface CertificateDetailPageProps {
@@ -37,6 +37,8 @@ export function CertificateDetailPage({ certificateId }: CertificateDetailPagePr
     const [cert, setCert] = useState<CertificateMeta | null>(null);
     const [loading, setLoading] = useState(true);
     const [reimporting, setReimporting] = useState<string | null>(null);
+    const [deployOpen, setDeployOpen] = useState(false);
+    const [accountsKey, setAccountsKey] = useState(0);
 
     useEffect(() => {
         async function fetchMeta() {
@@ -67,9 +69,29 @@ export function CertificateDetailPage({ certificateId }: CertificateDetailPagePr
             if (!json.success) {
                 throw new Error(json.error || "Reimport failed");
             }
+        } catch (e) {
+            console.error("Reimport failed:", e);
         } finally {
             setReimporting(null);
         }
+    };
+
+    const handleDeploySuccess = () => {
+        // Refresh certificate metadata so account count updates
+        async function refreshMeta() {
+            try {
+                const res = await fetch(`/api/certificates/${certificateId}`);
+                const json = await res.json();
+                if (json.success) {
+                    setCert(json.data);
+                }
+            } catch (e) {
+                console.error("Failed to refresh certificate:", e);
+            }
+        }
+        refreshMeta();
+        // Force accounts tab to re-fetch
+        setAccountsKey(k => k + 1);
     };
 
     if (loading) {
@@ -148,7 +170,6 @@ export function CertificateDetailPage({ certificateId }: CertificateDetailPagePr
                     <TabsTrigger value="accounts">
                         Accounts ({cert.associatedAccountIds.length})
                     </TabsTrigger>
-                    <TabsTrigger value="resources">Resources</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="details" className="pt-4">
@@ -156,17 +177,36 @@ export function CertificateDetailPage({ certificateId }: CertificateDetailPagePr
                 </TabsContent>
 
                 <TabsContent value="accounts" className="pt-4">
+                    <div className="flex items-center justify-between mb-4">
+                        <p className="text-sm text-muted-foreground">
+                            Accounts where this certificate is imported or discovered.
+                        </p>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() => setDeployOpen(true)}
+                        >
+                            <UploadCloud className="h-3.5 w-3.5" />
+                            Deploy to Account
+                        </Button>
+                    </div>
                     <CertificateAccountsTab
                         certificateId={certificateId}
                         onReimport={handleReimport}
                         reimporting={reimporting}
+                        refreshKey={accountsKey}
                     />
                 </TabsContent>
-
-                <TabsContent value="resources" className="pt-4">
-                    <CertificateResourcesTab certificateId={certificateId} />
-                </TabsContent>
             </Tabs>
+
+            <DeployCertificateDialog
+                open={deployOpen}
+                onOpenChange={setDeployOpen}
+                certificateId={certificateId}
+                onDeployed={handleDeploySuccess}
+                excludedAccountIds={cert?.associatedAccountIds || []}
+            />
         </div>
     );
 }
