@@ -16,9 +16,10 @@ phases:
   build:
     commands:
       - npm run build
+      - npm test
       - cd web-ui && npm run test && cd ..
       - cd workers && npm run test && cd ..
-      - cd lambda/scheduler && npm run test && cd ../..
+      - cd lambda/scheduler && npm install && npm run test && cd ../..
 artifacts:
   files: '**/*'
   name: build-output-$(date +%Y%m%d-%H%M%S)
