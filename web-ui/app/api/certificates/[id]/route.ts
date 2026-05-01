@@ -13,6 +13,9 @@ export async function GET(
 ) {
     try {
         const tenantId = await getSessionTenantId();
+        const authError = await authorize('read', 'Certificate');
+        if (authError) return authError;
+
         const { id } = await params;
         const repo = getCertificateRepository();
         const cert = await repo.getCertificate(tenantId, id);

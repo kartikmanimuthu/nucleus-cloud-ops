@@ -8,6 +8,7 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { parseCertificatePem, computeExpiryStatus } from '@/lib/certificate-utils';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
+import { X509Certificate } from 'crypto';
 
 function getS3Client(): S3Client {
     return new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
@@ -19,6 +20,8 @@ export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const tenantId = await getSessionTenantId();
+        const authError = await authorize('read', 'Certificate');
+        if (authError) return authError;
 
         const repo = getCertificateRepository();
         const result = await repo.listCertificates({
@@ -119,6 +122,19 @@ export async function POST(request: NextRequest) {
 
         parseCertificatePem(bodyPem);
 
+        if (!privateKeyPem.includes('-----BEGIN') || !privateKeyPem.includes('PRIVATE KEY-----')) {
+            return NextResponse.json(
+                { success: false, error: 'Invalid private key PEM format' },
+                { status: 400 }
+            );
+        }
+
+        const x509 = new X509Certificate(bodyPem);
+        const notBefore = new Date(x509.validFrom);
+        const notAfter = new Date(x509.validTo);
+        const issuer = x509.issuer.split('\n').find(l => l.startsWith('O='))?.replace('O=', '') || x509.issuer;
+        const status = computeExpiryStatus(notAfter.toISOString());
+
         const certId = crypto.randomUUID();
         const s3Prefix = `certificates/${tenantId}/${certId}`;
 
@@ -151,10 +167,6 @@ export async function POST(request: NextRequest) {
                 })
             ),
         ]);
-
-        const now = new Date();
-        const notAfter = new Date(now.getTime() + 365 * 86400000);
-        const status = computeExpiryStatus(notAfter.toISOString());
 
         // Auto-discover associated accounts from inventory
         const associatedAccountIds: string[] = [];
@@ -192,8 +204,8 @@ export async function POST(request: NextRequest) {
             name,
             domainName,
             status,
-            issuer: null,
-            notBefore: now.toISOString(),
+            issuer,
+            notBefore: notBefore.toISOString(),
             notAfter: notAfter.toISOString(),
             s3BodyKey: `${s3Prefix}/body.pem`,
             s3ChainKey: chainPem ? `${s3Prefix}/chain.pem` : null,
