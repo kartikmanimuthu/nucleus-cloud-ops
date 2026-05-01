@@ -71,6 +71,7 @@ export const TENANT_SCOPED_MODELS = new Set([
     'AgentOpsEvent',
     'ScheduledTask',
     'AgentMemory',
+    'Certificate',
     'ChatMessage',
     'CustomRole',
     'UserTenantRole',
