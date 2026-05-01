@@ -38,6 +38,7 @@ import {
   FileText,
   Calendar,
   Shield,
+  ShieldCheck,
   UserCog,
 } from "lucide-react"
 
@@ -50,6 +51,7 @@ const navigation = [
   { name: "Cost Scheduler", href: "/app/schedules", icon: Calendar },
   { name: "Inventory Discovery", href: "/app/inventory", icon: Database },
   { name: "Knowledge Base", href: "/app/knowledge-base", icon: BookOpen },
+  { name: "Certificate Manager", href: "/app/certificates", icon: ShieldCheck },
   { name: "Audit Logs", href: "/app/audit", icon: Activity },
   { name: "Settings", href: "/app/settings", icon: Settings },
 ]

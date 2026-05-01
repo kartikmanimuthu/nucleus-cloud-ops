@@ -22,6 +22,7 @@ import type { IInventoryRepository } from './repositories/inventory/interface';
 import type { IAgentOpsRunRepository } from './repositories/agent-ops-run/interface';
 import type { IAgentOpsEventRepository } from './repositories/agent-ops-event/interface';
 import type { IScheduledTaskRepository } from './repositories/scheduled-task/interface';
+import type { ICertificateRepository } from './repositories/certificate/interface';
 
 export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -93,6 +94,12 @@ export function getScheduledTaskRepository(): IScheduledTaskRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { ScheduledTaskPostgresRepository } = require('./repositories/scheduled-task/postgres');
     return new ScheduledTaskPostgresRepository();
+}
+
+export function getCertificateRepository(): ICertificateRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CertificatePostgresRepository } = require('./repositories/certificate/postgres');
+    return new CertificatePostgresRepository();
 }
 
 /**

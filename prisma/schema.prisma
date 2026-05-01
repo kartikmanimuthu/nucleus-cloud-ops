@@ -583,6 +583,33 @@ model Invitation {
   @@map("invitations")
 }
 
+// Certificate — stores uploaded TLS certificates for multi-account management
+// Certificate Manager is the source of truth; all sync is unidirectional (S3 → ACM)
+// status: active | expiring | expired — controlled by computeExpiryStatus()
+model Certificate {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  name                 String
+  domainName           String
+  status               String   @default("active") // active | expiring | expired
+  issuer               String?
+  notBefore            DateTime?
+  notAfter             DateTime
+  s3BodyKey            String
+  s3ChainKey           String?
+  s3PrivateKeyKey      String
+  associatedAccountIds String[] @default([])
+  tags                 Json     @default("{}")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  createdBy            String
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, notAfter])
+  @@map("certificates")
+}
+
 // === NextAuth Prisma Adapter Models ===
 // Per D-05: database sessions (not JWT) for suspension enforcement
 // @@map to auth_* tables to avoid collision with existing Account model
