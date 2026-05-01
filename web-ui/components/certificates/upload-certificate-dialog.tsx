@@ -66,7 +66,7 @@ export function UploadCertificateDialog({
                 onOpenChange(false);
                 onUploaded();
             }
-        } catch (e) {
+        } catch {
             setError("Network error — please try again");
         } finally {
             setSubmitting(false);
@@ -98,7 +98,7 @@ export function UploadCertificateDialog({
                 onOpenChange(false);
                 onUploaded();
             }
-        } catch (e) {
+        } catch {
             setError("Network error — please try again");
         } finally {
             setSubmitting(false);

@@ -42,7 +42,7 @@ export function DeleteCertificateDialog({
                 onOpenChange(false);
                 onDeleted();
             }
-        } catch (e) {
+        } catch {
             setError("Network error — please try again");
         } finally {
             setDeleting(false);
