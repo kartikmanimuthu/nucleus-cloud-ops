@@ -6,7 +6,7 @@
 
 // ─── Enumerations ──────────────────────────────────────────────────────
 
-export type TriggerSource = 'slack' | 'jira' | 'api' | 'scheduled';
+export type TriggerSource = 'slack' | 'jira' | 'discord' | 'telegram' | 'webhook' | 'api' | 'scheduled';
 
 export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
 
@@ -54,7 +54,29 @@ export interface ScheduledTriggerMeta {
     scheduledAt: string;    // ISO timestamp of the scheduled fire time
 }
 
-export type TriggerMetadata = SlackTriggerMeta | JiraTriggerMeta | ApiTriggerMeta | ScheduledTriggerMeta;
+export interface DiscordTriggerMeta {
+    userId: string;
+    channelId: string;
+    guildId?: string;
+    interactionId: string;
+    interactionToken: string;
+    messageId?: string;
+}
+
+export interface TelegramTriggerMeta {
+    userId: number;
+    chatId: number;
+    messageId?: number;
+    callbackQueryId?: string;
+}
+
+export interface WebhookTriggerMeta {
+    callbackUrl: string;
+    webhookId?: string;
+    secret?: string;
+}
+
+export type TriggerMetadata = SlackTriggerMeta | JiraTriggerMeta | DiscordTriggerMeta | TelegramTriggerMeta | WebhookTriggerMeta | ApiTriggerMeta | ScheduledTriggerMeta;
 
 // ─── Agent Ops Run ─────────────────────────────────────────────────────
 
