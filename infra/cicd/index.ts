@@ -291,6 +291,12 @@ new aws.iam.RolePolicy("pulumi-deploy-policy", {
                     Resource: "*",
                 },
                 {
+                    Sid: "ECRAuthToken",
+                    Effect: "Allow",
+                    Action: "ecr:GetAuthorizationToken",
+                    Resource: "*",
+                },
+                {
                     Sid: "ECR",
                     Effect: "Allow",
                     Action: "ecr:*",
@@ -346,12 +352,6 @@ new aws.iam.RolePolicy("pulumi-deploy-policy", {
                     Sid: "STS",
                     Effect: "Allow",
                     Action: ["sts:GetCallerIdentity", "sts:AssumeRole"],
-                    Resource: "*",
-                },
-                {
-                    Sid: "DynamoDB",
-                    Effect: "Allow",
-                    Action: "dynamodb:*",
                     Resource: "*",
                 },
                 {
