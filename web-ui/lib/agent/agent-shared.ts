@@ -37,6 +37,7 @@ export interface ReflectionState {
     nextAction: string;
     isComplete: boolean;
     toolResults: ToolResultEntry[]; // Structured tool results for reflection/summary
+    memoryContext: string; // Formatted relevant memories from recall node
 }
 
 // --- Schema for StateGraph ---
@@ -89,6 +90,10 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     toolResults: {
         reducer: (x: ToolResultEntry[], y: ToolResultEntry[]) => [...x, ...y].slice(-10), // cap at 10 to prevent unbounded growth
         default: () => [],
+    },
+    memoryContext: {
+        reducer: (x: string, y: string) => y || x,
+        default: () => "",
     },
 };
 

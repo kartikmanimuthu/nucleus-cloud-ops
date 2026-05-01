@@ -138,6 +138,9 @@ class PostgresMemoryStore implements MemoryStoreInterface {
                 const query = String(op.query);
                 const limit = Number(op.limit ?? 5);
                 const tenantId = configurable?.tenant_id as string ?? "default";
+                const namespacePrefix = Array.isArray(op.namespacePrefix)
+                    ? (op.namespacePrefix as string[]).join("/")
+                    : "";
 
                 let queryEmbedding: number[] | null = null;
                 try {
@@ -148,20 +151,35 @@ class PostgresMemoryStore implements MemoryStoreInterface {
 
                 if (queryEmbedding) {
                     const embeddingStr = `[${queryEmbedding.join(",")}]`;
-                    const rows = await prisma.$queryRaw<Array<{ key: string; value: unknown; namespace: string }>>`
-                        SELECT "key", "value", "namespace"
-                        FROM agent_memories
-                        WHERE "tenantId" = ${tenantId}
-                        ORDER BY embedding <=> ${embeddingStr}::vector
-                        LIMIT ${limit}
-                    `;
+                    const rows = namespacePrefix
+                        ? await prisma.$queryRaw<Array<{ key: string; value: unknown; namespace: string }>>`
+                            SELECT "key", "value", "namespace"
+                            FROM agent_memories
+                            WHERE "tenantId" = ${tenantId}
+                              AND "namespace" LIKE ${namespacePrefix + '%'}
+                            ORDER BY embedding <=> ${embeddingStr}::vector
+                            LIMIT ${limit}
+                          `
+                        : await prisma.$queryRaw<Array<{ key: string; value: unknown; namespace: string }>>`
+                            SELECT "key", "value", "namespace"
+                            FROM agent_memories
+                            WHERE "tenantId" = ${tenantId}
+                            ORDER BY embedding <=> ${embeddingStr}::vector
+                            LIMIT ${limit}
+                          `;
                     results.push(rows.map((r) => ({ key: r.key, value: r.value, namespace: r.namespace })));
                 } else {
-                    const rows = await prisma.agentMemory.findMany({
-                        where: { tenantId: tenantId },
-                        take: limit,
-                        orderBy: { createdAt: "desc" },
-                    });
+                    const rows = namespacePrefix
+                        ? await prisma.agentMemory.findMany({
+                            where: { tenantId, namespace: { startsWith: namespacePrefix } },
+                            take: limit,
+                            orderBy: { createdAt: "desc" },
+                          })
+                        : await prisma.agentMemory.findMany({
+                            where: { tenantId },
+                            take: limit,
+                            orderBy: { createdAt: "desc" },
+                          });
                     results.push(rows.map((r) => ({ key: r.key, value: r.value, namespace: r.namespace })));
                 }
             } else {

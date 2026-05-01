@@ -12,7 +12,7 @@ export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 const activeThreads = new Map<string, boolean>();
 
 // Phase types for UI segregation
-type AgentPhase = 'planning' | 'execution' | 'reflection' | 'revision' | 'final' | 'text';
+type AgentPhase = 'planning' | 'execution' | 'reflection' | 'revision' | 'final' | 'memory_recall' | 'memory_save' | 'text';
 
 interface Message {
     role: string;
@@ -385,6 +385,10 @@ function getPhaseFromNode(node: string): AgentPhase {
             return 'text';        // Deep Agent main model node: same rationale
         case 'tools':
             return 'execution';   // Deep Agent tool execution
+        case 'memory_recall':
+            return 'memory_recall';
+        case 'memory_save':
+            return 'memory_save';
         default:
             return 'text';
     }
@@ -402,6 +406,10 @@ function getPhaseMarker(phase: AgentPhase): string {
             return 'REVISION_PHASE_START\n';
         case 'final':
             return 'FINAL_PHASE_START\n';
+        case 'memory_recall':
+            return 'MEMORY_RECALL_PHASE_START\n';
+        case 'memory_save':
+            return 'MEMORY_SAVE_PHASE_START\n';
         default:
             return '';
     }
