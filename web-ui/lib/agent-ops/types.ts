@@ -258,3 +258,24 @@ export interface JiraIntegrationConfig {
     enabled: boolean;
     autoApprove?: boolean;   // false = HITL approval gates active (default)
 }
+
+export interface DiscordIntegrationConfig {
+    applicationId: string;
+    publicKey: string;
+    botToken: string;
+    enabled: boolean;
+    autoApprove?: boolean;
+}
+
+export interface TelegramIntegrationConfig {
+    botToken: string;
+    secretToken: string;
+    enabled: boolean;
+    autoApprove?: boolean;
+}
+
+export interface WebhookIntegrationConfig {
+    webhookSecret: string;
+    enabled: boolean;
+    autoApprove?: boolean;
+}
