@@ -385,6 +385,9 @@ function getPhaseFromNode(node: string): AgentPhase {
             return 'text';        // Deep Agent main model node: same rationale
         case 'tools':
             return 'execution';   // Deep Agent tool execution
+        case 'memory_recall':
+        case 'memory_save':
+            return 'reflection';  // Memory nodes: render as reasoning (collapsible), not visible text
         default:
             return 'text';
     }
