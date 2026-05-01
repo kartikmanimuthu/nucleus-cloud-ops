@@ -6,7 +6,7 @@
 
 // ─── Enumerations ──────────────────────────────────────────────────────
 
-export type TriggerSource = 'slack' | 'jira' | 'api' | 'scheduled';
+export type TriggerSource = 'slack' | 'jira' | 'discord' | 'telegram' | 'webhook' | 'api' | 'scheduled';
 
 export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
 
@@ -54,7 +54,29 @@ export interface ScheduledTriggerMeta {
     scheduledAt: string;    // ISO timestamp of the scheduled fire time
 }
 
-export type TriggerMetadata = SlackTriggerMeta | JiraTriggerMeta | ApiTriggerMeta | ScheduledTriggerMeta;
+export interface DiscordTriggerMeta {
+    userId: string;
+    channelId: string;
+    guildId?: string;
+    interactionId: string;
+    interactionToken: string;
+    messageId?: string;
+}
+
+export interface TelegramTriggerMeta {
+    userId: number;
+    chatId: number;
+    messageId?: number;
+    callbackQueryId?: string;
+}
+
+export interface WebhookTriggerMeta {
+    callbackUrl: string;
+    webhookId?: string;
+    secret?: string;
+}
+
+export type TriggerMetadata = SlackTriggerMeta | JiraTriggerMeta | DiscordTriggerMeta | TelegramTriggerMeta | WebhookTriggerMeta | ApiTriggerMeta | ScheduledTriggerMeta;
 
 // ─── Agent Ops Run ─────────────────────────────────────────────────────
 
@@ -235,4 +257,25 @@ export interface JiraIntegrationConfig {
     botAccountId?: string;   // Jira account ID of the bot user (for mention detection + loop prevention)
     enabled: boolean;
     autoApprove?: boolean;   // false = HITL approval gates active (default)
+}
+
+export interface DiscordIntegrationConfig {
+    applicationId: string;
+    publicKey: string;
+    botToken: string;
+    enabled: boolean;
+    autoApprove?: boolean;
+}
+
+export interface TelegramIntegrationConfig {
+    botToken: string;
+    secretToken: string;
+    enabled: boolean;
+    autoApprove?: boolean;
+}
+
+export interface WebhookIntegrationConfig {
+    webhookSecret: string;
+    enabled: boolean;
+    autoApprove?: boolean;
 }
