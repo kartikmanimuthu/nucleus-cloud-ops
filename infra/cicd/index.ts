@@ -364,3 +364,133 @@ new aws.iam.RolePolicy("pulumi-deploy-policy", {
         }),
     ),
 });
+
+// ---------------------------------------------------------------------------
+// CodeBuild Projects
+// ---------------------------------------------------------------------------
+
+const buildspecPath = (name: string) =>
+    pulumi.interpolate`infra/cicd/buildspec-${name}.yml`;
+
+const buildProject = new aws.codebuild.Project("nucleus-build", {
+    name: `${appName}-build`,
+    description: "Install dependencies, compile, and run tests",
+    serviceRole: codePipelineRole.arn,
+    buildTimeout: "30",
+    artifacts: { type: "CODEPIPELINE" },
+    environment: {
+        type: "LINUX_CONTAINER",
+        computeType: "BUILD_GENERAL1_MEDIUM",
+        image: "aws/codebuild/standard:7.0",
+        privilegedMode: true,
+    },
+    source: {
+        type: "CODEPIPELINE",
+        buildspec: buildspecPath("build"),
+    },
+    cache: {
+        type: "S3",
+        location: pulumi.interpolate`${artifactBucket.id}/cache/build`,
+    },
+});
+
+const previewProject = new aws.codebuild.Project("nucleus-preview", {
+    name: `${appName}-preview`,
+    description: "Run Pulumi preview for networking and compute stacks",
+    serviceRole: codePipelineRole.arn,
+    buildTimeout: "20",
+    artifacts: { type: "CODEPIPELINE" },
+    environment: {
+        type: "LINUX_CONTAINER",
+        computeType: "BUILD_GENERAL1_MEDIUM",
+        image: "aws/codebuild/standard:7.0",
+        privilegedMode: false,
+    },
+    source: {
+        type: "CODEPIPELINE",
+        buildspec: buildspecPath("preview"),
+    },
+});
+
+const deployProject = new aws.codebuild.Project("nucleus-deploy", {
+    name: `${appName}-deploy`,
+    description: "Run Pulumi up for networking and compute stacks",
+    serviceRole: codePipelineRole.arn,
+    buildTimeout: "60",
+    artifacts: { type: "CODEPIPELINE" },
+    environment: {
+        type: "LINUX_CONTAINER",
+        computeType: "BUILD_GENERAL1_LARGE",
+        image: "aws/codebuild/standard:7.0",
+        privilegedMode: true,
+    },
+    source: {
+        type: "CODEPIPELINE",
+        buildspec: buildspecPath("deploy"),
+    },
+});
+
+// ---------------------------------------------------------------------------
+// CodeBuild Projects
+// ---------------------------------------------------------------------------
+
+const buildspecPath = (name: string) =>
+    pulumi.interpolate`infra/cicd/buildspec-${name}.yml`;
+
+const buildProject = new aws.codebuild.Project("nucleus-build", {
+    name: `${appName}-build`,
+    description: "Install dependencies, compile, and run tests",
+    serviceRole: codePipelineRole.arn,
+    buildTimeout: "30",
+    artifacts: { type: "CODEPIPELINE" },
+    environment: {
+        type: "LINUX_CONTAINER",
+        computeType: "BUILD_GENERAL1_MEDIUM",
+        image: "aws/codebuild/standard:7.0",
+        privilegedMode: true,
+    },
+    source: {
+        type: "CODEPIPELINE",
+        buildspec: buildspecPath("build"),
+    },
+    cache: {
+        type: "S3",
+        location: pulumi.interpolate`${artifactBucket.id}/cache/build`,
+    },
+});
+
+const previewProject = new aws.codebuild.Project("nucleus-preview", {
+    name: `${appName}-preview`,
+    description: "Run Pulumi preview for networking and compute stacks",
+    serviceRole: codePipelineRole.arn,
+    buildTimeout: "20",
+    artifacts: { type: "CODEPIPELINE" },
+    environment: {
+        type: "LINUX_CONTAINER",
+        computeType: "BUILD_GENERAL1_MEDIUM",
+        image: "aws/codebuild/standard:7.0",
+        privilegedMode: false,
+    },
+    source: {
+        type: "CODEPIPELINE",
+        buildspec: buildspecPath("preview"),
+    },
+});
+
+const deployProject = new aws.codebuild.Project("nucleus-deploy", {
+    name: `${appName}-deploy`,
+    description: "Run Pulumi up for networking and compute stacks",
+    serviceRole: codePipelineRole.arn,
+    buildTimeout: "60",
+    artifacts: { type: "CODEPIPELINE" },
+    environment: {
+        type: "LINUX_CONTAINER",
+        computeType: "BUILD_GENERAL1_LARGE",
+        image: "aws/codebuild/standard:7.0",
+        privilegedMode: true,
+    },
+    source: {
+        type: "CODEPIPELINE",
+        buildspec: buildspecPath("deploy"),
+    },
+});
