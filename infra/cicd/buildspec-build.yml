@@ -1,0 +1,24 @@
+version: 0.2
+env:
+  variables:
+    NODE_OPTIONS: "--max-old-space-size=4096"
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - npm install -g pulumi@3.228.0
+      - npm install
+      - cd web-ui && npm install && cd ..
+      - cd workers && npm install && cd ..
+      - cd infra/networking && npm install && pulumi install && cd ../..
+      - cd infra/compute && npm install && pulumi install && cd ../..
+  build:
+    commands:
+      - npm run build
+      - cd web-ui && npm run test && cd ..
+      - cd workers && npm run test && cd ..
+      - cd lambda/scheduler && npm run test && cd ../..
+artifacts:
+  files: '**/*'
+  name: build-output-$(date +%Y%m%d-%H%M%S)

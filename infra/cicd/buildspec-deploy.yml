@@ -1,0 +1,10 @@
+version: 0.2
+env:
+  variables:
+    PULUMI_CONFIG_PASSPHRASE: ""
+    AWS_DEFAULT_REGION: ap-south-1
+phases:
+  build:
+    commands:
+      - cd infra/networking && pulumi up --stack prod --yes --non-interactive
+      - cd ../compute && pulumi up --stack prod --yes --non-interactive
