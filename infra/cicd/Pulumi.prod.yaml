@@ -1,3 +1,5 @@
 config:
   aws:region: ap-south-1
+  # NOTE: Replace ACCOUNT_ID and CONNECTION_ID with the actual CodeStar Connection ARN.
+  # See infra/cicd/README.md for instructions on creating the GitHub connection.
   nucleus-cicd:githubConnectionArn: "arn:aws:codestar-connections:ap-south-1:ACCOUNT_ID:connection/CONNECTION_ID"
