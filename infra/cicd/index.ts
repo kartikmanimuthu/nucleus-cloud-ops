@@ -429,3 +429,117 @@ const deployProject = new aws.codebuild.Project("nucleus-deploy", {
         buildspec: buildspecPath("deploy"),
     },
 });
+
+// ---------------------------------------------------------------------------
+// CodePipeline
+// ---------------------------------------------------------------------------
+const pipeline = new aws.codepipeline.Pipeline("nucleus-pipeline", {
+    name: pipelineName,
+    roleArn: codePipelineRole.arn,
+    artifactStore: {
+        type: "S3",
+        location: artifactBucket.id,
+        encryptionKey: {
+            id: artifactKmsKey.arn,
+            type: "KMS",
+        },
+    },
+    stages: [
+        {
+            name: "Source",
+            actions: [
+                {
+                    name: "GitHubSource",
+                    category: "Source",
+                    owner: "AWS",
+                    provider: "CodeStarSourceConnection",
+                    version: "1",
+                    outputArtifacts: ["source_output"],
+                    configuration: {
+                        ConnectionArn: githubConnectionArn,
+                        FullRepositoryId: `${repoOwner}/${repoName}`,
+                        BranchName: branchName,
+                    },
+                },
+            ],
+        },
+        {
+            name: "Build",
+            actions: [
+                {
+                    name: "BuildAction",
+                    category: "Build",
+                    owner: "AWS",
+                    provider: "CodeBuild",
+                    version: "1",
+                    inputArtifacts: ["source_output"],
+                    outputArtifacts: ["build_output"],
+                    configuration: {
+                        ProjectName: buildProject.name,
+                    },
+                },
+            ],
+        },
+        {
+            name: "Preview",
+            actions: [
+                {
+                    name: "PreviewAction",
+                    category: "Build",
+                    owner: "AWS",
+                    provider: "CodeBuild",
+                    version: "1",
+                    inputArtifacts: ["build_output"],
+                    outputArtifacts: ["preview_output"],
+                    configuration: {
+                        ProjectName: previewProject.name,
+                    },
+                },
+            ],
+        },
+        {
+            name: "Approval",
+            actions: [
+                {
+                    name: "ApproveDeploy",
+                    category: "Approval",
+                    owner: "AWS",
+                    provider: "Manual",
+                    version: "1",
+                    configuration: {
+                        CustomData:
+                            "Review Pulumi preview output in CloudWatch Logs before approving.",
+                    },
+                },
+            ],
+        },
+        {
+            name: "Deploy",
+            actions: [
+                {
+                    name: "DeployAction",
+                    category: "Build",
+                    owner: "AWS",
+                    provider: "CodeBuild",
+                    version: "1",
+                    inputArtifacts: ["build_output"],
+                    outputArtifacts: ["deploy_output"],
+                    configuration: {
+                        ProjectName: deployProject.name,
+                    },
+                },
+            ],
+        },
+    ],
+});
+
+// ---------------------------------------------------------------------------
+// Stack Outputs
+// ---------------------------------------------------------------------------
+export const artifactBucketName = artifactBucket.id;
+export const artifactKmsKeyArn = artifactKmsKey.arn;
+export const pipelineArn = pipeline.arn;
+export const buildProjectName = buildProject.name;
+export const previewProjectName = previewProject.name;
+export const deployProjectName = deployProject.name;
+
