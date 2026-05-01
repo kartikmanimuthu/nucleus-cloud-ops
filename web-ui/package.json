@@ -27,6 +27,7 @@
     "@ai-sdk/langchain": "^1.0.116",
     "@ai-sdk/react": "^2.0.116",
     "@auth/prisma-adapter": "^2.11.1",
+    "@aws-sdk/client-acm": "^3.948.0",
     "@aws-sdk/client-auto-scaling": "^3.948.0",
     "@aws-sdk/client-cloudwatch": "^3.953.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.975.0",
