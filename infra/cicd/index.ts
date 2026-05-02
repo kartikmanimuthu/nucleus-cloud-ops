@@ -5,7 +5,6 @@ import * as aws from "@pulumi/aws";
 // Config
 // ---------------------------------------------------------------------------
 const config = new pulumi.Config();
-const githubConnectionArn = config.require("githubConnectionArn");
 
 const appName = "nucleus-cloud-ops";
 const pipelineName = `${appName}-pipeline`;
@@ -17,6 +16,14 @@ const branchName = "master-v1";
 const callerIdentity = aws.getCallerIdentityOutput({});
 const accountId = callerIdentity.accountId;
 const region = aws.config.region ?? "ap-south-1";
+
+// ---------------------------------------------------------------------------
+// CodeStar Connection (GitHub)
+// ---------------------------------------------------------------------------
+const githubConnection = new aws.codestarconnections.Connection("github-connection", {
+    name: `${appName}-connection`,
+    providerType: "GitHub",
+}, { retainOnDelete: true });
 
 // ---------------------------------------------------------------------------
 // S3 Artifact Bucket
@@ -456,7 +463,7 @@ const pipeline = new aws.codepipeline.Pipeline("nucleus-pipeline", {
                     version: "1",
                     outputArtifacts: ["source_output"],
                     configuration: {
-                        ConnectionArn: githubConnectionArn,
+                        ConnectionArn: githubConnection.arn,
                         FullRepositoryId: `${repoOwner}/${repoName}`,
                         BranchName: branchName,
                     },
@@ -540,4 +547,5 @@ export const pipelineArn = pipeline.arn;
 export const buildProjectName = buildProject.name;
 export const previewProjectName = previewProject.name;
 export const deployProjectName = deployProject.name;
+export const githubConnectionArn = githubConnection.arn;
 

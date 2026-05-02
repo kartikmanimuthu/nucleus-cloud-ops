@@ -14,44 +14,44 @@ AWS CodePipeline that builds, previews, and deploys the Pulumi infrastructure on
 
 ## One-Time Bootstrap
 
-### 1. Create GitHub CodeStar Connection (AWS Console)
+### 1. Deploy the CI/CD Stack
 
-1. Go to **AWS Console → Developer Tools → CodeStar Connections → Create connection**
-2. Select **GitHub** → **Connect to GitHub**
-3. Authenticate with your GitHub account (OAuth popup)
-4. Select the repository: `kartikmanimuthu/nucleus-cloud-ops`
-5. Name the connection: `nucleus-cloud-ops-connection`
-6. Copy the **Connection ARN** — looks like:
-   ```
-   arn:aws:codestar-connections:ap-south-1:123456789012:connection/abcd1234-efgh-5678-ijkl-9012mnop3456
-   ```
-
-> **Note:** CodeStar Connections cannot be created via Pulumi/CloudFormation — the OAuth handshake must be done manually.
-
-### 2. Set Pulumi Config
+The Pulumi stack creates the CodeStar Connection, S3 bucket, KMS key, IAM role, CodeBuild projects, and CodePipeline.
 
 ```bash
 cd infra/cicd
 pulumi stack select prod
 pulumi config set aws:region ap-south-1
-pulumi config set githubConnectionArn "arn:aws:codestar-connections:ap-south-1:YOUR_ACCOUNT_ID:connection/YOUR_CONNECTION_ID"
-```
-
-### 3. Install Dependencies and Deploy
-
-```bash
-cd infra/cicd
 npm install && pulumi install
 AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
 ```
 
-### 4. Verify the Pipeline
+After deployment, note the **Connection ARN** from the stack output:
+
+```bash
+AWS_PROFILE=PLATFORM-ADMIN pulumi stack output githubConnectionArn --stack prod
+```
+
+### 2. Authorize the GitHub Connection (AWS Console)
+
+The connection is created in **PENDING** state. You must complete the OAuth handshake manually:
+
+1. Go to **AWS Console → Developer Tools → CodeStar Connections**
+2. Find the connection named `nucleus-cloud-ops-connection`
+3. Click **Update pending connection**
+4. Authenticate with your GitHub account (OAuth popup)
+5. Select the repository: `kartikmanimuthu/nucleus-cloud-ops`
+6. Click **Connect**
+
+> **Note:** The OAuth handshake cannot be automated — this is the only manual step.
+
+### 3. Verify the Pipeline
 
 1. Go to **AWS Console → CodePipeline → Pipelines → nucleus-cloud-ops-pipeline**
 2. The pipeline should show the 5 stages: Source, Build, Preview, Approval, Deploy
-3. Trigger the first run by making a commit to `master-v1` or clicking "Release change"
+3. Trigger the first run by making a commit to `master-v1` or clicking **Release change**
 
-### 5. Approve the First Deploy
+### 4. Approve the First Deploy
 
 When the pipeline reaches the **Approval** stage:
 1. Click **Review** in the AWS Console
