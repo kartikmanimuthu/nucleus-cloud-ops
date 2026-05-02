@@ -124,8 +124,8 @@ new aws.kms.KeyPolicy("pipeline-artifacts-key-policy", {
 // ---------------------------------------------------------------------------
 new aws.iam.RolePolicy("codepipeline-core-policy", {
     role: codePipelineRole.id,
-    policy: pulumi.all([artifactBucket.arn, artifactKmsKey.arn, accountId, region]).apply(
-        ([bucketArn, keyArn, accId, reg]) =>
+    policy: pulumi.all([artifactBucket.arn, artifactKmsKey.arn, accountId, region, githubConnection.arn]).apply(
+        ([bucketArn, keyArn, accId, reg, connArn]) =>
             JSON.stringify({
                 Version: "2012-10-17",
                 Statement: [
@@ -171,7 +171,7 @@ new aws.iam.RolePolicy("codepipeline-core-policy", {
                         Sid: "CodeStarConnection",
                         Effect: "Allow",
                         Action: ["codestar-connections:UseConnection"],
-                        Resource: githubConnectionArn,
+                        Resource: connArn,
                     },
                 ],
             }),
