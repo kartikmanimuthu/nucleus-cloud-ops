@@ -29,6 +29,10 @@
   "exclude": [
     "node_modules",
     "web-ui",
-    "lambda"
+    "lambda",
+    "workers",
+    "scripts",
+    "infra",
+    "prisma"
   ]
 }
