@@ -428,7 +428,7 @@ const previewProject = new aws.codebuild.Project("nucleus-preview", {
     artifacts: { type: "CODEPIPELINE" },
     environment: {
         type: "LINUX_CONTAINER",
-        computeType: "BUILD_GENERAL1_MEDIUM",
+        computeType: "BUILD_GENERAL1_LARGE",
         image: "aws/codebuild/standard:7.0",
         privilegedMode: true,
     },
@@ -446,7 +446,7 @@ const deployProject = new aws.codebuild.Project("nucleus-deploy", {
     artifacts: { type: "CODEPIPELINE" },
     environment: {
         type: "LINUX_CONTAINER",
-        computeType: "BUILD_GENERAL1_LARGE",
+        computeType: "BUILD_GENERAL1_2XLARGE",
         image: "aws/codebuild/standard:7.0",
         privilegedMode: true,
     },
