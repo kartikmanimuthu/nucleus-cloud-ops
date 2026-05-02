@@ -32,7 +32,7 @@ AWS CodePipeline that builds, previews, and deploys the Pulumi infrastructure on
 
 ```bash
 cd infra/cicd
-pulumi stack init prod
+pulumi stack select prod
 pulumi config set aws:region ap-south-1
 pulumi config set githubConnectionArn "arn:aws:codestar-connections:ap-south-1:YOUR_ACCOUNT_ID:connection/YOUR_CONNECTION_ID"
 ```

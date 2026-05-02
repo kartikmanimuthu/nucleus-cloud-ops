@@ -3,6 +3,7 @@ env:
   variables:
     PULUMI_CONFIG_PASSPHRASE: ""
     AWS_DEFAULT_REGION: ap-south-1
+    NODE_OPTIONS: "--max-old-space-size=4096"
 phases:
   install:
     runtime-versions:

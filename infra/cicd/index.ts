@@ -48,7 +48,7 @@ const artifactKmsKey = new aws.kms.Key("pipeline-artifacts-key", {
     description: "KMS key for CodePipeline artifact encryption",
     deletionWindowInDays: 7,
     enableKeyRotation: true,
-});
+}, { retainOnDelete: true });
 
 new aws.kms.Alias("pipeline-artifacts-key-alias", {
     name: pulumi.interpolate`alias/${appName}-pipeline-artifacts`,
@@ -404,7 +404,7 @@ const previewProject = new aws.codebuild.Project("nucleus-preview", {
         type: "LINUX_CONTAINER",
         computeType: "BUILD_GENERAL1_MEDIUM",
         image: "aws/codebuild/standard:7.0",
-        privilegedMode: false,
+        privilegedMode: true,
     },
     source: {
         type: "CODEPIPELINE",
@@ -490,7 +490,6 @@ const pipeline = new aws.codepipeline.Pipeline("nucleus-pipeline", {
                     provider: "CodeBuild",
                     version: "1",
                     inputArtifacts: ["build_output"],
-                    outputArtifacts: ["preview_output"],
                     configuration: {
                         ProjectName: previewProject.name,
                     },
@@ -523,7 +522,6 @@ const pipeline = new aws.codepipeline.Pipeline("nucleus-pipeline", {
                     provider: "CodeBuild",
                     version: "1",
                     inputArtifacts: ["build_output"],
-                    outputArtifacts: ["deploy_output"],
                     configuration: {
                         ProjectName: deployProject.name,
                     },
