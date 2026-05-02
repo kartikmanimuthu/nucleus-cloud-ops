@@ -411,6 +411,10 @@ phases:
       - export PATH=$PATH:$HOME/.pulumi/bin
       - cd infra/networking && npm install && pulumi install && cd ../..
       - cd infra/compute && npm install && pulumi install && cd ../..
+  pre_build:
+    commands:
+      - (cd infra/networking && pulumi cancel --stack prod --yes) || true
+      - (cd infra/compute && pulumi cancel --stack prod --yes) || true
   build:
     commands:
       - cd infra/networking && pulumi up --stack prod --yes --non-interactive
