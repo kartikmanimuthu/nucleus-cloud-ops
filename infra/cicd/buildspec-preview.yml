@@ -1,0 +1,18 @@
+version: 0.2
+env:
+  variables:
+    PULUMI_CONFIG_PASSPHRASE: ""
+    AWS_DEFAULT_REGION: ap-south-1
+    NODE_OPTIONS: "--max-old-space-size=4096"
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - npm install -g pulumi@3.228.0
+      - cd infra/networking && npm install && pulumi install && cd ../..
+      - cd infra/compute && npm install && pulumi install && cd ../..
+  build:
+    commands:
+      - cd infra/networking && pulumi preview --stack prod --non-interactive --diff
+      - cd ../compute && pulumi preview --stack prod --non-interactive --diff

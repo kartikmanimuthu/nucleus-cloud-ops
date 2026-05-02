@@ -1,0 +1,3 @@
+config:
+  aws:region: ap-south-1
+encryptionsalt: v1:rsn6TBksARs=:v1:baGBIdBe0KWPKNN1:zZHHh6CuhEFDnAFHKbe62nyk13h7tQ==
