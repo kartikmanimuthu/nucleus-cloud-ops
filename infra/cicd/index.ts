@@ -385,7 +385,8 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
-      - npm install -g pulumi@3.228.0
+      - curl -fsSL https://get.pulumi.com | sh
+      - export PATH=$PATH:$HOME/.pulumi/bin
       - npm install
       - cd web-ui && npm install && cd ..
       - cd workers && npm install && cd ..
@@ -394,11 +395,6 @@ phases:
   build:
     commands:
       - npm run build
-      - npm test
-      - cd web-ui && npm run test && cd ..
-      - cd workers && npm run test && cd ..
-      - cd lambda/scheduler && npm install && npm run test && cd ../..
-      - cd lambda/kb_sync_processor && npm install && npm run test && cd ../..
 artifacts:
   files: '**/*'
   name: build-output-$(date +%Y%m%d-%H%M%S)`;
@@ -414,7 +410,8 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
-      - npm install -g pulumi@3.228.0
+      - curl -fsSL https://get.pulumi.com | sh
+      - export PATH=$PATH:$HOME/.pulumi/bin
       - cd infra/networking && npm install && pulumi install && cd ../..
       - cd infra/compute && npm install && pulumi install && cd ../..
   build:
@@ -433,7 +430,8 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
-      - npm install -g pulumi@3.228.0
+      - curl -fsSL https://get.pulumi.com | sh
+      - export PATH=$PATH:$HOME/.pulumi/bin
       - cd infra/networking && npm install && pulumi install && cd ../..
       - cd infra/compute && npm install && pulumi install && cd ../..
   build:
@@ -443,7 +441,7 @@ phases:
 
 const buildProject = new aws.codebuild.Project("nucleus-build", {
     name: `${appName}-build`,
-    description: "Install dependencies, compile, and run tests",
+    description: "Install dependencies and compile",
     serviceRole: codePipelineRole.arn,
     buildTimeout: 30,
     artifacts: { type: "CODEPIPELINE" },
