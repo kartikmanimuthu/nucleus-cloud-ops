@@ -376,29 +376,6 @@ new aws.iam.RolePolicy("pulumi-deploy-policy", {
 // CodeBuild Projects
 // ---------------------------------------------------------------------------
 
-const buildspecBuild = `version: 0.2
-env:
-  variables:
-    NODE_OPTIONS: "--max-old-space-size=4096"
-phases:
-  install:
-    runtime-versions:
-      nodejs: 20
-    commands:
-      - curl -fsSL https://get.pulumi.com | sh
-      - export PATH=$PATH:$HOME/.pulumi/bin
-      - npm install
-      - cd web-ui && npm install && cd ..
-      - cd workers && npm install && cd ..
-      - cd infra/networking && npm install && pulumi install && cd ../..
-      - cd infra/compute && npm install && pulumi install && cd ../..
-  build:
-    commands:
-      - npm run build
-artifacts:
-  files: '**/*'
-  name: build-output-$(date +%Y%m%d-%H%M%S)`;
-
 const buildspecPreview = `version: 0.2
 env:
   variables:
@@ -438,28 +415,6 @@ phases:
     commands:
       - cd infra/networking && pulumi up --stack prod --yes --non-interactive
       - cd ../compute && pulumi up --stack prod --yes --non-interactive`;
-
-const buildProject = new aws.codebuild.Project("nucleus-build", {
-    name: `${appName}-build`,
-    description: "Install dependencies and compile",
-    serviceRole: codePipelineRole.arn,
-    buildTimeout: 30,
-    artifacts: { type: "CODEPIPELINE" },
-    environment: {
-        type: "LINUX_CONTAINER",
-        computeType: "BUILD_GENERAL1_MEDIUM",
-        image: "aws/codebuild/standard:7.0",
-        privilegedMode: true,
-    },
-    source: {
-        type: "CODEPIPELINE",
-        buildspec: buildspecBuild,
-    },
-    cache: {
-        type: "S3",
-        location: pulumi.interpolate`${artifactBucket.id}/cache/build`,
-    },
-});
 
 const previewProject = new aws.codebuild.Project("nucleus-preview", {
     name: `${appName}-preview`,
@@ -531,23 +486,6 @@ const pipeline = new aws.codepipeline.Pipeline("nucleus-pipeline", {
             ],
         },
         {
-            name: "Build",
-            actions: [
-                {
-                    name: "BuildAction",
-                    category: "Build",
-                    owner: "AWS",
-                    provider: "CodeBuild",
-                    version: "1",
-                    inputArtifacts: ["source_output"],
-                    outputArtifacts: ["build_output"],
-                    configuration: {
-                        ProjectName: buildProject.name,
-                    },
-                },
-            ],
-        },
-        {
             name: "Preview",
             actions: [
                 {
@@ -556,7 +494,7 @@ const pipeline = new aws.codepipeline.Pipeline("nucleus-pipeline", {
                     owner: "AWS",
                     provider: "CodeBuild",
                     version: "1",
-                    inputArtifacts: ["build_output"],
+                    inputArtifacts: ["source_output"],
                     configuration: {
                         ProjectName: previewProject.name,
                     },
@@ -588,7 +526,7 @@ const pipeline = new aws.codepipeline.Pipeline("nucleus-pipeline", {
                     owner: "AWS",
                     provider: "CodeBuild",
                     version: "1",
-                    inputArtifacts: ["build_output"],
+                    inputArtifacts: ["source_output"],
                     configuration: {
                         ProjectName: deployProject.name,
                     },
@@ -604,7 +542,6 @@ const pipeline = new aws.codepipeline.Pipeline("nucleus-pipeline", {
 export const artifactBucketName = artifactBucket.id;
 export const artifactKmsKeyArn = artifactKmsKey.arn;
 export const pipelineArn = pipeline.arn;
-export const buildProjectName = buildProject.name;
 export const previewProjectName = previewProject.name;
 export const deployProjectName = deployProject.name;
 export const githubConnectionArn = githubConnection.arn;
