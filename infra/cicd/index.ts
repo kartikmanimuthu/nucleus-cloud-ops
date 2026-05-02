@@ -376,8 +376,70 @@ new aws.iam.RolePolicy("pulumi-deploy-policy", {
 // CodeBuild Projects
 // ---------------------------------------------------------------------------
 
-const buildspecPath = (name: string) =>
-    pulumi.interpolate`infra/cicd/buildspec-${name}.yml`;
+const buildspecBuild = `version: 0.2
+env:
+  variables:
+    NODE_OPTIONS: "--max-old-space-size=4096"
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - npm install -g pulumi@3.228.0
+      - npm install
+      - cd web-ui && npm install && cd ..
+      - cd workers && npm install && cd ..
+      - cd infra/networking && npm install && pulumi install && cd ../..
+      - cd infra/compute && npm install && pulumi install && cd ../..
+  build:
+    commands:
+      - npm run build
+      - npm test
+      - cd web-ui && npm run test && cd ..
+      - cd workers && npm run test && cd ..
+      - cd lambda/scheduler && npm install && npm run test && cd ../..
+      - cd lambda/kb_sync_processor && npm install && npm run test && cd ../..
+artifacts:
+  files: '**/*'
+  name: build-output-$(date +%Y%m%d-%H%M%S)`;
+
+const buildspecPreview = `version: 0.2
+env:
+  variables:
+    PULUMI_CONFIG_PASSPHRASE: ""
+    AWS_DEFAULT_REGION: ap-south-1
+    NODE_OPTIONS: "--max-old-space-size=4096"
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - npm install -g pulumi@3.228.0
+      - cd infra/networking && npm install && pulumi install && cd ../..
+      - cd infra/compute && npm install && pulumi install && cd ../..
+  build:
+    commands:
+      - cd infra/networking && pulumi preview --stack prod --non-interactive --diff
+      - cd ../compute && pulumi preview --stack prod --non-interactive --diff`;
+
+const buildspecDeploy = `version: 0.2
+env:
+  variables:
+    PULUMI_CONFIG_PASSPHRASE: ""
+    AWS_DEFAULT_REGION: ap-south-1
+    NODE_OPTIONS: "--max-old-space-size=4096"
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - npm install -g pulumi@3.228.0
+      - cd infra/networking && npm install && pulumi install && cd ../..
+      - cd infra/compute && npm install && pulumi install && cd ../..
+  build:
+    commands:
+      - cd infra/networking && pulumi up --stack prod --yes --non-interactive
+      - cd ../compute && pulumi up --stack prod --yes --non-interactive`;
 
 const buildProject = new aws.codebuild.Project("nucleus-build", {
     name: `${appName}-build`,
@@ -393,7 +455,7 @@ const buildProject = new aws.codebuild.Project("nucleus-build", {
     },
     source: {
         type: "CODEPIPELINE",
-        buildspec: buildspecPath("build"),
+        buildspec: buildspecBuild,
     },
     cache: {
         type: "S3",
@@ -415,7 +477,7 @@ const previewProject = new aws.codebuild.Project("nucleus-preview", {
     },
     source: {
         type: "CODEPIPELINE",
-        buildspec: buildspecPath("preview"),
+        buildspec: buildspecPreview,
     },
 });
 
@@ -433,7 +495,7 @@ const deployProject = new aws.codebuild.Project("nucleus-deploy", {
     },
     source: {
         type: "CODEPIPELINE",
-        buildspec: buildspecPath("deploy"),
+        buildspec: buildspecDeploy,
     },
 });
 
