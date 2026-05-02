@@ -376,7 +376,7 @@ const buildProject = new aws.codebuild.Project("nucleus-build", {
     name: `${appName}-build`,
     description: "Install dependencies, compile, and run tests",
     serviceRole: codePipelineRole.arn,
-    buildTimeout: "30",
+    buildTimeout: 30,
     artifacts: { type: "CODEPIPELINE" },
     environment: {
         type: "LINUX_CONTAINER",
@@ -398,7 +398,7 @@ const previewProject = new aws.codebuild.Project("nucleus-preview", {
     name: `${appName}-preview`,
     description: "Run Pulumi preview for networking and compute stacks",
     serviceRole: codePipelineRole.arn,
-    buildTimeout: "20",
+    buildTimeout: 20,
     artifacts: { type: "CODEPIPELINE" },
     environment: {
         type: "LINUX_CONTAINER",
@@ -416,7 +416,7 @@ const deployProject = new aws.codebuild.Project("nucleus-deploy", {
     name: `${appName}-deploy`,
     description: "Run Pulumi up for networking and compute stacks",
     serviceRole: codePipelineRole.arn,
-    buildTimeout: "60",
+    buildTimeout: 60,
     artifacts: { type: "CODEPIPELINE" },
     environment: {
         type: "LINUX_CONTAINER",
@@ -436,14 +436,14 @@ const deployProject = new aws.codebuild.Project("nucleus-deploy", {
 const pipeline = new aws.codepipeline.Pipeline("nucleus-pipeline", {
     name: pipelineName,
     roleArn: codePipelineRole.arn,
-    artifactStore: {
+    artifactStores: [{
         type: "S3",
         location: artifactBucket.id,
         encryptionKey: {
             id: artifactKmsKey.arn,
             type: "KMS",
         },
-    },
+    }],
     stages: [
         {
             name: "Source",
