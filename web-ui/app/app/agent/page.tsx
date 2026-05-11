@@ -102,7 +102,7 @@ export default function AgentPage() {
     <>
       {/* Fullscreen overlay — covers entire viewport including sidebar */}
       {isFullscreen && (
-        <div className="fixed inset-0 z-50 bg-background flex">
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex p-6">
           {tabs.map((tab) => (
             <div
               key={tab.threadId}

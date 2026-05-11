@@ -1209,12 +1209,7 @@ export function ChatInterface({
   ];
 
   return (
-    <div className={cn(
-      "flex flex-col h-full w-full overflow-hidden bg-background",
-      isFullscreen
-        ? "max-w-full"
-        : "max-w-[95%] mx-auto border rounded-xl shadow-lg"
-    )}>
+    <div className="flex flex-col h-full w-full overflow-hidden bg-background max-w-[95%] mx-auto border rounded-xl shadow-lg">
       {/* Header */}
       <div className="px-4 py-3 border-b bg-gradient-to-r from-primary/10 to-primary/5 flex items-center gap-3">
         <Avatar className="h-9 w-9 border shadow-sm shrink-0">
