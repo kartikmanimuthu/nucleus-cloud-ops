@@ -673,3 +673,4 @@ model VerificationToken {
   @@unique([identifier, token])
   @@map("verification_tokens")
 }
+// Build trigger: 2026-05-11T11:42:42Z

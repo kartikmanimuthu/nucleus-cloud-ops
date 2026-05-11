@@ -384,24 +384,42 @@ const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {
     tags: { Name: "nucleus-cloud-ops-bastion-sg" },
 });
 
-// Latest Amazon Linux 2023 ARM64 AMI (SSM agent pre-installed)
+// Latest Amazon Linux 2023 ARM64 AMI (full, not minimal — SSM agent pre-installed)
+// Filter: standard AMIs start with the date (20...), minimal AMIs start with "minimal-"
 const bastionAmi = aws.ec2.getAmiOutput({
     mostRecent: true,
     owners: ["amazon"],
     filters: [
-        { name: "name", values: ["al2023-ami-*-arm64"] },
+        { name: "name", values: ["al2023-ami-20*-*-arm64"] },
         { name: "architecture", values: ["arm64"] },
         { name: "virtualization-type", values: ["hvm"] },
     ],
 });
 
-// t4g.nano in first private subnet — no public IP, reachable only via SSM
+// User data to ensure SSM agent is installed and running (safety net for minimal AMIs)
+const bastionUserData = pulumi.all([bastionAmi.name]).apply(([amiName]) => {
+    const script = `#!/bin/bash
+# Install SSM agent if not present (minimal AMIs don't include it)
+if ! rpm -q amazon-ssm-agent &>/dev/null; then
+    dnf install -y amazon-ssm-agent
+    systemctl enable amazon-ssm-agent
+    systemctl start amazon-ssm-agent
+else
+    systemctl enable amazon-ssm-agent
+    systemctl start amazon-ssm-agent
+fi
+`;
+    return Buffer.from(script).toString("base64");
+});
+
+// t4g.small in first private subnet — no public IP, reachable only via SSM
 const bastionInstance = new aws.ec2.Instance("bastion", {
     ami: bastionAmi.id,
-    instanceType: "t4g.nano",
+    instanceType: "t4g.small",
     subnetId: privateSubnetIds.apply(ids => ids[0]),
     iamInstanceProfile: bastionInstanceProfile.name,
     vpcSecurityGroupIds: [bastionSg.id],
+    userData: bastionUserData,
     associatePublicIpAddress: false,
     tags: { Name: "nucleus-cloud-ops-bastion" },
 });

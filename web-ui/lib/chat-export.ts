@@ -159,27 +159,61 @@ export async function exportToPDF(messages: ChatMessage[], threadId: string): Pr
         // Dynamically import html2pdf to avoid SSR issues
         const html2pdf = (await import('html2pdf.js')).default;
 
-        const element = document.getElementById('chat-messages-container');
+        const element = document.getElementById(`chat-messages-container-${threadId}`);
         if (!element) {
-            console.error('Chat messages container not found');
+            console.error('Chat messages container not found for thread:', threadId);
             return false;
         }
+
+        // The container is inside a ScrollArea with overflow:hidden and fixed height.
+        // Temporarily expand all ancestor scroll containers so html2canvas captures everything.
+        const scrollViewport = element.closest('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+        const scrollRoot = element.closest('[data-radix-scroll-area]') as HTMLElement | null;
+
+        const savedStyles: { el: HTMLElement; overflow: string; maxHeight: string; height: string }[] = [];
+
+        if (scrollViewport) {
+            savedStyles.push({ el: scrollViewport, overflow: scrollViewport.style.overflow, maxHeight: scrollViewport.style.maxHeight, height: scrollViewport.style.height });
+            scrollViewport.style.overflow = 'visible';
+            scrollViewport.style.maxHeight = 'none';
+            scrollViewport.style.height = 'auto';
+        }
+        if (scrollRoot) {
+            savedStyles.push({ el: scrollRoot, overflow: scrollRoot.style.overflow, maxHeight: scrollRoot.style.maxHeight, height: scrollRoot.style.height });
+            scrollRoot.style.overflow = 'visible';
+            scrollRoot.style.maxHeight = 'none';
+            scrollRoot.style.height = 'auto';
+        }
+
+        // Also expand the flex-1 parent that constrains the ScrollArea height
+        const flexParent = scrollRoot?.parentElement as HTMLElement | null;
+        if (flexParent && (flexParent.classList.contains('flex-1') || getComputedStyle(flexParent).flex === '1 1 0%')) {
+            savedStyles.push({ el: flexParent, overflow: flexParent.style.overflow, maxHeight: flexParent.style.maxHeight, height: flexParent.style.height });
+            flexParent.style.overflow = 'visible';
+            flexParent.style.maxHeight = 'none';
+            flexParent.style.height = 'auto';
+        }
+
+        element.classList.add('pdf-export-mode');
 
         const opt = {
             margin: 10,
             filename: `chat_${threadId}_${Date.now()}.pdf`,
             image: { type: 'jpeg' as const, quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, logging: false },
-            jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
+            html2canvas: { scale: 2, useCORS: true, logging: false, scrollY: 0, windowHeight: element.scrollHeight + 200 },
+            jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
         };
-
-        // Add a temporary class to ensure consistent styling during export if needed
-        element.classList.add('pdf-export-mode');
 
         await html2pdf().set(opt).from(element).save();
 
-        // Remove the temporary class
+        // Restore original styles
         element.classList.remove('pdf-export-mode');
+        for (const { el, overflow, maxHeight, height } of savedStyles) {
+            el.style.overflow = overflow;
+            el.style.maxHeight = maxHeight;
+            el.style.height = height;
+        }
 
         return true;
     } catch (error) {

@@ -10,6 +10,7 @@ import {
     MAX_ITERATIONS,
     truncateOutput,
     getRecentMessages,
+    sanitizeMessagesForBedrock,
     getCheckpointer,
     getStore,
 } from "./agent-shared";
@@ -109,7 +110,9 @@ Review the full conversation history before responding:
 - If you receive a critique from the Reflector, address each identified issue specifically — do not restate the original answer unchanged.
 - Be precise: include resource IDs, command flags, numeric values, and account names in your responses where available.`);
 
-        const response = await modelWithTools.invoke([systemPrompt, ...getRecentMessages(messages, 20)]);
+        const recentMessages = getRecentMessages(messages, 20);
+        const safeMessages = sanitizeMessagesForBedrock(recentMessages);
+        const response = await modelWithTools.invoke([systemPrompt, ...safeMessages]);
 
         if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
             console.log(`\n🛠️ [FAST AGENT] Tool Calls Generated:`);
@@ -291,18 +294,17 @@ Please provide your critique.`
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
 
-        if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
-            return "tools";
-        }
-
-        // Hard cap: if too many total iterations, stop regardless
+        // Hard cap FIRST — prevents unbounded loops when model keeps generating tool_calls
         if (iterationCount >= MAX_ITERATIONS) {
             console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached. Stopping.`);
             return "memory_save";
         }
 
+        if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
+            return "tools";
+        }
+
         // Soft cap: if we've exceeded the reflection cycle limit, accept the answer as-is
-        // This prevents the reflection loop from burning tokens on diminishing returns
         if (iterationCount >= MAX_REFLECT_ITERATIONS) {
             console.log(`⚠️ Max reflection cycles (${MAX_REFLECT_ITERATIONS}) reached. Accepting answer.`);
             return "memory_save";

@@ -34,6 +34,8 @@ import {
   Clock,
   Database,
   BookOpen,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import {
   copyToClipboard,
@@ -239,6 +241,8 @@ const phaseConfig: Record<
 interface ChatInterfaceProps {
   threadId: string;
   ownerUserId?: string;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
   onStatusChange?: (status: "idle" | "streaming" | "error") => void;
   onTitleChange?: (title: string) => void;
 }
@@ -450,10 +454,22 @@ function AgentExecutionTimer({ isLoading }: { isLoading: boolean }) {
 export function ChatInterface({
   threadId: initialThreadId,
   ownerUserId,
+  isFullscreen,
+  onToggleFullscreen,
   onStatusChange,
   onTitleChange,
 }: ChatInterfaceProps) {
   const [threadId] = useState(initialThreadId);
+
+  // Exit fullscreen on Escape key
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onToggleFullscreen?.();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen, onToggleFullscreen]);
 
   // Configuration state (before conversation starts)
   const [autoApprove, setAutoApprove] = useState(true);
@@ -1193,7 +1209,12 @@ export function ChatInterface({
   ];
 
   return (
-    <div className="flex flex-col h-full max-w-[95%] mx-auto w-full border rounded-xl overflow-hidden shadow-lg bg-background">
+    <div className={cn(
+      "flex flex-col h-full w-full overflow-hidden bg-background",
+      isFullscreen
+        ? "max-w-full"
+        : "max-w-[95%] mx-auto border rounded-xl shadow-lg"
+    )}>
       {/* Header */}
       <div className="px-4 py-3 border-b bg-gradient-to-r from-primary/10 to-primary/5 flex items-center gap-3">
         <Avatar className="h-9 w-9 border shadow-sm shrink-0">
@@ -1221,11 +1242,23 @@ export function ChatInterface({
             <AgentExecutionTimer isLoading={isLoading} />
           </p>
         </div>
+
+        {onToggleFullscreen && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleFullscreen}
+            className="ml-auto h-8 w-8 shrink-0"
+            title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
+        )}
       </div>
 
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" onScrollCapture={handleScroll}>
-        <div id="chat-messages-container" data-testid="chat-messages-container" className="space-y-4">
+        <div id={`chat-messages-container-${threadId}`} data-testid="chat-messages-container" className="space-y-4">
           {/* Loading history indicator */}
           {isLoadingHistory && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -1374,8 +1407,9 @@ export function ChatInterface({
                   variant="ghost"
                   size="sm"
                   type="button"
+                  disabled={isLoading}
                   className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[150px] justify-start"
-                  onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
+                  onClick={() => !isLoading && setAccountDropdownOpen(!accountDropdownOpen)}
                 >
                   <div className="flex items-center gap-1.5">
                     <Cloud
@@ -1511,7 +1545,7 @@ export function ChatInterface({
               </div>
 
               {/* Model Selector */}
-              <Select value={selectedModel} onValueChange={setSelectedModel}>
+              <Select value={selectedModel} onValueChange={setSelectedModel} disabled={isLoading}>
                 <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px]">
                   <div className="flex items-center gap-1.5">
                     <Sparkles className="w-3 h-3 text-primary" />
@@ -1548,7 +1582,7 @@ export function ChatInterface({
                 onValueChange={(value) =>
                   setSelectedSkill(value === "none" ? null : value)
                 }
-                disabled={hasStarted}
+                disabled={hasStarted || isLoading}
               >
                 <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px]">
                   <div className="flex items-center gap-1.5">
@@ -1602,6 +1636,7 @@ export function ChatInterface({
                         variant="ghost"
                         size="sm"
                         type="button"
+                        disabled={isLoading}
                         className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[140px] justify-start"
                       >
                         <div className="flex items-center gap-1.5">
@@ -1762,6 +1797,7 @@ export function ChatInterface({
                 size="icon"
                 className="h-7 w-7 rounded-md text-muted-foreground hover:text-destructive"
                 onClick={handleClear}
+                disabled={isLoading}
                 title="Clear conversation"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -1778,7 +1814,7 @@ export function ChatInterface({
               placeholder="Ask the agent to plan, execute, reflect, and revise..."
               disabled={isLoading}
               data-testid="chat-input"
-              className="min-h-[80px] max-h-[500px] w-full border-0 focus-visible:ring-0 resize-y overflow-y-auto p-3 text-sm bg-transparent"
+              className="min-h-[80px] max-h-[500px] w-full border-0 focus-visible:ring-0 resize-y overflow-y-auto p-3 text-xs bg-transparent"
             />
           </div>
 
@@ -1795,7 +1831,7 @@ export function ChatInterface({
           <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/10">
             <div className="flex items-center gap-4">
               <div className="flex items-center space-x-2">
-                <Select value={agentMode} onValueChange={setAgentMode}>
+                <Select value={agentMode} onValueChange={setAgentMode} disabled={isLoading}>
                   <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[100px]">
                     <SelectValue placeholder="Mode" />
                   </SelectTrigger>
@@ -1820,6 +1856,7 @@ export function ChatInterface({
                   onCheckedChange={(checked) =>
                     setAutoApprove(checked === true)
                   }
+                  disabled={isLoading}
                   className="data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600 h-4 w-4"
                 />
                 <Label
@@ -1835,6 +1872,7 @@ export function ChatInterface({
                   id="show-tools"
                   checked={showTools}
                   onCheckedChange={(checked) => setShowTools(checked === true)}
+                  disabled={isLoading}
                   className="h-4 w-4 rounded-sm"
                 />
                 <Label

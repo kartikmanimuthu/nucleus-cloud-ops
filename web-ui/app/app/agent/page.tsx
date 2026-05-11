@@ -17,6 +17,7 @@ function makeTab(threadId?: string): ChatTab {
 export default function AgentPage() {
   const [tabs, setTabs] = useState<ChatTab[]>(() => [makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].threadId);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // ── Tab management ─────────────────────────────────────────────────────────
 
@@ -98,33 +99,60 @@ export default function AgentPage() {
   // ──────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-[calc(100vh-theme(spacing.16))] overflow-hidden bg-background">
-      <ChatTabBar
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onTabSelect={setActiveTabId}
-        onTabClose={handleCloseTab}
-        onNewChat={handleNewChat}
-        onThreadSelect={handleThreadSelect}
-        maxTabs={MAX_TABS}
-      />
+    <>
+      {/* Fullscreen overlay — covers entire viewport including sidebar */}
+      {isFullscreen && (
+        <div className="fixed inset-0 z-50 bg-background flex">
+          {tabs.map((tab) => (
+            <div
+              key={tab.threadId}
+              className="flex-1"
+              style={{ display: tab.threadId === activeTabId ? 'flex' : 'none' }}
+            >
+              <ChatInterface
+                threadId={tab.threadId}
+                ownerUserId={tab.ownerUserId}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={() => setIsFullscreen((prev) => !prev)}
+                onStatusChange={(s) => handleStatusChange(tab.threadId, s)}
+                onTitleChange={(title) => handleTitleChange(tab.threadId, title)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
 
-      <div className="flex-1 relative overflow-hidden p-4">
-        {tabs.map((tab) => (
-          <div
-            key={tab.threadId}
-            className="absolute inset-4"
-            style={{ display: tab.threadId === activeTabId ? 'flex' : 'none' }}
-          >
-            <ChatInterface
-              threadId={tab.threadId}
-              ownerUserId={tab.ownerUserId}
-              onStatusChange={(s) => handleStatusChange(tab.threadId, s)}
-              onTitleChange={(title) => handleTitleChange(tab.threadId, title)}
-            />
-          </div>
-        ))}
+      {/* Normal layout */}
+      <div className="flex flex-col h-[calc(100vh-theme(spacing.16))] overflow-hidden bg-background">
+        <ChatTabBar
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onTabSelect={setActiveTabId}
+          onTabClose={handleCloseTab}
+          onNewChat={handleNewChat}
+          onThreadSelect={handleThreadSelect}
+          maxTabs={MAX_TABS}
+        />
+
+        <div className="flex-1 relative overflow-hidden p-4">
+          {tabs.map((tab) => (
+            <div
+              key={tab.threadId}
+              className="absolute inset-4"
+              style={{ display: tab.threadId === activeTabId ? 'flex' : 'none' }}
+            >
+              <ChatInterface
+                threadId={tab.threadId}
+                ownerUserId={tab.ownerUserId}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={() => setIsFullscreen((prev) => !prev)}
+                onStatusChange={(s) => handleStatusChange(tab.threadId, s)}
+                onTitleChange={(title) => handleTitleChange(tab.threadId, title)}
+              />
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

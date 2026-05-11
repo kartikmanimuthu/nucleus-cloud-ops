@@ -586,12 +586,18 @@ ${summaryContent}`;
     function shouldContinueFromGenerate(state: ReflectionState): "tools" | "reflect" | "final" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
+        const { iterationCount } = state;
+
+        // Hard cap FIRST — prevents unbounded loops when model keeps generating tool_calls
+        if (iterationCount >= MAX_ITERATIONS) {
+            console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached in generate. Forcing reflection.`);
+            return "reflect";
+        }
 
         if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
             return "tools";
         }
 
-        const { iterationCount } = state;
         if (iterationCount <= 1) {
             console.log("⚡ [Fast Path] First iteration with no tools. Skipping reflection.");
             return "final";
@@ -612,6 +618,14 @@ ${summaryContent}`;
     function shouldContinueFromRevise(state: ReflectionState): "tools" | "reflect" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
+        const { iterationCount } = state;
+
+        // Hard cap — prevent unbounded tool loops from reviser
+        if (iterationCount >= MAX_ITERATIONS) {
+            console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached in revise. Forcing reflection.`);
+            return "reflect";
+        }
+
         if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
             return "tools";
         }
