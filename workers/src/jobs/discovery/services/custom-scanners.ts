@@ -53,12 +53,24 @@ async function ecsServicesDeep(
 
   const allServices: any[] = [];
 
-  const clustersResp = await client.send(new ListClustersCommand({}));
-  const clusterArns: string[] = clustersResp.clusterArns || [];
+  // Paginate clusters (max 100 per page)
+  const clusterArns: string[] = [];
+  let clusterNextToken: string | undefined;
+  do {
+    const resp = await client.send(new ListClustersCommand({ nextToken: clusterNextToken }));
+    clusterArns.push(...(resp.clusterArns || []));
+    clusterNextToken = resp.nextToken;
+  } while (clusterNextToken);
 
   for (const clusterArn of clusterArns) {
-    const svcResp = await client.send(new ListServicesCommand({ cluster: clusterArn }));
-    const serviceArns: string[] = svcResp.serviceArns || [];
+    // Paginate services per cluster (max 100 per page)
+    const serviceArns: string[] = [];
+    let svcNextToken: string | undefined;
+    do {
+      const resp = await client.send(new ListServicesCommand({ cluster: clusterArn, nextToken: svcNextToken }));
+      serviceArns.push(...(resp.serviceArns || []));
+      svcNextToken = resp.nextToken;
+    } while (svcNextToken);
 
     for (let i = 0; i < serviceArns.length; i += 10) {
       const batch = serviceArns.slice(i, i + 10);
@@ -74,7 +86,6 @@ async function ecsServicesDeep(
         );
 
         for (const svc of descResp.services || []) {
-          svc.ClusterArn = clusterArn;
           allServices.push(svc);
         }
       } catch (error) {
@@ -104,15 +115,20 @@ async function wafv2Deep(
   }
 
   for (const scope of scopes) {
-    try {
-      const response = await client.send(new ListWebACLsCommand({ Scope: scope }));
-      for (const acl of response.WebACLs || []) {
-        acl._scope = scope;
-        allAcls.push(acl);
-      }
-    } catch (error) {
+    let nextMarker: string | undefined;
+    do {
+      try {
+        const response = await client.send(new ListWebACLsCommand({ Scope: scope, NextMarker: nextMarker }));
+        for (const acl of response.WebACLs || []) {
+          acl._scope = scope;
+          allAcls.push(acl);
+        }
+        nextMarker = response.NextMarker;
+      } catch (error) {
         log.warn('WAFv2 list failed', { scope, region, error: error instanceof Error ? error.message : String(error) });
-    }
+        nextMarker = undefined;
+      }
+    } while (nextMarker);
   }
 
   return allAcls;

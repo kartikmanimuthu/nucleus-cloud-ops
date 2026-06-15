@@ -27,6 +27,16 @@ export async function writeResourcesToPg(
     seen.set(key, r);
   }
   const deduped = Array.from(seen.values());
+  if (deduped.length < resources.length) {
+    log.warn('Deduplication reduced resource count', {
+      tenantId,
+      accountId,
+      before: resources.length,
+      after: deduped.length,
+      collapsed: resources.length - deduped.length,
+    });
+  }
+  log.debug('Writing resources to DB', { tenantId, accountId, count: deduped.length });
 
   const client: PoolClient = await getPool().connect();
   let total = 0;

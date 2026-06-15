@@ -157,6 +157,14 @@ export async function invokeService(
         } else if (response.nextToken !== undefined) {
           nextToken = response.nextToken;
           tokenInputKey = 'nextToken';
+        } else if (response.LastEvaluatedTableName !== undefined) {
+          // DynamoDB list_tables uses a non-standard cursor pair
+          nextToken = response.LastEvaluatedTableName;
+          tokenInputKey = 'ExclusiveStartTableName';
+        } else if (response.position !== undefined) {
+          // API Gateway get_rest_apis / get_resources use `position` as both cursor and input key
+          nextToken = response.position;
+          tokenInputKey = 'position';
         } else {
           nextToken = undefined;
         }
@@ -424,18 +432,25 @@ export function extractResourceIdentifiers(
 
   const idKeys = [
     'InstanceId', 'DBInstanceIdentifier', 'DBClusterIdentifier', 'ClusterIdentifier',
-    'FunctionName', 'BucketName', 'Name',
-    'VolumeId', 'NetworkInterfaceId', 'VpcId', 'SubnetId', 'GroupId',
+    'FunctionName', 'BucketName', 'AlarmName', 'Name',
+    // NatGatewayId and SubnetId must come before VpcId: NAT gateways and subnets both carry
+    // VpcId as a context field, so checking VpcId first collapses all resources in a VPC to one.
+    'VolumeId', 'NetworkInterfaceId', 'NatGatewayId', 'SubnetId', 'GroupId',
     'KeyId', 'AutoScalingGroupName', 'LoadBalancerArn', 'TopicArn', 'QueueUrl',
-    'FileSystemId', 'NatGatewayId', 'DistributionId', 'TableName', 'StreamName',
+    'FileSystemId', 'DistributionId', 'TableName', 'StreamName',
     'CacheClusterId', 'ReplicationGroupId', 'ClusterArn', 'ServiceArn', 'TaskArn',
     'TransitGatewayId', 'TransitGatewayAttachmentId', 'VpcPeeringConnectionId',
-    'clusterArn', 'serviceArn',
-    'clusterName', 'serviceName',
+    // serviceArn before clusterArn: ECS service objects carry both; checking clusterArn first
+    // collapses all services in the same cluster to one record.
+    'serviceArn', 'clusterArn',
+    'serviceName', 'clusterName',
     'repositoryName',
     'CertificateId', 'CertificateArn',
     'RoleName', 'RoleId',
     'UserName', 'UserId',
+    // VpcId last among named keys: it appears as a foreign key on subnets, NAT gateways,
+    // security groups, etc. — only use it when nothing more specific matched (i.e., for VPCs).
+    'VpcId',
     'id', 'name', 'Id',
   ];
 
@@ -451,7 +466,8 @@ export function extractResourceIdentifiers(
     'LoadBalancerArn', 'TopicArn', 'QueueArn', 'FileSystemArn',
     'KeyArn', 'ClusterArn', 'ServiceArn', 'TaskArn', 'TableArn',
     'TransitGatewayArn',
-    'clusterArn', 'serviceArn',
+    // serviceArn before clusterArn for same reason as idKeys above
+    'serviceArn', 'clusterArn',
     'CertificateArn',
     'repositoryArn',
   ];
@@ -662,6 +678,16 @@ export async function runInventoryScan(
             }
 
             const resources = normalizeResources(rawItems, config.service, config.function, effectiveRegion);
+            if (resources.length > 0) {
+              log.debug('Service scan result', {
+                service: config.service,
+                function: config.function,
+                region: effectiveRegion,
+                rawItems: rawItems.length,
+                normalized: resources.length,
+                firstId: resources[0]?.resourceId,
+              });
+            }
             allResources.push(...resources);
           } catch (error) {
             const msg = `${config.service}.${config.function} in ${region}: ${error instanceof Error ? error.message : String(error)}`;
