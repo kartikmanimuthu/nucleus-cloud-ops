@@ -1,341 +1,443 @@
-# Nucleus Ops - Features Guide
+# Nucleus Cloud Ops — Features Guide
 
-Nucleus Ops is a comprehensive AWS cost optimization platform that helps organizations reduce cloud spending by automatically managing resource states. This guide covers all features with practical examples.
+Nucleus Cloud Ops is a multi-tenant AWS Cloud Operations Platform that combines **multi-account resource scheduling**, **automatic inventory discovery**, **immutable audit logging**, and **AI-powered operations agents**. This guide describes every feature area available in the product.
+
+---
 
 ## Table of Contents
 
-1. [Dashboard](#dashboard)
-2. [AWS Accounts Management](#aws-accounts-management)
-3. [Schedule Management](#schedule-management)
-4. [Audit Logs](#audit-logs)
-5. [AI DevOps Agent](#ai-devops-agent)
-6. [Settings & Customization](#settings--customization)
+1. [Dashboard & Cost Optimization](#dashboard--cost-optimization)
+2. [AWS Account Management](#aws-account-management)
+3. [Inventory & Resource Discovery](#inventory--resource-discovery)
+4. [Schedule Management & Resource Scheduling](#schedule-management--resource-scheduling)
+5. [Audit Logging & Compliance](#audit-logging--compliance)
+6. [AI DevOps Agent (Interactive Chat)](#ai-devops-agent-interactive-chat)
+7. [Agent Ops — Headless Triggered Agent](#agent-ops--headless-triggered-agent)
+8. [Deep Agent](#deep-agent)
+9. [Knowledge Base & RAG](#knowledge-base--rag)
+10. [Channels & Gateway Integrations](#channels--gateway-integrations)
+11. [Certificate Manager](#certificate-manager)
+12. [RBAC, User Management & Tenant Settings](#rbac-user-management--tenant-settings)
+13. [Settings & Customization](#settings--customization)
+14. [Background Jobs & Async Execution](#background-jobs--async-execution)
+15. [Documentation Hub](#documentation-hub)
+16. [Infrastructure & Deployment](#infrastructure--deployment)
 
 ---
 
-## Dashboard
+## Dashboard & Cost Optimization
 
-The Cost Optimization Dashboard provides a centralized view of your entire scheduling operation.
+A centralized executive view of scheduling operations, estimated savings, active accounts, agent runs, and audit activity.
 
-![Cost Optimization Dashboard](./screenshots/dashboard_page.png)
+### Key Capabilities
 
-### Key Metrics
+- View KPI cards: estimated savings, resources managed, active accounts, agent runs, schedule success rate, and audit events.
+- Analyze cost trends over time (24h, 7d, 30d, 90d) and savings broken down by AWS account.
+- Monitor operational health, inventory overview, knowledge-base statistics, agent analytics, and security audit sections.
+- Quick navigation into accounts, schedules, inventory, audit logs, and agent chat.
 
-| Metric | Description |
-|--------|-------------|
-| **Total Schedules** | Number of configured schedules across all accounts |
-| **Active Schedules** | Schedules currently enabled and running |
-| **AWS Accounts** | Connected AWS accounts being managed |
-| **Monthly Savings** | Estimated cost savings based on schedule configurations |
-| **Resources Managed** | Total EC2, RDS, and ECS resources under management |
+### Relevant Code
 
-### Schedule Run Events
-
-Real-time activity feed showing:
-- Schedule executions (start/stop operations)
-- Scan completions
-- Error events requiring attention
-
-### Use Cases
-
-**✅ Executive Overview**
-> As a Cloud Operations Manager, use the dashboard for a daily health check of cost optimization initiatives across multiple AWS accounts.
-
-**✅ Cost Tracking**
-> Monitor cumulative savings and identify opportunities by seeing which accounts contribute most to savings.
+- `web-ui/app/app/dashboard/page.tsx`
+- `web-ui/components/dashboard/`
+- `web-ui/lib/dashboard-service.ts`
+- `web-ui/lib/dashboard-types.ts`
+- `web-ui/app/api/dashboard/`
 
 ---
 
-## AWS Accounts Management
+## AWS Account Management
 
-Integrate and manage multiple AWS accounts from a single interface.
+Connect and manage multiple AWS accounts from a single interface using secure cross-account IAM roles via `sts:AssumeRole`.
 
-![AWS Accounts Management](./screenshots/aws_accounts_page.png)
+### Key Capabilities
 
-### Features
+- Add, edit, delete, and import AWS accounts.
+- Auto-generate CloudFormation templates for the cross-account IAM role.
+- Validate assume-role connectivity before saving.
+- View account status, discovered resource counts, and last sync times.
+- Bulk account actions for large organizations.
 
-#### Account Integration
-1. **CloudFormation Template Generation**: Auto-generate IAM role templates
-2. **One-Click Deployment**: Copy CloudFormation template for target account
-3. **Connection Verification**: Test assume-role capability before saving
+### Relevant Code
 
-#### Account Details
-- **Account ID**: AWS account identifier
-- **Role ARN**: Cross-account IAM role for operations
-- **Region**: Active AWS region for resource discovery
-- **Status**: Real-time connection health
-- **Resource Count**: Number of manageable resources discovered
-
-### Integration Workflow
-
-```mermaid
-sequenceDiagram
-    participant Admin as Cloud Admin
-    participant Nucleus as Nucleus Ops
-    participant Target as Target AWS Account
-    
-    Admin->>Nucleus: Click "Integrate Account"
-    Nucleus->>Nucleus: Generate CloudFormation Template
-    Admin->>Target: Deploy CloudFormation Stack
-    Target-->>Target: Create IAM Role
-    Admin->>Nucleus: Enter Account ID & Role ARN
-    Nucleus->>Target: Test AssumeRole
-    Target-->>Nucleus: Credentials (Success)
-    Nucleus->>Nucleus: Save Account Configuration
-```
-
-### Use Cases
-
-**✅ Multi-Account Management**
-> Manage development, staging, and production accounts separately with distinct schedules per environment.
-
-**✅ Compliance & Security**
-> Each account integration uses least-privilege IAM roles—no permanent credentials stored.
-
-**✅ Resource Discovery**
-> Automatically scan accounts to discover EC2 instances, RDS databases, and ECS services eligible for scheduling.
+- `web-ui/app/app/accounts/`
+- `web-ui/components/accounts/`
+- `web-ui/lib/account-service.ts`
+- `web-ui/lib/client-account-service.ts`
+- `web-ui/lib/cf-template-generator.ts`
+- `web-ui/app/api/accounts/`
+- `web-ui/lib/db/repositories/account/`
 
 ---
 
-## Schedule Management
+## Inventory & Resource Discovery
 
-Create and manage automated start/stop schedules for AWS resources.
+Automatically discover and inventory AWS resources across all connected accounts and regions.
 
-![Schedule Management](./screenshots/settings_page.png)
+### Key Capabilities
 
-### Schedule Configuration
+- Trigger manual or scheduled discovery scans.
+- Browse discovered resources in a searchable, filterable grid.
+- View resource details including tags, metadata, and current state.
+- Export inventory data for reporting.
+- Ask AI about inventory resources through the built-in RAG pipeline.
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| **Name** | Descriptive schedule identifier | "Dev Environment - Business Hours" |
-| **Time Window** | Start and end times (24h format) | 09:00 - 21:00 |
-| **Active Days** | Days of week when schedule runs | Mon-Fri |
-| **Timezone** | Schedule timezone | Asia/Kolkata |
-| **Target Accounts** | AWS accounts included | STX-EKYC-NON-PROD |
-| **Resource Types** | EC2, RDS, ECS | EC2, RDS |
+### Supported Resource Types
 
-### Resource Selection
+- EC2 instances, RDS databases, ECS services, Auto Scaling Groups, DocumentDB clusters.
 
-After defining timing, select specific resources:
+### Relevant Code
 
-1. **Full Scan**: Discover all eligible resources in selected accounts
-2. **Partial Scan**: Scan specific resource types only
-3. **Manual Selection**: Pick individual resources from scan results
-
-### Schedule Actions
-
-| Action | Description |
-|--------|-------------|
-| **Activate/Deactivate** | Toggle schedule without deleting |
-| **Execute Now** | Manually trigger schedule evaluation |
-| **Edit** | Modify timing or resource selection |
-| **Delete** | Remove schedule permanently |
-| **View History** | See past executions and results |
-
-### Use Cases
-
-**✅ Non-Production Cost Savings**
-> Schedule development environments to run only during business hours (9 AM - 6 PM), saving 62% on compute costs.
-
-**Example Configuration:**
-```
-Schedule: "Dev Environment Weekdays"
-Start Time: 09:00
-End Time: 18:00
-Days: Monday - Friday
-Timezone: Asia/Kolkata
-Resources: 12 EC2 instances, 3 RDS databases
-Estimated Savings: $2,400/month
-```
-
-**✅ Weekend Shutdown**
-> Stop all non-critical resources on weekends to maximize savings.
-
-**✅ Holiday Schedules**
-> Create special schedules for extended holidays or maintenance windows.
+- `web-ui/app/app/inventory/`
+- `web-ui/components/inventory/`
+- `web-ui/lib/inventory/`
+- `web-ui/app/api/inventory/`
+- `workers/src/jobs/discovery/`
+- `prisma/schema.prisma` (`InventoryResource`, `InventorySyncStatus`)
 
 ---
 
-## Audit Logs
+## Schedule Management & Resource Scheduling
 
-Complete visibility into all platform activities for compliance and troubleshooting.
+Create time-based start/stop schedules for AWS resources across accounts to reduce non-production costs.
 
-![Audit Logs](./screenshots/audit_logs_page.png)
+### Key Capabilities
 
-### Event Categories
+- Create, edit, duplicate, and delete schedules with start/end times, active days, timezone, and target accounts.
+- Select resources via full discovery scan, partial scan, or manual selection.
+- Activate/deactivate schedules, execute on demand, and view execution history.
+- Configure scheduler settings such as cron interval.
+- Track schedule executions: resources started, stopped, skipped, or failed.
 
-| Category | Examples |
-|----------|----------|
-| **User Actions** | Create/Update Schedule, Integrate Account, Execute Schedule |
-| **System Actions** | Scheduled Execution, Resource Start/Stop, Scan Completion |
-| **Warnings** | Partial Failures, Rate Limiting, Timeout Events |
-| **Errors** | Access Denied, Invalid Credentials, Resource Not Found |
+### Supported Resource Types
 
-### Filtering & Search
+- EC2, RDS, ECS, Auto Scaling Groups, DocumentDB.
 
-- **Text Search**: Find logs by resource name, action, or details
-- **Status Filter**: Success, Warning, Error
-- **User Filter**: Filter by operator
-- **Date Range**: Custom time window selection
-- **Advanced Filters**: Expand for granular filtering
+### Relevant Code
 
-### Audit Log Entry Details
-
-Each entry includes:
-- **Timestamp**: Exact time of event
-- **Event Type**: Action performed
-- **User**: Human or "System" for automated actions
-- **Resource**: Affected schedule, account, or service
-- **Status**: Success/Warning/Error
-- **Details**: Expanded JSON with full context
-
-### Use Cases
-
-**✅ Compliance Reporting**
-> Generate audit reports for SOC 2 compliance showing all resource modifications and access patterns.
-
-**✅ Incident Investigation**
-> Trace unexpected resource states back to specific schedule executions or manual interventions.
-
-**✅ Operational Monitoring**
-> Monitor success rates across schedules to identify problematic configurations.
+- `web-ui/app/app/schedules/`
+- `web-ui/components/schedules/`
+- `web-ui/lib/schedule-service.ts`
+- `web-ui/lib/schedule-execution-service.ts`
+- `web-ui/lib/client-schedule-service.ts`
+- `web-ui/app/api/schedules/`
+- `web-ui/app/api/scheduler/`
+- `workers/src/jobs/scheduler/`
+- `prisma/schema.prisma` (`Schedule`, `ScheduleExecution`, `TargetedResource`)
 
 ---
 
-## AI DevOps Agent
+## Audit Logging & Compliance
 
-An intelligent assistant powered by Claude 4.5 Sonnet for natural language cloud management.
+Immutable, tiered-retention audit trail for user actions, system events, agent tool executions, and external triggers.
 
-![AI DevOps Agent](./screenshots/ai_agent_page_final.png)
+### Key Capabilities
 
-### Capabilities
+- View, filter, and search audit logs by status, user, date range, severity, and event type.
+- Export audit logs for compliance reporting.
+- View detailed log entries with full JSON context and correlation IDs.
+- Dashboard audit stats for operational monitoring.
 
-The DevOps Agent uses a **Plan → Execute → Reflect → Revise** workflow:
+### Relevant Code
 
-1. **Planning**: Creates a step-by-step plan for complex requests
-2. **Execution**: Runs AWS CLI commands and other tools
-3. **Reflection**: Evaluates output quality and completeness
-4. **Revision**: Improves results based on reflection
+- `web-ui/app/app/audit/`
+- `web-ui/components/audit/`
+- `web-ui/lib/audit-service.ts`
+- `web-ui/lib/client-audit-service.ts`
+- `web-ui/app/api/audit/`
+- `docs/audit-logging-requirements.md`
+- `prisma/schema.prisma` (`AuditLog`)
+
+---
+
+## AI DevOps Agent (Interactive Chat)
+
+Natural-language cloud operations assistant powered by Claude via AWS Bedrock, using LangGraph with reflection, planning, execution, and revision.
+
+### Key Capabilities
+
+- Chat with the agent to analyze costs, run security audits, debug issues, or manage infrastructure.
+- Choose from specialized skills: Cost Analyser, Cost Estimator, Cost Optimizer, Debugging, General Questionnaire, Network Ops, Security Analysis, SWE DevOps.
+- Upload images for multimodal analysis.
+- Select AWS account context, AI model, and auto-approve mode.
+- View threaded chat history persisted in PostgreSQL.
 
 ### Available Tools
 
-| Tool | Capability |
-|------|------------|
-| **AWS CLI** | Execute any AWS CLI command with cross-account credentials |
-| **File Operations** | Read, write, and list files |
-| **Web Search** | Search the internet for documentation and solutions |
-| **Shell Commands** | Run system commands for diagnostics |
+- AWS CLI execution with cross-account credentials.
+- File read/write/list operations.
+- S3 object access.
+- Shell commands and web search.
+- MCP (Model Context Protocol) server integrations.
 
-### Suggested Tasks
+### Relevant Code
 
-Quick-start prompts for common operations:
+- `web-ui/app/app/agent/`
+- `web-ui/components/agent/`
+- `web-ui/lib/agent/`
+- `web-ui/lib/agent/skills/`
+- `web-ui/lib/agent/tools.ts`
+- `web-ui/lib/agent/planning-agent.ts`
+- `web-ui/lib/agent/fast-agent.ts`
+- `web-ui/lib/agent/model-factory.ts`
+- `web-ui/lib/agent/mcp-tools.ts`
+- `web-ui/lib/agent/memory-nodes.ts`
+- `web-ui/app/api/chat/`
+- `web-ui/app/api/ask-ai/`
+- `docs/MULTIMODAL_SUPPORT.md`
 
-> 📊 "Review the Cost of the AWS Account for the last 3 months"
+---
 
-> 🔍 "Check my AWS Lambda functions and their configurations"
+## Agent Ops — Headless Triggered Agent
 
-> 📝 "Generate a security audit report for my S3 buckets"
+Asynchronous, headless AI agent runs triggered from external channels or scheduled tasks. Supports human-in-the-loop approvals and clarifications.
 
-> ⚡ "Analyze EC2 instance utilization and recommend right-sizing"
+### Key Capabilities
 
-### Example Conversation
+- Create, view, and manage agent-ops runs.
+- Configure scheduled agent tasks with cron expressions.
+- Approve, reject, cancel, or resume agent runs.
+- Configure Slack, Jira, Discord, Telegram, webhook, and MCP settings for inbound triggers.
+- View run details and event timeline.
 
-**User**: "Analyze the cost breakdown for account STX-EKYC-NON-PROD for the last 30 days"
+### Relevant Code
 
-**Agent Response**:
-```
-📋 Plan:
-1. Get AWS credentials for the target account
-2. Query AWS Cost Explorer for 30-day breakdown
-3. Analyze by service and usage type
-4. Generate recommendations
+- `web-ui/app/app/agent-ops/`
+- `web-ui/components/agent-ops/`
+- `web-ui/lib/agent-ops/`
+- `web-ui/lib/agent-ops/agent-ops-service.ts`
+- `web-ui/lib/agent-ops/agent-executor.ts`
+- `web-ui/lib/agent-ops/scheduled-task-service.ts`
+- `web-ui/app/api/agent-ops/`
+- `workers/src/jobs/agent-ops-scheduler/`
+- `prisma/schema.prisma` (`AgentOpsRun`, `AgentOpsEvent`, `ScheduledTask`, `ScheduledTaskLock`)
 
-🔧 Execution:
-Running: aws ce get-cost-and-usage --profile XYZ ...
+---
 
-📊 Results:
-| Service    | Cost      | % of Total |
-|------------|-----------|------------|
-| EC2        | $1,245.00 | 45%        |
-| RDS        | $890.00   | 32%        |
-| S3         | $234.00   | 8%         |
-| Lambda     | $89.00    | 3%         |
-| Other      | $342.00   | 12%        |
+## Deep Agent
 
-💡 Recommendations:
-- Consider Reserved Instances for EC2 (potential 40% savings)
-- RDS Multi-AZ can be disabled for non-prod
-```
+Advanced agent module built on the `deepagents` package with specialized sub-agents, long-term memory via MongoDB, and per-tool human-in-the-loop approval.
 
-### Configuration Options
+### Key Capabilities
 
-| Option | Values | Description |
-|--------|--------|-------------|
-| **Model** | Claude 4.5 Sonnet, Claude 3.5 | AI model selection |
-| **Auto-Approve** | ON/OFF | Skip confirmation for tool execution |
-| **Account Context** | Dropdown | Active AWS account for operations |
+- Use an advanced agent mode with deeper reasoning for complex tasks.
+- Manage threads and todo panels.
+- Approve individual tool calls before execution.
+- Select skills and MCP servers for specialized workflows.
 
-### Use Cases
+### Relevant Code
 
-**✅ Cost Analysis**
-> Natural language queries about AWS spending without writing AWS CLI commands.
+- `web-ui/app/app/deep-agent/`
+- `web-ui/components/deep-agent/`
+- `web-ui/lib/deep-agent/`
+- `web-ui/lib/deep-agent/deep-agent-graph.ts`
+- `web-ui/app/api/deep-agent/`
 
-**✅ Security Audits**
-> "Find all S3 buckets with public access in my account"
+---
 
-**✅ Troubleshooting**
-> "Why is my Lambda function timing out?" → Agent investigates logs and configuration.
+## Knowledge Base & RAG
 
-**✅ Documentation**
-> "Generate a markdown report of all EC2 instances with their tags"
+Tenant-scoped knowledge bases with vector embeddings for semantic search and retrieval-augmented generation.
+
+### Key Capabilities
+
+- Create and manage knowledge bases per tenant.
+- Add data sources: direct file upload, S3 bucket, Confluence, and Bitbucket.
+- Sync data sources and track vector counts.
+- Ask natural-language questions against a knowledge base.
+- View source citations in answers.
+
+### Relevant Code
+
+- `web-ui/app/app/knowledge-base/`
+- `web-ui/components/knowledge-base/`
+- `web-ui/lib/knowledge-base/`
+- `web-ui/lib/knowledge-base/service.ts`
+- `web-ui/lib/knowledge-base/embedder.ts`
+- `web-ui/app/api/knowledge-base/`
+- `workers/src/jobs/kb-sync/`
+- `prisma/schema.prisma` (`KnowledgeBase`, `DataSource`, `KbDocumentChunk`)
+
+---
+
+## Channels & Gateway Integrations
+
+Inbound and outbound channel gateway that connects the agent to Slack, Jira, Discord, Telegram, webhooks, and API triggers.
+
+### Key Capabilities
+
+- Configure channel settings for each integration.
+- Receive inbound tasks from Slack slash commands, Jira webhooks, Discord interactions, Telegram messages, and generic webhooks.
+- Send results, approval requests, and clarification questions back to the originating channel.
+- Route events through an internal event bus.
+
+### Relevant Code
+
+- `web-ui/app/app/channels/`
+- `web-ui/components/channels/`
+- `web-ui/lib/gateway/`
+- `web-ui/lib/gateway/gateway-service.ts`
+- `web-ui/lib/gateway/adapter-registry.ts`
+- `web-ui/lib/gateway/adapters/`
+- `web-ui/app/api/v1/gateway/`
+- `web-ui/app/api/v1/trigger/`
+
+---
+
+## Certificate Manager
+
+Upload and manage TLS certificates, track expiry status, and deploy certificates to AWS accounts and ACM.
+
+### Key Capabilities
+
+- Upload certificate body, private key, and chain.
+- View certificate status (active, expiring, expired).
+- Associate certificates with AWS accounts.
+- Deploy certificates to ACM.
+- Download certificate content and re-import certificates.
+- Daily expiry monitoring via background job.
+
+### Relevant Code
+
+- `web-ui/app/app/certificates/`
+- `web-ui/components/certificates/`
+- `web-ui/lib/certificate-utils.ts`
+- `web-ui/app/api/certificates/`
+- `workers/src/jobs/certificate-expiry-monitor/`
+- `prisma/schema.prisma` (`Certificate`)
+
+---
+
+## RBAC, User Management & Tenant Settings
+
+Multi-tenant access control with predefined roles and custom roles, plus tenant-scoped settings and member invitations.
+
+### Key Capabilities
+
+- Invite, resend, and revoke organization members.
+- Assign predefined roles: Owner, Admin, Member, Viewer.
+- Create custom roles with per-module permissions.
+- Switch between organizations.
+- Update organization profile, logo, and timezone.
+- Configure auth providers and self-hosted LLM providers.
+
+### Relevant Code
+
+- `web-ui/app/app/settings/`
+- `web-ui/components/settings/`
+- `web-ui/lib/rbac/`
+- `web-ui/lib/rbac/permissions.ts`
+- `web-ui/lib/rbac/custom-role-service.ts`
+- `web-ui/lib/tenant-settings-service.ts`
+- `web-ui/lib/tenant-config-service.ts`
+- `web-ui/lib/invitation-service.ts`
+- `web-ui/app/api/settings/`
+- `web-ui/app/api/invitations/`
+- `web-ui/app/api/tenants/`
+- `prisma/schema.prisma` (`UserTenantRole`, `CustomRole`, `Invitation`, `Tenant`, `TenantConfig`, `ProviderModel`, `AuthUser`)
 
 ---
 
 ## Settings & Customization
 
-Personalize the Nucleus Ops experience.
+Personalization and platform configuration for users and organizations.
 
-![Settings Page](./screenshots/settings_page_final.png)
+### Key Capabilities
 
-### Appearance Settings
+- Switch themes: light, dark, or system.
+- Choose from multiple accent color schemes.
+- Customize typography and border radius.
+- Update user profile and notification preferences.
+- Configure discovery, scheduler, MCP, provider, and theme settings.
 
-#### Theme Mode
-- **Light**: Clean light interface
-- **Dark**: Eye-friendly dark mode (default)
-- **System**: Match OS preference
+### Relevant Code
 
-#### Color Schemes
-Choose from 10 accent color options:
-- Zinc, Slate, Stone (Neutral)
-- Red, Rose, Orange (Warm)
-- Green, Blue, Violet, Yellow (Vibrant)
+- `web-ui/components/settings/theme-settings.tsx`
+- `web-ui/components/settings/theme-registry.ts`
+- `web-ui/components/settings/profile-form.tsx`
+- `web-ui/components/settings/organization-settings-form.tsx`
+- `web-ui/components/settings/discovery-settings.tsx`
+- `web-ui/components/settings/scheduler-settings.tsx`
+- `web-ui/components/settings/mcp-settings.tsx`
+- `web-ui/components/settings/provider-settings.tsx`
 
-#### Typography
-- **Inter** (Default): Modern, readable
-- **Manrope**: Geometric, technical
-- **System**: Native OS fonts
+---
 
-#### Border Radius
-Customize UI element roundness from sharp (0) to fully rounded (1).
+## Background Jobs & Async Execution
 
-### Profile Settings
+All background processing is handled by pg-boss worker jobs running on ECS Fargate, with job queues stored in PostgreSQL.
 
-- Update display name
-- Change email address
-- Manage profile picture
+### Key Jobs
 
-### Notification Preferences
+| Job | Purpose |
+|-----|---------|
+| **Scheduler Scan** | Evaluates schedules every 5 minutes and starts/stops resources across EC2, RDS, ECS, ASG, and DocumentDB. |
+| **Discovery Fan-out / Scan** | Daily scan of all connected accounts to refresh the inventory. |
+| **KB Sync** | Processes file uploads, S3 syncs, Confluence, and Bitbucket ingestion with vector embeddings. |
+| **Agent Ops Scheduler** | Cron-triggered scheduled agent tasks. |
+| **Certificate Expiry Monitor** | Daily monitoring of TLS certificate expiry. |
 
-- Email notifications for schedule failures
-- Browser notifications for real-time events
-- Digest frequency (immediate, daily, weekly)
+### Relevant Code
 
-### Security Settings
+- `workers/src/jobs/scheduler/`
+- `workers/src/jobs/discovery/`
+- `workers/src/jobs/kb-sync/`
+- `workers/src/jobs/agent-ops-scheduler/`
+- `workers/src/jobs/certificate-expiry-monitor/`
+- `workers/src/executor/`
+- `workers/src/boss.ts`
+- `workers/src/index.ts`
 
-- Change password
-- Enable 2FA (if configured)
-- View active sessions
-- Revoke API keys
+---
+
+## Documentation Hub
+
+Built-in documentation pages rendered with Fumadocs, accessible from the application.
+
+### Relevant Code
+
+- `web-ui/app/(docs)/docs/`
+- `docs/`
+
+---
+
+## Infrastructure & Deployment
+
+Infrastructure as Code using Pulumi. Deploys networking, compute (ECS Fargate for Next.js and workers), RDS PostgreSQL, Cognito auth, S3, IAM, and CI/CD pipelines.
+
+### Key Capabilities
+
+- **Networking stack**: VPC, public/private/database/intra subnets, subnet groups.
+- **Compute stack**: ECS cluster, RDS PostgreSQL, Cognito user pools, S3 buckets with lifecycle policies, ECR, IAM roles.
+- **CI/CD stack**: CodePipeline/CodeBuild with buildspecs for preview, build, and deploy.
+
+### Relevant Code
+
+- `infra/networking/index.ts`
+- `infra/compute/index.ts`
+- `infra/cicd/index.ts`
+- `infra/cicd/buildspec-*.yml`
+- `docker-compose.yml`
+- `docker-compose.workers.yml`
+- `docs/deployment.md`
+- `infra/DEPLOYMENT.md`
+
+---
+
+## Core Technology Stack
+
+| Layer | Technology |
+|-------|------------|
+| Frontend | Next.js 15, React 19, Tailwind CSS, Radix UI, Recharts |
+| Backend API | Next.js App Router API routes |
+| AI/Agent | LangGraph, LangChain, AWS Bedrock (Claude), `deepagents`, MCP |
+| Database | PostgreSQL + Prisma ORM |
+| Vector Search | pgvector |
+| Background Jobs | pg-boss + ECS Fargate workers |
+| Auth | NextAuth.js + AWS Cognito + credentials provider |
+| Infrastructure | Pulumi (networking/compute/cicd) |
+| Object Storage | Amazon S3 |
+| Messaging/Channels | Slack, Jira, Discord, Telegram, Webhook adapters |
 
 ---
 
@@ -343,27 +445,27 @@ Customize UI element roundness from sharp (0) to fully rounded (1).
 
 ### Schedule Design
 
-1. **Start Conservative**: Begin with fewer resources and expand
-2. **Buffer Time**: Add 15-30 minutes buffer around business hours
-3. **Test First**: Use "Execute Now" to validate before activation
-4. **Monitor Closely**: Check audit logs after initial deployment
+1. Start conservative: begin with fewer resources and expand.
+2. Add buffer time around business hours.
+3. Use **Execute Now** to validate before activation.
+4. Monitor audit logs after initial deployment.
 
 ### Account Management
 
-1. **Least Privilege**: Only grant required IAM permissions
-2. **Regular Audits**: Review connected accounts monthly
-3. **Naming Convention**: Use descriptive account names for clarity
+1. Grant least-privilege IAM permissions only.
+2. Review connected accounts monthly.
+3. Use descriptive account names for clarity.
 
 ### AI Agent Usage
 
-1. **Be Specific**: Detailed prompts yield better results
-2. **Verify Actions**: Review agent's plan before auto-approval
-3. **Iterate**: Use follow-up questions to refine results
+1. Be specific: detailed prompts yield better results.
+2. Verify actions before enabling auto-approve.
+3. Iterate with follow-up questions to refine results.
 
 ---
 
 ## Getting Help
 
-- **Documentation**: `/docs` folder in repository
-- **Issues**: GitHub Issues for bug reports
-- **Audit Trail**: Check Audit Logs for troubleshooting
+- **Documentation**: `docs/` folder in the repository.
+- **Issues**: GitHub Issues for bug reports.
+- **Audit Trail**: Check Audit Logs for troubleshooting.
