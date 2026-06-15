@@ -103,3 +103,6 @@ cypress/downloads/
 
 # Jest
 .jest-cache
+
+# Graphify knowledge graph output
+graphify-out/
