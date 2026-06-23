@@ -34,6 +34,7 @@ export const SUBJECT_TO_MODULE: Record<string, Module> = {
     KnowledgeBase: 'AIOps', // Agent + KnowledgeBase collapsed into AI Ops (D-02)
     Billing: 'Settings',
     Certificate: 'Settings',
+    RightSizing: 'Inventory', // right-sizing analyzes discovered inventory (read=view, update=review/trigger scan)
     all: 'Settings',        // wildcard fallback
 };
 

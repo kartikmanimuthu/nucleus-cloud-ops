@@ -1,0 +1,125 @@
+/**
+ * IRightSizingRepository
+ *
+ * Contract for right-sizing recommendation + run persistence.
+ * Implemented by RightSizingPostgresRepository.
+ *
+ * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant access.
+ */
+
+export type Finding = 'over_provisioned' | 'under_provisioned' | 'idle' | 'optimized';
+export type RiskLevel = 'low' | 'medium' | 'high';
+export type RecommendationStatus = 'open' | 'approved' | 'dismissed' | 'snoozed' | 'applied';
+export type RunStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type RunTrigger = 'schedule' | 'manual';
+
+export interface RightSizingRecommendation {
+    id: string;
+    tenantId: string;
+    accountId: string;
+    region: string;
+    resourceType: string;
+    resourceId: string;
+    name?: string;
+    finding: Finding;
+    currentConfig: Record<string, unknown>;
+    recommendedConfig?: Record<string, unknown> | null;
+    metricsSummary: Record<string, unknown>;
+    lookbackDays: number;
+    currency: string;
+    currentMonthlyCost?: number | null;
+    recommendedMonthlyCost?: number | null;
+    estimatedMonthlySavings: number;
+    confidence: number;
+    riskLevel: RiskLevel;
+    rationale: string;
+    source: string;
+    status: RecommendationStatus;
+    snoozeUntil?: string | null;
+    reviewedBy?: string | null;
+    reviewedAt?: string | null;
+    generatedByRunId?: string | null;
+    generatedAt: string;
+    updatedAt: string;
+}
+
+/** Shape used to upsert a freshly computed recommendation (engine output). */
+export type RecommendationUpsert = Omit<
+    RightSizingRecommendation,
+    'id' | 'status' | 'snoozeUntil' | 'reviewedBy' | 'reviewedAt' | 'generatedAt' | 'updatedAt'
+> & {
+    status?: RecommendationStatus;
+};
+
+export interface RecommendationFilters {
+    tenantId: string;
+    accountId?: string;
+    accountIds?: string[];
+    region?: string;
+    resourceType?: string;
+    finding?: Finding;
+    status?: RecommendationStatus;
+    searchTerm?: string;
+    page?: number;
+    limit?: number;
+    sort?: 'savings' | 'confidence' | 'resource';
+}
+
+export interface RecommendationPage {
+    recommendations: RightSizingRecommendation[];
+    total: number;
+}
+
+export interface RightSizingSummary {
+    totalPotentialMonthlySavings: number;
+    byFinding: Record<string, number>;
+    byStatus: Record<string, number>;
+    savingsByResourceType: Record<string, number>;
+    savingsByAccount: Record<string, number>;
+    lastRunAt: string | null;
+}
+
+export interface RightSizingRun {
+    id: string;
+    tenantId: string;
+    status: RunStatus;
+    trigger: RunTrigger;
+    lookbackDays: number;
+    accountsScanned: number;
+    resourcesAnalyzed: number;
+    recommendationsGenerated: number;
+    totalEstimatedSavings: number;
+    errors: unknown[];
+    startedAt: string;
+    finishedAt?: string | null;
+    expiresAt?: string | null;
+}
+
+export interface RunUpdate {
+    status?: RunStatus;
+    accountsScanned?: number;
+    resourcesAnalyzed?: number;
+    recommendationsGenerated?: number;
+    totalEstimatedSavings?: number;
+    errors?: unknown[];
+    finishedAt?: Date | null;
+}
+
+export interface IRightSizingRepository {
+    listRecommendations(filters: RecommendationFilters): Promise<RecommendationPage>;
+    getRecommendation(id: string, tenantId: string): Promise<RightSizingRecommendation | null>;
+    upsertRecommendations(items: RecommendationUpsert[], tenantId: string): Promise<number>;
+    updateStatus(
+        id: string,
+        tenantId: string,
+        status: RecommendationStatus,
+        reviewedBy: string,
+        snoozeUntil?: Date | null
+    ): Promise<RightSizingRecommendation>;
+    getSummary(tenantId: string): Promise<RightSizingSummary>;
+
+    createRun(tenantId: string, trigger: RunTrigger, lookbackDays: number): Promise<RightSizingRun>;
+    updateRun(id: string, tenantId: string, updates: RunUpdate): Promise<RightSizingRun>;
+    listRuns(tenantId: string, page?: number, limit?: number): Promise<{ runs: RightSizingRun[]; total: number }>;
+    getActiveRun(tenantId: string): Promise<RightSizingRun | null>;
+}

@@ -40,6 +40,7 @@ import {
   Shield,
   ShieldCheck,
   UserCog,
+  TrendingDown,
 } from "lucide-react"
 
 const navigation = [
@@ -50,6 +51,10 @@ const navigation = [
   { name: "Channels", href: "/app/channels", icon: Cable },
   { name: "Cost Scheduler", href: "/app/schedules", icon: Calendar },
   { name: "Inventory Discovery", href: "/app/inventory", icon: Database },
+  // Right Sizing — hidden unless the feature flag is enabled (NEXT_PUBLIC_ var is inlined at build).
+  ...(process.env.NEXT_PUBLIC_RIGHT_SIZING_ENABLED === "true"
+    ? [{ name: "Right Sizing", href: "/app/right-sizing", icon: TrendingDown }]
+    : []),
   { name: "Knowledge Base", href: "/app/knowledge-base", icon: BookOpen },
   { name: "Certificate Manager", href: "/app/certificates", icon: ShieldCheck },
   { name: "Audit Logs", href: "/app/audit", icon: Activity },
