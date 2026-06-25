@@ -11,6 +11,7 @@ import {
     truncateOutput,
     getRecentMessages,
     sanitizeMessagesForBedrock,
+    tagMessagePhase,
     getCheckpointer,
     getStore,
 } from "./agent-shared";
@@ -125,7 +126,7 @@ Review the full conversation history before responding:
         }
 
         return {
-            messages: [response],
+            messages: [tagMessagePhase(response, 'execution')],
             iterationCount: iterationCount + 1
         };
     }
@@ -287,20 +288,111 @@ Please provide your critique.`
     }
 
     // ---------------------------------------------------------------------------
+    // FINALIZE NODE
+    // ---------------------------------------------------------------------------
+    // Reached only when the iteration cap is hit while the model still wants to call
+    // tools. Those tool calls will NOT run, so we make one final model call WITHOUT
+    // tools to synthesize a natural-language answer from everything gathered so far.
+    // Without this, the graph would end on an unanswered tool_use message and the
+    // user would receive an empty ("placeholder") response.
+    async function finalizeNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+        const { messages, memoryContext, toolResults } = state;
+
+        console.log(`\n================================================================================`);
+        console.log(`🏁 [FAST AGENT] Iteration cap reached — synthesizing final answer (no tools)`);
+        console.log(`   Model: ${modelId}`);
+        console.log(`================================================================================\n`);
+
+        // Original request = the first human message in the thread.
+        const firstHuman = messages.find(m => m._getType() === 'human');
+        const originalQuery = firstHuman ? getStringContent(firstHuman.content as any) : '(original request unavailable)';
+
+        // Gathered context as PLAIN TEXT. We must NOT pass the raw conversation history to a
+        // tool-less model.invoke(): the history contains tool_use/tool_result content blocks,
+        // and a request without `toolConfig` (which only modelWithTools sends) is rejected by
+        // Bedrock — "The toolConfig field must be defined when using toolUse and toolResult
+        // content blocks." So we embed findings as text and send one fresh HumanMessage, the
+        // same pattern the planning-agent's final node uses.
+        const toolSummary = toolResults.length > 0
+            ? toolResults
+                .slice(-8)
+                .map(e => `[${e.isError ? '❌ ERROR' : '✅'} ${e.toolName}]\n${truncateOutput(e.output, 600)}`)
+                .join('\n\n---\n\n')
+            : '(no tool output was captured)';
+
+        const baseIdentity = buildBaseIdentity(selectedSkill);
+        const memorySection = memoryContext
+            ? `\n## Relevant Context from Memory\n${memoryContext}\n`
+            : '';
+
+        const finalizeSystemPrompt = new SystemMessage(`${baseIdentity}
+${effectiveSkillSection}
+${accountContext}
+${memorySection}
+## Final Answer (iteration cap reached)
+
+You have reached the maximum number of tool-call iterations, so you can NOT run any more tools.
+Using ONLY the information already gathered (below), write a clear, complete answer to the
+user's original request.
+
+### Original request
+${truncateOutput(originalQuery, 2000)}
+
+### Most recent tool outputs
+${toolSummary}
+
+Write a clear, markdown-formatted answer that:
+- States the key findings directly — include resource IDs, metrics, and command outputs where available.
+- Explicitly calls out anything that could not be verified or completed, and why.
+- Ends with concrete, actionable next steps.`);
+
+        const finalizeInput = new HumanMessage({
+            content: `Provide the final answer now, based only on what has already been gathered.`,
+        });
+
+        try {
+            // Tool-less model: no toolConfig is sent, and neither message contains tool blocks.
+            const response = await model.invoke([finalizeSystemPrompt, finalizeInput]);
+            return { messages: [tagMessagePhase(response, 'final')], isComplete: true };
+        } catch (err: any) {
+            // A finalize failure must NEVER crash the stream — return a best-effort text answer
+            // so the user still gets the findings gathered before the cap was hit.
+            console.error(`⚠️ [FAST AGENT] Finalize synthesis failed: ${err?.message ?? err}`);
+            const fallback = `⚠️ I reached the maximum number of investigation steps before I could fully complete the analysis.
+
+**Original request:** ${truncateOutput(originalQuery, 300)}
+
+**What I gathered before stopping:**
+
+${toolSummary}
+
+Please narrow the question or ask me to continue from here.`;
+            return { messages: [tagMessagePhase(new AIMessage({ content: fallback }), 'final')], isComplete: true };
+        }
+    }
+
+    // ---------------------------------------------------------------------------
     // CONDITIONAL EDGES
     // ---------------------------------------------------------------------------
-    function shouldContinue(state: ReflectionState): "tools" | "reflect" | "memory_save" {
+    function shouldContinue(state: ReflectionState): "tools" | "reflect" | "finalize" | "memory_save" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
+        const hasPendingToolCalls = !!(lastMessage.tool_calls && lastMessage.tool_calls.length > 0);
 
         // Hard cap FIRST — prevents unbounded loops when model keeps generating tool_calls
         if (iterationCount >= MAX_ITERATIONS) {
+            // If the model still wants tools, they will not run — synthesize a final answer
+            // so the user never gets an empty response and we never persist an orphaned tool_use.
+            if (hasPendingToolCalls) {
+                console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached with pending tool calls. Synthesizing final answer.`);
+                return "finalize";
+            }
             console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached. Stopping.`);
             return "memory_save";
         }
 
-        if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
+        if (hasPendingToolCalls) {
             return "tools";
         }
 
@@ -328,6 +420,7 @@ Please provide your critique.`
         .addNode("agent", agentNode)
         .addNode("tools", collectingToolNode)
         .addNode("reflect", reflectNode)
+        .addNode("finalize", finalizeNode)
         .addNode("memory_save", memorySaveNode)
 
         .addEdge(START, "memory_recall")
@@ -336,6 +429,7 @@ Please provide your critique.`
         .addConditionalEdges("agent", shouldContinue, {
             tools: "tools",
             reflect: "reflect",
+            finalize: "finalize",
             memory_save: "memory_save"
         })
 
@@ -345,6 +439,7 @@ Please provide your critique.`
         })
 
         .addEdge("tools", "agent")
+        .addEdge("finalize", "memory_save")
         .addEdge("memory_save", END);
 
     if (autoApprove) {

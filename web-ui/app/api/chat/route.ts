@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createUIMessageStreamResponse, UIMessageChunk } from 'ai';
 import { createReflectionGraph, createFastGraph, createDeepGraph } from '@/lib/agent/graph-factory';
 import { resolveModelConfig } from '@/lib/agent/model-resolver';
+import { buildClientErrorText } from '@/lib/agent/stream-error';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -381,6 +382,8 @@ function getPhaseFromNode(node: string): AgentPhase {
             return 'final';
         case 'agent':
             return 'execution';   // Fast Agent: render with execution phase header like planning agent
+        case 'finalize':
+            return 'final';       // Fast Agent: tool-free synthesis at the iteration cap — render in the same styled "COMPLETE" card as the planning agent's final summary
         case 'call_model':
             return 'text';        // Deep Agent main model node: same rationale
         case 'tools':
@@ -485,6 +488,14 @@ function processStream(
             // Reasoning parts and completed tool calls don't satisfy this requirement
             let hasEmittedTextContent = false;
 
+            // Memory recall/save nodes don't add messages to graph state, so they would be
+            // absent from reloaded history (present only in the live stream). Accumulate their
+            // streamed text here and persist them as DISPLAY-ONLY chat messages below, so the
+            // history view matches the live view. This never touches the agent's LLM context
+            // (that lives in the LangGraph checkpointer, not chat_messages).
+            let memoryRecallText = '';
+            let memorySaveText = '';
+
             const safeEnqueue = (chunk: UIMessageChunk) => {
                 try {
                     controller.enqueue(chunk);
@@ -552,6 +563,10 @@ function processStream(
                             }
 
                             if (text && streamStarted) {
+                                // Capture memory-phase text for display-only history persistence.
+                                if (currentPhase === 'memory_recall') memoryRecallText += text;
+                                else if (currentPhase === 'memory_save') memorySaveText += text;
+
                                 const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
                                 if (!safeEnqueue({
                                     type: `${chunkType}-delta` as any,
@@ -672,11 +687,21 @@ function processStream(
                 }
 
                 try {
-                    // For abort errors, just close cleanly; for real errors, signal error
                     if (isAbortError) {
+                        // Client went away — just close cleanly.
                         controller.close();
                     } else {
-                        controller.error(error);
+                        // Surface the REAL backend error to the client instead of a generic
+                        // "network error". The AI SDK turns an `error` stream part into
+                        // `new Error(errorText)`, which the chat UI renders as error.message.
+                        const errorText = buildClientErrorText(error);
+                        if (safeEnqueue({ type: 'error', errorText })) {
+                            // Error part delivered — close cleanly so the client shows errorText.
+                            controller.close();
+                        } else {
+                            // Stream already torn down; fall back to erroring the controller.
+                            controller.error(error);
+                        }
                     }
                 } catch (e) {
                     // Ignore if already closed
@@ -696,7 +721,13 @@ function processStream(
                             let aiIndex = 0;
                             for (const msg of newMessages) {
                                 if (msg._getType() === 'ai') {
-                                    const phase = phaseList[aiIndex] ?? 'text';
+                                    // Prefer the phase tagged on the message by its originating
+                                    // graph node (exact). Fall back to the positional phaseList
+                                    // only for untagged messages (e.g. deep agent). The positional
+                                    // mapping drifts when non-persisted model calls (memory/reflector)
+                                    // add phaseList entries, so it must not be the primary source.
+                                    const taggedPhase = (msg as { response_metadata?: { agentPhase?: string } }).response_metadata?.agentPhase;
+                                    const phase = taggedPhase ?? phaseList[aiIndex] ?? 'text';
                                     if (phase !== 'text') {
                                         const marker = getPhaseMarker(phase);
                                         if (marker && typeof msg.content === 'string') {
@@ -727,8 +758,22 @@ function processStream(
                                 }
                                 return { role, content, metadata: Object.keys(metadata).length ? metadata : undefined };
                             });
+
+                            // Insert display-only memory messages so history matches the live view.
+                            // Phase markers are prepended here (these aren't graph-state messages, so
+                            // they bypass the marker loop above); the history route reconstructs them
+                            // as collapsible reasoning blocks.
+                            if (memoryRecallText.trim()) {
+                                const recallMsg = { role: 'ai', content: getPhaseMarker('memory_recall') + memoryRecallText, metadata: undefined };
+                                const humanIdx = mapped.findIndex(m => m.role === 'human');
+                                mapped.splice(humanIdx >= 0 ? humanIdx + 1 : 0, 0, recallMsg);
+                            }
+                            if (memorySaveText.trim()) {
+                                mapped.push({ role: 'ai', content: getPhaseMarker('memory_save') + memorySaveText, metadata: undefined });
+                            }
+
                             await chatHistory.addMessages(resolvedTenantId ?? 'default', resolvedUserId, threadId, mapped, sessionTitle);
-                            console.log(`[Chat API] Persisted ${newMessages.length} new messages for thread ${threadId} (userId=${resolvedUserId})`);
+                            console.log(`[Chat API] Persisted ${mapped.length} new messages for thread ${threadId} (userId=${resolvedUserId})`);
                         }
                     } catch (err) {
                         console.error('[Chat API] Failed to persist message history:', err);

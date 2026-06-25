@@ -217,6 +217,25 @@ export function truncateOutput(text: string, maxChars: number = 500): string {
     return text;
 }
 
+/**
+ * Tags an AI message with the agent phase ("execution", "reflection", "final", …) that
+ * produced it, stored under `response_metadata.agentPhase`.
+ *
+ * Why: the chat route renders phase headers/cards from the LangGraph node a message came
+ * from. During LIVE streaming that node is read from each chunk's metadata, but when a
+ * conversation is reloaded from history the node is unknown — previously it was guessed
+ * positionally, which drifted out of alignment (extra reflector/memory model calls produce
+ * no persisted message) and mislabeled phases (e.g. a reflection rendered as EXECUTION).
+ * Tagging the phase at creation makes history reconstruction exact and identical to live.
+ *
+ * `response_metadata` is round-tripped by the checkpointer and is NOT sent back to the model
+ * as input, so it is a safe place for this UI hint.
+ */
+export function tagMessagePhase<T extends BaseMessage>(msg: T, phase: string): T {
+    (msg as any).response_metadata = { ...((msg as any).response_metadata ?? {}), agentPhase: phase };
+    return msg;
+}
+
 // Get recent messages safely - ensuring tool call/result pairs are kept together
 // Also filters out empty messages that cause Bedrock API errors
 export function getRecentMessages(messages: BaseMessage[], maxMessages: number = 30): BaseMessage[] {
@@ -343,22 +362,39 @@ export function getRecentMessages(messages: BaseMessage[], maxMessages: number =
  * Call this function immediately before invoking modelWithTools.
  */
 export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage[] {
-    // Pass 1: collect every tool_call_id that already has a ToolMessage response
-    // anywhere in the array (not just consecutively after the AI message).
-    const answeredToolCallIds = new Set<string>();
+    // Bedrock requires every toolResult to IMMEDIATELY follow the assistant
+    // toolUse that owns it — "answered somewhere in the array" is not enough.
+    // Upstream windowing (getRecentMessages) can inject a synthetic
+    // HumanMessage("Proceed.") between an AI tool_use and its ToolMessage, which
+    // breaks that adjacency and triggers:
+    //   ValidationException: Expected toolResult blocks at messages.N.content
+    //
+    // To guarantee adjacency regardless of how the array was reordered, we index
+    // every ToolMessage by its tool_call_id, then re-emit each result directly
+    // after its owning AI message. Results are NOT emitted in place; orphan
+    // results whose tool_use is absent are dropped (Bedrock also rejects a
+    // toolResult that has no preceding toolUse).
+
+    // Pass 1: map each tool_call_id → its ToolMessage (first occurrence wins).
+    const toolResultById = new Map<string, BaseMessage>();
     for (const msg of messages) {
         if (msg._getType() === 'tool') {
             const toolCallId: string | undefined = (msg as any).tool_call_id;
-            if (toolCallId) answeredToolCallIds.add(toolCallId);
+            if (toolCallId && !toolResultById.has(toolCallId)) {
+                toolResultById.set(toolCallId, msg);
+            }
         }
     }
 
-    // Pass 2: rebuild the array, inserting synthetic ToolMessages for any
-    // AI tool_call IDs that have no matching ToolMessage in the conversation.
+    // Pass 2: rebuild the array. ToolMessages are skipped where they sit and
+    // re-attached next to their owning AI message; missing results get a
+    // synthetic placeholder so no tool_use is ever left unanswered.
     const result: BaseMessage[] = [];
 
-    for (let i = 0; i < messages.length; i++) {
-        const msg = messages[i];
+    for (const msg of messages) {
+        // Skip ToolMessages here — they are re-emitted via their AI owner below.
+        if (msg._getType() === 'tool') continue;
+
         result.push(msg);
 
         if (msg._getType() !== 'ai') continue;
@@ -382,23 +418,21 @@ export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage
         }
         if (pendingIds.size === 0) continue;
 
-        // Consume consecutive ToolMessages (the normal case)
-        let j = i + 1;
-        while (j < messages.length && messages[j]._getType() === 'tool') {
-            result.push(messages[j]);
-            j++;
-        }
-        i = j - 1;
-
-        // Insert synthetic placeholders for any tool_call IDs that have no
-        // matching ToolMessage anywhere in the conversation.
+        // Emit one toolResult per tool_use id, immediately after the AI message
+        // and in tool_use order. Use the real ToolMessage if we have one
+        // (wherever it sat in the original array); otherwise a synthetic
+        // placeholder.
         for (const [id, name] of pendingIds) {
-            if (answeredToolCallIds.has(id)) continue;
-            result.push(new ToolMessage({
-                content: '[Tool result unavailable — synthetic placeholder]',
-                tool_call_id: id,
-                name,
-            }));
+            const realResult = toolResultById.get(id);
+            if (realResult) {
+                result.push(realResult);
+            } else {
+                result.push(new ToolMessage({
+                    content: '[Tool result unavailable — synthetic placeholder]',
+                    tool_call_id: id,
+                    name,
+                }));
+            }
         }
     }
 

@@ -1,6 +1,6 @@
 # Bug: Bedrock `ValidationException` (orphaned `tool_use`) crashes the chat stream
 
-> **Status:** Open — root cause identified, not yet fixed
+> **Status:** ✅ Fixed (2026-06-25) — `sanitizeMessagesForBedrock` now enforces tool_use/tool_result adjacency. See §8.
 > **Severity:** High — terminates an in-flight AI chat response with a 500-style stream error; user loses the answer
 > **First observed:** 2026-06-25, ~09:57:54 IST (production)
 > **Component:** Web UI AI Ops agent (`fast-agent`), Next.js chat streaming route
@@ -196,3 +196,37 @@ at handleError (.next/server/chunks/7181.js:7:21864)
 ```
 
 Model in use at the time: `global.anthropic.claude-sonnet-4-6` (fast-agent generator).
+
+---
+
+## 8. Resolution (2026-06-25)
+
+Applied **fix direction (A)** — `sanitizeMessagesForBedrock()` now enforces
+*adjacency*, not mere existence.
+
+The function was rewritten (`web-ui/lib/agent/agent-shared.ts`) to:
+
+1. **Index** every `ToolMessage` by its `tool_call_id` (first occurrence wins).
+2. **Skip** `ToolMessage`s where they sit in the input array, and instead
+   **re-emit** each result *immediately after* its owning AI `tool_use` message,
+   in `tool_use` order. A real `ToolMessage` is used if one exists anywhere in
+   the array (so a result separated from its `tool_use` by an injected
+   `"Proceed."` is pulled back into place); otherwise a synthetic placeholder is
+   inserted.
+3. **Drop** orphan `ToolMessage`s whose `tool_use` is absent from the window —
+   Bedrock also rejects a `toolResult` with no preceding `toolUse`.
+
+This removes the old "answered anywhere → skip placeholder" defect (the previous
+`if (answeredToolCallIds.has(id)) continue;` at line 396) and guarantees the
+Bedrock Converse adjacency contract regardless of how upstream windowing
+reordered the array.
+
+**Single fix point covers all call sites.** Because `fast-agent.ts`,
+`planning-agent.ts`, and `agent-ops/executor-graphs.ts` all funnel through this
+one shared function, the repair applies everywhere at once — no per-call-site
+change was needed.
+
+**Tests** (`web-ui/tests/agent-ops/agent-shared.test.ts`): added the §6 unit
+test (AI `tool_use` → `HumanMessage("Proceed.")` → `ToolMessage`, asserting the
+result is adjacent after sanitization) plus an orphan-result-dropped case. Full
+suite: 15/15 passing.

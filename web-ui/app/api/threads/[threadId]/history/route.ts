@@ -26,6 +26,8 @@ const PHASE_MARKERS = [
     'REFLECTION_PHASE_START\n',
     'REVISION_PHASE_START\n',
     'FINAL_PHASE_START\n',
+    'MEMORY_RECALL_PHASE_START\n',
+    'MEMORY_SAVE_PHASE_START\n',
 ];
 
 function convertPlainMessage(msg: { role: string; content: string; metadata?: Record<string, unknown> }, index: number): HistoryMessage | null {

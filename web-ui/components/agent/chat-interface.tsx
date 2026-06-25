@@ -1053,6 +1053,35 @@ export function ChatInterface({
       );
     }
 
+    // Memory phases: collapsible and collapsed by default. Memory recall/save is
+    // supplementary context (often large JSON), so keep it compact and consistent
+    // with the reflection block instead of a big always-expanded card.
+    if (phase === "memory_recall" || phase === "memory_save") {
+      return (
+        <div key={key} className="w-full mb-2">
+          <div
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 text-xs font-semibold border-l-4 rounded-r-md mb-2",
+              config.borderColor,
+              config.bgColor,
+              config.textColor,
+            )}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {config.label}
+          </div>
+          {/* isStreaming is intentionally false so the block stays collapsed by default
+              even while streaming live — memory is supplementary, expand on demand. */}
+          <Reasoning defaultOpen={false} isStreaming={false}>
+            <ReasoningTrigger
+              label={phase === "memory_recall" ? "Recalled Memory" : "Saved Memory"}
+            />
+            <ReasoningContent>{cleanedContent}</ReasoningContent>
+          </Reasoning>
+        </div>
+      );
+    }
+
     // Default phase block for other phases
     return (
       <div
