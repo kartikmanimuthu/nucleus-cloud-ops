@@ -12,6 +12,7 @@ import {
     truncateOutput,
     getRecentMessages,
     sanitizeMessagesForBedrock,
+    tagMessagePhase,
     llmAuditLog,
     getCheckpointer,
     getStore,
@@ -160,7 +161,7 @@ Only return the JSON array, nothing else.`);
         return {
             plan: planSteps,
             taskDescription,
-            messages: [new AIMessage({ content: `📋 **Plan Created:**\n${planText}` })],
+            messages: [tagMessagePhase(new AIMessage({ content: `📋 **Plan Created:**\n${planText}` }), 'planning')],
             nextAction: "generate"
         };
     }
@@ -236,7 +237,7 @@ ${accountContext}
         });
 
         return {
-            messages: [response],
+            messages: [tagMessagePhase(response, 'execution')],
             iterationCount: iterationCount + 1,
             plan: updatedPlan
         };
@@ -449,7 +450,7 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
         }
 
         const resultState: Partial<ReflectionState> = {
-            messages: [new AIMessage({ content: feedback })],
+            messages: [tagMessagePhase(new AIMessage({ content: feedback }), 'reflection')],
             reflection: analysis,
             errors: issues !== "None" ? [issues] : [],
             isComplete,
@@ -514,7 +515,7 @@ ${accountContext}`);
         }
 
         return {
-            messages: [response],
+            messages: [tagMessagePhase(response, 'revision')],
             nextAction: "generate"
         };
     }
@@ -575,7 +576,7 @@ ${summaryContent}`;
         console.log(`--- FINAL: Summary generated ---`);
 
         return {
-            messages: [new AIMessage({ content: finalMessage })],
+            messages: [tagMessagePhase(new AIMessage({ content: finalMessage }), 'final')],
             isComplete: true
         };
     }

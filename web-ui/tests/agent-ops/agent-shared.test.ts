@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
-import { sanitizeMessagesForBedrock, getRecentMessages, graphState } from '../../lib/agent/agent-shared';
+import { sanitizeMessagesForBedrock, getRecentMessages, graphState, tagMessagePhase } from '../../lib/agent/agent-shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -97,6 +97,41 @@ describe('sanitizeMessagesForBedrock', () => {
         expect(result).toHaveLength(6);
     });
 
+    it('keeps a tool_result adjacent to its tool_use when an intervening message separated them', () => {
+        // Reproduces the production ValidationException: getRecentMessages' role-alternation
+        // formatter can inject a HumanMessage("Proceed.") between an AI tool_use and its
+        // ToolMessage. Bedrock requires the toolResult to IMMEDIATELY follow the toolUse —
+        // "answered somewhere" is not enough.
+        const ai = makeAIWithToolCalls([{ id: 'tooluse_7eO4', name: 'execute_command' }]);
+        const tool = makeToolResult('tooluse_7eO4', 'execute_command');
+        const input = [ai, new HumanMessage('Proceed.'), tool];
+
+        const result = sanitizeMessagesForBedrock(input);
+
+        // The AI tool_use must be immediately followed by its toolResult.
+        const aiIdx = result.findIndex(
+            m => m._getType() === 'ai' && (m as AIMessage).tool_calls?.some(tc => tc.id === 'tooluse_7eO4')
+        );
+        expect(aiIdx).toBeGreaterThanOrEqual(0);
+        const next = result[aiIdx + 1];
+        expect(next._getType()).toBe('tool');
+        expect((next as any).tool_call_id).toBe('tooluse_7eO4');
+        // Exactly one tool_result for the id (no duplicate, no dropped result).
+        const matches = result.filter(m => m._getType() === 'tool' && (m as any).tool_call_id === 'tooluse_7eO4');
+        expect(matches).toHaveLength(1);
+    });
+
+    it('drops an orphaned tool_result whose tool_use is not in the window', () => {
+        // A ToolMessage with no owning AI tool_use anywhere is invalid for Bedrock
+        // (toolResult without toolUse) and must not be forwarded.
+        const orphan = makeToolResult('tc-ghost', 'ghost_tool');
+        const input = [new HumanMessage('Go'), orphan, new AIMessage('done')];
+
+        const result = sanitizeMessagesForBedrock(input);
+
+        expect(result.some(m => m._getType() === 'tool')).toBe(false);
+    });
+
     it('returns empty array for empty input', () => {
         expect(sanitizeMessagesForBedrock([])).toHaveLength(0);
     });
@@ -109,6 +144,37 @@ describe('sanitizeMessagesForBedrock', () => {
         const result = sanitizeMessagesForBedrock(msgs);
         expect(result).toHaveLength(2);
         expect(result[1].content).toBe('Hello there!');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// tagMessagePhase — phase tagging for exact history reconstruction
+// ---------------------------------------------------------------------------
+
+describe('tagMessagePhase', () => {
+    it('tags an AI message with the originating agent phase under response_metadata', () => {
+        const msg = new AIMessage({ content: 'reflection output' });
+        const tagged = tagMessagePhase(msg, 'reflection');
+
+        expect((tagged as any).response_metadata?.agentPhase).toBe('reflection');
+        // Returns the same instance (mutates in place) so node return values stay simple.
+        expect(tagged).toBe(msg);
+    });
+
+    it('preserves existing response_metadata (e.g. provider usage) when tagging', () => {
+        const msg = new AIMessage({ content: 'x' });
+        (msg as any).response_metadata = { usage: { tokens: 42 } };
+
+        tagMessagePhase(msg, 'execution');
+
+        expect((msg as any).response_metadata.usage).toEqual({ tokens: 42 });
+        expect((msg as any).response_metadata.agentPhase).toBe('execution');
+    });
+
+    it('round-trips through a JSON serialize/parse like the checkpointer does', () => {
+        const tagged = tagMessagePhase(new AIMessage({ content: 'final answer' }), 'final');
+        const revived = JSON.parse(JSON.stringify({ response_metadata: (tagged as any).response_metadata }));
+        expect(revived.response_metadata.agentPhase).toBe('final');
     });
 });
 
