@@ -28,11 +28,10 @@
   },
   "exclude": [
     "node_modules",
-    "web-ui",
-    "lambda",
-    "workers",
-    "scripts",
+    "apps",
+    "libs",
     "infra",
-    "prisma"
+    "scripts",
+    "libs/prisma"
   ]
 }

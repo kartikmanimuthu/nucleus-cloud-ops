@@ -1,0 +1,27 @@
+{
+  "name": "compute",
+  "projectType": "application",
+  "targets": {
+    "preview": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pulumi preview --stack prod",
+        "cwd": "infra/compute"
+      }
+    },
+    "up": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pulumi up --stack prod --yes",
+        "cwd": "infra/compute"
+      }
+    },
+    "destroy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pulumi destroy --stack prod",
+        "cwd": "infra/compute"
+      }
+    }
+  }
+}

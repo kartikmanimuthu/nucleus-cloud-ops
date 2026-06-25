@@ -26,7 +26,7 @@ The compute stack auto-detects source changes and builds/deploys without manual 
 | `lambda/scheduler/src/` | Runs `build-lambdas.sh --lambda=scheduler`, uploads new zip |
 | `lambda/vector_processor/src/` | Runs `build-lambdas.sh --lambda=vector_processor`, uploads new zip |
 | `lambda/kb_sync_processor/src/` | Runs `build-lambdas.sh --lambda=kb_sync_processor`, uploads new zip |
-| `web-ui/` or `prisma/` | Builds ARM64 Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out new tasks |
+| `apps/web-ui/` or `libs/prisma/` | Builds ARM64 Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out new tasks |
 
 No manual `build-lambdas.sh`, `build-images.sh`, or `aws ecs update-service` needed.
 
@@ -281,7 +281,7 @@ docker pull public.ecr.aws/docker/library/node:20.9.0-slim
 ```
 
 **Docker build fails with `/prisma: not found`**
-The `Dockerfile.ecs` copies `../prisma/` which is outside `web-ui/`. The build context must be the repo root, not `web-ui/`. This is already handled in `infra/compute/index.ts` (`context: repoRoot`).
+The `Dockerfile.ecs` copies `../libs/prisma/` which is outside `web-ui/`. The build context must be the repo root, not `web-ui/`. This is already handled in `infra/compute/index.ts` (`context: repoRoot`).
 
 **RDS version not found**
 ```bash

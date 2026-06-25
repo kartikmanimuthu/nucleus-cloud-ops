@@ -26,30 +26,33 @@ export AWS_PROFILE=PLATFORM-ADMIN
 # Local database (required before dev)
 docker compose up -d postgres          # starts pgvector/pgvector:pg16 on :5432
 
-# Local development — dev server runs on port 3001 (not 3000)
-cd web-ui && npm run dev               # auto-runs prisma migrate deploy first
+# Nx + Bun workspace — run tasks from the repo root via Nx.
+# Scripts launch Nx directly as bare `nx` (see "Nx Workspace" below).
+bun run dev                            # nx serve web-ui (port 3001, auto-runs prisma migrate deploy)
+bun run dev:workers                    # nx serve workers (pg-boss, tsx --watch)
+bun run build                          # nx run-many -t build --all (web-ui + workers)
+bun run build:web                      # nx build web-ui only
+bun run build:workers                  # nx build workers only
+bun run test                           # nx run-many -t test --all
+bun run lint                           # nx run-many -t lint --all
+bun run e2e                            # nx e2e web-ui-e2e (Playwright)
+bun run graph                          # nx graph (visualise the task graph)
 
-# Database
-cd web-ui && npm run db:migrate        # create + apply new migration
-cd web-ui && npm run db:generate       # regenerate Prisma client after schema change
-cd web-ui && npm run db:studio         # Prisma Studio UI
+# Per-project commands (run inside the project dir) — useful when not going through Nx
+cd apps/web-ui && bun run dev          # dev server on :3001 (auto-runs prisma migrate deploy)
 
-# Workers
-cd workers && npm run dev              # pg-boss worker process (tsx --watch)
+# Database (schema lives at /libs/prisma/schema.prisma, shared by web-ui + workers)
+cd apps/web-ui && bun run db:migrate   # create + apply new migration
+cd apps/web-ui && bun run db:generate  # regenerate Prisma client after schema change
+cd apps/web-ui && bun run db:studio    # Prisma Studio UI
+cd apps/workers && bun run db:generate # regenerate the workers Prisma client (@prisma/client@6)
 
 # Testing
-cd web-ui && npm run test              # Vitest (web-ui)
-cd workers && npm run test             # Vitest (workers)
-npm test                               # Jest (root)
-cd lambda/scheduler && npm run test    # Vitest (scheduler Lambda)
+cd apps/web-ui && bun run test         # Vitest (web-ui)
+cd apps/workers && bun run test        # Vitest (workers)
 
 # Linting
-cd web-ui && npm run lint
-cd lambda/scheduler && npm run lint
-
-# Build
-cd web-ui && npm run build
-npm run build                          # Compile TypeScript (root)
+cd apps/web-ui && bun run lint
 
 # Deploy — always networking first, then compute
 cd infra/networking && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
@@ -60,50 +63,83 @@ cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi preview --stack prod  # pr
 ## Environment Setup
 
 ```bash
-# 1. Install dependencies
-npm install && cd web-ui && npm install && cd ../workers && npm install
+# 1. Install dependencies (Bun workspaces — single install at root hoists to all apps)
+bun install                            # runs `prepare` → prisma generate for web-ui + workers
 
-# 2. Configure environment
-cp web-ui/.env.local.example web-ui/.env.local
-# Required: DATABASE_URL, AWS_REGION, NEXTAUTH_SECRET, COGNITO_USER_POOL_ID, COGNITO_USER_POOL_CLIENT_ID
+# 2. Configure environment (single root .env — both apps load it)
+cp .env.example .env
+# web-ui loads root .env via next.config.mjs (dotenv.config({ path: '../../.env' }))
+# workers loads root .env via --env-file=../../.env in dev/start scripts
+# Required: DATABASE_URL, AWS_REGION, NEXTAUTH_SECRET, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID, COGNITO_APP_CLIENT_SECRET
 # Optional (AI agent): TAVILY_API_KEY, LANGFUSE_* vars
 
 # 3. Start Postgres and run migrations
 docker compose up -d postgres
-cd web-ui && npm run db:migrate
+cd apps/web-ui && bun run db:migrate
 ```
 
 ## Project Structure
 
 ```
 nucleus-cloud-ops/
-├── web-ui/
-│   ├── app/              # Next.js App Router — pages under app/app/, API routes under app/api/
-│   ├── components/       # React UI components, organized by domain
-│   ├── lib/
-│   │   ├── agent/        # LangGraph AI agents (fast, planning, deep)
-│   │   ├── db/           # Prisma client, repository factory, per-domain repositories
-│   │   └── rbac/         # CASL-based RBAC (authorize.ts, types.ts)
-│   └── hooks/            # Custom React hooks
-├── workers/              # pg-boss background job workers
-│   └── src/jobs/         # scheduler/, discovery/, kb-sync/
-├── prisma/
-│   ├── schema.prisma     # Single source of truth for all models
-│   └── seed.ts           # Database seed
-├── lambda/               # Lambda functions (scheduler, discovery, vector_processor, kb_sync_processor)
+├── apps/
+│   ├── web-ui/           # Next.js App Router (app/app/ pages, app/api/ routes) + project.json
+│   │   ├── app/          # Next.js App Router — pages under app/app/, API routes under app/api/
+│   │   ├── components/   # React UI components, organized by domain
+│   │   ├── lib/
+│   │   │   ├── agent/    # LangGraph AI agents (fast, planning, deep)
+│   │   │   ├── db/       # Prisma client, repository factory, per-domain repositories
+│   │   │   └── rbac/     # CASL-based RBAC (authorize.ts, types.ts)
+│   │   └── hooks/        # Custom React hooks
+│   ├── workers/          # pg-boss background job workers + project.json
+│   │   └── src/jobs/     # scheduler/, discovery/, kb-sync/
+│   └── web-ui-e2e/       # Playwright E2E tests (+ project.json, playwright.config.ts, implicit dep on web-ui)
+├── libs/
+│   └── prisma/           # Prisma schema + migrations + seed (shared by web-ui + workers)
+│       ├── schema.prisma # Single source of truth for all models
+│       └── seed.ts       # Database seed
 ├── infra/
-│   ├── networking/       # Pulumi: VPC, subnets
-│   └── compute/          # Pulumi: ECS, Lambda, RDS, Cognito, CloudFront
-├── tests/e2e/            # Playwright E2E tests
+│   ├── networking/       # Pulumi: VPC, subnets (+ project.json)
+│   ├── compute/          # Pulumi: ECS, RDS, Cognito, CloudFront (+ project.json)
+│   └── cicd/             # CodeBuild specs (+ project.json)
 └── docs/                 # Architecture, schema design, PRD
 ```
+
+## Nx Workspace
+
+This repo is an **Nx 21 + Bun** monorepo. Each app/stack has a `project.json`; Nx discovers
+`web-ui`, `workers`, `networking`, `compute`, `cicd`, `web-ui-e2e` (`bun run graph` to visualise).
+
+**Always invoke Nx through the root npm scripts** (`bun run build`, `bun run dev`, …). Each script
+calls Nx directly as bare `nx <args>` (e.g. `bun run build` → `nx run-many -t build --all`). Nx 21 runs
+under Bun; on **Next 15.5.15** the webpack build runs cleanly under Bun's runtime, so no real-Node
+indirection is needed.
+
+> History: on Next 15.2.4, `next build` could not run under Bun (`Cannot find module './impl'`, `/404`
+> prerender failed with `<Html> should not be imported outside pages/_document`), and `next build`'s
+> `.next/standalone` cleanup followed symlinks into the hoisted root `next`, deleting it on repeat
+> builds. The repo then carried `scripts/nx-run.sh` (ran Nx under real Node via `sh`) and
+> `apps/web-ui/scripts/build.sh` (real-Node `next build` + symlink neutralization) as workarounds.
+> Bumping to Next 15.5.15 eliminated **both** bugs, so those two scripts were removed. Do **not**
+> re-introduce them — if builds go flaky again, first check whether Next was downgraded.
+
+The `web-ui:build` target (`apps/web-ui/project.json`) runs `NODE_ENV=production next build`
+(cwd `apps/web-ui`). The `NODE_ENV=production` prefix is the **only** guard retained: Bun defaults
+`NODE_ENV=development`, which breaks the Next `/404` static export (`<Html> should not be imported
+outside pages/_document`). With it set, repeat builds are deterministic — the 15.2.4
+`.next/standalone` symlink-following deletion is gone in 15.5.15 (verified: `impl.js` survives
+back-to-back builds, no neutralizer needed).
+
+Docker builds are unaffected and never relied on the removed scripts: the Dockerfile installs in
+isolation with Bun, then builds under `node:20-slim` via `npm run build` (apps/web-ui's own `next
+build` script) with `NODE_ENV=production` and a fresh `.next` every time.
 
 ## Database — PostgreSQL + Prisma
 
 All persistent state is in PostgreSQL. DynamoDB has been fully removed.
 
-- Schema: `prisma/schema.prisma` — single source of truth for all models
-- Prisma client output: `web-ui/node_modules/.prisma/client` (web-ui) and `workers/node_modules/.prisma/client` (workers) — run `db:generate` in both after schema changes
+- Schema: `libs/prisma/schema.prisma` — single source of truth for all models
+- Prisma client output (dual generators, see schema): `client` → `node_modules/.prisma/client` at the **workspace root** (consumed by the hoisted `@prisma/client@5` used by web-ui + `libs/prisma/seed.ts`); `clientWorkers` → `apps/workers/node_modules/.prisma/client` (consumed by workers' `@prisma/client@6`). `bun install`'s `prepare` hook regenerates both; run `db:generate` in `apps/web-ui` / `apps/workers` after schema changes.
 - Connection pool: `connection_limit=10` for ECS (web-ui), `connection_limit=3` for Lambda (set in `DATABASE_URL` query param)
 
 **Multi-tenant safety** — every query must be scoped to a tenant:
@@ -206,29 +242,29 @@ Four Lambda functions with different runtimes:
 
 ### Setup & Config
 
-Config lives at `playwright.config.ts` (root). Tests live in `tests/e2e/`. The dev server auto-starts via `webServer` config.
+The E2E suite is an Nx project at `apps/web-ui-e2e/` (project name `web-ui-e2e`, `implicitDependencies: ["web-ui"]`). Config lives at `apps/web-ui-e2e/playwright.config.ts`; specs + `auth.setup.ts` sit directly in that directory. The dev server auto-starts via the `webServer` config (`cd ../.. && bun run dev` → `next dev -p 3001`).
 
 ```bash
-# Run all E2E tests (starts dev server automatically)
-npx playwright test
+# Run all E2E tests via Nx (starts dev server automatically)
+bun run e2e
 
-# Run a specific test file
-npx playwright test tests/e2e/accounts.spec.ts      # AWS Accounts module (60 tests)
-npx playwright test tests/e2e/navigation.spec.ts    # App navigation flows
-npx playwright test tests/e2e/marketing.spec.ts     # Marketing/landing page
-npx playwright test tests/e2e/docs.spec.ts          # Documentation pages
+# Run a specific test file (from the e2e project dir)
+cd apps/web-ui-e2e && bunx playwright test accounts.spec.ts      # AWS Accounts module (60 tests)
+cd apps/web-ui-e2e && bunx playwright test navigation.spec.ts    # App navigation flows
+cd apps/web-ui-e2e && bunx playwright test marketing.spec.ts     # Marketing/landing page
+cd apps/web-ui-e2e && bunx playwright test docs.spec.ts          # Documentation pages
 
 # Run in headed mode (see the browser)
-npx playwright test --headed
+bun run e2e -- --headed
 
 # Run with UI mode (interactive debugger)
-npx playwright test --ui
+bun run e2e:ui
 
 # Show last HTML report
-npx playwright show-report
+cd apps/web-ui-e2e && bunx playwright show-report
 
 # Generate test code interactively (codegen)
-npx playwright codegen http://localhost:3001
+bun run codegen
 ```
 
 ### Using Playwright MCP for Testing
@@ -239,11 +275,11 @@ The Playwright MCP server (configured in `.mcp.json`) lets Claude Code interact 
 - Debug failing tests by navigating to the page and taking snapshots
 - Verify selectors before committing them to test files
 
-Workflow: start the dev server manually (`cd web-ui && npm run dev`), then use Playwright MCP tools to explore the page, then write the test.
+Workflow: start the dev server manually (`cd apps/web-ui && bun run dev`), then use Playwright MCP tools to explore the page, then write the test.
 
 ### Test File Conventions
 
-- Files: `tests/e2e/<feature>.spec.ts`
+- Files: `apps/web-ui-e2e/<feature>.spec.ts`
 - Group related tests with `test.describe('<Feature>')`
 - Use `test.beforeEach` for shared navigation/setup
 - One assertion focus per test — don't test multiple features in one test
@@ -279,10 +315,10 @@ await page.waitForLoadState('networkidle');
 
 ### Page Object Pattern
 
-For complex pages, extract a Page Object in `tests/e2e/pages/`:
+For complex pages, extract a Page Object in `apps/web-ui-e2e/pages/`:
 
 ```typescript
-// tests/e2e/pages/inventory-page.ts
+// apps/web-ui-e2e/pages/inventory-page.ts
 export class InventoryPage {
   constructor(private page: Page) {}
 
@@ -308,16 +344,16 @@ export class InventoryPage {
 The app uses NextAuth. For tests that require auth, use `storageState` to reuse a logged-in session:
 
 ```typescript
-// tests/e2e/auth.setup.ts — run once, save session
+// apps/web-ui-e2e/auth.setup.ts — run once, save session
 import { test as setup } from '@playwright/test';
 setup('authenticate', async ({ page }) => {
   await page.goto('/api/auth/signin');
   // ... fill credentials
-  await page.context().storageState({ path: 'tests/e2e/.auth/user.json' });
+  await page.context().storageState({ path: '.auth/user.json' });
 });
 ```
 
-Then reference in `playwright.config.ts` via `storageState: 'tests/e2e/.auth/user.json'`.
+Then reference in `apps/web-ui-e2e/playwright.config.ts` via `storageState: path.join(__dirname, '.auth/user.json')`.
 
 ### What to Test E2E
 
@@ -371,14 +407,14 @@ cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi stack output --stack prod
 
 What `pulumi up` does automatically:
 - Lambda source changed → runs `build-lambdas.sh`, uploads new zip
-- `web-ui/` or `prisma/` changed → builds ARM64 Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out automatically
+- `apps/web-ui/` or `libs/prisma/` changed → builds ARM64 Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out automatically
 
 ### Post-Deploy Verification
 
 1. CloudFront URL responds 200: `https://d11lr8aqp8vqde.cloudfront.net`
 2. ECS service desired count matches running count (ECS console)
 3. Check CloudWatch for Lambda errors in the 5 minutes post-deploy
-4. Run smoke test: `npx playwright test tests/e2e/ --project=chromium`
+4. Run smoke test: `bun run e2e` (runs `apps/web-ui-e2e` Playwright suite)
 
 ### Rollback
 
@@ -399,7 +435,7 @@ cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod
 Multi-tenant AWS Cloud Operations Platform. All 10 DynamoDB tables have been migrated to PostgreSQL (Prisma ORM + repository pattern). Auth supports Cognito + Credentials with custom RBAC, per-tenant roles, email invitations, and org switching. Background jobs run via pg-boss workers.
 
 Active constraints:
-- **ORM**: Prisma ORM with repository pattern; schema at `prisma/schema.prisma`
+- **ORM**: Prisma ORM with repository pattern; schema at `libs/prisma/schema.prisma`
 - **Multi-tenant safety**: Every query scoped via `getTenantClient(tenantId)` — `$executeRaw` is NOT intercepted, scope manually
 - **Python Lambda**: Discovery Lambda stays Python (no TypeScript rewrite)
 - **AWS Profile**: `PLATFORM-ADMIN` for all production operations
@@ -420,7 +456,7 @@ Active constraints:
 - npm 10.8.x (root), npm 11.x (web-ui dependency)
 - Lockfiles: present at root `package-lock.json`, `web-ui/package-lock.json`, `lambda/scheduler/package-lock.json`, `lambda/kb_sync_processor/package-lock.json`
 ## Frameworks
-- Next.js 15.2.4 (`web-ui/`) - App router, standalone output mode, server-side rendering
+- Next.js 15.5.15 (`web-ui/`) - App router, standalone output mode, server-side rendering
 - React 19 (`web-ui/`) - UI rendering, functional components only
 - Pulumi (`@pulumi/pulumi` ^3.228.0, `@pulumi/aws` ^7.23.0, `@pulumi/awsx` ^3.4.0, `@pulumi/command` ^1.2.1) - Infrastructure as Code (`infra/`)
 - LangGraph (`@langchain/langgraph` ^1.2.0) - Agent state machine workflows
@@ -464,10 +500,7 @@ Active constraints:
 - `croner` ^10.0.1 + `cronstrue` ^3.13.0 - Cron schedule parsing/display
 - `uuid` ^13.0.0 - ID generation
 ## Configuration
-- Root: `.env.example` contains AWS account, Pulumi config, Langfuse vars
-- Web-UI: `web-ui/.env.local.example` contains AWS region, Cognito IDs, DATABASE_URL, NextAuth, Jira, Slack, MongoDB, Langfuse vars
-- Scheduler Lambda: `lambda/scheduler/.env.example`
-- Key required vars: `DATABASE_URL`, `AWS_REGION`, `NEXTAUTH_SECRET`, `COGNITO_USER_POOL_ID`, `COGNITO_USER_POOL_CLIENT_ID`
+- Root: `.env.example` (single, tracked) — AWS account/region, Pulumi config, Cognito IDs, DATABASE_URL, NextAuth, Jira, Slack, MongoDB, Langfuse vars. Copy to `.env` at the repo root; both apps load it (web-ui via `next.config.mjs` dotenv, workers via `--env-file=../../.env`).
 - Root: `tsconfig.json` (ES2020, commonjs, strict mode)
 - Web-UI: `web-ui/tsconfig.json`, `web-ui/next.config.mjs` (standalone output, MDX via fumadocs)
 - Web-UI: `web-ui/tailwind.config.ts`, `web-ui/postcss.config.mjs`

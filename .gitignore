@@ -1,6 +1,13 @@
 
 # distribution
 /dist
+apps/*/dist/
+
+# Nx workspace cache + data
+.nx/
+
+# Next.js build output
+.next/
 
 # Kiro CLI
 .kiro/chats
@@ -71,6 +78,8 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+.env.bk
+.env.bak
 
 # CDK context
 # cdk.context.json

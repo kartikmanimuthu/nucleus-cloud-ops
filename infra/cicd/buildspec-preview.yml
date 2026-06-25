@@ -9,9 +9,9 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
-      - npm install -g pulumi@3.228.0
-      - cd infra/networking && npm install && pulumi install && cd ../..
-      - cd infra/compute && npm install && pulumi install && cd ../..
+      - npm install -g pulumi@3.228.0 bun
+      - cd infra/networking && bun install && pulumi install && cd ../..
+      - cd infra/compute && bun install && pulumi install && cd ../..
   build:
     commands:
       - cd infra/networking && pulumi preview --stack prod --non-interactive --diff

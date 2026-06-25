@@ -7,20 +7,16 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
-      - npm install -g pulumi@3.228.0
-      - npm install
-      - cd web-ui && npm install && cd ..
-      - cd workers && npm install && cd ..
-      - cd infra/networking && npm install && pulumi install && cd ../..
-      - cd infra/compute && npm install && pulumi install && cd ../..
+      - npm install -g pulumi@3.228.0 bun
+      # Workspace install at root hoists deps for apps/web-ui, apps/workers, infra/*
+      - bun install --frozen-lockfile
+      - cd infra/networking && bun install && pulumi install && cd ../..
+      - cd infra/compute && bun install && pulumi install && cd ../..
   build:
     commands:
-      - npm run build
-      - npm test
-      - cd web-ui && npm run test && cd ..
-      - cd workers && npm run test && cd ..
-      - cd lambda/scheduler && npm install && npm run test && cd ../..
-      - cd lambda/kb_sync_processor && npm install && npm run test && cd ../..
+      # Nx task graph: build + test across all projects (web-ui, workers)
+      - bun run build
+      - bun run test
 artifacts:
   files: '**/*'
   name: build-output-$(date +%Y%m%d-%H%M%S)

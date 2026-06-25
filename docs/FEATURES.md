@@ -93,7 +93,7 @@ Automatically discover and inventory AWS resources across all connected accounts
 - `web-ui/lib/inventory/`
 - `web-ui/app/api/inventory/`
 - `workers/src/jobs/discovery/`
-- `prisma/schema.prisma` (`InventoryResource`, `InventorySyncStatus`)
+- `libs/prisma/schema.prisma` (`InventoryResource`, `InventorySyncStatus`)
 
 ---
 
@@ -123,7 +123,7 @@ Create time-based start/stop schedules for AWS resources across accounts to redu
 - `web-ui/app/api/schedules/`
 - `web-ui/app/api/scheduler/`
 - `workers/src/jobs/scheduler/`
-- `prisma/schema.prisma` (`Schedule`, `ScheduleExecution`, `TargetedResource`)
+- `libs/prisma/schema.prisma` (`Schedule`, `ScheduleExecution`, `TargetedResource`)
 
 ---
 
@@ -146,7 +146,7 @@ Immutable, tiered-retention audit trail for user actions, system events, agent t
 - `web-ui/lib/client-audit-service.ts`
 - `web-ui/app/api/audit/`
 - `docs/audit-logging-requirements.md`
-- `prisma/schema.prisma` (`AuditLog`)
+- `libs/prisma/schema.prisma` (`AuditLog`)
 
 ---
 
@@ -210,7 +210,7 @@ Asynchronous, headless AI agent runs triggered from external channels or schedul
 - `web-ui/lib/agent-ops/scheduled-task-service.ts`
 - `web-ui/app/api/agent-ops/`
 - `workers/src/jobs/agent-ops-scheduler/`
-- `prisma/schema.prisma` (`AgentOpsRun`, `AgentOpsEvent`, `ScheduledTask`, `ScheduledTaskLock`)
+- `libs/prisma/schema.prisma` (`AgentOpsRun`, `AgentOpsEvent`, `ScheduledTask`, `ScheduledTaskLock`)
 
 ---
 
@@ -256,7 +256,7 @@ Tenant-scoped knowledge bases with vector embeddings for semantic search and ret
 - `web-ui/lib/knowledge-base/embedder.ts`
 - `web-ui/app/api/knowledge-base/`
 - `workers/src/jobs/kb-sync/`
-- `prisma/schema.prisma` (`KnowledgeBase`, `DataSource`, `KbDocumentChunk`)
+- `libs/prisma/schema.prisma` (`KnowledgeBase`, `DataSource`, `KbDocumentChunk`)
 
 ---
 
@@ -304,7 +304,7 @@ Upload and manage TLS certificates, track expiry status, and deploy certificates
 - `web-ui/lib/certificate-utils.ts`
 - `web-ui/app/api/certificates/`
 - `workers/src/jobs/certificate-expiry-monitor/`
-- `prisma/schema.prisma` (`Certificate`)
+- `libs/prisma/schema.prisma` (`Certificate`)
 
 ---
 
@@ -334,7 +334,7 @@ Multi-tenant access control with predefined roles and custom roles, plus tenant-
 - `web-ui/app/api/settings/`
 - `web-ui/app/api/invitations/`
 - `web-ui/app/api/tenants/`
-- `prisma/schema.prisma` (`UserTenantRole`, `CustomRole`, `Invitation`, `Tenant`, `TenantConfig`, `ProviderModel`, `AuthUser`)
+- `libs/prisma/schema.prisma` (`UserTenantRole`, `CustomRole`, `Invitation`, `Tenant`, `TenantConfig`, `ProviderModel`, `AuthUser`)
 
 ---
 
