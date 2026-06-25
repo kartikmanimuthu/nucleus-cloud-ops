@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ScheduleService } from "@/lib/schedule-service";
-import { AuditService } from "@/lib/audit-service";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
 import { authorize } from "@/lib/rbac/authorize";
 import { getSessionTenantId } from "@/lib/auth-session";
-import { getBoss } from "@/lib/boss-client";
 
 export async function POST(
     request: NextRequest,
@@ -27,9 +25,12 @@ export async function POST(
             );
         }
 
-        // 1. Fetch schedule to verify existence
-        const schedule = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
-        if (!schedule) {
+        const session = await getServerSession(authOptions);
+        const userEmail = session?.user?.email || "unknown-web-user";
+
+        // Existence check + enqueue + metadata update + audit (shared with bulk route)
+        const existing = await ScheduleService.getSchedule(scheduleId, undefined, tenantId);
+        if (!existing) {
             console.log(`[API] Schedule ${scheduleId} not found`);
             return NextResponse.json(
                 { error: "Schedule not found" },
@@ -37,84 +38,7 @@ export async function POST(
             );
         }
 
-        // Get user session
-        const session = await getServerSession(authOptions);
-        const userEmail = session?.user?.email;
-
-        const executionTime = new Date().toISOString();
-
-        // 2. Enqueue partial scan job via pg-boss (fire-and-forget)
-        try {
-            const payload = {
-                scheduleId: schedule.id,
-                scheduleName: schedule.name,
-                triggeredBy: 'web-ui',
-                userEmail: userEmail || 'unknown-web-user',
-                tenantId,
-            };
-
-            console.log(`[API] Enqueuing scheduler-scan job for schedule ${schedule.id} with payload:`, payload);
-
-            const boss = await getBoss();
-            await boss.send('scheduler-scan', payload);
-
-        } catch (enqueueError) {
-            console.error(`[API] Job enqueue failed:`, enqueueError);
-
-            const errorMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
-
-            // Log audit for failure
-            await AuditService.logResourceAction({
-                eventType: 'schedule.schedule.executed',
-                action: "Execute Schedule",
-                resourceType: "Schedule",
-                resourceId: schedule.id,
-                resourceName: schedule.name,
-                status: 'error',
-                severity: 'high',
-                details: `Manual execution enqueue failed: ${errorMessage}`,
-                user: userEmail || "unknown-web-user",
-                source: "platform",
-                tenantId,
-                apiRoute: 'POST /api/schedules/[scheduleId]/execute',
-                httpMethod: 'POST',
-                metadata: { tenantId },
-            });
-
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: errorMessage,
-                    message: "Failed to enqueue scan job"
-                },
-                { status: 500 }
-            );
-        }
-
-        // 3. Update schedule metadata (skip audit — the "Execute Schedule" event below is the real one)
-        await ScheduleService.updateSchedule(schedule.id, {
-            lastExecution: executionTime,
-            executionCount: (schedule.executionCount || 0) + 1,
-            active: true
-        }, (schedule.accounts && schedule.accounts[0]) || 'unknown', tenantId, true);
-
-        // 4. Log Audit
-        await AuditService.logResourceAction({
-            eventType: 'schedule.schedule.executed',
-            action: "Execute Schedule",
-            resourceType: "Schedule",
-            resourceId: schedule.id,
-            resourceName: schedule.name,
-            status: 'success',
-            severity: 'high',
-            details: `Manual execution triggered via Dashboard (Async). Execution running in background.`,
-            user: userEmail || "unknown-web-user",
-            source: "platform",
-            tenantId,
-            apiRoute: 'POST /api/schedules/[scheduleId]/execute',
-            httpMethod: 'POST',
-            metadata: { tenantId },
-        });
+        const { executionTime } = await ScheduleService.executeSchedule(scheduleId, userEmail, tenantId);
 
         return NextResponse.json({
             success: true,
@@ -127,9 +51,10 @@ export async function POST(
     } catch (error) {
         console.error("[API] Error executing schedule:", error);
         const errorMessage = error instanceof Error ? error.message : "Failed to execute schedule";
+        const status = errorMessage === "Schedule not found" ? 404 : 500;
         return NextResponse.json(
             { error: errorMessage },
-            { status: 500 }
+            { status }
         );
     }
 }
