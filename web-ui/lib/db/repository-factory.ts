@@ -23,6 +23,8 @@ import type { IAgentOpsRunRepository } from './repositories/agent-ops-run/interf
 import type { IAgentOpsEventRepository } from './repositories/agent-ops-event/interface';
 import type { IScheduledTaskRepository } from './repositories/scheduled-task/interface';
 import type { ICertificateRepository } from './repositories/certificate/interface';
+import type { IRightSizingRepository } from './repositories/right-sizing/interface';
+import type { IPricingCatalogRepository } from './repositories/pricing/interface';
 
 export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -100,6 +102,18 @@ export function getCertificateRepository(): ICertificateRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { CertificatePostgresRepository } = require('./repositories/certificate/postgres');
     return new CertificatePostgresRepository();
+}
+
+export function getRightSizingRepository(): IRightSizingRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { RightSizingPostgresRepository } = require('./repositories/right-sizing/postgres');
+    return new RightSizingPostgresRepository();
+}
+
+export function getPricingCatalogRepository(): IPricingCatalogRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PricingCatalogPostgresRepository } = require('./repositories/pricing/postgres');
+    return new PricingCatalogPostgresRepository();
 }
 
 /**

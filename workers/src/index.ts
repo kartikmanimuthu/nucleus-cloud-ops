@@ -6,6 +6,8 @@ import { register as registerKbSyncJobs } from './jobs/kb-sync/index.js';
 import { register as registerDiscoveryJobs } from './jobs/discovery/index.js';
 import { register as registerAgentOpsJobs } from './jobs/agent-ops-scheduler/index.js';
 import { register as registerCertificateExpiryMonitorJobs } from './jobs/certificate-expiry-monitor/index.js';
+import { register as registerRightSizingPricingRefresh } from './jobs/right-sizing/pricing-refresh.js';
+import { register as registerRightSizingJobs } from './jobs/right-sizing/index.js';
 
 const log = createLogger('workers');
 const boss = createBoss();
@@ -27,6 +29,8 @@ async function main() {
   await registerAgentOpsJobs(boss, executor);
 
   await registerCertificateExpiryMonitorJobs(boss, executor);
+  await registerRightSizingPricingRefresh(boss, executor);
+  await registerRightSizingJobs(boss, executor);
 
   log.info('All jobs registered. Waiting for work...');
 
