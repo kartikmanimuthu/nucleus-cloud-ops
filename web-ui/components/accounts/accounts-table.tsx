@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -45,11 +46,22 @@ import { useToast } from "@/hooks/use-toast";
 interface AccountsTableProps {
   accounts: UIAccount[];
   onAccountUpdated?: () => void;
+  // Bulk selection (provided by the parent's useBulkSelection)
+  isSelected: (id: string) => boolean;
+  onToggleSelect: (id: string, checked: boolean) => void;
+  allSelected: boolean;
+  someSelected: boolean;
+  onToggleSelectAll: (checked: boolean) => void;
 }
 
 export function AccountsTable({
   accounts,
   onAccountUpdated,
+  isSelected,
+  onToggleSelect,
+  allSelected,
+  someSelected,
+  onToggleSelectAll,
 }: AccountsTableProps) {
   const router = useRouter();
   const [deletingAccount, setDeletingAccount] = useState<UIAccount | null>(null);
@@ -180,6 +192,14 @@ export function AccountsTable({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-[50px]">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={(checked) => onToggleSelectAll(checked as boolean)}
+                  aria-label="Select all accounts"
+                  className={someSelected ? "data-[state=checked]:bg-primary" : ""}
+                />
+              </TableHead>
               <TableHead>Account</TableHead>
               <TableHead>Role ARN</TableHead>
               <TableHead>Regions</TableHead>
@@ -194,7 +214,17 @@ export function AccountsTable({
                 <TableRow
                   key={`${account.accountId}-${account.name}-${index}`}
                   className="hover:bg-muted/50"
+                  data-state={isSelected(account.id) ? "selected" : undefined}
                 >
+                  <TableCell>
+                    <Checkbox
+                      checked={isSelected(account.id)}
+                      onCheckedChange={(checked) =>
+                        onToggleSelect(account.id, checked as boolean)
+                      }
+                      aria-label={`Select ${account.name || account.accountId}`}
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className="space-y-1">
                       <button
@@ -341,7 +371,7 @@ export function AccountsTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={7} className="text-center py-12">
                   <Server className="mx-auto h-12 w-12 text-muted-foreground" />
                   <h3 className="mt-2 text-sm font-semibold">
                     No accounts found
