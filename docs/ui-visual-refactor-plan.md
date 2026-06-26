@@ -283,7 +283,11 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - Verify: tailwind.config.ts parses; globals.css braces balanced. (Screenshot deferred — dev server
       was down at commit time; tokens are additive/low-risk.)
 
-### Phase V2 — App shell (sidebar + top bar)  ⏭  ← biggest change
+### Phase V2 — App shell (sidebar + top bar)  🔄 IN PROGRESS  ← biggest change
+- [x] Ported active left-bar accent into `components/ui/sidebar.tsx` (`sidebarMenuButtonVariants`
+      + `SidebarMenuSubButton`): `data-[active=true]` → 3px primary rounded left bar +
+      bg-sidebar-accent + font-semibold/medium. (commit 7638b7fd) No visible change until
+      `isActive` is set by `app-sidebar`.
 - [ ] `components/layout/header.tsx` — global top bar (SidebarTrigger + Separator + app title
       "Nucleus Cloud Ops" + ThemeToggle). Title can come from a small route→title map or a context.
 - [ ] `components/nav-main.tsx` — grouped + nested nav from the IA config (Collapsible parents,
@@ -375,7 +379,10 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   already aligned. NOTE: dev server on :3001 was found DOWN mid-iteration (connection refused) — a
   background `bun run dev` was (re)started for future public-route checks; if a loop session finds
   :3001 down, restart it with `cd apps/web-ui && bun run dev` (needs AWS_PROFILE=PLATFORM-ADMIN).
-  Next ⏭: Phase V2 (app shell) — biggest change; START by porting the chatbot's
-  `sidebarMenuButtonVariants` + `SidebarMenuSubButton` active left-bar accent into our
-  `components/ui/sidebar.tsx` (delta recorded in V0), THEN build `app-sidebar`/`nav-main`/
-  `nav-user`/`header` + rewire `layout-wrapper`. /app/* → manual QA after the phase.
+- 2026-06-26 — V2 chunk 1 (commit 7638b7fd): ported active left-bar accent into the sidebar
+  primitive. Dev server confirmed up on :3001 (serves /login 200). Next ⏭: V2 chunk 2 — build
+  `components/nav-main.tsx` (grouped+nested nav from the IA config), then `nav-user.tsx`,
+  reskin `org-switcher.tsx`, compose `app-sidebar.tsx`, add `header.tsx`, and finally rewire
+  `layout-wrapper.tsx` to `SidebarProvider`/`SidebarInset` + retire old `components/sidebar.tsx`.
+  Do these as separate commits. After the shell is wired, FLAG "ready for your visual QA" (sidebar
+  groups/nesting/active bar + top bar are /app/* → user manual QA).
