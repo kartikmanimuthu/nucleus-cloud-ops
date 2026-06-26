@@ -17,11 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Plus, Filter, RefreshCw, AlertCircle, Calendar, Settings, Play, Pause, Zap } from "lucide-react";
 import { SchedulesTable } from "@/components/schedules/schedules-table";
-import { SchedulesGrid } from "@/components/schedules/schedules-grid";
 import { ImportSchedulesDialog } from "@/components/schedules/import-schedules-dialog";
 import { BulkActionBar } from "@/components/shared/bulk-action-bar";
 import { PageHeader } from "@/components/shared/page-header";
@@ -100,7 +98,6 @@ export function SchedulesPageClient({
   const [localStatusFilter, setLocalStatusFilter] = useState(initialFilters?.statusFilter || "all");
   const [localResourceFilter, setLocalResourceFilter] = useState(initialFilters?.resourceFilter || "all");
 
-  const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
   const [selectedSchedules, setSelectedSchedules] = useState<string[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -469,36 +466,17 @@ export function SchedulesPageClient({
         />
       )}
 
-      {/* View Toggle and Content - only show when not loading */}
+      {/* Schedules table - only show when not loading */}
       {!loading && (
-        <Tabs
-          value={viewMode}
-          onValueChange={(value) => setViewMode(value as "table" | "grid")}
-        >
-          <TabsList>
-            <TabsTrigger value="table">Table View</TabsTrigger>
-            <TabsTrigger value="grid">Grid View</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="table" className="space-y-4">
-            <SchedulesTable
-              schedules={filteredSchedules}
-              selectedSchedules={selectedSchedules}
-              onSelectAll={handleSelectAll}
-              onSelectSchedule={handleSelectSchedule}
-              onScheduleUpdated={handleScheduleUpdated}
-            />
-          </TabsContent>
-
-          <TabsContent value="grid" className="space-y-4">
-            <SchedulesGrid
-              schedules={filteredSchedules}
-              selectedSchedules={selectedSchedules}
-              onSelectSchedule={handleSelectSchedule}
-              onScheduleUpdated={handleScheduleUpdated}
-            />
-          </TabsContent>
-        </Tabs>
+        <div className="space-y-4">
+          <SchedulesTable
+            schedules={filteredSchedules}
+            selectedSchedules={selectedSchedules}
+            onSelectAll={handleSelectAll}
+            onSelectSchedule={handleSelectSchedule}
+            onScheduleUpdated={handleScheduleUpdated}
+          />
+        </div>
       )}
 
       {/* Pagination */}
