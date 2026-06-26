@@ -350,8 +350,10 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - Commit: `feat(web-ui): reskin auth pages (login/signup/create-org) to chatbot template`.
 
 ### Phase V6 — Per-page polish sweep  ⏭
-- [ ] Wire PageHeader (with icon) consistently across remaining pages (dashboard, right-sizing,
-      knowledge-base, channels, certificates, settings/*, agent, agent-ops).
+- [~] Wire PageHeader (with icon) across remaining pages. DONE: right-sizing (59824f42),
+      channels (7ad46d77), knowledge-base (d2c6825f), agent-ops (f535fd6d). REMAINING (inspect
+      per-file; some delegate headers to subcomponents or are special): dashboard (server
+      component), agent (chat UI — may have no standard header), certificates, settings/* pages.
 - [ ] Consistent section spacing/padding inside `SidebarInset` content (`p-4` / `space-y-4`),
       empty states, loading via Spinner.
 - [ ] Final visual QA pass with screenshots of every primary route; flag anything needing the
@@ -457,6 +459,15 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   PageHeader (with icon) on remaining pages lacking it (dashboard, right-sizing, knowledge-base,
   channels, certificates, settings/*, agent, agent-ops) — do a FEW per fire, grep each page's
   current header markup first; these are /app/* → user QA. Keep each page's existing actions.
+- 2026-06-27 — V6 chunk 1 (4 commits): wired PageHeader (icon) on right-sizing (59824f42),
+  channels (7ad46d77), knowledge-base (d2c6825f), agent-ops (f535fd6d) — each preserves its
+  existing actions. tsc clean (pre-existing unrelated TS2739 in agent-ops TriggerSource icon map
+  noted, untouched). 🔎 these /app/* pages → user QA. Next ⏭: finish V6 chunk 1 — inspect
+  remaining pages (certificates, settings/* pages, agent, dashboard) per-file; wire PageHeader
+  where they hand-roll a header, SKIP ones that delegate to subcomponents or have no standard
+  header (agent chat, dashboard server component). Then V6 chunk 2 — consistent SidebarInset
+  content spacing (page wrappers still carry their own p-4/p-6/p-8 + max-w containers that now
+  double up with layout-wrapper's p-4; reconcile). Then chunk 3 — final QA pass.
 - 2026-06-26 — V4 chunk 1 (commit 779c63e7): Accounts table-only. tsc clean; dev server healthy
   (unauth curl 000s under contention — not a code issue; verify via dev log, not curl). Next ⏭:
   V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
