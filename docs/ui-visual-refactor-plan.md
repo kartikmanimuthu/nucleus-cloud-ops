@@ -293,7 +293,8 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - [x] `components/nav-main.tsx` — grouped + nested nav (SidebarGroup per section, Collapsible
       parents w/ separate chevron action, longest-prefix `isActive`). Takes `groups: NavGroup[]`;
       config supplied by app-sidebar. (commit 4f70ee6f) Not wired yet.
-- [ ] `components/nav-user.tsx` — footer user dropdown (Profile / Sign out).
+- [x] `components/nav-user.tsx` — footer user dropdown (avatar+name/email, Profile→/app/settings,
+      Sign out→signOut /login; preserves session + initials). (commit 9db1e8df) Not wired yet.
 - [ ] `components/settings/org-switcher.tsx` — reskin existing org switcher to the
       SidebarMenuButton + dropdown style (keep `/api/tenants/*` calls + "Create new organization"
       → `/create-org`).
@@ -390,3 +391,8 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   `layout-wrapper.tsx` → SidebarProvider/AppSidebar/SidebarInset/Header; retire old
   `components/sidebar.tsx` (only importer = layout-wrapper). FLAG manual QA after chunk 7.
   IA config + reference class strings are in this doc's "Navigation IA" + "Reference class strings".
+- 2026-06-26 — V2 chunk 3 (commit 9db1e8df): built `nav-user.tsx`. Next ⏭: V2 chunk 4 — reskin
+  `components/settings/org-switcher.tsx` to the SidebarMenuButton + dropdown style (keep its
+  /api/tenants/my-orgs + /api/tenants/switch calls and "Create new organization"→/create-org;
+  the current one takes a `collapsed` prop — the shadcn primitive handles collapse via data attrs,
+  so drop/ignore `collapsed`). Read the current file first to preserve its data logic.
