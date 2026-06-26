@@ -28,8 +28,9 @@ import type { BulkAction, BulkActionResult } from "@/lib/bulk-actions/types";
 import { UISchedule } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-import { useIsFirstRender } from "@/hooks/use-first-render";
-import { ClientScheduleService } from "@/lib/client-schedule-service";
+import { useSchedules } from "@/lib/queries/schedules";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queries/query-keys";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 
 const SCHEDULE_BULK_ACTIONS: BulkAction[] = [
@@ -81,18 +82,14 @@ export function SchedulesPageClient({
   initialPagination,
 }: SchedulesPageClientProps) {
   const router = useRouter();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  // Data state - start with server-side data
-  const [schedules, setSchedules] = useState<UISchedule[]>(initialSchedules);
-  const [error, setError] = useState<string | null>(initialError || null);
-  const [loading, setLoading] = useState(false);
-  const [totalItems, setTotalItems] = useState(initialPagination?.total || initialSchedules.length);
-
-  // Effective filters (used for fetching data)
+  // Effective filters (drive data fetching)
   const [searchTerm, setSearchTerm] = useState(initialFilters?.searchTerm || "");
   const [statusFilter, setStatusFilter] = useState(initialFilters?.statusFilter || "all");
   const [resourceFilter, setResourceFilter] = useState(initialFilters?.resourceFilter || "all");
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(initialPagination?.page || 1);
   const [limit, setLimit] = useState(initialPagination?.limit || 10);
@@ -102,106 +99,86 @@ export function SchedulesPageClient({
   const [localStatusFilter, setLocalStatusFilter] = useState(initialFilters?.statusFilter || "all");
   const [localResourceFilter, setLocalResourceFilter] = useState(initialFilters?.resourceFilter || "all");
 
-
-
   const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
   const [selectedSchedules, setSelectedSchedules] = useState<string[]>([]);
-  
-  // Stats state
-  const [allSchedules, setAllSchedules] = useState<UISchedule[]>([]);
-  const [loadingStats, setLoadingStats] = useState(false);
-  
   const [bulkLoading, setBulkLoading] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  
-  const { toast } = useToast();
 
-  // Update URL with current filters and pagination
-  const updateUrlWithFilters = useCallback(() => {
-    const params = new URLSearchParams();
-    if (statusFilter !== 'all') params.set('status', statusFilter);
-    if (resourceFilter !== 'all') params.set('resource', resourceFilter);
-    if (searchTerm) params.set('search', searchTerm);
-    if (currentPage > 1) params.set('page', currentPage.toString());
-    params.set('limit', limit.toString());
-    
-    // Replace the current URL with the new one including filters
-    const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
-    window.history.replaceState({}, '', newUrl);
-  }, [statusFilter, resourceFilter, searchTerm, currentPage, limit]);
-
-  // Load schedules with current filters
-  const loadSchedulesWithFilters = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Update URL first
-      updateUrlWithFilters();
-      
-      const filters = {
-        statusFilter: statusFilter !== 'all' ? statusFilter : undefined,
-        resourceFilter: resourceFilter !== 'all' ? resourceFilter : undefined,
-        searchTerm: searchTerm || undefined,
-        page: currentPage,
-        limit: limit
-      };
-      const result = await ClientScheduleService.getSchedules(filters);
-      setSchedules(result.schedules);
-      setTotalItems(result.total);
-    } catch (err) {
-      console.error("Error loading schedules:", err);
-      setError(err instanceof Error ? err.message : "Failed to load schedules");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, resourceFilter, searchTerm, currentPage, limit, updateUrlWithFilters]);
-
-  // Load global stats (all schedules)
-  const loadStats = useCallback(async () => {
-    try {
-      setLoadingStats(true);
-      // Fetch all schedules for stats (no limit)
-      const result = await ClientScheduleService.getSchedules({ limit: 1000 });
-      setAllSchedules(result.schedules);
-    } catch (err) {
-      console.error("Error loading stats:", err);
-    } finally {
-        setLoadingStats(false);
-    }
-  }, []);
-  
-  // Initial load for stats
-  useEffect(() => {
-     loadStats();
-  }, [loadStats]);
-
-  // Handle schedule updates - this will refresh schedules with current filters
-  const handleScheduleUpdated = (message?: string) => {
-    loadSchedulesWithFilters();
-    loadStats(); // Refresh stats too
-    if (message) {
-      toast({
-        variant: "success" as any,
-        title: "Success",
-        description: message,
-      });
-    }
+  // Effective filters object — also serves as the query key.
+  const filters = {
+    statusFilter: statusFilter !== "all" ? statusFilter : undefined,
+    resourceFilter: resourceFilter !== "all" ? resourceFilter : undefined,
+    searchTerm: searchTerm || undefined,
+    page: currentPage,
+    limit,
   };
 
-  // Track if this is the first render
-  const isFirstRender = useIsFirstRender();
+  // Seed first paint from server data (no flash) while filters match the server.
+  const isInitialView =
+    currentPage === (initialPagination?.page ?? 1) &&
+    limit === (initialPagination?.limit ?? 10) &&
+    searchTerm === (initialFilters?.searchTerm ?? "") &&
+    statusFilter === (initialFilters?.statusFilter ?? "all") &&
+    resourceFilter === (initialFilters?.resourceFilter ?? "all");
 
-  // Update URL and fetch data when EFFECTIVE filters change
-  useEffect(() => {
-    // Only trigger if not first render, OR if we want to ensure client-side fetch sync
-    if (!isFirstRender) {
-      loadSchedulesWithFilters();
-    }
-  }, [searchTerm, statusFilter, resourceFilter, currentPage, limit, loadSchedulesWithFilters, isFirstRender]);
+  // Main list query (TanStack Query — replaces manual fetch + useEffect).
+  const schedulesQuery = useSchedules(
+    filters,
+    isInitialView
+      ? {
+          initialData: {
+            schedules: initialSchedules,
+            total: initialPagination?.total ?? initialSchedules.length,
+          },
+        }
+      : undefined,
+  );
 
-  // Use schedules directly since filtering is done server-side
+  // Stats query — all schedules, unfiltered (separate cache entry).
+  const statsQuery = useSchedules({ limit: 1000 });
+
+  const schedules = schedulesQuery.data?.schedules ?? [];
+  const totalItems = schedulesQuery.data?.total ?? initialPagination?.total ?? 0;
+  const loading = schedulesQuery.isLoading;
+  const isRefreshing = schedulesQuery.isFetching;
+  const queryError = schedulesQuery.error
+    ? schedulesQuery.error instanceof Error
+      ? schedulesQuery.error.message
+      : "Failed to load schedules"
+    : null;
+  const error = queryError ?? initialError ?? null;
+  const allSchedules = statsQuery.data?.schedules ?? [];
+
+  // Use schedules directly since filtering is done server-side.
   const filteredSchedules = schedules;
+
+  // Keep the URL in sync with the effective filters/pagination.
+  const updateUrlWithFilters = useCallback(() => {
+    const params = new URLSearchParams();
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (resourceFilter !== "all") params.set("resource", resourceFilter);
+    if (searchTerm) params.set("search", searchTerm);
+    if (currentPage > 1) params.set("page", currentPage.toString());
+    params.set("limit", limit.toString());
+    const newUrl = `${window.location.pathname}${params.toString() ? "?" + params.toString() : ""}`;
+    window.history.replaceState({}, "", newUrl);
+  }, [statusFilter, resourceFilter, searchTerm, currentPage, limit]);
+
+  useEffect(() => {
+    updateUrlWithFilters();
+  }, [updateUrlWithFilters]);
+
+  // Invalidate schedule caches after a mutation (dialogs, bulk actions).
+  const invalidateSchedules = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.schedules.all });
+  }, [queryClient]);
+
+  const handleScheduleUpdated = (message?: string) => {
+    invalidateSchedules();
+    if (message) {
+      toast({ variant: "success" as any, title: "Success", description: message });
+    }
+  };
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -251,8 +228,7 @@ export function SchedulesPageClient({
       });
 
       setSelectedSchedules([]);
-      loadSchedulesWithFilters();
-      loadStats();
+      invalidateSchedules();
     } catch (error) {
       console.error("Error running bulk schedule action:", error);
       toast({
@@ -266,21 +242,8 @@ export function SchedulesPageClient({
     }
   };
 
-  // Sync state with props when server re-renders (e.g. after refresh)
-  useEffect(() => {
-    setSchedules(initialSchedules);
-  }, [initialSchedules]);
-
-  useEffect(() => {
-    if (initialError) setError(initialError);
-  }, [initialError]);
-
   const refreshSchedules = () => {
-    // Reloads server data but maintains current client state filters?
-    // User wants "Refresh" to refresh the full state of the page.
-    // We'll re-fetch with current EFFECTIVE filters.
-    // ClientScheduleService has 'no-store' so it will get fresh data.
-    loadSchedulesWithFilters();
+    invalidateSchedules();
   };
 
   const handleApplyFilter = () => {
@@ -291,12 +254,9 @@ export function SchedulesPageClient({
   };
 
   const handleClearFilter = () => {
-    // Reset local state
     setLocalSearchTerm("");
     setLocalStatusFilter("all");
     setLocalResourceFilter("all");
-    
-    // Reset effective state (triggers reload)
     setSearchTerm("");
     setStatusFilter("all");
     setResourceFilter("all");
@@ -322,7 +282,7 @@ export function SchedulesPageClient({
             <Settings className="h-4 w-4" />
           </Button>
           <Button variant="outline" onClick={refreshSchedules}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
           <Button onClick={handleCreateSchedule}>
