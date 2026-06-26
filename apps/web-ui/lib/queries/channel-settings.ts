@@ -11,6 +11,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 export interface ChannelSettings {
     configured: boolean;
     enabled: boolean;
+    // Channels expose extra non-secret fields (e.g. jira baseUrl/userEmail);
+    // the raw payload is preserved so each form can read what it needs.
+    [key: string]: unknown;
 }
 
 export function useChannelSettings(channel: string) {
@@ -19,7 +22,7 @@ export function useChannelSettings(channel: string) {
         queryFn: async (): Promise<ChannelSettings> => {
             const res = await fetch(`/api/agent-ops/settings/${channel}`);
             const data = await res.json().catch(() => ({}));
-            return { configured: data.configured ?? false, enabled: data.enabled ?? true };
+            return { ...data, configured: data.configured ?? false, enabled: data.enabled ?? true };
         },
     });
 }
