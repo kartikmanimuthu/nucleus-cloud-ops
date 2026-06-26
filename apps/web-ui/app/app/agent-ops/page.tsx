@@ -137,7 +137,7 @@ export default function AgentOpsPage() {
   };
 
   return (
-    <div className="flex-1 overflow-auto p-6 space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <PageHeader
         icon={Zap}
