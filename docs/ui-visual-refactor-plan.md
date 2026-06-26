@@ -355,11 +355,9 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
       members + roles (f2217040), provider-settings (ca517282). SKIP (no standard hand-rolled
       header / delegated / special): dashboard (server component → DashboardClient), agent (chat UI),
       settings/organization (delegates), certificates (handled in V4-followup below, NOT here).
-- [ ] **V4-FOLLOWUP (missed grid toggle):** `components/certificates/certificate-client-component.tsx`
-      has a Table/Cards (grid) toggle — same card-view pattern removed in V4 for accounts/schedules
-      but NOT caught then. Make it table-only (remove Tabs + viewMode + grid component import; delete
-      the certificate card-grid component if no other importer — grep first) AND wire PageHeader
-      (ShieldCheck icon, keep the upload action). One commit.
+- [x] **V4-FOLLOWUP (missed grid toggle):** `certificate-client-component.tsx` made table-only
+      (removed Tabs/viewMode/LayoutGrid/TableIcon; deleted unused `certificate-cards.tsx`) + wired
+      PageHeader (ShieldCheck icon, Upload action kept). (commit 3a85d52f) tsc clean; 🔎 /app/certificates → QA.
 - [ ] Consistent section spacing/padding inside `SidebarInset` content (`p-4` / `space-y-4`),
       empty states, loading via Spinner.
 - [ ] Final visual QA pass with screenshots of every primary route; flag anything needing the
@@ -479,6 +477,16 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   certificate-client-component (Table/Cards) — recorded as a V4-followup in the V6 block. Next ⏭:
   certificates V4-followup — make it table-only (remove Tabs/viewMode/grid import; delete card-grid
   component if unused) + wire PageHeader (ShieldCheck icon, keep upload action). One commit.
+- 2026-06-27 — Certificates V4-followup DONE (commit 3a85d52f): table-only (removed the missed
+  Table/Cards toggle) + PageHeader. Deleted unused certificate-cards.tsx. tsc clean. ALL grid
+  toggles now removed (accounts/schedules/certificates) + inventory was already a table.
+  Next ⏭: V6 chunk 2 — section spacing reconciliation. layout-wrapper now wraps /app content in
+  `p-4`, but most pages ALSO carry their own outer `p-4`/`p-6`/`p-8 pt-6` + `max-w-*` containers →
+  double padding + inconsistent widths. Sweep page wrappers to drop the redundant outer padding
+  (keep `space-y-*`); decide on max-width (the chatbot lets SidebarInset go full-width — likely
+  drop the `max-w-5xl mx-auto` on channels/knowledge-base for consistency). ⚠️ This is VISUAL and
+  spans many files — do a FEW pages per fire, tsc each, and FLAG for user QA (loop can't see /app).
+  Consider doing it page-by-page in small commits rather than one sweep.
 - 2026-06-26 — V4 chunk 1 (commit 779c63e7): Accounts table-only. tsc clean; dev server healthy
   (unauth curl 000s under contention — not a code issue; verify via dev log, not curl). Next ⏭:
   V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
