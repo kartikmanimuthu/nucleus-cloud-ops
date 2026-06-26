@@ -25,12 +25,26 @@ export interface AccountFilters {
     page?: number;
 }
 
-/** List accounts with optional filters. Returns { accounts, totalCount }. */
-export function useAccounts(filters?: AccountFilters) {
+interface AccountsListData {
+    accounts: UIAccount[];
+    totalCount: number;
+}
+
+/**
+ * List accounts with optional filters. Returns { accounts, totalCount }.
+ * Pass `options.initialData` to seed the cache from server-rendered data
+ * (avoids a loading flash on first paint). initialData only applies to the
+ * matching query key, so only pass it when filters equal the server's.
+ */
+export function useAccounts(
+    filters?: AccountFilters,
+    options?: { initialData?: AccountsListData },
+) {
     return useQuery({
         queryKey: queryKeys.accounts.list(filters),
         queryFn: () => ClientAccountService.getAccounts(filters),
         placeholderData: (prev) => prev, // keep prior page visible while refetching (smooth pagination)
+        initialData: options?.initialData,
     });
 }
 
