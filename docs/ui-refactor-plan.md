@@ -48,7 +48,8 @@ Project is NOT a blank slate. Strong shadcn/ui foundation already:
     - ✅ shared channel-settings hooks + slack form → `lib/queries/channel-settings.ts` (193e855e). Hook now returns full GET payload.
     - ✅ jira form → shared hooks (4798827e).
     - ✅ discord form → shared hooks (21cfa3ed).
-    - ⏭ NEXT — wire telegram + webhook settings forms (same loader-gate split). Then: provider-settings, org-settings-form, knowledge-base, inventory data layer, dashboard sections. SKIP (low value/high risk): mcp-settings (455-line Monaco editor).
+    - ✅ telegram form → shared hooks (3575bef2).
+    - ⏭ NEXT — wire webhook settings form (last channel form, same split). Then: provider-settings, org-settings-form, knowledge-base, inventory data layer, dashboard sections. SKIP (low value/high risk): mcp-settings (455-line Monaco editor).
 - **Phase 2** (toast consolidation) — migrate Radix `toast()` call sites (delete-account-dialog, etc.) to sonner; remove `<Toaster/>` (radix) from `app/layout.tsx`; delete `components/ui/toast.tsx`+`toaster.tsx`+`use-toast` hook. GREP `useToast` / `@/components/ui/use-toast` first.
 - **Phase 3** (forms) — migrate ~7 manual `useState` dialogs to RHF+zod (create-account-dialog, edit-account-dialog, create-schedule-dialog, …). Reuse `components/ui/form.tsx`.
 - **Phase 4** (Zod 3→4) — DEDICATED: bump zod^4 + @hookform/resolvers compat + t3-env may need ^0.13; fix ~17 zod files (API changes). Full typecheck.
@@ -73,6 +74,7 @@ Project is NOT a blank slate. Strong shadcn/ui foundation already:
 - 2026-06-26 15:?? — Iteration 3 (loop now 15-min, cron 93a5b782): Shipped Phase 1c (4003fe1) — schedules + audit hooks; schedules page migrated (mirrors accounts). Found+routed around dead audit service (live = -api, cursor paginated). Deferred audit COMPONENT migration to 1d. Typecheck clean. Next: Phase 1d (audit page) then Phase 2 (toast consolidation).
 - 2026-06-26 16:?? — Iteration 4: Shipped Phase 1d (cd069be) — audit page migrated to TanStack Query (cursor pagination via pageToken→query key; useAuditFilterOptions). Deleted dead client-audit-service.ts. 3 feature pages (accounts/schedules/audit) now fully on TanStack Query. Typecheck clean. Next: Phase 2 (toast consolidation) — biggest cross-cutting change so far (many call sites).
 - 2026-06-26 16:?? — Iteration 5: Shipped Phase 2 (d61b4d2) — toast consolidation via SHIM strategy (use-toast.ts forwards to sonner) instead of rewriting ~17 call sites; removed Radix Toaster + deleted toast.tsx/toaster.tsx. Single toast system. Typecheck clean. Next: Phase 3 (forms standardization).
+- 2026-06-27 01:?? — Iteration 25: Shipped telegram form migration (3575bef2). Typecheck clean. 14 surfaces on TanStack Query. Next: webhook form (last channel form).
 - 2026-06-27 01:?? — Iteration 24: Shipped discord form migration (21cfa3ed). Typecheck clean. 13 surfaces on TanStack Query. Next: telegram + webhook forms.
 - 2026-06-27 00:?? — Iteration 23: Shipped jira form migration (4798827e) — extended shared hook to return full payload. Typecheck clean. 12 surfaces on TanStack Query. Next: discord/telegram/webhook forms (same template).
 - 2026-06-27 00:?? — Iteration 22: Shipped shared channel-settings hooks + slack form (193e855e). Skipped mcp-settings (low value/high risk — Monaco editor). Typecheck clean. 11 surfaces on TanStack Query. Next: wire remaining 4 channel forms to the shared hooks.
