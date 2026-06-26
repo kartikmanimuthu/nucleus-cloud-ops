@@ -2,7 +2,7 @@
 /**
  * generate-env.ts
  *
- * Reads Pulumi compute stack outputs and writes web-ui/.env.local with all
+ * Reads Pulumi compute stack outputs and writes the root .env with all
  * required environment variables for local development.
  *
  * Usage:
@@ -24,7 +24,7 @@ import * as path from "path";
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 const COMPUTE_DIR = path.join(REPO_ROOT, "infra", "compute");
-const ENV_OUTPUT_PATH = path.join(REPO_ROOT, "web-ui", ".env.local");
+const ENV_OUTPUT_PATH = path.join(REPO_ROOT, ".env");
 const PULUMI_STACK = "prod";
 
 // ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ const STATIC_ENV: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Step 4: Write web-ui/.env.local
+// Step 4: Write root .env
 // ---------------------------------------------------------------------------
 
 function writeEnvFile(dynamic: Record<string, string>, statics: Record<string, string>): void {
@@ -228,7 +228,7 @@ function main(): void {
     console.log(`\nWrote ${totalVars} environment variables to: ${ENV_OUTPUT_PATH}`);
     console.log(`  Dynamic (from Pulumi): ${Object.keys(dynamic).length}`);
     console.log(`  Static:               ${Object.keys(STATIC_ENV).length}`);
-    console.log("\nDone. You can now run: cd web-ui && npm run dev");
+    console.log("\nDone. You can now run: bun run dev  (from repo root)");
 }
 
 main();

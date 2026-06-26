@@ -1,5 +1,13 @@
 # Deployment Notes — 2026-04-09
 
+> **⚠️ Historical record.** These notes describe the 2026-04-09 deploy on the pre-Nx layout
+> (`web-ui/`, root `prisma/`, `Dockerfile.ecs`, and a `vector_processor` Lambda). The repo has
+> since migrated to the **Nx + Bun** monorepo (`apps/web-ui/`, `apps/workers/`, `libs/prisma/`)
+> and the Lambdas were replaced by pg-boss jobs in the `workers` ECS service. Items **2, 3, and 7
+> below no longer apply** — there are no Lambda functions and no `Dockerfile.ecs`; the live
+> Dockerfiles are `apps/web-ui/Dockerfile` and `apps/workers/Dockerfile` (build context = repo
+> root). See `DEPLOYMENT.md` and `CLAUDE.md` for the current process.
+
 ## Issues Fixed During Deploy
 
 ### 1. `cacheSubnetGroupName` — missing stack output

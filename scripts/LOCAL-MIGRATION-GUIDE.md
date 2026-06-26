@@ -34,10 +34,10 @@ cd web-ui && npm install && cd ..
 ## Step 3 — Configure environment
 
 ```bash
-cp web-ui/.env.local.example web-ui/.env.local
+cp .env.example .env
 ```
 
-Edit `web-ui/.env.local` and ensure these values are set:
+Edit the root `.env` and ensure these values are set:
 
 ```env
 DATABASE_URL=postgresql://nucleus:nucleus_dev@localhost:5432/nucleus?connection_limit=10
@@ -66,8 +66,8 @@ AWS_REGION=ap-south-1
 Run from the repo root:
 
 ```bash
-npx prisma migrate deploy --schema=prisma/schema.prisma
-npx prisma generate --schema=prisma/schema.prisma
+npx prisma migrate deploy --schema=libs/prisma/schema.prisma
+npx prisma generate --schema=libs/prisma/schema.prisma
 ```
 
 Verify all 19 tables were created:
@@ -170,8 +170,8 @@ To reset and start fresh:
 ```bash
 docker compose down -v          # destroys the postgres volume
 docker compose up -d postgres
-npx prisma migrate deploy --schema=prisma/schema.prisma
-npx prisma generate --schema=prisma/schema.prisma
+npx prisma migrate deploy --schema=libs/prisma/schema.prisma
+npx prisma generate --schema=libs/prisma/schema.prisma
 # then re-run Step 6
 ```
 
@@ -182,7 +182,7 @@ npx prisma generate --schema=prisma/schema.prisma
 | Error | Fix |
 |-------|-----|
 | `getPrismaClient().account is undefined` | Run `rm -rf web-ui/node_modules/.prisma web-ui/node_modules/@prisma` then restart dev server |
-| `APP_TABLE_NAME is required` | Pass all env vars inline (see Step 6) or `set -a && source web-ui/.env.local && set +a` |
+| `APP_TABLE_NAME is required` | Pass all env vars inline (see Step 6) or `set -a && source .env && set +a` |
 | `Token is expired` | Run `aws sso login --profile PLATFORM-ADMIN` |
 | `pg_isready` fails | Docker not running or container not started — run `docker compose up -d postgres` |
 | `prisma migrate deploy` fails | Check `DATABASE_URL` is set and postgres container is healthy |

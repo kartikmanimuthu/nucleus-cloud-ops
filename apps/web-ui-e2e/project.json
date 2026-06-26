@@ -1,0 +1,32 @@
+{
+  "name": "web-ui-e2e",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "implicitDependencies": ["web-ui"],
+  "tags": ["scope:web-ui", "type:e2e"],
+  "targets": {
+    "e2e": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "bunx playwright test",
+        "cwd": "apps/web-ui-e2e"
+      }
+    },
+    "e2e:ui": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "bunx playwright test --ui",
+        "cwd": "apps/web-ui-e2e"
+      }
+    },
+    "codegen": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bunx playwright codegen http://localhost:3001",
+        "cwd": "apps/web-ui-e2e"
+      }
+    }
+  }
+}

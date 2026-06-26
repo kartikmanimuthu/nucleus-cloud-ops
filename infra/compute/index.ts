@@ -448,18 +448,18 @@ const ecrPublicLogin = new command.local.Command("ecr-public-login", {
     },
 });
 
-// Explicit source hash — combines web-ui/ + prisma/ so any change to either
+// Explicit source hash — combines apps/web-ui/ + libs/prisma/ so any change to either
 // produces a new imageTag, forcing a Docker rebuild + new ECS task definition revision.
 const webUiSrcHash = crypto.createHash("sha256")
-    .update(hashDirectory(path.join(repoRoot, "web-ui")))
-    .update(hashDirectory(path.join(repoRoot, "prisma")))
+    .update(hashDirectory(path.join(repoRoot, "apps/web-ui")))
+    .update(hashDirectory(path.join(repoRoot, "libs", "prisma")))
     .digest("hex")
     .substring(0, 12);
 
 const webUiImage = new awsx.ecr.Image("web-ui-image", {
     repositoryUrl: ecrRepository.repositoryUrl,
     context: repoRoot,
-    dockerfile: path.join(repoRoot, "web-ui/Dockerfile"),
+    dockerfile: path.join(repoRoot, "apps/web-ui/Dockerfile"),
     platform: "linux/arm64",
     imageTag: webUiSrcHash,
     args: {
@@ -986,10 +986,10 @@ const workersEcrRepo = new aws.ecr.Repository("workers-ecr-repo", {
 
 // ECR Lifecycle Policy — intentionally omitted; all images are retained indefinitely
 
-// Explicit source hash — combines workers/ + prisma/ so any change forces a rebuild.
+// Explicit source hash — combines apps/workers/ + libs/prisma/ so any change forces a rebuild.
 const workersSrcHash = crypto.createHash("sha256")
-    .update(hashDirectory(path.join(repoRoot, "workers")))
-    .update(hashDirectory(path.join(repoRoot, "prisma")))
+    .update(hashDirectory(path.join(repoRoot, "apps/workers")))
+    .update(hashDirectory(path.join(repoRoot, "libs", "prisma")))
     .digest("hex")
     .substring(0, 12);
 
@@ -997,7 +997,7 @@ const workersSrcHash = crypto.createHash("sha256")
 const workersImage = new awsx.ecr.Image("workers-image", {
     repositoryUrl: workersEcrRepo.repositoryUrl,
     context: repoRoot,
-    dockerfile: path.join(repoRoot, "workers/Dockerfile"),
+    dockerfile: path.join(repoRoot, "apps/workers/Dockerfile"),
     platform: "linux/arm64",
     imageTag: workersSrcHash,
     args: {

@@ -1,0 +1,27 @@
+{
+  "name": "cicd",
+  "projectType": "application",
+  "targets": {
+    "preview": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pulumi preview --stack prod",
+        "cwd": "infra/cicd"
+      }
+    },
+    "up": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pulumi up --stack prod --yes",
+        "cwd": "infra/cicd"
+      }
+    },
+    "destroy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pulumi destroy --stack prod",
+        "cwd": "infra/cicd"
+      }
+    }
+  }
+}
