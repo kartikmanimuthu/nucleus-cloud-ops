@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,11 +23,34 @@ interface TelegramSettingsFormProps {
     backLabel?: string;
 }
 
-export function TelegramSettingsForm({ backHref = '/agent-ops', backLabel = 'Back to Agent Ops' }: TelegramSettingsFormProps) {
+export function TelegramSettingsForm(props: TelegramSettingsFormProps) {
+    const { data, isLoading } = useChannelSettings('telegram');
+    if (isLoading) {
+        return (
+            <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
+    return (
+        <TelegramSettingsFormInner
+            {...props}
+            initialConfigured={data?.configured ?? false}
+            initialEnabled={data?.enabled ?? true}
+        />
+    );
+}
+
+function TelegramSettingsFormInner({
+    backHref = '/agent-ops',
+    backLabel = 'Back to Agent Ops',
+    initialConfigured,
+    initialEnabled,
+}: TelegramSettingsFormProps & { initialConfigured: boolean; initialEnabled: boolean }) {
     const router = useRouter();
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [configured, setConfigured] = useState(false);
+    const saveMutation = useSaveChannelSettings('telegram');
+    const saving = saveMutation.isPending;
+    const [configured, setConfigured] = useState(initialConfigured);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [showBotToken, setShowBotToken] = useState(false);
@@ -36,31 +60,13 @@ export function TelegramSettingsForm({ backHref = '/agent-ops', backLabel = 'Bac
     const [form, setForm] = useState<TelegramSettingsState>({
         botToken: '',
         secretToken: '',
-        enabled: true,
+        enabled: initialEnabled,
     });
 
     const webhookUrl =
         typeof window !== 'undefined'
             ? `${window.location.origin}/api/v1/gateway/telegram`
             : '/api/v1/gateway/telegram';
-
-    useEffect(() => {
-        fetchSettings();
-    }, []);
-
-    const fetchSettings = async () => {
-        try {
-            setLoading(true);
-            const res = await fetch('/api/agent-ops/settings/telegram');
-            const data = await res.json();
-            setConfigured(data.configured ?? false);
-            setForm(prev => ({ ...prev, enabled: data.enabled ?? true }));
-        } catch (error) {
-            console.error('[TelegramSettings] Failed to fetch settings:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleSave = async () => {
         if (!form.botToken.trim()) {
@@ -74,32 +80,19 @@ export function TelegramSettingsForm({ backHref = '/agent-ops', backLabel = 'Bac
             return;
         }
         try {
-            setSaving(true);
             setErrorMessage('');
-            const res = await fetch('/api/agent-ops/settings/telegram', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    botToken: form.botToken,
-                    secretToken: form.secretToken,
-                    enabled: form.enabled,
-                }),
+            await saveMutation.mutateAsync({
+                botToken: form.botToken,
+                secretToken: form.secretToken,
+                enabled: form.enabled,
             });
-            const data = await res.json();
-            if (res.ok) {
-                setConfigured(true);
-                setSaveStatus('saved');
-                setForm(prev => ({ ...prev, botToken: '', secretToken: '' }));
-                setTimeout(() => setSaveStatus('idle'), 3000);
-            } else {
-                setErrorMessage(data.error || 'Failed to save');
-                setSaveStatus('error');
-            }
+            setConfigured(true);
+            setSaveStatus('saved');
+            setForm(prev => ({ ...prev, botToken: '', secretToken: '' }));
+            setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
             setSaveStatus('error');
-        } finally {
-            setSaving(false);
         }
     };
 
@@ -109,16 +102,8 @@ export function TelegramSettingsForm({ backHref = '/agent-ops', backLabel = 'Bac
         setTimeout(() => setCopied(false), 2000);
     };
 
-    if (loading) {
-        return (
-            <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-        );
-    }
-
     return (
-        <div className="flex-1 p-4 md:p-8 pt-6 bg-background max-w-3xl mx-auto space-y-6">
+        <div className="flex-1 bg-background max-w-3xl mx-auto space-y-6">
             <div>
                 <Button
                     variant="ghost"

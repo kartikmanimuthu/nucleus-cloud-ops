@@ -11,24 +11,19 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
-const signupSchema = z
-    .object({
-        email: z.string().email("Please enter a valid email address"),
-        password: z.string().min(8, "Password must be at least 8 characters"),
-        confirmPassword: z.string(),
-    })
-    .refine((data) => data.password === data.confirmPassword, {
-        message: "Passwords do not match",
-        path: ["confirmPassword"],
-    });
+const credentialsSchema = z.object({
+    email: z.string().email("Please enter a valid email address"),
+    password: z.string().min(8, "Password must be at least 8 characters"),
+});
 
-type SignupFormData = z.infer<typeof signupSchema>;
+type CredentialsFormData = z.infer<typeof credentialsSchema>;
 
-export default function SignupPage() {
+export default function LoginPage() {
     const router = useRouter();
     const { status } = useSession();
     const [isLoading, setIsLoading] = useState(false);
@@ -40,8 +35,8 @@ export default function SignupPage() {
         register,
         handleSubmit,
         formState: { errors },
-    } = useForm<SignupFormData>({
-        resolver: zodResolver(signupSchema),
+    } = useForm<CredentialsFormData>({
+        resolver: zodResolver(credentialsSchema),
     });
 
     useEffect(() => {
@@ -50,109 +45,88 @@ export default function SignupPage() {
         }
     }, [status, router]);
 
-    const onCredentialsSubmit = async (data: SignupFormData) => {
+    const onCredentialsSubmit = async (data: CredentialsFormData) => {
         setIsLoading(true);
         setServerError(null);
         try {
-            const res = await fetch("/api/auth/signup", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email: data.email, password: data.password }),
-            });
-            const json = await res.json();
-
-            if (res.status === 409) {
-                setServerError(
-                    json.error ?? "An account with this email already exists. Sign in instead."
-                );
-                return;
-            }
-
-            if (!res.ok) {
-                setServerError(json.error ?? "Something went wrong. Please try again.");
-                return;
-            }
-
-            // Auto-sign-in after successful registration
             const result = await signIn("credentials", {
                 email: data.email,
                 password: data.password,
                 redirect: false,
             });
-
             if (result?.error) {
-                setServerError("Something went wrong. Please try again.");
+                setServerError(
+                    result.error === "CredentialsSignin"
+                        ? "Invalid email or password."
+                        : result.error
+                );
             } else if (result?.ok) {
-                // Middleware will redirect to /create-org if no tenantId
                 router.push("/app/dashboard");
             }
         } catch {
-            setServerError("Something went wrong. Please try again.");
+            setServerError("An unexpected error occurred. Please try again.");
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleSsoSignUp = async () => {
+    const handleSsoSignIn = async () => {
         setIsSsoLoading(true);
         setSsoError(null);
         try {
             await signIn("cognito", { callbackUrl: "/app/dashboard" });
         } catch {
-            setSsoError("SSO sign-up failed. Please try again or contact support.");
+            setSsoError("SSO sign-in failed. Please try again or contact support.");
             setIsSsoLoading(false);
         }
     };
 
+    // Logo badge shown above the card (reference parity).
+    const brand = (
+        <span className="flex items-center gap-2 self-center font-medium">
+            <span className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <Zap className="size-4" />
+            </span>
+            Nucleus Ops
+        </span>
+    );
+
     if (status === "loading") {
         return (
-            <div className="min-h-screen bg-background flex items-center justify-center p-4">
-                <div className="w-full max-w-sm">
-                    <div className="bg-card border border-border rounded-xl shadow-sm p-8">
-                        <div className="space-y-4">
-                            <Skeleton className="h-4 w-3/4" />
-                            <Skeleton className="h-10 w-full" />
-                            <Skeleton className="h-10 w-full" />
-                            <Skeleton className="h-10 w-full" />
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <>
+                {brand}
+                <Card>
+                    <CardContent className="space-y-4 pt-6">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                    </CardContent>
+                </Card>
+            </>
         );
     }
 
     return (
-        <div className="min-h-screen bg-background flex items-center justify-center p-4">
-            <div className="w-full max-w-sm">
-                <div className="bg-card border border-border rounded-xl shadow-sm p-8">
-                    {/* Logo row */}
-                    <div className="flex items-center gap-2 mb-6">
-                        <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                            <Zap className="w-4 h-4 text-primary-foreground" />
-                        </div>
-                        <span className="font-bold text-lg text-foreground">Nucleus Ops</span>
-                    </div>
-
-                    {/* Heading block */}
-                    <div className="mb-6">
-                        <h1 className="text-2xl font-bold text-foreground leading-[1.2]">
-                            Create your account
-                        </h1>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            Sign up to get started
-                        </p>
-                    </div>
-
+        <>
+            {brand}
+            <Card>
+                <CardHeader className="text-center">
+                    <CardTitle className="text-xl">Welcome back</CardTitle>
+                    <CardDescription>Sign in to your account to continue</CardDescription>
+                </CardHeader>
+                <CardContent>
                     {/* Tabs */}
                     <Tabs defaultValue="credentials">
-                        <TabsList className="grid w-full grid-cols-2 mb-6">
-                            <TabsTrigger value="credentials">Email &amp; Password</TabsTrigger>
-                            <TabsTrigger value="sso">SSO</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-2 mb-6" aria-disabled={isLoading || isSsoLoading}>
+                            <TabsTrigger value="credentials" disabled={isLoading || isSsoLoading}>Email &amp; Password</TabsTrigger>
+                            <TabsTrigger value="sso" disabled={isLoading || isSsoLoading}>SSO</TabsTrigger>
                         </TabsList>
 
                         {/* Credentials tab */}
                         <TabsContent value="credentials">
                             <form onSubmit={handleSubmit(onCredentialsSubmit)} noValidate>
+                                <fieldset disabled={isLoading} className="border-0 p-0 m-0 min-w-0">
                                 <div className="space-y-4">
                                     {/* Email field */}
                                     <div className="space-y-2">
@@ -203,39 +177,29 @@ export default function SignupPage() {
                                         )}
                                     </div>
 
-                                    {/* Confirm password field */}
-                                    <div className="space-y-2">
-                                        <Label htmlFor="confirmPassword" className="text-sm">
-                                            Confirm password
-                                        </Label>
-                                        <Input
-                                            id="confirmPassword"
-                                            type="password"
-                                            {...register("confirmPassword")}
-                                            aria-describedby={
-                                                errors.confirmPassword
-                                                    ? "confirm-password-error"
-                                                    : undefined
-                                            }
+                                    {/* Forgot password */}
+                                    <div className="flex justify-end">
+                                        <a
+                                            href="/api/auth/forgot-password"
                                             className={cn(
-                                                errors.confirmPassword && "border-destructive"
+                                                "text-sm text-primary underline-offset-4",
+                                                isLoading
+                                                    ? "pointer-events-none opacity-50"
+                                                    : "hover:underline"
                                             )}
-                                            disabled={isLoading}
-                                        />
-                                        {errors.confirmPassword && (
-                                            <p
-                                                id="confirm-password-error"
-                                                className="text-xs text-destructive mt-1"
-                                                role="alert"
-                                            >
-                                                {errors.confirmPassword.message}
-                                            </p>
-                                        )}
+                                            aria-disabled={isLoading}
+                                            tabIndex={isLoading ? -1 : undefined}
+                                        >
+                                            Forgot password?
+                                        </a>
                                     </div>
 
                                     {/* Server error */}
                                     {serverError && (
-                                        <div className="text-sm text-destructive" role="alert">
+                                        <div
+                                            className="text-sm text-destructive"
+                                            role="alert"
+                                        >
                                             {serverError}
                                         </div>
                                     )}
@@ -249,55 +213,59 @@ export default function SignupPage() {
                                         {isLoading ? (
                                             <>
                                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                Creating account...
+                                                Signing in...
                                             </>
                                         ) : (
-                                            "Create account"
+                                            "Sign in"
                                         )}
                                     </Button>
                                 </div>
+                                </fieldset>
                             </form>
                         </TabsContent>
 
                         {/* SSO tab */}
                         <TabsContent value="sso">
                             <p className="text-sm text-muted-foreground mb-4">
-                                Sign up using your organization&apos;s SSO provider.
+                                Sign in using your organization&apos;s SSO provider.
                             </p>
                             {ssoError && (
-                                <div className="text-sm text-destructive mb-4" role="alert">
+                                <div
+                                    className="text-sm text-destructive mb-4"
+                                    role="alert"
+                                >
                                     {ssoError}
                                 </div>
                             )}
                             <Button
-                                onClick={handleSsoSignUp}
+                                onClick={handleSsoSignIn}
                                 className="w-full h-11"
                                 disabled={isSsoLoading}
                             >
                                 {isSsoLoading ? (
                                     <>
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Signing up...
+                                        Signing in...
                                     </>
                                 ) : (
-                                    "Sign up with SSO"
+                                    "Sign in with SSO"
                                 )}
                             </Button>
                         </TabsContent>
                     </Tabs>
+                </CardContent>
+            </Card>
 
-                    {/* Footer */}
-                    <p className="mt-6 text-center text-sm text-muted-foreground">
-                        Already have an account?{" "}
-                        <Link
-                            href="/login"
-                            className="text-primary hover:underline underline-offset-4"
-                        >
-                            Sign in
-                        </Link>
-                    </p>
-                </div>
-            </div>
-        </div>
+            {/* Footer */}
+            <p className="text-center text-sm text-muted-foreground">
+                Don&apos;t have an account?{" "}
+                <Link
+                    href="/signup"
+                    className="text-primary hover:underline underline-offset-4"
+                >
+                    Sign up
+                </Link>
+            </p>
+        </>
     );
 }

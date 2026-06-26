@@ -37,6 +37,16 @@
     --warning-foreground: 26 83.3% 14.1%;
     --info: 221.2 83.2% 53.3%;
     --info-foreground: 210 40% 98%;
+
+    /* Sidebar (shadcn sidebar primitive) - light mode */
+    --sidebar: 210 40% 98%;
+    --sidebar-foreground: 222.2 84% 4.9%;
+    --sidebar-primary: 221.2 83.2% 53.3%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 214.3 31.8% 91.4%;
+    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
+    --sidebar-border: 214.3 31.8% 91.4%;
+    --sidebar-ring: 221.2 83.2% 53.3%;
   }
 
   .dark {
@@ -72,6 +82,16 @@
     --warning-foreground: 26 83.3% 14.1%;
     --info: 217.2 91.2% 59.8%;
     --info-foreground: 222.2 47.4% 11.2%;
+
+    /* Sidebar (shadcn sidebar primitive) - dark mode */
+    --sidebar: 222.2 84% 4.9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217.2 91.2% 59.8%;
+    --sidebar-primary-foreground: 222.2 84% 4.9%;
+    --sidebar-accent: 217.2 32.6% 17.5%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217.2 32.6% 17.5%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
 
@@ -146,8 +166,14 @@
   @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
 }
 
+:root {
+  /* Default app fonts → Geist. The theme font switcher overrides --font-sans. */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
 body {
-  font-family: var(--font-sans, "Inter", sans-serif);
+  font-family: var(--font-sans, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
 }
 
 @layer utilities {

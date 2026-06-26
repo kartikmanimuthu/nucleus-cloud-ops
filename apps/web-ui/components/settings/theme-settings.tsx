@@ -119,20 +119,20 @@ export function ThemeSettings() {
                 <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setConfig({ ...config, font: "inter" })}
-                    className={cn(config.font === "inter" && "border-2 border-primary")}
-                    style={{ fontFamily: "var(--font-inter)" }}
+                    onClick={() => setConfig({ ...config, font: "geist" })}
+                    className={cn(config.font === "geist" && "border-2 border-primary")}
+                    style={{ fontFamily: "var(--font-geist-sans)" }}
                 >
-                    Inter
+                    Geist Sans
                 </Button>
                 <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setConfig({ ...config, font: "manrope" })}
-                    className={cn(config.font === "manrope" && "border-2 border-primary")}
-                    style={{ fontFamily: "var(--font-manrope)" }}
+                    onClick={() => setConfig({ ...config, font: "mono" })}
+                    className={cn(config.font === "mono" && "border-2 border-primary")}
+                    style={{ fontFamily: "var(--font-geist-mono)" }}
                 >
-                    Manrope
+                    Geist Mono
                 </Button>
                 <Button
                     variant="outline"

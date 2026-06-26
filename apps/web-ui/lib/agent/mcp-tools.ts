@@ -45,7 +45,7 @@ function jsonSchemaPropertyToZod(prop: any, required: boolean): z.ZodTypeAny {
             if (prop.properties) {
                 zodType = jsonSchemaToZodObject(prop);
             } else {
-                zodType = z.record(z.any());
+                zodType = z.record(z.string(), z.any());
             }
             break;
         default:

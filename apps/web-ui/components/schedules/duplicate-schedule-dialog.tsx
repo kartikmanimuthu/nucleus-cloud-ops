@@ -1,9 +1,10 @@
 "use client";
 
-import type React from "react";
-
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useSession } from "next-auth/react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import {
   Dialog,
   DialogContent,
@@ -12,14 +13,30 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Copy, Loader2 } from "lucide-react";
-import { ClientScheduleService } from "@/lib/client-schedule-service";
+import { useCreateSchedule } from "@/lib/queries/schedules";
 import { useToast } from "@/hooks/use-toast";
+
+const duplicateScheduleSchema = z.object({
+  name: z.string().min(1, "Schedule name is required"),
+  description: z.string().optional(),
+  active: z.boolean(),
+});
+
+type DuplicateScheduleValues = z.infer<typeof duplicateScheduleSchema>;
 
 interface DuplicateScheduleDialogProps {
   schedule: any;
@@ -35,43 +52,41 @@ export function DuplicateScheduleDialog({
   onScheduleDuplicated,
 }: DuplicateScheduleDialogProps) {
   const { data: session } = useSession();
-  const [formData, setFormData] = useState({
-    name: "",
-    description: "",
-    active: false,
+  const { toast } = useToast();
+  const createSchedule = useCreateSchedule();
+
+  const form = useForm<DuplicateScheduleValues>({
+    resolver: zodResolver(duplicateScheduleSchema),
+    defaultValues: { name: "", description: "", active: false },
   });
 
-  const [isDuplicating, setIsDuplicating] = useState(false);
-  const { toast } = useToast();
-
+  // Reset the form whenever the source schedule changes.
   useEffect(() => {
     if (schedule) {
-      setFormData({
+      form.reset({
         name: `${schedule.name} (Copy)`,
-        description: schedule.description,
-        active: false, // Start duplicated schedules as inactive
+        description: schedule.description ?? "",
+        active: false, // duplicated schedules start inactive for safety
       });
     }
-  }, [schedule]);
+  }, [schedule, form]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!schedule?.name || !formData.name) return;
+  const onSubmit = async (values: DuplicateScheduleValues) => {
+    if (!schedule?.name) return;
 
     try {
-      setIsDuplicating(true);
-      await ClientScheduleService.createSchedule({
-        name: formData.name,
-        description: formData.description,
+      // useCreateSchedule invalidates the schedules cache on success, so the
+      // list refreshes automatically.
+      await createSchedule.mutateAsync({
+        name: values.name,
+        description: values.description ?? "",
         starttime: schedule.starttime,
         endtime: schedule.endtime,
         timezone: schedule.timezone,
         days: schedule.days,
-        active: formData.active,
+        active: values.active,
         createdBy: session?.user?.email || "user",
         updatedBy: "user",
-        // Pass accountId and resources
         accountId: schedule.accounts?.[0] || schedule.accountId,
         resources: schedule.resources,
       });
@@ -80,23 +95,20 @@ export function DuplicateScheduleDialog({
       toast({
         variant: "success",
         title: "Schedule Duplicated",
-        description: `Schedule "${formData.name}" created successfully.`,
+        description: `Schedule "${values.name}" created successfully.`,
       });
-      // Call the callback to refresh the parent list
-      if (onScheduleDuplicated) {
-        onScheduleDuplicated();
-      }
+      onScheduleDuplicated?.();
     } catch (error: any) {
       console.error("Error duplicating schedule:", error);
       toast({
         variant: "destructive",
         title: "Duplication Failed",
-        description: error.message || "Failed to duplicate schedule.",
+        description: error?.message || "Failed to duplicate schedule.",
       });
-    } finally {
-      setIsDuplicating(false);
     }
   };
+
+  const isDuplicating = createSchedule.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -111,87 +123,92 @@ export function DuplicateScheduleDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">Schedule Name *</Label>
-            <Input
-              id="name"
-              value={formData.name}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, name: e.target.value }))
-              }
-              placeholder="Enter schedule name"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              value={formData.description}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  description: e.target.value,
-                }))
-              }
-              placeholder="Enter schedule description"
-              rows={3}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="active">Initial Status</Label>
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="active"
-                checked={formData.active}
-                onCheckedChange={(checked) =>
-                  setFormData((prev) => ({ ...prev, active: checked }))
-                }
-              />
-              <Label htmlFor="active">
-                {formData.active ? "Active" : "Inactive"}
-              </Label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Duplicated schedules start as inactive by default for safety.
-            </p>
-          </div>
-
-          <div className="bg-muted p-3 rounded-lg">
-            <p className="text-sm text-muted-foreground">
-              <strong>Note:</strong> All other settings (timing, targets,
-              filters) will be copied exactly from the original schedule. You
-              can edit these after creation.
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={isDuplicating}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isDuplicating}>
-              {isDuplicating ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Duplicating...
-                </>
-              ) : (
-                <>
-                  <Copy className="mr-2 h-4 w-4" />
-                  Duplicate Schedule
-                </>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Schedule Name *</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter schedule name" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
               )}
-            </Button>
-          </DialogFooter>
-        </form>
+            />
+
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Enter schedule description"
+                      rows={3}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="active"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Initial Status</FormLabel>
+                  <div className="flex items-center space-x-2">
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                    <span className="text-sm">{field.value ? "Active" : "Inactive"}</span>
+                  </div>
+                  <FormDescription>
+                    Duplicated schedules start as inactive by default for safety.
+                  </FormDescription>
+                </FormItem>
+              )}
+            />
+
+            <div className="bg-muted p-3 rounded-lg">
+              <p className="text-sm text-muted-foreground">
+                <strong>Note:</strong> All other settings (timing, targets,
+                filters) will be copied exactly from the original schedule. You
+                can edit these after creation.
+              </p>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={isDuplicating}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isDuplicating}>
+                {isDuplicating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Duplicating...
+                  </>
+                ) : (
+                  <>
+                    <Copy className="mr-2 h-4 w-4" />
+                    Duplicate Schedule
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

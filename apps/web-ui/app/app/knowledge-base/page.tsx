@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useKnowledgeBases, useCreateKnowledgeBase, useDeleteKnowledgeBase } from '@/lib/queries/knowledge-base';
+import { Spinner } from '@/components/ui/spinner';
 import { BookOpen, Loader2, Plus, Database, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,37 +21,25 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { PageHeader } from '@/components/shared/page-header';
 import { toast } from 'sonner';
 import type { KnowledgeBase } from '@/lib/knowledge-base/types';
 
 export default function KnowledgeBasePage() {
   const router = useRouter();
-  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [loading, setLoading] = useState(true);
+  const kbQuery = useKnowledgeBases();
+  const createKB = useCreateKnowledgeBase();
+  const deleteKB = useDeleteKnowledgeBase();
+
+  const knowledgeBases = kbQuery.data ?? [];
+  const loading = kbQuery.isLoading;
+  const creating = createKB.isPending;
+  const deleting = deleteKB.isPending;
+
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeBase | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  const fetchKBs = async () => {
-    try {
-      const res = await fetch('/api/knowledge-base');
-      if (!res.ok) throw new Error('Failed to fetch knowledge bases');
-      const data = await res.json();
-      setKnowledgeBases(data.knowledgeBases ?? []);
-    } catch (error) {
-      console.error('Error fetching knowledge bases:', error);
-      toast.error('Failed to load knowledge bases');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchKBs();
-  }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,30 +47,18 @@ export default function KnowledgeBasePage() {
       toast.error('Name is required');
       return;
     }
-
-    setCreating(true);
     try {
-      const res = await fetch('/api/knowledge-base', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: formName.trim(), description: formDescription.trim() || undefined }),
+      await createKB.mutateAsync({
+        name: formName.trim(),
+        description: formDescription.trim() || undefined,
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? 'Failed to create knowledge base');
-      }
-
       toast.success('Knowledge base created');
       setDialogOpen(false);
       setFormName('');
       setFormDescription('');
-      await fetchKBs();
     } catch (error) {
       console.error('Error creating knowledge base:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to create knowledge base');
-    } finally {
-      setCreating(false);
     }
   };
 
@@ -92,44 +70,35 @@ export default function KnowledgeBasePage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    setDeleting(true);
     try {
-      const res = await fetch(`/api/knowledge-base/${deleteTarget.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Delete failed');
+      await deleteKB.mutateAsync(deleteTarget.id);
       toast.success(`"${deleteTarget.name}" deleted`);
       setDeleteTarget(null);
-      await fetchKBs();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Delete failed');
-    } finally {
-      setDeleting(false);
     }
   };
 
   return (
-    <div className="flex-1 p-4 md:p-8 pt-6 bg-background">
+    <div className="flex-1 bg-background">
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <BookOpen className="h-7 w-7 text-primary" />
-            <div>
-              <h1 className="text-2xl font-bold">Knowledge Base</h1>
-              <p className="text-muted-foreground mt-0.5 text-sm">
-                Manage your knowledge bases and the documents they contain.
-              </p>
-            </div>
-          </div>
-          <Button onClick={openDialog} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Create Knowledge Base
-          </Button>
-        </div>
+        <PageHeader
+          icon={BookOpen}
+          title="Knowledge Base"
+          description="Manage your knowledge bases and the documents they contain."
+          actions={
+            <Button onClick={openDialog} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Create Knowledge Base
+            </Button>
+          }
+        />
 
         {/* Card grid */}
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Spinner size="md" />
           </div>
         ) : knowledgeBases.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">

@@ -1,6 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import {
+    useSchedulerSettings,
+    useSaveSchedulerSettings,
+} from "@/lib/queries/scheduler-settings";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,41 +28,35 @@ const PRESETS = [
 type IntervalMinutes = typeof PRESETS[number]["value"];
 
 export function SchedulerSettings({ canEdit }: { canEdit: boolean }) {
-    const [intervalMinutes, setIntervalMinutes] = useState<IntervalMinutes>(60);
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const { data, isLoading } = useSchedulerSettings();
+    if (isLoading) return null;
+    // Falls back to the default on load error (mirrors the previous behavior).
+    const initial = (data?.intervalMinutes ?? 60) as IntervalMinutes;
+    // key re-inits the form if the persisted value changes (e.g. after refetch).
+    return <SchedulerSettingsForm key={initial} canEdit={canEdit} initialInterval={initial} />;
+}
 
-    useEffect(() => {
-        fetch("/api/scheduler/settings")
-            .then((r) => r.json())
-            .then((data) => {
-                if (data.success) setIntervalMinutes(data.data.intervalMinutes ?? 60);
-            })
-            .catch(() => {/* keep default */})
-            .finally(() => setLoading(false));
-    }, []);
+function SchedulerSettingsForm({
+    canEdit,
+    initialInterval,
+}: {
+    canEdit: boolean;
+    initialInterval: IntervalMinutes;
+}) {
+    const [intervalMinutes, setIntervalMinutes] = useState<IntervalMinutes>(initialInterval);
+    const [error, setError] = useState<string | null>(null);
+    const saveMutation = useSaveSchedulerSettings();
+    const saving = saveMutation.isPending;
 
     async function handleSave() {
-        setSaving(true);
         setError(null);
         try {
-            const res = await fetch("/api/scheduler/settings", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ scheduleInterval: intervalMinutes }),
-            });
-            const data = await res.json();
-            if (!data.success) throw new Error(data.error || "Failed to save");
+            await saveMutation.mutateAsync(intervalMinutes);
             toast.success("Scheduler settings saved");
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to save");
-        } finally {
-            setSaving(false);
         }
     }
-
-    if (loading) return null;
 
     return (
         <Card>

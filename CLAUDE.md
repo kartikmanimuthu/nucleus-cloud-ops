@@ -10,7 +10,9 @@ AWS Cloud Operations Platform — multi-account resource scheduling + AI Ops age
 
 | Layer          | Tech                                                       |
 | -------------- | ---------------------------------------------------------- |
-| Frontend       | Next.js 15, React 19, Tailwind CSS, Radix UI               |
+| Frontend       | Next.js 15, React 19, Tailwind CSS, Radix UI, Geist font   |
+| Frontend state | TanStack Query (server state), React Hook Form + Zod 4     |
+| Frontend UX    | sonner (toasts), framer-motion (transitions)               |
 | AI Agent       | LangGraph, LangChain, AWS Bedrock (Claude 4.5 Sonnet), MCP |
 | Infrastructure | Pulumi (networking + compute), ECS Fargate, CloudFront     |
 | Database       | PostgreSQL via Prisma ORM (pgvector enabled)               |
@@ -140,7 +142,7 @@ All persistent state is in PostgreSQL. DynamoDB has been fully removed.
 
 - Schema: `libs/prisma/schema.prisma` — single source of truth for all models
 - Prisma client output (dual generators, see schema): `client` → `node_modules/.prisma/client` at the **workspace root** (consumed by the hoisted `@prisma/client@5` used by web-ui + `libs/prisma/seed.ts`); `clientWorkers` → `apps/workers/node_modules/.prisma/client` (consumed by workers' `@prisma/client@6`). `bun install`'s `prepare` hook regenerates both; run `db:generate` in `apps/web-ui` / `apps/workers` after schema changes.
-- Connection pool: `connection_limit=10` for ECS (web-ui), `connection_limit=3` for Lambda (set in `DATABASE_URL` query param)
+- Connection pool: `connection_limit=10` for ECS (web-ui) — set in the `DATABASE_URL` query param
 
 **Multi-tenant safety** — every query must be scoped to a tenant:
 
@@ -159,13 +161,13 @@ const repo = getAccountRepository();
 await repo.listByTenant(tenantId);
 ```
 
-Repositories live in `web-ui/lib/db/repositories/<domain>/` with `interface.ts` + `postgres.ts`.
+Repositories live in `apps/web-ui/lib/db/repositories/<domain>/` with `interface.ts` + `postgres.ts`.
 
 **Gotcha:** `$executeRaw` is NOT intercepted by the tenant extension — callers must manually add `WHERE tenant_id = $1`.
 
 ## Agent Architecture
 
-Three agent types in `web-ui/lib/agent/`, all entered via `graph-factory.ts`:
+Three agent types in `apps/web-ui/lib/agent/`, all entered via `graph-factory.ts`:
 
 - **fast-agent.ts** — Reflection loop (generator → tools → reflector → revise), `MAX_REFLECT_ITERATIONS=5`
 - **planning-agent.ts** — Multi-step (planner → executor → reflector → reviser), `MAX_ITERATIONS=30`
@@ -215,29 +217,38 @@ Background jobs run in `workers/` as a single Node.js process using pg-boss:
 
 ## Component Patterns
 
-- UI primitives in `web-ui/components/ui/` — Radix-based, shadcn/ui style (do not modify these)
+- UI primitives in `apps/web-ui/components/ui/` — Radix-based, shadcn/ui style (do not modify these)
 - Feature components organized by domain: `agent/`, `agent-ops/`, `inventory/`, `schedules/`, `accounts/`, `audit/`, `knowledge-base/`, `channels/`, `deep-agent/`
-- Use `@/` path alias for all imports (maps to `web-ui/`)
+- Use `@/` path alias for all imports (maps to `apps/web-ui/`)
 - Conditional Tailwind: `cn()` utility from `@/lib/utils`
 
-## Lambda Runtimes
+### Frontend stack conventions (apply to all new UI/feature work)
 
-Four Lambda functions with different runtimes:
+- **Data fetching — TanStack Query (`@tanstack/react-query` ^5)**: never hand-roll `useState`+`useEffect`+`fetch`. Add a typed hook in `apps/web-ui/lib/queries/<domain>.ts` (`useQuery`/`useMutation`) and key it via the central factory in `apps/web-ui/lib/queries/query-keys.ts`. Invalidate with `queryClient.invalidateQueries({ queryKey: queryKeys.<domain>.all })`. Provider: `apps/web-ui/providers/query-provider.tsx`.
+- **Toasts — sonner (^1.7)**: single toast system. `apps/web-ui/hooks/use-toast.ts` is a compat shim exposing the legacy `useToast()` / `toast({ variant, title, description })` API over sonner — existing call sites keep working; **new code imports `toast` from `"sonner"` directly**. `<Toaster />` lives in `app/layout.tsx` via `components/ui/sonner.tsx`. (Radix toast has been removed.)
+- **Forms — React Hook Form + Zod**: dialogs/forms use `react-hook-form` + `@hookform/resolvers/zod` with a `zod` schema, wired to a query-hook mutation. Do not build forms with manual `useState`.
+- **Validation — Zod 4 (`zod` ^4.0)**: upgraded from v3. Use `err.issues` (not `.errors`); `z.record()` requires the key+value two-arg form.
+- **Animation — framer-motion (^12)**: route-level fade/slide via `apps/web-ui/components/page-transition.tsx` (already wired into `layout-wrapper.tsx`, respects reduced-motion). Reuse it; do not add ad-hoc CSS transitions for page changes.
+- **Loading — `Spinner` primitive** at `apps/web-ui/components/ui/spinner.tsx`; use it instead of bespoke spinner markup.
+- **Fonts — Geist (`geist` package)**: `GeistSans`/`GeistMono` wired via CSS vars in `app/layout.tsx` + `tailwind.config.ts`. Inter/Manrope removed; the theme font-switcher toggles between Geist Sans/Mono.
 
-| Directory                     | Language            | Build   | Tests  |
-| ----------------------------- | ------------------- | ------- | ------ |
-| `lambda/scheduler/`         | TypeScript          | esbuild | Vitest |
-| `lambda/discovery/`         | Python              | —      | —     |
-| `lambda/vector_processor/`  | Python + TypeScript | —      | —     |
-| `lambda/kb_sync_processor/` | TypeScript          | tsc     | —     |
+## Background Jobs (no AWS Lambda)
+
+There are **no AWS Lambda functions** in this repo. The former Lambdas (scheduler,
+discovery, kb-sync, vector processing) were migrated to **pg-boss jobs** that run inside
+the `workers` ECS service — see `apps/workers/src/jobs/` and `infra/DEPLOYMENT.md`
+("The compute stack declares no `aws.lambda.Function` resources"). All TypeScript now;
+the old Python discovery Lambda was rewritten in TypeScript. Job dirs:
+`scheduler/`, `discovery/`, `kb-sync/`, `right-sizing/`, `agent-ops-scheduler/`,
+`certificate-expiry-monitor/`. (See the **Workers (pg-boss)** section above.)
 
 ## Testing Conventions
 
-- **web-ui**: `cd web-ui && npm run test` — runs Vitest once (`vitest run`, not watch mode)
+- **web-ui**: `cd apps/web-ui && bun run test` — runs Vitest once (`vitest run`, not watch mode)
+- **workers**: `cd apps/workers && bun run test` — Vitest
 - **root**: `npm test` at root — Jest with ts-jest
-- **Lambda scheduler**: `cd lambda/scheduler && npm run test` — own Vitest setup
-- Test files: `*.test.ts` colocated with source or in `tests/` subdirectory
-- Property-based tests use `fast-check` (see `web-ui/tests/agent-ops/`)
+- Test files: `*.test.ts` colocated with source or in `tests/`/`__tests__/` subdirectory
+- Property-based tests use `fast-check` (see `apps/web-ui/tests/agent-ops/`)
 
 ## E2E Testing with Playwright
 
@@ -381,7 +392,7 @@ All infrastructure is managed by **Pulumi** — no CDK.
 | Stack | Tool | Manages |
 |-------|------|---------|
 | `infra/networking` | Pulumi | VPC, subnets, subnet groups |
-| `infra/compute` | Pulumi | ECS, Lambda, RDS PostgreSQL, Cognito, CloudFront |
+| `infra/compute` | Pulumi | ECS (web-ui + workers), RDS PostgreSQL, Cognito, CloudFront (no Lambda) |
 
 Pulumi state: `s3://nucleus-pulumi-state` · Secrets: `awskms://alias/pulumi-secrets`
 
@@ -395,7 +406,7 @@ cd infra/networking && npm install && pulumi install
 cd infra/compute && npm install && pulumi install
 
 # Deploy — always networking first, then compute
-# pulumi up auto-builds lambdas + Docker image when source changes
+# pulumi up auto-builds the web-ui + workers Docker images when source changes
 cd infra/networking && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
 cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
 
@@ -406,15 +417,15 @@ cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi preview --stack prod
 cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi stack output --stack prod
 ```
 
-What `pulumi up` does automatically:
-- Lambda source changed → runs `build-lambdas.sh`, uploads new zip
-- `apps/web-ui/` or `libs/prisma/` changed → builds ARM64 Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out automatically
+What `pulumi up` does automatically (change detection = recursive sha256 of the source dirs, used as the image tag — see `infra/compute/index.ts`):
+- `apps/web-ui/` or `libs/prisma/` changed → builds ARM64 web-ui Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out automatically
+- `apps/workers/` or `libs/prisma/` changed → builds the workers Docker image and rolls out the workers ECS service the same way
 
 ### Post-Deploy Verification
 
 1. CloudFront URL responds 200: `https://d11lr8aqp8vqde.cloudfront.net`
-2. ECS service desired count matches running count (ECS console)
-3. Check CloudWatch for Lambda errors in the 5 minutes post-deploy
+2. ECS services (web-ui + workers) desired count matches running count (ECS console)
+3. Check CloudWatch ECS task logs for errors in the 5 minutes post-deploy
 4. Run smoke test: `bun run e2e` (runs `apps/web-ui-e2e` Playwright suite)
 
 ### Rollback
@@ -427,7 +438,6 @@ cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod
 ### Environment Notes
 
 - **AWS_PROFILE**: `PLATFORM-ADMIN` for all production operations
-- **Scheduler Lambda dayjs issue**: known pre-existing esbuild bundling warning — does not block deploy
 - **`npx pulumi` fails**: use the global `pulumi` CLI directly (`brew install pulumi`), not npx
 
 <!-- GSD:project-start source:PROJECT.md -->
@@ -438,7 +448,7 @@ Multi-tenant AWS Cloud Operations Platform. All 10 DynamoDB tables have been mig
 Active constraints:
 - **ORM**: Prisma ORM with repository pattern; schema at `libs/prisma/schema.prisma`
 - **Multi-tenant safety**: Every query scoped via `getTenantClient(tenantId)` — `$executeRaw` is NOT intercepted, scope manually
-- **Python Lambda**: Discovery Lambda stays Python (no TypeScript rewrite)
+- **Background jobs**: pg-boss jobs in `apps/workers/` (ECS) — no AWS Lambda. Discovery was rewritten from Python to TypeScript.
 - **AWS Profile**: `PLATFORM-ADMIN` for all production operations
 <!-- GSD:project-end -->
 
@@ -446,19 +456,16 @@ Active constraints:
 ## Technology Stack
 
 ## Languages
-- TypeScript ~5.6.2 (root, Pulumi infra) / ^5.0.0 (web-ui, lambdas) - All application and infrastructure code
-- TypeScript ^5.7.2 - `lambda/scheduler/` Lambda function
-- TypeScript ^5.0.0 - `lambda/kb_sync_processor/` Lambda function
-- Python 3.x - `lambda/discovery/` and `lambda/vector_processor/` Lambda functions
+- TypeScript ~5.6.2 (root, Pulumi infra) / ^5.0.0 (web-ui, workers) - All application and infrastructure code
+- No Python — the former Python discovery/vector Lambdas were removed; all background work is TypeScript pg-boss jobs in `apps/workers/`
 ## Runtime
-- Node.js 20.x (required by scheduler Lambda: `"node": ">=20.0.0"`)
+- Node.js 20.x
 - Container base image: `public.ecr.aws/docker/library/node:20.9.0-slim`
-- Python 3.12 (local development)
-- npm 10.8.x (root), npm 11.x (web-ui dependency)
-- Lockfiles: present at root `package-lock.json`, `web-ui/package-lock.json`, `lambda/scheduler/package-lock.json`, `lambda/kb_sync_processor/package-lock.json`
+- Bun (workspace package manager + Nx task runner)
+- Lockfiles: `bun.lock` at the workspace root (single Bun workspace)
 ## Frameworks
-- Next.js 15.5.15 (`web-ui/`) - App router, standalone output mode, server-side rendering
-- React 19 (`web-ui/`) - UI rendering, functional components only
+- Next.js 15.5.15 (`apps/web-ui/`) - App router, standalone output mode, server-side rendering
+- React 19 (`apps/web-ui/`) - UI rendering, functional components only
 - Pulumi (`@pulumi/pulumi` ^3.228.0, `@pulumi/aws` ^7.23.0, `@pulumi/awsx` ^3.4.0, `@pulumi/command` ^1.2.1) - Infrastructure as Code (`infra/`)
 - LangGraph (`@langchain/langgraph` ^1.2.0) - Agent state machine workflows
 - LangChain (`langchain` ^1.2.28, `@langchain/core` ^1.1.29, `@langchain/aws` ^1.3.0) - Tool definitions, LLM integration
@@ -469,22 +476,24 @@ Active constraints:
 - shadcn/ui pattern via `components.json` - Component scaffolding
 - Lucide React ^0.454.0 - Icon library
 - TanStack React Table ^8.21.3 - Data tables
-- React Hook Form ^7.54.1 + Zod ^3.24.1 - Form handling and validation
+- TanStack React Query ^5.66.0 - Server-state data layer (hooks in `lib/queries/`, keys in `lib/queries/query-keys.ts`)
+- React Hook Form ^7.54.1 + Zod ^4.0.0 - Form handling and validation (Zod upgraded 3→4; `@t3-oss/env-nextjs` ^0.13.0 for v4 peer compat)
+- sonner ^1.7.1 - Toast notifications (replaced Radix toast)
+- framer-motion ^12.0.0 - Page transitions (`components/page-transition.tsx`)
+- geist ^1.3.1 - Geist Sans/Mono font (replaced Inter + Manrope)
 - Recharts (latest) - Charts and analytics
 - Monaco Editor ^4.7.0 - Code editor component
 - fumadocs-core/mdx/ui ^14.7.7 - Documentation pages
 - `@prisma/client` - PostgreSQL ORM (web-ui + workers)
 - mongodb ^7.1.0 - MongoDB client (deep agent checkpointing)
 - `@langchain/langgraph-checkpoint-mongodb` ^1.2.0 - LangGraph MongoDB checkpointer
-- Vitest ^4.0.18 (web-ui), Vitest ^2.1.8 (scheduler Lambda) - Unit tests
+- Vitest ^4.0.18 (web-ui + workers) - Unit tests
 - Jest ^29.7.0 + ts-jest ^29.2.5 (root) - Root-level tests
 - `@vitest/coverage-v8` ^4.0.18 - Coverage reporting
 - fast-check ^4.5.3 - Property-based testing
 - Playwright ^1.58.2 - E2E browser tests
-- esbuild ^0.27.3 (root) / ^0.24.2 (scheduler Lambda) - TypeScript Lambda bundling
-- tsc (kb_sync_processor Lambda) - TypeScript compilation
 - ts-node ^10.9.2 - TypeScript execution (scripts, local runners)
-- tsx ^4.19.2 - TypeScript execution for Lambda local runners
+- tsx ^4.19.2 - TypeScript execution for workers dev/local runners
 - PostCSS ^8 + autoprefixer ^10.4.20 - CSS processing
 ## Key Dependencies
 - `@pulumi/pulumi` ^3.228.0 + `@pulumi/aws` ^7.23.0 + `@pulumi/awsx` ^3.4.0 - All AWS infrastructure provisioning
@@ -494,26 +503,22 @@ Active constraints:
 - `langfuse-langchain` ^3.38.6 - LLM observability integration
 - `deepagents` ^1.8.1 - Deep agent framework
 - `@farukada/aws-langgraph-dynamodb-ts` ^0.1.0 - DynamoDB checkpointer for LangGraph
-- `pyiceberg[s3fs,glue]` - Apache Iceberg table management (discovery Lambda)
-- `pyarrow` + `pandas` - Data processing (discovery Lambda)
-- `boto3` >=1.38.0 - AWS SDK for Python Lambdas
-- `dayjs` ^1.11.10 - Date/time scheduling logic (scheduler Lambda, root)
+- `@aws-sdk/client-*` (ec2, rds, cloudwatch, autoscaling, …) - per-service AWS SDK v3 clients used by the workers discovery scan
+- `dayjs` ^1.11.x - Date/time scheduling logic (workers scheduler job, root)
 - `croner` ^10.0.1 + `cronstrue` ^3.13.0 - Cron schedule parsing/display
 - `uuid` ^13.0.0 - ID generation
 ## Configuration
 - Root: `.env.example` (single, tracked) — AWS account/region, Pulumi config, Cognito IDs, DATABASE_URL, NextAuth, Jira, Slack, MongoDB, Langfuse vars. Copy to `.env` at the repo root; both apps load it (web-ui via `next.config.mjs` dotenv, workers via `--env-file=../../.env`).
 - Root: `tsconfig.json` (ES2020, commonjs, strict mode)
-- Web-UI: `web-ui/tsconfig.json`, `web-ui/next.config.mjs` (standalone output, MDX via fumadocs)
-- Web-UI: `web-ui/tailwind.config.ts`, `web-ui/postcss.config.mjs`
-- Scheduler Lambda: `lambda/scheduler/tsconfig.json` (esbuild bundles to `dist/index.js`)
-- KB Sync Lambda: `lambda/kb_sync_processor/tsconfig.json` (tsc compile)
+- Web-UI: `apps/web-ui/tsconfig.json`, `apps/web-ui/next.config.mjs` (standalone output, MDX via fumadocs)
+- Web-UI: `apps/web-ui/tailwind.config.ts`, `apps/web-ui/postcss.config.mjs`
+- Workers: `apps/workers/tsconfig.json` (pg-boss job process)
 ## Platform Requirements
 - Node.js 20+
-- Python 3.x (for discovery/vector_processor Lambdas)
+- Bun (workspace install + Nx task runner)
 - AWS CLI + named profile (e.g., `PLATFORM-ADMIN`)
-- Docker (for Langfuse local observability stack via `docker-compose.langfuse.yml`)
-- AWS ECS Fargate (web-ui container, Node 20.9.0-slim + AWS Lambda Web Adapter 0.8.4)
-- AWS Lambda (scheduler, discovery, vector_processor, kb_sync_processor)
+- Docker (for Postgres via `docker compose up -d postgres`; Langfuse local stack via `docker-compose.langfuse.yml`)
+- AWS ECS Fargate — two services: web-ui container (Node 20.9.0-slim, Next.js via Bun, `docker-entrypoint.sh` runs Prisma migrate then starts Next on :3000) and workers container (pg-boss jobs)
 - AWS CloudFront (CDN in front of ALB and S3)
 - Deployment: Pulumi via `pulumi up --stack prod`
 <!-- GSD:stack-end -->
@@ -522,21 +527,20 @@ Active constraints:
 ## Conventions
 
 ## Language & Style
-- `web-ui/tsconfig.json`: `"strict": true`, `"noEmit": true`, `"moduleResolution": "bundler"`, `"isolatedModules": true`
+- `apps/web-ui/tsconfig.json`: `"strict": true`, `"noEmit": true`, `"moduleResolution": "bundler"`, `"isolatedModules": true`
 - Root `tsconfig.json`: `"strict": true`, `"noImplicitAny": true`, `"strictNullChecks": true`, `"noImplicitReturns": true`, `"noImplicitThis": true`, `"alwaysStrict": true`
 - `noUnusedLocals` and `noUnusedParameters` are both `false` (not enforced)
-- `web-ui/.eslintrc.json` extends `next/core-web-vitals` and `next/typescript` — no additional custom rules
-- ESLint run: `cd web-ui && npm run lint`
-- Lambda scheduler has its own ESLint: `cd lambda/scheduler && npm run lint`
+- `apps/web-ui/.eslintrc.json` extends `next/core-web-vitals` and `next/typescript` — no additional custom rules
+- ESLint run: `cd apps/web-ui && bun run lint` (or `bun run lint` at root for all projects)
 - No Prettier config detected — formatting not enforced by tooling
 - Indentation: 4 spaces in service/lib files; 2 spaces in UI components (both patterns coexist)
 ## Naming Conventions
 - React components: `kebab-case.tsx` (e.g., `accounts-client-component.tsx`, `account-details-dialog.tsx`)
 - Services: `kebab-case-service.ts` (e.g., `account-service.ts`, `audit-service.ts`, `client-account-service.ts`)
 - Hooks: `use-kebab-case.ts` (e.g., `use-debounce.ts`, `use-mobile.tsx`)
-- API routes: directory-based with `route.ts` (e.g., `web-ui/app/api/accounts/route.ts`)
+- API routes: directory-based with `route.ts` (e.g., `apps/web-ui/app/api/accounts/route.ts`)
 - Test files: `<module>.test.ts` or `<module>.property.test.ts`
-- Lambda handlers: `src/index.ts`
+- Worker jobs: `apps/workers/src/jobs/<job>/index.ts`
 - React components: `PascalCase` named exports (e.g., `export function AccountsList(...)`)
 - Service classes: `PascalCase` class with static methods (e.g., `class AccountService { static async getAccounts(...) }`)
 - Utility functions: `camelCase` (e.g., `cn()`, `useDebounce()`)
@@ -545,12 +549,12 @@ Active constraints:
 - Enum-style string constants: `SCREAMING_SNAKE_CASE` (e.g., `AGENT_OPS_TABLE_NAME`, `TTL_30_DAYS`, `MAX_REFLECT_ITERATIONS`)
 - camelCase for local variables and function parameters
 ## Import Patterns
-- `@/` maps to `web-ui/` root (`tsconfig.json` paths: `"@/*": ["./*"]`)
+- `@/` maps to `apps/web-ui/` root (`tsconfig.json` paths: `"@/*": ["./*"]`)
 - Always use `@/` for cross-directory imports in web-ui: `import { AccountService } from '@/lib/account-service'`
 - Relative imports only within the same directory
-- Services barrel: individual files per domain in `web-ui/lib/` (no barrel index)
-- UI primitives: `web-ui/components/ui/` — Radix-based shadcn/ui components (do not modify)
-- Feature components: `web-ui/components/<domain>/` (e.g., `accounts/`, `agent/`, `inventory/`)
+- Services barrel: individual files per domain in `apps/web-ui/lib/` (no barrel index)
+- UI primitives: `apps/web-ui/components/ui/` — Radix-based shadcn/ui components (do not modify)
+- Feature components: `apps/web-ui/components/<domain>/` (e.g., `accounts/`, `agent/`, `inventory/`)
 ## Component Patterns
 - Functional components only — no class components
 - `"use client"` directive required for any component using hooks or browser APIs
@@ -558,13 +562,14 @@ Active constraints:
 - Named exports (not default exports) for components
 - Local state: `useState` for component-level state
 - Side effects: `useEffect` with explicit dependency arrays
-- No global state library (no Redux/Zustand) — server state via API calls
-- Forms: `react-hook-form` with `@hookform/resolvers` + `zod` schemas
+- No client global-state library (no Redux/Zustand); **server state via TanStack Query hooks** in `lib/queries/<domain>.ts` (keys in `lib/queries/query-keys.ts`) — not raw `useEffect`+`fetch`
+- Forms: `react-hook-form` with `@hookform/resolvers` + `zod` schemas (Zod v4)
+- Toasts: import `toast` from `"sonner"` (legacy `useToast()` shim in `hooks/use-toast.ts`)
 - Tailwind CSS utility classes — never raw CSS unless in `styles/`
 - `cn()` utility from `@/lib/utils` for conditional class merging (`clsx` + `tailwind-merge`)
-- Radix UI primitives wrapped in `web-ui/components/ui/` — consume these, never rebuild
+- Radix UI primitives wrapped in `apps/web-ui/components/ui/` — consume these, never rebuild
 ## API Patterns
-- All routes in `web-ui/app/api/<domain>/route.ts`
+- All routes in `apps/web-ui/app/api/<domain>/route.ts`
 - Named exports for HTTP methods: `export async function GET(...)`, `export async function POST(...)`
 - Parameters: `NextRequest` as first arg; dynamic segments via `params` second arg
 - Always `NextResponse.json(data, { status: N })`
@@ -579,7 +584,7 @@ Active constraints:
 - Cross-account calls via `STSClient + AssumeRoleCommand` — never hardcode credentials
 - `authorize(action, Subject)` from `@/lib/rbac/authorize` — returns `null` (OK) or `NextResponse` (403)
 - Actions: `'read' | 'create' | 'update' | 'delete'`
-- Subjects: `'Account' | 'Schedule' | ...` (defined in `web-ui/lib/rbac/types.ts`)
+- Subjects: `'Account' | 'Schedule' | ...` (defined in `apps/web-ui/lib/rbac/types.ts`)
 ## Agent Patterns
 - Every action modifying AWS resources must be audit-logged via `AuditService` from `@/lib/audit-service`
 <!-- GSD:conventions-end -->
@@ -590,42 +595,42 @@ Active constraints:
 ## Pattern Overview
 - Next.js App Router serves both UI pages and REST API routes from a single ECS Fargate container
 - AI agent runs server-side inside the Next.js process using LangGraph StateGraph — no separate agent service
-- pg-boss workers handle async/scheduled work (resource scheduling, discovery, KB sync); vector processing remains in Lambda
+- pg-boss workers (ECS) handle ALL async/scheduled work (resource scheduling, discovery, KB sync incl. embeddings/vectors, right-sizing); there are no AWS Lambda functions
 - All persistent state lives in PostgreSQL (via Prisma ORM) or S3; DynamoDB has been fully removed
 - Cross-account AWS operations use STS AssumeRole exclusively — no hardcoded credentials
 - Pulumi manages all AWS infrastructure: two stacks (`infra/networking` → `infra/compute`)
 ## Layers
 - Purpose: Defines and provisions all AWS resources
 - Location: `infra/networking/`, `infra/compute/`
-- Contains: VPC/networking, ECS Fargate cluster, RDS PostgreSQL, Lambda functions, CloudFront, Cognito, S3 buckets, SQS queues, EventBridge rules
+- Contains: VPC/networking, ECS Fargate cluster (web-ui + workers services), RDS PostgreSQL, CloudFront, Cognito, S3 buckets (no Lambda)
 - Depends on: Pulumi (`@pulumi/aws`, `@pulumi/pulumi`, `@pulumi/awsx`, `@pulumi/command`)
 - Key stacks: `infra/networking` → `infra/compute` (dependency order must be preserved)
 - Purpose: Serves the React UI and handles all HTTP API requests
-- Location: `web-ui/app/`
-- Contains: Page components under `web-ui/app/app/`, REST API route handlers under `web-ui/app/api/`
-- Depends on: Service layer (`web-ui/lib/*-service.ts`), agent layer (`web-ui/lib/agent/`), AWS SDK v3
+- Location: `apps/web-ui/app/`
+- Contains: Page components under `apps/web-ui/app/app/`, REST API route handlers under `apps/web-ui/app/api/`
+- Depends on: Service layer (`apps/web-ui/lib/*-service.ts`), agent layer (`apps/web-ui/lib/agent/`), AWS SDK v3
 - Deployed as: Docker container on ECS Fargate, fronted by CloudFront
 - Purpose: Business logic for each domain — accounts, schedules, audit, inventory, etc.
-- Location: `web-ui/lib/`
+- Location: `apps/web-ui/lib/`
 - Key files: `account-service.ts`, `schedule-service.ts`, `audit-service.ts`, `schedule-execution-service.ts`, `tenant-config-service.ts`
 - Pattern: Static classes (e.g. `AccountService.getAccounts()`); all data access via repository factory (`@/lib/db/repository-factory`)
-- Depends on: `web-ui/lib/db/pg-config.ts` for Prisma client + `getTenantClient()`
+- Depends on: `apps/web-ui/lib/db/pg-config.ts` for Prisma client + `getTenantClient()`
 - Purpose: LangGraph-powered AI agents for cloud operations tasks
-- Location: `web-ui/lib/agent/`
+- Location: `apps/web-ui/lib/agent/`
 - Three agent types:
 - Entry: `graph-factory.ts` exports `createFastGraph`, `createReflectionGraph`, `createDeepGraph`
 - Shared: `agent-shared.ts` (state types, `ReflectionState`, `sanitizeMessagesForBedrock`), `model-factory.ts` (ChatBedrockConverse init, tool assembly), `persistence.ts` (PostgreSQL-backed checkpointer + chat history)
 - Purpose: Role-based access control for all mutating API routes
-- Location: `web-ui/lib/rbac/`
-- Pattern: Every mutating route calls `authorize(action, subject)` from `web-ui/lib/rbac/authorize.ts` before proceeding; uses CASL library for ABAC conditions
-- Session: `getServerSession(authOptions)` or `getSessionUserId()` from `web-ui/lib/auth-session.ts`
+- Location: `apps/web-ui/lib/rbac/`
+- Pattern: Every mutating route calls `authorize(action, subject)` from `apps/web-ui/lib/rbac/authorize.ts` before proceeding; uses CASL library for ABAC conditions
+- Session: `getServerSession(authOptions)` or `getSessionUserId()` from `apps/web-ui/lib/auth-session.ts`
 - Purpose: Background processing independent of the web process
-- Location: `lambda/`
-- Four functions:
+- Location: `apps/workers/src/jobs/` (pg-boss jobs in the workers ECS service)
+- Jobs: scheduler, discovery, kb-sync, right-sizing, agent-ops-scheduler, certificate-expiry-monitor
 - Purpose: React components for each domain
-- Location: `web-ui/components/`
+- Location: `apps/web-ui/components/`
 - Domain folders: `agent/`, `agent-ops/`, `inventory/`, `accounts/`, `schedules/`, `audit/`, `knowledge-base/`, `channels/`, `deep-agent/`
-- Primitives: `web-ui/components/ui/` — Radix-based shadcn/ui components (do not modify)
+- Primitives: `apps/web-ui/components/ui/` — Radix-based shadcn/ui components (do not modify)
 ## Data Flow
 - LangGraph thread state: PostgreSQL-backed checkpointer (`persistence.ts`), with optional S3 offload for large checkpoints
 - Long-term agent memory: PostgreSQL store with Bedrock embeddings, 90-day TTL
@@ -634,28 +639,28 @@ Active constraints:
 - Audit logs: `audit_log` table (immutable, 30-day TTL via `expire_at`)
 ## Key Design Patterns
 ## Entry Points
-- Location: `web-ui/app/layout.tsx`
+- Location: `apps/web-ui/app/layout.tsx`
 - Triggers: HTTP request to ECS Fargate container
 - Responsibilities: Wraps all pages in `ThemeProvider`, `ThemeConfigProvider`, `LayoutWrapper`, NextAuth `Providers`
-- Location: `web-ui/app/api/chat/route.ts`
+- Location: `apps/web-ui/app/api/chat/route.ts`
 - Triggers: POST from chat UI component
 - Responsibilities: Auth, thread lock, graph selection, streaming, PostgreSQL message persistence
-- Location: `web-ui/app/api/ask-ai/route.ts`
+- Location: `apps/web-ui/app/api/ask-ai/route.ts`
 - Triggers: POST from inventory Ask AI dialog
 - Responsibilities: Embed question, query S3 Vectors, fetch PostgreSQL resources, stream answer via Claude
-- Location: `lambda/scheduler/src/index.ts`
-- Triggers: EventBridge cron (every 30 min) or manual invocation
+- Location: `apps/workers/src/jobs/scheduler/`
+- Triggers: pg-boss cron (per-tenant schedule) or manual job submission
 - Responsibilities: Full or partial schedule scan, STS AssumeRole, resource start/stop
-- Location: `lambda/discovery/src/main.py`
-- Triggers: ECS task or scheduled invocation
-- Responsibilities: Multi-account parallel resource scan, PostgreSQL inventory writes, S3 normalized output
+- Location: `apps/workers/src/jobs/discovery/`
+- Triggers: pg-boss job (scheduled or on-demand)
+- Responsibilities: Multi-account parallel resource scan (AWS SDK v3), PostgreSQL inventory writes
 - Location: `infra/compute/index.ts`
 - Triggers: `pulumi up --stack prod`
-- Responsibilities: Provisions all compute resources (ECS, Lambda, RDS PostgreSQL, Cognito, CloudFront)
+- Responsibilities: Provisions all compute resources (ECS web-ui + workers, RDS PostgreSQL, Cognito, CloudFront)
 ## Error Handling
 - API routes: `try/catch` → `NextResponse.json({ error }, { status: 5xx })`
 - Agent stream: Abort errors (client disconnect) handled silently; real errors logged and propagated via `controller.error()`
-- Lambda: Top-level try/catch in handler returns `{ success: false, errors: [...] }` SchedulerResult
+- Workers: each pg-boss job has top-level try/catch; failures are retried per pg-boss config and logged via `createLogger()`
 ## Cross-Cutting Concerns
 <!-- GSD:architecture-end -->
 

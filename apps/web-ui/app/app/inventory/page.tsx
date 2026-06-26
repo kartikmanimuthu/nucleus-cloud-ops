@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { StatCard } from "@/components/shared/stat-card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -252,82 +254,61 @@ export default function InventoryPage() {
         <>
             <div className="space-y-6">
                 {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Inventory Discovery</h1>
-                        <p className="text-muted-foreground">
-                            Auto-discovered AWS resources across all connected accounts
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => router.push("/app/inventory/settings")} title="Inventory Settings">
-                            <Settings className="h-5 w-5" />
-                        </Button>
-                        <Button variant="outline" onClick={() => { fetchResourcesRef.current(); fetchSyncStatus(); }} disabled={loading}>
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                            Refresh
-                        </Button>
-                        <Button variant="secondary" onClick={() => setAskAIOpen(true)}>
-                            <Sparkles className="h-4 w-4 mr-2 text-indigo-500" />
-                            Ask AI
-                        </Button>
-                        <Button variant="outline" onClick={handleExport} disabled={exporting}>
-                            {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
-                            Export
-                        </Button>
-                        <Button onClick={() => setSyncDialogOpen(true)}>
-                            <RefreshCw className="h-4 w-4 mr-2" />
-                            Sync Now
-                        </Button>
-                    </div>
-                </div>
+                <PageHeader
+                    icon={Database}
+                    title="Inventory Discovery"
+                    description="Auto-discovered AWS resources across all connected accounts"
+                    actions={
+                        <>
+                            <Button variant="ghost" size="icon" onClick={() => router.push("/app/inventory/settings")} title="Inventory Settings">
+                                <Settings className="h-5 w-5" />
+                            </Button>
+                            <Button variant="outline" onClick={() => { fetchResourcesRef.current(); fetchSyncStatus(); }} disabled={loading}>
+                                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                                Refresh
+                            </Button>
+                            <Button variant="secondary" onClick={() => setAskAIOpen(true)}>
+                                <Sparkles className="h-4 w-4 mr-2 text-indigo-500" />
+                                Ask AI
+                            </Button>
+                            <Button variant="outline" onClick={handleExport} disabled={exporting}>
+                                {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
+                                Export
+                            </Button>
+                            <Button onClick={() => setSyncDialogOpen(true)}>
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                                Sync Now
+                            </Button>
+                        </>
+                    }
+                />
 
                 {/* Stats Cards */}
                 <div className="grid gap-4 md:grid-cols-4">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Total Resources</CardTitle>
-                            <Database className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{totalResources.toLocaleString()}</div>
-                            <p className="text-xs text-muted-foreground">Across all accounts</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Accounts Synced</CardTitle>
-                            <Server className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{accountsSynced}</div>
-                            <p className="text-xs text-muted-foreground">of {inventoryStatus?.accountCount || 0} total</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Last Sync</CardTitle>
-                            <RefreshCw className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">
-                                {lastSyncedAt ? formatDate(lastSyncedAt, 'shortDate', timezone) : "Never"}
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                                {lastSyncedAt ? formatTime(lastSyncedAt, timezone) : "Click Sync Now"}
-                            </p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Current View</CardTitle>
-                            <Filter className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{totalItems.toLocaleString()}</div>
-                            <p className="text-xs text-muted-foreground">Matching filters</p>
-                        </CardContent>
-                    </Card>
+                    <StatCard
+                        label="Total Resources"
+                        icon={Database}
+                        value={totalResources.toLocaleString()}
+                        sub="Across all accounts"
+                    />
+                    <StatCard
+                        label="Accounts Synced"
+                        icon={Server}
+                        value={accountsSynced}
+                        sub={`of ${inventoryStatus?.accountCount || 0} total`}
+                    />
+                    <StatCard
+                        label="Last Sync"
+                        icon={RefreshCw}
+                        value={lastSyncedAt ? formatDate(lastSyncedAt, 'shortDate', timezone) : "Never"}
+                        sub={lastSyncedAt ? formatTime(lastSyncedAt, timezone) : "Click Sync Now"}
+                    />
+                    <StatCard
+                        label="Current View"
+                        icon={Filter}
+                        value={totalItems.toLocaleString()}
+                        sub="Matching filters"
+                    />
                 </div>
 
                 {/* Filters */}

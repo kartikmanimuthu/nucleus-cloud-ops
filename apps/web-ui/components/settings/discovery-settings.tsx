@@ -1,6 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import {
+    useDiscoverySettings,
+    useSaveDiscoverySettings,
+} from "@/lib/queries/discovery-settings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,52 +23,48 @@ const PRESETS: { label: string; value: Period; description: string }[] = [
 ];
 
 export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
-    const { timezone } = useTenant();
-    const [period, setPeriod] = useState<Period>("daily");
-    const [lastRunAt, setLastRunAt] = useState<string | null>(null);
-    const [nextEligibleAt, setNextEligibleAt] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const { data, isLoading } = useDiscoverySettings();
+    if (isLoading) return null;
+    const period = (data?.period ?? "daily") as Period;
+    // key re-inits the editable period if the persisted value changes.
+    return (
+        <DiscoverySettingsForm
+            key={period}
+            canEdit={canEdit}
+            initialPeriod={period}
+            lastRunAt={data?.lastRunAt ?? null}
+            nextEligibleAt={data?.nextEligibleAt ?? null}
+        />
+    );
+}
 
-    useEffect(() => {
-        fetch("/api/settings/discovery")
-            .then((r) => r.json())
-            .then((data) => {
-                if (data.success) {
-                    setPeriod(data.data.period);
-                    setLastRunAt(data.data.lastRunAt);
-                    setNextEligibleAt(data.data.nextEligibleAt);
-                }
-            })
-            .catch(() => setError("Failed to load discovery settings"))
-            .finally(() => setLoading(false));
-    }, []);
+function DiscoverySettingsForm({
+    canEdit,
+    initialPeriod,
+    lastRunAt,
+    nextEligibleAt,
+}: {
+    canEdit: boolean;
+    initialPeriod: Period;
+    lastRunAt: string | null;
+    nextEligibleAt: string | null;
+}) {
+    const { timezone } = useTenant();
+    const [period, setPeriod] = useState<Period>(initialPeriod);
+    const [error, setError] = useState<string | null>(null);
+    const saveMutation = useSaveDiscoverySettings();
+    const saving = saveMutation.isPending;
 
     async function handleSave() {
-        setSaving(true);
         setError(null);
         try {
-            const res = await fetch("/api/settings/discovery", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ period }),
-            });
-            const data = await res.json();
-            if (!data.success) throw new Error(data.error || "Failed to save");
-            const refreshed = await fetch("/api/settings/discovery").then(r => r.json());
-            if (refreshed.success) {
-                setNextEligibleAt(refreshed.data.nextEligibleAt);
-            }
+            // mutation invalidates the cache → lastRun/nextEligible refresh via props.
+            await saveMutation.mutateAsync(period);
             toast.success("Discovery settings saved");
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to save");
-        } finally {
-            setSaving(false);
         }
     }
-
-    if (loading) return null;
 
     return (
         <Card>

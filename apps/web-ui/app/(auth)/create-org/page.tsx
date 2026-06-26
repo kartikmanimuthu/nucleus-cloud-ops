@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Zap, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +32,7 @@ type SlugStatus = "idle" | "checking" | "available" | "taken";
 
 export default function CreateOrgPage() {
     const router = useRouter();
-    const { data: session, status, update } = useSession();
+    const { status, update } = useSession();
     const [isLoading, setIsLoading] = useState(false);
     const [serverError, setServerError] = useState<string | null>(null);
     const [slugStatus, setSlugStatus] = useState<SlugStatus>("idle");
@@ -118,45 +119,41 @@ export default function CreateOrgPage() {
         }
     };
 
+    // Logo badge shown above the card (reference parity).
+    const brand = (
+        <span className="flex items-center gap-2 self-center font-medium">
+            <span className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <Zap className="size-4" />
+            </span>
+            Nucleus Ops
+        </span>
+    );
+
     if (status === "loading") {
         return (
-            <div className="min-h-screen bg-background flex items-center justify-center p-4">
-                <div className="w-full max-w-sm">
-                    <div className="bg-card border border-border rounded-xl shadow-sm p-8">
-                        <div className="space-y-4">
-                            <Skeleton className="h-4 w-3/4" />
-                            <Skeleton className="h-10 w-full" />
-                            <Skeleton className="h-10 w-full" />
-                            <Skeleton className="h-10 w-full" />
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <>
+                {brand}
+                <Card>
+                    <CardContent className="space-y-4 pt-6">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                    </CardContent>
+                </Card>
+            </>
         );
     }
 
     return (
-        <div className="min-h-screen bg-background flex items-center justify-center p-4">
-            <div className="w-full max-w-sm">
-                <div className="bg-card border border-border rounded-xl shadow-sm p-8">
-                    {/* Logo row */}
-                    <div className="flex items-center gap-2 mb-6">
-                        <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                            <Zap className="w-4 h-4 text-primary-foreground" />
-                        </div>
-                        <span className="font-bold text-lg text-foreground">Nucleus Ops</span>
-                    </div>
-
-                    {/* Heading block */}
-                    <div className="mb-6">
-                        <h1 className="text-2xl font-bold text-foreground leading-[1.2]">
-                            Create your organization
-                        </h1>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            Set up your workspace to get started
-                        </p>
-                    </div>
-
+        <>
+            {brand}
+            <Card>
+                <CardHeader className="text-center">
+                    <CardTitle className="text-xl">Create your organization</CardTitle>
+                    <CardDescription>Set up your workspace to get started</CardDescription>
+                </CardHeader>
+                <CardContent>
                     <form onSubmit={handleSubmit(onSubmit)} noValidate>
                         <fieldset disabled={isLoading} className="border-0 p-0 m-0 min-w-0">
                         <div className="space-y-4">
@@ -279,8 +276,8 @@ export default function CreateOrgPage() {
                         </div>
                         </fieldset>
                     </form>
-                </div>
-            </div>
-        </div>
+                </CardContent>
+            </Card>
+        </>
     );
 }

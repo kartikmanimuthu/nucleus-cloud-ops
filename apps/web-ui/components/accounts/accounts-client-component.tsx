@@ -17,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Server,
@@ -32,17 +31,19 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { AccountsTable } from "@/components/accounts/accounts-table";
-import { AccountsGrid } from "@/components/accounts/accounts-grid";
 import { ImportAccountsDialog } from "@/components/accounts/import-accounts-dialog";
 import { BulkActionBar } from "@/components/shared/bulk-action-bar";
+import { PageHeader } from "@/components/shared/page-header";
 import { useBulkSelection } from "@/hooks/use-bulk-selection";
 import type { BulkAction, BulkActionResult } from "@/lib/bulk-actions/types";
-import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-import { useIsFirstRender } from "@/hooks/use-first-render";
+import { useAccounts } from "@/lib/queries/accounts";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queries/query-keys";
 import { PaginationBar } from "@/components/ui/pagination-bar";
+import { SpinnerOverlay } from "@/components/ui/spinner";
 
 const ACCOUNT_BULK_ACTIONS: BulkAction[] = [
   { key: "activate", label: "Activate", icon: Power },
@@ -84,14 +85,9 @@ export default function AccountsClient({
 }: AccountsClientProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  // Data state
-  const [accounts, setAccounts] = useState<UIAccount[]>(initialAccounts);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(initialPagination?.total || initialAccounts.length);
-
-  // Effective filters (used for fetching data)
+  // Effective filters (drive data fetching)
   const [searchTerm, setSearchTerm] = useState(initialFilters?.searchTerm || "");
   const [statusFilter, setStatusFilter] = useState(initialFilters?.statusFilter || "all");
   const [connectionFilter, setConnectionFilter] = useState(initialFilters?.connectionFilter || "all");
@@ -105,117 +101,88 @@ export default function AccountsClient({
   const [localStatusFilter, setLocalStatusFilter] = useState(initialFilters?.statusFilter || "all");
   const [localConnectionFilter, setLocalConnectionFilter] = useState(initialFilters?.connectionFilter || "all");
 
-  const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
-
-  // Bulk selection
-  const selection = useBulkSelection(accounts.map((a) => a.id));
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
 
-  // Stats state
-  const [allAccounts, setAllAccounts] = useState<UIAccount[]>([]);
-  const [loadingStats, setLoadingStats] = useState(false);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  // Effective filters object — also serves as the query key.
+  const filters = {
+    statusFilter: statusFilter !== "all" ? statusFilter : undefined,
+    connectionFilter: connectionFilter !== "all" ? connectionFilter : undefined,
+    searchTerm: searchTerm || undefined,
+    limit,
+    page: currentPage,
+  };
 
-  // Update URL with current filters and pagination
+  // Seed the first paint from server-rendered data (no loading flash), but only
+  // while the current filters still match what the server rendered.
+  const isInitialView =
+    currentPage === (initialPagination?.page ?? 1) &&
+    limit === (initialPagination?.limit ?? 10) &&
+    searchTerm === (initialFilters?.searchTerm ?? "") &&
+    statusFilter === (initialFilters?.statusFilter ?? "all") &&
+    connectionFilter === (initialFilters?.connectionFilter ?? "all");
+
+  // Main list query (TanStack Query — replaces manual fetch + useEffect).
+  const accountsQuery = useAccounts(
+    filters,
+    isInitialView
+      ? {
+          initialData: {
+            accounts: initialAccounts,
+            totalCount: initialPagination?.total ?? initialAccounts.length,
+          },
+        }
+      : undefined,
+  );
+
+  // Stats query — all accounts, unfiltered (separate cache entry).
+  const statsQuery = useAccounts({ limit: 1000 });
+
+  const accounts = accountsQuery.data?.accounts ?? [];
+  const totalItems =
+    accountsQuery.data?.totalCount ?? initialPagination?.total ?? 0;
+  const loading = accountsQuery.isFetching;
+  const error = accountsQuery.error
+    ? accountsQuery.error instanceof Error
+      ? accountsQuery.error.message
+      : "Failed to load accounts"
+    : null;
+  const allAccounts = statsQuery.data?.accounts ?? [];
+
+  // Bulk selection (depends on the currently displayed accounts).
+  const selection = useBulkSelection(accounts.map((a) => a.id));
+
+  // Keep the URL in sync with the effective filters/pagination.
   const updateUrlWithFilters = useCallback(() => {
     const params = new URLSearchParams();
-    if (statusFilter !== 'all') params.set('status', statusFilter);
-    if (connectionFilter !== 'all') params.set('connection', connectionFilter);
-    if (searchTerm) params.set('search', searchTerm);
-    if (currentPage > 1) params.set('page', currentPage.toString());
-    params.set('limit', limit.toString());
-    
-    // Replace the current URL with the new one including filters
-    const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
-    window.history.replaceState({}, '', newUrl);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (connectionFilter !== "all") params.set("connection", connectionFilter);
+    if (searchTerm) params.set("search", searchTerm);
+    if (currentPage > 1) params.set("page", currentPage.toString());
+    params.set("limit", limit.toString());
+    const newUrl = `${window.location.pathname}${params.toString() ? "?" + params.toString() : ""}`;
+    window.history.replaceState({}, "", newUrl);
   }, [statusFilter, connectionFilter, searchTerm, currentPage, limit]);
 
-  // Load accounts with current filters
-  const loadAccountsWithFilters = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      updateUrlWithFilters();
-
-      const filters = {
-        statusFilter: statusFilter !== 'all' ? statusFilter : undefined,
-        connectionFilter: connectionFilter !== 'all' ? connectionFilter : undefined,
-        searchTerm: searchTerm || undefined,
-        limit: limit,
-        page: currentPage
-      };
-      
-      const result = await ClientAccountService.getAccounts(filters);
-      
-      if (Array.isArray(result)) {
-           setAccounts(result);
-      } else {
-           setAccounts(result.accounts);
-           // Update total count if returned from API
-           if (result.totalCount !== undefined) {
-               setTotalItems(result.totalCount);
-           }
-      }
-      
-    } catch (err) {
-      console.error("Error loading accounts:", err);
-      setError(err instanceof Error ? err.message : "Failed to load accounts");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, connectionFilter, searchTerm, currentPage, limit, updateUrlWithFilters]);
-
-  // Load global stats (all accounts)
-  const loadStats = useCallback(async () => {
-    try {
-      setLoadingStats(true);
-      // Fetch all accounts for stats (no limit, or high limit)
-      const result = await ClientAccountService.getAccounts({ limit: 1000 });
-      setAllAccounts(result.accounts);
-    } catch (err) {
-      console.error("Error loading stats:", err);
-    } finally {
-        setLoadingStats(false);
-    }
-  }, []);
-
-  // Initial load for stats
   useEffect(() => {
-     loadStats();
-  }, [loadStats]);
+    updateUrlWithFilters();
+  }, [updateUrlWithFilters]);
 
-  // Handle account updates
+  // Invalidate account caches after an external mutation (edit/delete dialogs,
+  // bulk actions). Replaces the old manual refetch callbacks.
+  const invalidateAccounts = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all });
+  }, [queryClient]);
+
   const handleAccountUpdated = (message?: string) => {
-    loadAccountsWithFilters();
-    loadStats(); // Refresh stats
+    invalidateAccounts();
     if (message) {
-      toast({
-        variant: "success",
-        title: "Success",
-        description: message,
-      });
+      toast({ variant: "success", title: "Success", description: message });
     }
   };
 
-  // Track if this is the first render
-  const isFirstRender = useIsFirstRender();
-
-  // Update URL and fetch data when EFFECTIVE filters change
-  useEffect(() => {
-    if (!isFirstRender) {
-      loadAccountsWithFilters();
-    }
-  }, [searchTerm, statusFilter, connectionFilter, currentPage, limit, loadAccountsWithFilters, isFirstRender]);
-
-  // Sync state with props when server re-renders
-  useEffect(() => {
-    setAccounts(initialAccounts);
-    setTotalItems(initialPagination?.total || initialAccounts.length);
-  }, [initialAccounts, initialPagination]);
-
   const refreshAccounts = () => {
-    loadAccountsWithFilters();
+    invalidateAccounts();
   };
 
   const handleApplyFilter = () => {
@@ -226,12 +193,9 @@ export default function AccountsClient({
   };
 
   const handleClearFilter = () => {
-    // Reset local state
     setLocalSearchTerm("");
     setLocalStatusFilter("all");
     setLocalConnectionFilter("all");
-    
-    // Reset effective state (triggers reload)
     setSearchTerm("");
     setStatusFilter("all");
     setConnectionFilter("all");
@@ -270,8 +234,7 @@ export default function AccountsClient({
       });
 
       selection.clear();
-      loadAccountsWithFilters();
-      loadStats();
+      invalidateAccounts();
     } catch (error) {
       console.error("Error running bulk account action:", error);
       toast({
@@ -285,49 +248,36 @@ export default function AccountsClient({
     }
   };
 
-  // Calculate summary statistics
+  // Calculate summary statistics (from the unfiltered stats query).
   const stats = {
-    total: allAccounts.length, // totalItems might correspond to filtered total, but for "Total Accounts" card we likely want absolute total or filtered total. Let's use allAccounts.length effectively (assuming no filters on loadStats)
+    total: allAccounts.length,
     active: allAccounts.filter((a) => a.active).length,
     inactive: allAccounts.filter((a) => !a.active).length,
-    connected: allAccounts.filter((a) => a.connectionStatus === 'connected').length,
-    totalSavings: allAccounts.reduce(
-      (sum, a) => sum + (a.monthlySavings || 0),
-      0
-    ),
-    totalResources: allAccounts.reduce(
-      (sum, a) => sum + (a.resourceCount || 0),
-      0
-    ),
+    connected: allAccounts.filter((a) => a.connectionStatus === "connected").length,
+    totalSavings: allAccounts.reduce((sum, a) => sum + (a.monthlySavings || 0), 0),
+    totalResources: allAccounts.reduce((sum, a) => sum + (a.resourceCount || 0), 0),
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between sticky top-0 z-10 bg-background p-4 border-b">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">AWS Accounts</h1>
-          <p className="text-muted-foreground">
-            Manage and monitor your AWS accounts and their configurations
-          </p>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="outline"
-            onClick={refreshAccounts}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
+      <PageHeader
+        icon={Server}
+        title="AWS Accounts"
+        description="Manage and monitor your AWS accounts and their configurations"
+        actions={
+          <>
+            <Button variant="outline" onClick={refreshAccounts} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
             <Button onClick={() => router.push("/app/accounts/create")}>
               <Plus className="mr-2 h-4 w-4" />
               Integrate Account
             </Button>
-          </div>
-        </div>
+          </>
+        }
+      />
 
       {/* Error Alert */}
       {error && (
@@ -349,13 +299,8 @@ export default function AccountsClient({
       {/* Loading State */}
       {loading && !error && accounts.length === 0 && (
         <Card>
-          <CardContent className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <Loader2 className="mx-auto h-8 w-8 animate-spin" />
-              <p className="mt-2 text-sm text-muted-foreground">
-                Loading accounts...
-              </p>
-            </div>
+          <CardContent className="py-12">
+            <SpinnerOverlay label="Loading accounts..." />
           </CardContent>
         </Card>
       )}
@@ -510,40 +455,21 @@ export default function AccountsClient({
         itemNoun="account"
       />
 
-      {/* View Toggle and Content */}
-      <Tabs
-        value={viewMode}
-        onValueChange={(value) => setViewMode(value as "table" | "grid")}
-      >
-        <TabsList>
-          <TabsTrigger value="table">Table View</TabsTrigger>
-          <TabsTrigger value="grid">Grid View</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="table" className="space-y-4">
-          <AccountsTable
-            accounts={accounts}
-            onAccountUpdated={handleAccountUpdated}
-            isSelected={selection.isSelected}
-            onToggleSelect={selection.toggle}
-            allSelected={selection.allSelected}
-            someSelected={selection.someSelected}
-            onToggleSelectAll={selection.selectAll}
-          />
-        </TabsContent>
-
-        <TabsContent value="grid" className="space-y-4">
-          <AccountsGrid
-            accounts={accounts}
-            onAccountUpdated={handleAccountUpdated}
-            isSelected={selection.isSelected}
-            onToggleSelect={selection.toggle}
-          />
-        </TabsContent>
-      </Tabs>
+      {/* Accounts table */}
+      <div className="space-y-4">
+        <AccountsTable
+          accounts={accounts}
+          onAccountUpdated={handleAccountUpdated}
+          isSelected={selection.isSelected}
+          onToggleSelect={selection.toggle}
+          allSelected={selection.allSelected}
+          someSelected={selection.someSelected}
+          onToggleSelectAll={selection.selectAll}
+        />
+      </div>
 
       {/* Pagination */}
-      {!loading && (
+      {accounts.length > 0 && (
         <PaginationBar
           currentPage={currentPage}
           totalItems={totalItems}

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,11 +26,46 @@ interface JiraSettingsFormProps {
     backLabel?: string;
 }
 
-export function JiraSettingsForm({ backHref = '/agent-ops', backLabel = 'Back to Agent Ops' }: JiraSettingsFormProps) {
+export function JiraSettingsForm(props: JiraSettingsFormProps) {
+    const { data, isLoading } = useChannelSettings('jira');
+    if (isLoading) {
+        return (
+            <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
+    return (
+        <JiraSettingsFormInner
+            {...props}
+            initialConfigured={data?.configured ?? false}
+            initialEnabled={data?.enabled ?? true}
+            initialBaseUrl={(data?.baseUrl as string) || ''}
+            initialUserEmail={(data?.userEmail as string) || ''}
+            initialBotAccountId={(data?.botAccountId as string) || ''}
+        />
+    );
+}
+
+function JiraSettingsFormInner({
+    backHref = '/agent-ops',
+    backLabel = 'Back to Agent Ops',
+    initialConfigured,
+    initialEnabled,
+    initialBaseUrl,
+    initialUserEmail,
+    initialBotAccountId,
+}: JiraSettingsFormProps & {
+    initialConfigured: boolean;
+    initialEnabled: boolean;
+    initialBaseUrl: string;
+    initialUserEmail: string;
+    initialBotAccountId: string;
+}) {
     const router = useRouter();
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [configured, setConfigured] = useState(false);
+    const saveMutation = useSaveChannelSettings('jira');
+    const saving = saveMutation.isPending;
+    const [configured, setConfigured] = useState(initialConfigured);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [showSecret, setShowSecret] = useState(false);
@@ -38,41 +74,17 @@ export function JiraSettingsForm({ backHref = '/agent-ops', backLabel = 'Back to
 
     const [form, setForm] = useState<JiraSettingsForm>({
         webhookSecret: '',
-        baseUrl: '',
-        userEmail: '',
+        baseUrl: initialBaseUrl,
+        userEmail: initialUserEmail,
         apiToken: '',
-        botAccountId: '',
-        enabled: true,
+        botAccountId: initialBotAccountId,
+        enabled: initialEnabled,
     });
 
     const webhookUrl =
         typeof window !== 'undefined'
             ? `${window.location.origin}/api/v1/trigger/jira`
             : '/api/v1/trigger/jira';
-
-    useEffect(() => {
-        fetchSettings();
-    }, []);
-
-    const fetchSettings = async () => {
-        try {
-            setLoading(true);
-            const res = await fetch('/api/agent-ops/settings/jira');
-            const data = await res.json();
-            setConfigured(data.configured ?? false);
-            setForm(prev => ({
-                ...prev,
-                enabled: data.enabled ?? true,
-                baseUrl: data.baseUrl || '',
-                userEmail: data.userEmail || '',
-                botAccountId: data.botAccountId || '',
-            }));
-        } catch (error) {
-            console.error('[JiraSettings] Failed to fetch settings:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleSave = async () => {
         if (!form.webhookSecret.trim()) {
@@ -81,35 +93,22 @@ export function JiraSettingsForm({ backHref = '/agent-ops', backLabel = 'Back to
             return;
         }
         try {
-            setSaving(true);
             setErrorMessage('');
-            const res = await fetch('/api/agent-ops/settings/jira', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    webhookSecret: form.webhookSecret,
-                    baseUrl: form.baseUrl || undefined,
-                    userEmail: form.userEmail || undefined,
-                    apiToken: form.apiToken || undefined,
-                    botAccountId: form.botAccountId || undefined,
-                    enabled: form.enabled,
-                }),
+            await saveMutation.mutateAsync({
+                webhookSecret: form.webhookSecret,
+                baseUrl: form.baseUrl || undefined,
+                userEmail: form.userEmail || undefined,
+                apiToken: form.apiToken || undefined,
+                botAccountId: form.botAccountId || undefined,
+                enabled: form.enabled,
             });
-            const data = await res.json();
-            if (res.ok) {
-                setConfigured(true);
-                setSaveStatus('saved');
-                setForm(prev => ({ ...prev, webhookSecret: '', apiToken: '' }));
-                setTimeout(() => setSaveStatus('idle'), 3000);
-            } else {
-                setErrorMessage(data.error || 'Failed to save');
-                setSaveStatus('error');
-            }
+            setConfigured(true);
+            setSaveStatus('saved');
+            setForm(prev => ({ ...prev, webhookSecret: '', apiToken: '' }));
+            setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
             setSaveStatus('error');
-        } finally {
-            setSaving(false);
         }
     };
 
@@ -119,16 +118,8 @@ export function JiraSettingsForm({ backHref = '/agent-ops', backLabel = 'Back to
         setTimeout(() => setCopied(null), 2000);
     };
 
-    if (loading) {
-        return (
-            <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-        );
-    }
-
     return (
-        <div className="flex-1 p-4 md:p-8 pt-6 bg-background max-w-3xl mx-auto space-y-6">
+        <div className="flex-1 bg-background max-w-3xl mx-auto space-y-6">
             {/* Back nav */}
             <div>
                 <Button

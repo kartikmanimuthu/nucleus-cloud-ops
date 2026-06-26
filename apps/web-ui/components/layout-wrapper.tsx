@@ -1,8 +1,11 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Sidebar } from './sidebar';
 import { AuthGuard } from './auth-guard';
+import { PageTransition } from './page-transition';
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { AppSidebar } from './layout/app-sidebar';
+import { Header } from './layout/header';
 
 export function LayoutWrapper({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
@@ -15,12 +18,15 @@ export function LayoutWrapper({ children }: { children: React.ReactNode }) {
 
     return (
         <AuthGuard>
-            <div className="flex min-h-screen bg-background h-screen overflow-hidden">
-                <Sidebar />
-                <main className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
-                    <div className="p-2 min-w-0">{children}</div>
-                </main>
-            </div>
+            <SidebarProvider>
+                <AppSidebar />
+                <SidebarInset className="min-w-0 overflow-hidden">
+                    <Header />
+                    <div className="min-w-0 flex-1 overflow-y-auto p-4">
+                        <PageTransition>{children}</PageTransition>
+                    </div>
+                </SidebarInset>
+            </SidebarProvider>
         </AuthGuard>
     );
 }

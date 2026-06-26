@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -388,14 +389,11 @@ export function SchedulesTable({
         </Table>
 
         {schedules.length === 0 && (
-          <div className="text-center py-12">
-            <Calendar className="mx-auto h-12 w-12 text-muted-foreground" />
-            <h3 className="mt-2 text-sm font-semibold">No schedules found</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Try adjusting your search terms or filters, or create a new
-              schedule.
-            </p>
-          </div>
+          <EmptyState
+            icon={Calendar}
+            title="No schedules found"
+            description="Try adjusting your search terms or filters, or create a new schedule."
+          />
         )}
       </CardContent>
 

@@ -113,7 +113,7 @@ export function createMemoryTools(tenantId: string, userId: string) {
                 schema: z.object({
                     namespace: z.array(z.string()).describe('Namespace path e.g. ["user","preferences"] or ["infra","<account-id>"]'),
                     key: z.string().describe('Unique key within the namespace'),
-                    value: z.record(z.unknown()).describe('Structured data to store'),
+                    value: z.record(z.string(), z.unknown()).describe('Structured data to store'),
                 }),
             }
         ),

@@ -3,10 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, LayoutGrid, TableIcon } from "lucide-react";
+import { Plus, ShieldCheck } from "lucide-react";
+import { PageHeader } from "@/components/shared/page-header";
 import { CertificateGrid, type CertificateRow } from "./certificate-grid";
-import { CertificateCards } from "./certificate-cards";
 import { UploadCertificateDialog } from "./upload-certificate-dialog";
 import { DeleteCertificateDialog } from "./delete-certificate-dialog";
 
@@ -16,7 +15,6 @@ export function CertificateClientComponent() {
     const [loading, setLoading] = useState(true);
     const [uploadOpen, setUploadOpen] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<CertificateRow | null>(null);
-    const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
 
     const fetchCertificates = useCallback(async () => {
         try {
@@ -61,34 +59,18 @@ export function CertificateClientComponent() {
     return (
         <div className="flex h-full">
             <div className="flex-1 flex flex-col min-w-0">
-                <div className="flex items-center justify-between p-6 pb-4">
-                    <div>
-                        <h1 className="text-2xl font-bold tracking-tight">Certificate Manager</h1>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            Manage TLS certificates across your AWS accounts
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <Tabs
-                            value={viewMode}
-                            onValueChange={(value) => setViewMode(value as "table" | "grid")}
-                        >
-                            <TabsList className="h-9">
-                                <TabsTrigger value="table" className="px-3">
-                                    <TableIcon className="h-4 w-4 mr-1.5" />
-                                    Table
-                                </TabsTrigger>
-                                <TabsTrigger value="grid" className="px-3">
-                                    <LayoutGrid className="h-4 w-4 mr-1.5" />
-                                    Cards
-                                </TabsTrigger>
-                            </TabsList>
-                        </Tabs>
-                        <Button onClick={() => setUploadOpen(true)} className="gap-2">
-                            <Plus className="h-4 w-4" />
-                            Upload Certificate
-                        </Button>
-                    </div>
+                <div className="p-6 pb-4">
+                    <PageHeader
+                        icon={ShieldCheck}
+                        title="Certificate Manager"
+                        description="Manage TLS certificates across your AWS accounts"
+                        actions={
+                            <Button onClick={() => setUploadOpen(true)} className="gap-2">
+                                <Plus className="h-4 w-4" />
+                                Upload Certificate
+                            </Button>
+                        }
+                    />
                 </div>
 
                 <div className="px-6 flex-1 overflow-auto">
@@ -97,23 +79,12 @@ export function CertificateClientComponent() {
                             Loading certificates...
                         </div>
                     ) : (
-                        <>
-                            {viewMode === "table" ? (
-                                <CertificateGrid
-                                    data={certificates}
-                                    onRowClick={(cert) => router.push(`/app/certificates/${cert.id}`)}
-                                    onDownload={handleDownload}
-                                    onDelete={setDeleteTarget}
-                                />
-                            ) : (
-                                <CertificateCards
-                                    data={certificates}
-                                    onCardClick={(cert) => router.push(`/app/certificates/${cert.id}`)}
-                                    onDownload={handleDownload}
-                                    onDelete={setDeleteTarget}
-                                />
-                            )}
-                        </>
+                        <CertificateGrid
+                            data={certificates}
+                            onRowClick={(cert) => router.push(`/app/certificates/${cert.id}`)}
+                            onDownload={handleDownload}
+                            onDelete={setDeleteTarget}
+                        />
                     )}
                 </div>
             </div>

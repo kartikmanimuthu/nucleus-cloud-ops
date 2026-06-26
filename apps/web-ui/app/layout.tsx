@@ -1,16 +1,13 @@
 import type React from "react";
 import type { Metadata } from "next";
-import { Inter, Manrope } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeConfigProvider } from "@/components/theme-config-provider";
-import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "sonner";
 import { LayoutWrapper } from "@/components/layout-wrapper";
 import Providers from "@/providers/Providers";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope" });
 
 export const metadata: Metadata = {
   title: "Nucleus Cloud Ops",
@@ -26,7 +23,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${manrope.variable} font-sans`}>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} font-sans`}>
         <Providers>
           <ThemeProvider
             attribute="class"
@@ -37,7 +34,6 @@ export default function RootLayout({
             <ThemeConfigProvider>
               <div>
                 <LayoutWrapper>{children}</LayoutWrapper>
-                <Toaster />
                 <SonnerToaster richColors position="bottom-right" />
               </div>
             </ThemeConfigProvider>

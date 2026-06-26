@@ -376,7 +376,7 @@ export default function KnowledgeBaseDetailPage() {
   const isUploading = uploadPhase === 'uploading';
 
   return (
-    <div className="flex-1 p-4 md:p-8 pt-6 bg-background">
+    <div className="flex-1 bg-background">
       <div className="max-w-4xl mx-auto space-y-6">
 
         {/* Back nav */}

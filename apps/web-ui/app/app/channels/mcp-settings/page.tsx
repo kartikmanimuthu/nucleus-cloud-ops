@@ -9,7 +9,7 @@ export default function ChannelsMCPSettingsPage() {
     const router = useRouter();
 
     return (
-        <div className="flex-1 p-4 md:p-8 pt-6 bg-background max-w-4xl mx-auto">
+        <div className="flex-1 bg-background max-w-4xl mx-auto">
             <div className="mb-6">
                 <Button
                     variant="ghost"

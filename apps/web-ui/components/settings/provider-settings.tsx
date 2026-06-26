@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Trash2, Plus, TestTube, Loader2, Server } from "lucide-react";
+import { PageHeader } from "@/components/shared/page-header";
 import {
     Dialog,
     DialogContent,
@@ -16,29 +17,31 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-
-interface ProviderModel {
-    id: string;
-    label: string;
-    maxTokens?: number;
-}
-
-interface Provider {
-    id: string;
-    name: string;
-    provider: string;
-    baseUrl: string;
-    apiKey: string | null;
-    models: ProviderModel[];
-    isEnabled: boolean;
-    createdAt: string;
-    updatedAt: string;
-}
+import {
+    useProviders,
+    useCreateProvider,
+    useDeleteProvider,
+    useToggleProvider,
+    useTestProvider,
+    type ProviderModel,
+} from "@/lib/queries/providers";
 
 export function ProviderSettings() {
-    const [providers, setProviders] = useState<Provider[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const providersQuery = useProviders();
+    const createProvider = useCreateProvider();
+    const deleteProvider = useDeleteProvider();
+    const toggleProvider = useToggleProvider();
+    const testProvider = useTestProvider();
+
+    const providers = providersQuery.data ?? [];
+    const loading = providersQuery.isLoading;
+    const saving = createProvider.isPending;
+    const [actionError, setActionError] = useState<string | null>(null);
+    // Surface either a handler/validation error or the load error.
+    const error =
+        actionError ??
+        (providersQuery.error instanceof Error ? providersQuery.error.message : null);
+
     const [dialogOpen, setDialogOpen] = useState(false);
     const [testing, setTesting] = useState<string | null>(null);
     const [testResult, setTestResult] = useState<{ id: string; success: boolean; message: string } | null>(null);
@@ -47,82 +50,41 @@ export function ProviderSettings() {
     const [formBaseUrl, setFormBaseUrl] = useState("");
     const [formApiKey, setFormApiKey] = useState("");
     const [formModels, setFormModels] = useState<ProviderModel[]>([{ id: "", label: "", maxTokens: 8000 }]);
-    const [saving, setSaving] = useState(false);
-
-    const fetchProviders = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const res = await fetch("/api/settings/providers");
-            const json = await res.json();
-            if (!res.ok || !json.success) {
-                setError(json.error ?? "Failed to load providers.");
-                return;
-            }
-            setProviders(json.data.providers ?? []);
-        } catch {
-            setError("Failed to load providers.");
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => { fetchProviders(); }, [fetchProviders]);
 
     const handleCreate = async () => {
-        setSaving(true);
+        const validModels = formModels.filter(m => m.id.trim() && m.label.trim());
+        if (validModels.length === 0) {
+            setActionError("At least one model with ID and label is required.");
+            return;
+        }
         try {
-            const validModels = formModels.filter(m => m.id.trim() && m.label.trim());
-            if (validModels.length === 0) {
-                setError("At least one model with ID and label is required.");
-                setSaving(false);
-                return;
-            }
-            const res = await fetch("/api/settings/providers", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    name: formName,
-                    baseUrl: formBaseUrl,
-                    apiKey: formApiKey || undefined,
-                    models: validModels,
-                }),
+            setActionError(null);
+            await createProvider.mutateAsync({
+                name: formName,
+                baseUrl: formBaseUrl,
+                apiKey: formApiKey || undefined,
+                models: validModels,
             });
-            const json = await res.json();
-            if (!res.ok || !json.success) throw new Error(json.error ?? "Failed to create provider");
             setDialogOpen(false);
             resetForm();
-            await fetchProviders();
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to create provider");
-        } finally {
-            setSaving(false);
+            setActionError(err instanceof Error ? err.message : "Failed to create provider");
         }
     };
 
     const handleDelete = async (id: string) => {
         try {
-            const res = await fetch(`/api/settings/providers/${id}`, { method: "DELETE" });
-            const json = await res.json();
-            if (!res.ok || !json.success) throw new Error(json.error);
-            await fetchProviders();
+            await deleteProvider.mutateAsync(id);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to delete provider");
+            setActionError(err instanceof Error ? err.message : "Failed to delete provider");
         }
     };
 
     const handleToggle = async (id: string, isEnabled: boolean) => {
         try {
-            const res = await fetch(`/api/settings/providers/${id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ isEnabled }),
-            });
-            const json = await res.json();
-            if (!res.ok || !json.success) throw new Error(json.error);
-            await fetchProviders();
+            await toggleProvider.mutateAsync({ id, isEnabled });
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to update provider");
+            setActionError(err instanceof Error ? err.message : "Failed to update provider");
         }
     };
 
@@ -130,8 +92,7 @@ export function ProviderSettings() {
         setTesting(id);
         setTestResult(null);
         try {
-            const res = await fetch(`/api/settings/providers/${id}/test`, { method: "POST" });
-            const json = await res.json();
+            const json = await testProvider.mutateAsync(id);
             setTestResult({
                 id,
                 success: json.success,
@@ -172,21 +133,17 @@ export function ProviderSettings() {
     };
 
     return (
-        <div className="flex-1 space-y-6 p-4 md:p-8 pt-6 bg-background">
-            <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                        <Server className="h-6 w-6" />
-                        <h2 className="text-3xl font-bold tracking-tight text-foreground">LLM Providers</h2>
-                    </div>
-                    <p className="text-muted-foreground">
-                        Configure self-hosted LLM endpoints (Ollama, vLLM, LiteLLM) for your organization.
-                    </p>
-                </div>
-                <Button onClick={() => { resetForm(); setDialogOpen(true); }}>
-                    <Plus className="mr-2 h-4 w-4" /> Add Provider
-                </Button>
-            </div>
+        <div className="space-y-6">
+            <PageHeader
+                icon={Server}
+                title="LLM Providers"
+                description="Configure self-hosted LLM endpoints (Ollama, vLLM, LiteLLM) for your organization."
+                actions={
+                    <Button onClick={() => { resetForm(); setDialogOpen(true); }}>
+                        <Plus className="mr-2 h-4 w-4" /> Add Provider
+                    </Button>
+                }
+            />
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 

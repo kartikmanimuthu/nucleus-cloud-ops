@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,11 +23,34 @@ interface SlackSettingsFormProps {
     backLabel?: string;
 }
 
-export function SlackSettingsForm({ backHref = '/agent-ops', backLabel = 'Back to Agent Ops' }: SlackSettingsFormProps) {
+export function SlackSettingsForm(props: SlackSettingsFormProps) {
+    const { data, isLoading } = useChannelSettings('slack');
+    if (isLoading) {
+        return (
+            <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
+    return (
+        <SlackSettingsFormInner
+            {...props}
+            initialConfigured={data?.configured ?? false}
+            initialEnabled={data?.enabled ?? true}
+        />
+    );
+}
+
+function SlackSettingsFormInner({
+    backHref = '/agent-ops',
+    backLabel = 'Back to Agent Ops',
+    initialConfigured,
+    initialEnabled,
+}: SlackSettingsFormProps & { initialConfigured: boolean; initialEnabled: boolean }) {
     const router = useRouter();
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [configured, setConfigured] = useState(false);
+    const saveMutation = useSaveChannelSettings('slack');
+    const saving = saveMutation.isPending;
+    const [configured, setConfigured] = useState(initialConfigured);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [showSigningSecret, setShowSigningSecret] = useState(false);
@@ -36,31 +60,13 @@ export function SlackSettingsForm({ backHref = '/agent-ops', backLabel = 'Back t
     const [form, setForm] = useState<SlackSettingsState>({
         signingSecret: '',
         botToken: '',
-        enabled: true,
+        enabled: initialEnabled,
     });
 
     const webhookUrl =
         typeof window !== 'undefined'
             ? `${window.location.origin}/api/v1/trigger/slack`
             : '/api/v1/trigger/slack';
-
-    useEffect(() => {
-        fetchSettings();
-    }, []);
-
-    const fetchSettings = async () => {
-        try {
-            setLoading(true);
-            const res = await fetch('/api/agent-ops/settings/slack');
-            const data = await res.json();
-            setConfigured(data.configured ?? false);
-            setForm(prev => ({ ...prev, enabled: data.enabled ?? true }));
-        } catch (error) {
-            console.error('[SlackSettings] Failed to fetch settings:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleSave = async () => {
         if (!form.signingSecret.trim()) {
@@ -69,32 +75,19 @@ export function SlackSettingsForm({ backHref = '/agent-ops', backLabel = 'Back t
             return;
         }
         try {
-            setSaving(true);
             setErrorMessage('');
-            const res = await fetch('/api/agent-ops/settings/slack', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    signingSecret: form.signingSecret,
-                    botToken: form.botToken || undefined,
-                    enabled: form.enabled,
-                }),
+            await saveMutation.mutateAsync({
+                signingSecret: form.signingSecret,
+                botToken: form.botToken || undefined,
+                enabled: form.enabled,
             });
-            const data = await res.json();
-            if (res.ok) {
-                setConfigured(true);
-                setSaveStatus('saved');
-                setForm(prev => ({ ...prev, signingSecret: '', botToken: '' }));
-                setTimeout(() => setSaveStatus('idle'), 3000);
-            } else {
-                setErrorMessage(data.error || 'Failed to save');
-                setSaveStatus('error');
-            }
+            setConfigured(true);
+            setSaveStatus('saved');
+            setForm(prev => ({ ...prev, signingSecret: '', botToken: '' }));
+            setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
             setSaveStatus('error');
-        } finally {
-            setSaving(false);
         }
     };
 
@@ -104,16 +97,8 @@ export function SlackSettingsForm({ backHref = '/agent-ops', backLabel = 'Back t
         setTimeout(() => setCopied(false), 2000);
     };
 
-    if (loading) {
-        return (
-            <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-        );
-    }
-
     return (
-        <div className="flex-1 p-4 md:p-8 pt-6 bg-background max-w-3xl mx-auto space-y-6">
+        <div className="flex-1 bg-background max-w-3xl mx-auto space-y-6">
             <div>
                 <Button
                     variant="ghost"

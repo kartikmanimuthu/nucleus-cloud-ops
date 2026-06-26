@@ -41,6 +41,7 @@ import type {
   AgentOpsStatus,
 } from "@/lib/agent-ops/types";
 import { NewRunDialog } from "@/components/agent-ops/new-run-dialog";
+import { PageHeader } from "@/components/shared/page-header";
 import { formatDateTime } from "@/lib/date-utils";
 import { useTenant } from '@/lib/tenant-context';
 
@@ -136,65 +137,61 @@ export default function AgentOpsPage() {
   };
 
   return (
-    <div className="flex-1 overflow-auto p-6 space-y-6">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Zap className="h-6 w-6 text-yellow-500" />
-            Agent Ops
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Background agent executions triggered by Slack, Jira, API, or schedule
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchRuns}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => router.push("/app/agent-ops/scheduled-tasks")}
-          >
-            <CalendarClock className="h-4 w-4 mr-2" />
-            Scheduled Tasks
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => router.push("/app/agent-ops/slack-settings")}
-          >
-            <MessageSquare className="h-4 w-4 mr-2" />
-            Slack Settings
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => router.push("/app/agent-ops/jira-settings")}
-          >
-            <AlertCircle className="h-4 w-4 mr-2" />
-            Jira Settings
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => router.push("/app/agent-ops/mcp-settings")}
-          >
-            <Plug className="h-4 w-4 mr-2" />
-            MCP Servers
-          </Button>
-          <NewRunDialog tenantId={tenantId} />
-        </div>
-      </div>
+      <PageHeader
+        icon={Zap}
+        title="Agent Ops"
+        description="Background agent executions triggered by Slack, Jira, API, or schedule"
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchRuns}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/app/agent-ops/scheduled-tasks")}
+            >
+              <CalendarClock className="h-4 w-4 mr-2" />
+              Scheduled Tasks
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/app/agent-ops/slack-settings")}
+            >
+              <MessageSquare className="h-4 w-4 mr-2" />
+              Slack Settings
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/app/agent-ops/jira-settings")}
+            >
+              <AlertCircle className="h-4 w-4 mr-2" />
+              Jira Settings
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/app/agent-ops/mcp-settings")}
+            >
+              <Plug className="h-4 w-4 mr-2" />
+              MCP Servers
+            </Button>
+            <NewRunDialog tenantId={tenantId} />
+          </>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">

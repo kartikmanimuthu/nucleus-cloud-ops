@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useMyOrgs, useSwitchOrg, type Org } from "@/lib/queries/orgs";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,56 +12,29 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem,
+    useSidebar,
+} from "@/components/ui/sidebar";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
-import { cn } from "@/lib/utils";
 
-interface Org {
-    id: string;
-    name: string;
-    slug: string | null;
-    role: string | null;
-    logoUrl: string | null;
-}
-
-interface OrgSwitcherProps {
-    collapsed: boolean;
-}
-
-export function OrgSwitcher({ collapsed }: OrgSwitcherProps) {
+export function OrgSwitcher() {
     const { data: session, update } = useSession();
+    const { isMobile } = useSidebar();
     const router = useRouter();
-    const [orgs, setOrgs] = useState<Org[]>([]);
-    const [loading, setLoading] = useState(true);
+    const orgsQuery = useMyOrgs();
+    const switchOrg = useSwitchOrg();
+    const orgs: Org[] = orgsQuery.data ?? [];
+    const loading = orgsQuery.isLoading;
 
     const currentTenantId = session?.user?.tenantId;
-
-    const fetchOrgs = useCallback(async () => {
-        try {
-            const res = await fetch("/api/tenants/my-orgs");
-            if (res.ok) {
-                const data = await res.json();
-                setOrgs(data.orgs ?? []);
-            }
-        } catch (err) {
-            console.error("Failed to fetch orgs:", err);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchOrgs();
-    }, [fetchOrgs]);
 
     const handleSwitch = async (tenantId: string) => {
         if (tenantId === currentTenantId) return;
         try {
-            const res = await fetch("/api/tenants/switch", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tenantId }),
-            });
-            if (!res.ok) return;
+            await switchOrg.mutateAsync(tenantId);
             // update() refreshes session, then router.refresh() re-renders server components
             await update();
             router.refresh();
@@ -77,10 +50,14 @@ export function OrgSwitcher({ collapsed }: OrgSwitcherProps) {
 
     if (loading) {
         return (
-            <div className="flex items-center gap-2 px-2 py-1.5">
-                <div className="w-8 h-8 rounded-md bg-muted animate-pulse" />
-                {!collapsed && <div className="h-4 w-24 bg-muted animate-pulse rounded" />}
-            </div>
+            <SidebarMenu>
+                <SidebarMenuItem>
+                    <div className="flex items-center gap-2 p-2">
+                        <div className="size-8 rounded-md bg-sidebar-accent animate-pulse" />
+                        <div className="h-4 w-24 bg-sidebar-accent animate-pulse rounded group-data-[collapsible=icon]:hidden" />
+                    </div>
+                </SidebarMenuItem>
+            </SidebarMenu>
         );
     }
 
@@ -94,113 +71,67 @@ export function OrgSwitcher({ collapsed }: OrgSwitcherProps) {
                 onClick={() => router.push("/create-org")}
                 className="flex items-center gap-2 cursor-pointer"
             >
-                <div className="h-6 w-6 rounded-md border border-dashed border-muted-foreground/50 flex items-center justify-center shrink-0">
-                    <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                <div className="flex size-6 items-center justify-center rounded-md border border-dashed border-muted-foreground/50 shrink-0">
+                    <Plus className="size-3.5 text-muted-foreground" />
                 </div>
                 <span className="text-sm text-muted-foreground">Create new organization</span>
             </DropdownMenuItem>
         </>
     );
 
-    // Single-org users get a dropdown with just their org + create option
-    if (!isMultiOrg) {
-        return (
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <button
-                        className={cn(
-                            "flex items-center gap-2 px-2 py-1.5 rounded-md w-full",
-                            "hover:bg-accent transition-colors text-left"
-                        )}
-                    >
-                        <Avatar className="h-8 w-8 rounded-md shrink-0">
-                            <AvatarImage src={currentOrg.logoUrl ?? undefined} alt={currentOrg.name} />
-                            <AvatarFallback className="rounded-md bg-primary text-primary-foreground text-xs font-medium">
-                                {getOrgInitial(currentOrg.name)}
-                            </AvatarFallback>
-                        </Avatar>
-                        {!collapsed && (
-                            <>
-                                <span className="font-semibold text-sm truncate flex-1">
-                                    {currentOrg.name}
-                                </span>
-                                <ChevronsUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                            </>
-                        )}
-                    </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-60">
-                    <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
-                        Organization
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="flex items-center gap-2">
-                        <Avatar className="h-6 w-6 rounded-md shrink-0">
-                            <AvatarImage src={currentOrg.logoUrl ?? undefined} alt={currentOrg.name} />
-                            <AvatarFallback className="rounded-md bg-muted text-muted-foreground text-xs">
-                                {getOrgInitial(currentOrg.name)}
-                            </AvatarFallback>
-                        </Avatar>
-                        <span className="truncate flex-1 text-sm">{currentOrg.name}</span>
-                        <Check className="h-4 w-4 text-primary shrink-0" />
-                    </DropdownMenuItem>
-                    {createOrgItem}
-                </DropdownMenuContent>
-            </DropdownMenu>
-        );
-    }
-
-    // Multi-org dropdown
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <button
-                    className={cn(
-                        "flex items-center gap-2 px-2 py-1.5 rounded-md w-full",
-                        "hover:bg-accent transition-colors text-left"
-                    )}
-                >
-                    <Avatar className="h-8 w-8 rounded-md shrink-0">
-                        <AvatarImage src={currentOrg.logoUrl ?? undefined} alt={currentOrg.name} />
-                        <AvatarFallback className="rounded-md bg-primary text-primary-foreground text-xs font-medium">
-                            {getOrgInitial(currentOrg.name)}
-                        </AvatarFallback>
-                    </Avatar>
-                    {!collapsed && (
-                        <>
-                            <span className="font-semibold text-sm truncate flex-1">
+        <SidebarMenu>
+            <SidebarMenuItem>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <SidebarMenuButton
+                            size="lg"
+                            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                        >
+                            <Avatar className="size-8 rounded-md shrink-0">
+                                <AvatarImage src={currentOrg.logoUrl ?? undefined} alt={currentOrg.name} />
+                                <AvatarFallback className="rounded-md bg-primary text-primary-foreground text-xs font-medium">
+                                    {getOrgInitial(currentOrg.name)}
+                                </AvatarFallback>
+                            </Avatar>
+                            <span className="font-semibold text-sm truncate flex-1 text-left">
                                 {currentOrg.name}
                             </span>
-                            <ChevronsUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                        </>
-                    )}
-                </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-60">
-                <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
-                    Switch organization
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {orgs.map((org) => (
-                    <DropdownMenuItem
-                        key={org.id}
-                        onClick={() => handleSwitch(org.id)}
-                        className="flex items-center gap-2 cursor-pointer"
+                            <ChevronsUpDown className="ml-auto size-4 text-muted-foreground shrink-0" />
+                        </SidebarMenuButton>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                        className="w-60 rounded-lg"
+                        align="start"
+                        side={isMobile ? "bottom" : "right"}
+                        sideOffset={4}
                     >
-                        <Avatar className="h-6 w-6 rounded-md shrink-0">
-                            <AvatarImage src={org.logoUrl ?? undefined} alt={org.name} />
-                            <AvatarFallback className="rounded-md bg-muted text-muted-foreground text-xs">
-                                {getOrgInitial(org.name)}
-                            </AvatarFallback>
-                        </Avatar>
-                        <span className="truncate flex-1 text-sm">{org.name}</span>
-                        {org.id === currentTenantId && (
-                            <Check className="h-4 w-4 text-primary shrink-0" />
-                        )}
-                    </DropdownMenuItem>
-                ))}
-                {createOrgItem}
-            </DropdownMenuContent>
-        </DropdownMenu>
+                        <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+                            {isMultiOrg ? "Switch organization" : "Organization"}
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {orgs.map((org) => (
+                            <DropdownMenuItem
+                                key={org.id}
+                                onClick={() => handleSwitch(org.id)}
+                                className="flex items-center gap-2 cursor-pointer"
+                            >
+                                <Avatar className="size-6 rounded-md shrink-0">
+                                    <AvatarImage src={org.logoUrl ?? undefined} alt={org.name} />
+                                    <AvatarFallback className="rounded-md bg-muted text-muted-foreground text-xs">
+                                        {getOrgInitial(org.name)}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <span className="truncate flex-1 text-sm">{org.name}</span>
+                                {org.id === currentTenantId && (
+                                    <Check className="size-4 text-primary shrink-0" />
+                                )}
+                            </DropdownMenuItem>
+                        ))}
+                        {createOrgItem}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </SidebarMenuItem>
+        </SidebarMenu>
     );
 }
