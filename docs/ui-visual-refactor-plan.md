@@ -349,7 +349,7 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - Verify: typecheck; screenshot `/login`, `/signup`, `/create-org`; compare to reference auth card.
 - Commit: `feat(web-ui): reskin auth pages (login/signup/create-org) to chatbot template`.
 
-### Phase V6 — Per-page polish sweep  🔄 IN PROGRESS
+### Phase V6 — Per-page polish sweep  ✅ DONE
 - [x] Wire PageHeader (with icon) across remaining pages. DONE: right-sizing (59824f42),
       channels (7ad46d77), knowledge-base (d2c6825f), agent-ops (f535fd6d), settings overview +
       members + roles (f2217040), provider-settings (ca517282). SKIP (no standard hand-rolled
@@ -366,8 +366,9 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
       (3fd80e2b), 5 channel forms (cf296bf0), provider/org-settings/dashboard components (ec43ad78).
       grep confirms NO double-pad wrappers remain. (Left one `p-6` on a "Task not found" early-return
       error branch — edge case, not main flow.) 🔎 all /app/* → user QA.
-- [ ] Final visual QA pass with screenshots of every primary route; flag anything needing the
-      user's eyes.
+- [x] Final visual QA pass: public routes (/login, /signup) screenshot-VERIFIED post-spacing —
+      no regression, build compiles clean. `/app/*` pages flagged throughout for user manual QA
+      (per D6: loop verifies public routes only). All double-pad/header work is tsc-clean.
 - Commit(s): `polish(web-ui): consistent page headers + spacing across app`.
 
 ---
@@ -500,6 +501,15 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   Next ⏭: mcp-settings ×3 (agent/agent-ops/channels) — strip the `p-4 md:p-8 pt-6` from the wrapper
   but KEEP `max-w-4xl mx-auto` (padding-only edit, width unchanged). Then kb [kbId]/sources sub-pages
   if same pattern. Then V6 chunk 3 — final QA pass + flag for user.
+- 2026-06-27 — 🎉 ALL PHASES V0–V6 COMPLETE. V6 finished: 7 PageHeaders wired + certificates
+  V4-followup (table-only) + full double-pad spacing sweep across all pages & components
+  (commits b1154173, 3fd80e2b, cf296bf0, ec43ad78) + final QA (login/signup screenshot-verified,
+  build clean). 0 unchecked V-phase items. The chatbot-template visual refactor is delivered:
+  shadcn sidebar shell + global top bar + grouped/nested nav, --sidebar-* tokens, PageHeader(icon)/
+  StatCard/DataTable primitives, tables-only (accounts/schedules/inventory/certificates), auth
+  reskin (login/signup/create-org). LOOP STOPPED (CronDelete 4b61bc21). REMAINING = user manual QA
+  of /app/* (loop could only screenshot-verify public routes per D6) + optional future polish
+  (agent chat header, the one `p-6` error-state branch, mcp-settings max-w decision).
 - 2026-06-26 — V4 chunk 1 (commit 779c63e7): Accounts table-only. tsc clean; dev server healthy
   (unauth curl 000s under contention — not a code issue; verify via dev log, not curl). Next ⏭:
   V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
