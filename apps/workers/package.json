@@ -37,6 +37,7 @@
     "@aws-sdk/client-iam": "^3.1024.0",
     "@aws-sdk/client-kms": "^3.1024.0",
     "@aws-sdk/client-lambda": "^3.1024.0",
+    "@aws-sdk/client-pricing": "^3.1075.0",
     "@aws-sdk/client-rds": "^3.700.0",
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/client-secrets-manager": "^3.1024.0",
@@ -60,6 +61,7 @@
     "@types/pdf-parse": "^1.1.4",
     "@types/pg": "^8.20.0",
     "@types/uuid": "^10.0.0",
+    "fast-check": "^4.8.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

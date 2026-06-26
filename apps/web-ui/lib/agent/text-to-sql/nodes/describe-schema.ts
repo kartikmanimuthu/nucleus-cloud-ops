@@ -19,7 +19,7 @@ export async function describeSchemaNode(state: TextToSQLState): Promise<Partial
          FROM information_schema.columns
          WHERE table_name = 'inventory_resources'
          ORDER BY ordinal_position`
-    ) as SchemaColumn[];
+    ) as unknown as SchemaColumn[];
 
     const schemaDescription = columns
         .map((c) => `${c.column_name} (${c.data_type}, nullable: ${c.is_nullable})`)

@@ -200,6 +200,7 @@ Background jobs run in `workers/` as a single Node.js process using pg-boss:
 
 - `workers/src/jobs/scheduler/` — resource start/stop scheduling
 - `workers/src/jobs/discovery/` — multi-account resource scanning
+- `workers/src/jobs/right-sizing/` — CloudWatch-based right-sizing analysis: per-tenant fan-out scan + weekly pricing refresh. Pure engine + per-type rules (EC2/RDS/EBS/ASG) under `services/`+`rules/`; raw-pg writers (manually tenant-scoped). Gated by `RIGHT_SIZING_ENABLED`. Web-ui side: `/api/right-sizing/*`, `lib/right-sizing-service.ts`, `RightSizing` RBAC subject (→ Inventory module), models `RightSizingRecommendation`/`RightSizingRun`/`PricingCatalogEntry` (the last is global, not tenant-scoped)
 - `workers/src/jobs/kb-sync/` — knowledge base sync (S3, Bitbucket, Confluence)
 - Workers use `createLogger('service-name')` from `workers/src/lib/logger.ts` — not raw `console`
 - web-ui submits jobs via `boss-client.ts`; per-tenant cron via `GET/PUT /api/settings/scheduler`

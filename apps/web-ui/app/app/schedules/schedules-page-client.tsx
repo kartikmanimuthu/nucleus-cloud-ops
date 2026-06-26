@@ -19,17 +19,24 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, Filter, RefreshCw, AlertCircle, Calendar, Settings } from "lucide-react";
+import { Plus, Filter, RefreshCw, AlertCircle, Calendar, Settings, Play, Pause, Zap } from "lucide-react";
 import { SchedulesTable } from "@/components/schedules/schedules-table";
 import { SchedulesGrid } from "@/components/schedules/schedules-grid";
-import { BulkActionsDialog } from "@/components/schedules/bulk-actions-dialog";
 import { ImportSchedulesDialog } from "@/components/schedules/import-schedules-dialog";
+import { BulkActionBar } from "@/components/shared/bulk-action-bar";
+import type { BulkAction, BulkActionResult } from "@/lib/bulk-actions/types";
 import { UISchedule } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useIsFirstRender } from "@/hooks/use-first-render";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
 import { PaginationBar } from "@/components/ui/pagination-bar";
+
+const SCHEDULE_BULK_ACTIONS: BulkAction[] = [
+  { key: "activate", label: "Activate", icon: Play },
+  { key: "deactivate", label: "Deactivate", icon: Pause },
+  { key: "execute", label: "Execute Now", icon: Zap },
+];
 
 const statusFilters = [
   { value: "all", label: "All Schedules" },
@@ -104,7 +111,7 @@ export function SchedulesPageClient({
   const [allSchedules, setAllSchedules] = useState<UISchedule[]>([]);
   const [loadingStats, setLoadingStats] = useState(false);
   
-  const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   
   const { toast } = useToast();
@@ -209,6 +216,53 @@ export function SchedulesPageClient({
       setSelectedSchedules([...selectedSchedules, scheduleId]);
     } else {
       setSelectedSchedules(selectedSchedules.filter((id) => id !== scheduleId));
+    }
+  };
+
+  // Run a bulk action against the selected schedules, then report + refresh.
+  const handleBulkAction = async (action: string) => {
+    const scheduleIds = selectedSchedules;
+    if (scheduleIds.length === 0) return;
+
+    try {
+      setBulkLoading(true);
+      const res = await fetch("/api/schedules/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, scheduleIds }),
+      });
+      const payload = await res.json();
+
+      if (!res.ok || !payload.success) {
+        throw new Error(payload.error || "Bulk action failed");
+      }
+
+      const result = payload.data as BulkActionResult;
+      const label =
+        SCHEDULE_BULK_ACTIONS.find((a) => a.key === action)?.label || action;
+
+      toast({
+        variant: result.failed > 0 ? "destructive" : "success",
+        title: `${label}: ${result.succeeded}/${result.total} succeeded`,
+        description:
+          result.failed > 0
+            ? `${result.failed} failed. See console for details.`
+            : `${label} completed on ${result.succeeded} schedule${result.succeeded !== 1 ? "s" : ""}.`,
+      });
+
+      setSelectedSchedules([]);
+      loadSchedulesWithFilters();
+      loadStats();
+    } catch (error) {
+      console.error("Error running bulk schedule action:", error);
+      toast({
+        variant: "destructive",
+        title: "Bulk Action Failed",
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      });
+    } finally {
+      setBulkLoading(false);
     }
   };
 
@@ -380,14 +434,7 @@ export function SchedulesPageClient({
               {selectedSchedules.length}
             </div>
             <p className="text-xs text-muted-foreground">
-              <Button
-                variant="link"
-                size="sm"
-                className="p-0 h-auto text-xs"
-                onClick={() => setBulkActionsOpen(true)}
-              >
-                Bulk actions
-              </Button>
+              use the bulk action bar below
             </p>
           </CardContent>
         </Card>
@@ -450,6 +497,18 @@ export function SchedulesPageClient({
         </Card>
       )}
 
+      {/* Bulk action bar — appears when rows are selected */}
+      {!loading && (
+        <BulkActionBar
+          count={selectedSchedules.length}
+          actions={SCHEDULE_BULK_ACTIONS}
+          onAction={handleBulkAction}
+          onClear={() => setSelectedSchedules([])}
+          isLoading={bulkLoading}
+          itemNoun="schedule"
+        />
+      )}
+
       {/* View Toggle and Content - only show when not loading */}
       {!loading && (
         <Tabs
@@ -496,15 +555,6 @@ export function SchedulesPageClient({
       )}
 
       {/* Dialogs */}
-      <BulkActionsDialog
-        open={bulkActionsOpen}
-        onOpenChange={setBulkActionsOpen}
-        selectedSchedules={selectedSchedules}
-        onClearSelection={() => setSelectedSchedules([])}
-        onSchedulesUpdated={() =>
-          handleScheduleUpdated("Schedules updated successfully!")
-        }
-      />
       <ImportSchedulesDialog
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}

@@ -27,17 +27,28 @@ import {
   Shield,
   Loader2,
   AlertCircle,
+  Power,
+  PowerOff,
+  CheckCircle,
 } from "lucide-react";
 import { AccountsTable } from "@/components/accounts/accounts-table";
 import { AccountsGrid } from "@/components/accounts/accounts-grid";
-import { BulkAccountActionsDialog } from "@/components/accounts/bulk-account-actions-dialog";
 import { ImportAccountsDialog } from "@/components/accounts/import-accounts-dialog";
+import { BulkActionBar } from "@/components/shared/bulk-action-bar";
+import { useBulkSelection } from "@/hooks/use-bulk-selection";
+import type { BulkAction, BulkActionResult } from "@/lib/bulk-actions/types";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useIsFirstRender } from "@/hooks/use-first-render";
 import { PaginationBar } from "@/components/ui/pagination-bar";
+
+const ACCOUNT_BULK_ACTIONS: BulkAction[] = [
+  { key: "activate", label: "Activate", icon: Power },
+  { key: "deactivate", label: "Deactivate", icon: PowerOff },
+  { key: "validate", label: "Validate Connection", icon: CheckCircle },
+];
 
 interface FilterOption {
   value: string;
@@ -95,12 +106,14 @@ export default function AccountsClient({
   const [localConnectionFilter, setLocalConnectionFilter] = useState(initialFilters?.connectionFilter || "all");
 
   const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
-  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
-  
+
+  // Bulk selection
+  const selection = useBulkSelection(accounts.map((a) => a.id));
+  const [bulkLoading, setBulkLoading] = useState(false);
+
   // Stats state
   const [allAccounts, setAllAccounts] = useState<UIAccount[]>([]);
   const [loadingStats, setLoadingStats] = useState(false);
-  const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Update URL with current filters and pagination
@@ -225,11 +238,50 @@ export default function AccountsClient({
     setCurrentPage(1); // Reset to first page
   };
 
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedAccounts(accounts.map((a) => a.id));
-    } else {
-      setSelectedAccounts([]);
+  // Run a bulk action against the selected accounts, then report + refresh.
+  const handleBulkAction = async (action: string) => {
+    const accountIds = selection.selectedIds;
+    if (accountIds.length === 0) return;
+
+    try {
+      setBulkLoading(true);
+      const res = await fetch("/api/accounts/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, accountIds }),
+      });
+      const payload = await res.json();
+
+      if (!res.ok || !payload.success) {
+        throw new Error(payload.error || "Bulk action failed");
+      }
+
+      const result = payload.data as BulkActionResult;
+      const label =
+        ACCOUNT_BULK_ACTIONS.find((a) => a.key === action)?.label || action;
+
+      toast({
+        variant: result.failed > 0 ? "destructive" : "success",
+        title: `${label}: ${result.succeeded}/${result.total} succeeded`,
+        description:
+          result.failed > 0
+            ? `${result.failed} failed. See console for details.`
+            : `${label} completed on ${result.succeeded} account${result.succeeded !== 1 ? "s" : ""}.`,
+      });
+
+      selection.clear();
+      loadAccountsWithFilters();
+      loadStats();
+    } catch (error) {
+      console.error("Error running bulk account action:", error);
+      toast({
+        variant: "destructive",
+        title: "Bulk Action Failed",
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      });
+    } finally {
+      setBulkLoading(false);
     }
   };
 
@@ -375,19 +427,10 @@ export default function AccountsClient({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {selectedAccounts.length}
+              {selection.count}
             </div>
             <p className="text-xs text-muted-foreground">
-              {selectedAccounts.length > 0 && (
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="p-0 h-auto text-xs"
-                  onClick={() => setBulkActionsOpen(true)}
-                >
-                  Bulk actions
-                </Button>
-              )}
+              {selection.count > 0 ? "use the bulk action bar below" : "none selected"}
             </p>
           </CardContent>
         </Card>
@@ -457,6 +500,16 @@ export default function AccountsClient({
         </CardContent>
       </Card>
 
+      {/* Bulk action bar — appears when rows are selected */}
+      <BulkActionBar
+        count={selection.count}
+        actions={ACCOUNT_BULK_ACTIONS}
+        onAction={handleBulkAction}
+        onClear={selection.clear}
+        isLoading={bulkLoading}
+        itemNoun="account"
+      />
+
       {/* View Toggle and Content */}
       <Tabs
         value={viewMode}
@@ -471,6 +524,11 @@ export default function AccountsClient({
           <AccountsTable
             accounts={accounts}
             onAccountUpdated={handleAccountUpdated}
+            isSelected={selection.isSelected}
+            onToggleSelect={selection.toggle}
+            allSelected={selection.allSelected}
+            someSelected={selection.someSelected}
+            onToggleSelectAll={selection.selectAll}
           />
         </TabsContent>
 
@@ -478,6 +536,8 @@ export default function AccountsClient({
           <AccountsGrid
             accounts={accounts}
             onAccountUpdated={handleAccountUpdated}
+            isSelected={selection.isSelected}
+            onToggleSelect={selection.toggle}
           />
         </TabsContent>
       </Tabs>
@@ -496,19 +556,6 @@ export default function AccountsClient({
       )}
 
       {/* Dialogs */}
-      <BulkAccountActionsDialog
-        open={bulkActionsOpen}
-        onOpenChange={(open) => {
-          setBulkActionsOpen(open);
-          // If dialog is closed after successful action, refresh accounts
-          if (!open && selectedAccounts.length > 0) {
-            refreshAccounts();
-            setSelectedAccounts([]);
-          }
-        }}
-        selectedAccounts={selectedAccounts}
-        onClearSelection={() => setSelectedAccounts([])}
-      />
       <ImportAccountsDialog
         open={importDialogOpen}
         onOpenChange={(open) => {

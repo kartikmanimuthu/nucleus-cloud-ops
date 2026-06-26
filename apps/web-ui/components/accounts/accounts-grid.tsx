@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -43,11 +44,16 @@ import { useToast } from "@/hooks/use-toast";
 interface AccountsGridProps {
   accounts: UIAccount[];
   onAccountUpdated?: () => void;
+  // Bulk selection (provided by the parent's useBulkSelection)
+  isSelected: (id: string) => boolean;
+  onToggleSelect: (id: string, checked: boolean) => void;
 }
 
 export function AccountsGrid({
   accounts,
   onAccountUpdated,
+  isSelected,
+  onToggleSelect,
 }: AccountsGridProps) {
   const router = useRouter();
   const [deletingAccount, setDeletingAccount] = useState<UIAccount | null>(
@@ -212,19 +218,30 @@ export function AccountsGrid({
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                        <CardTitle className="text-lg">
-                        {account.name || "Unnamed Account"}
-                        </CardTitle>
-                        <Badge variant={account.active ? "default" : "secondary"} className="text-xs h-5">
-                            {account.active ? "Active" : "Inactive"}
-                        </Badge>
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={isSelected(account.id)}
+                      onCheckedChange={(checked) =>
+                        onToggleSelect(account.id, checked as boolean)
+                      }
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`Select ${account.name || account.accountId}`}
+                      className="mt-1"
+                    />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                          <CardTitle className="text-lg">
+                          {account.name || "Unnamed Account"}
+                          </CardTitle>
+                          <Badge variant={account.active ? "default" : "secondary"} className="text-xs h-5">
+                              {account.active ? "Active" : "Inactive"}
+                          </Badge>
+                      </div>
+
+                      <CardDescription className="font-mono text-sm">
+                        {account.accountId}
+                      </CardDescription>
                     </div>
-                    
-                    <CardDescription className="font-mono text-sm">
-                      {account.accountId}
-                    </CardDescription>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

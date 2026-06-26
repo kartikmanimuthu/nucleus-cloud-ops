@@ -3,6 +3,7 @@
 import { UISchedule } from './types';
 import { AuditService } from './audit-service';
 import { getScheduleRepository } from '@/lib/db/repository-factory';
+import { getBoss } from '@/lib/boss-client';
 
 // Re-export helpers for API routes that import them directly
 export const buildSchedulePK = (tenantId: string, accountId: string) =>
@@ -285,5 +286,135 @@ export class ScheduleService {
         });
 
         return result;
+    }
+
+    /**
+     * Set a schedule to an explicit active state (used by bulk activate/deactivate).
+     * Unlike toggleScheduleStatus this does not flip — it sets the desired value,
+     * which is correct when acting on a mixed selection. No-op (returns current)
+     * when the schedule is already in the desired state.
+     */
+    static async setScheduleActive(
+        idOrName: string,
+        active: boolean,
+        updatedBy: string = 'system',
+        tenantId?: string,
+        accountId?: string
+    ): Promise<UISchedule> {
+        const currentSchedule = await this.getSchedule(idOrName, accountId, tenantId);
+        if (!currentSchedule) {
+            throw new Error('Schedule not found');
+        }
+
+        if (currentSchedule.active === active) {
+            return currentSchedule;
+        }
+
+        const effectiveAccountId = accountId || currentSchedule.accounts?.[0];
+        const usePg = process.env.USE_PG_SCHEDULES === 'true';
+        let result: UISchedule;
+        if (usePg) {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { SchedulePostgresRepository } = require('@/lib/db/repositories/schedule/postgres');
+            const pgRepo = new SchedulePostgresRepository();
+            result = await pgRepo.updateSchedule(currentSchedule.id, { active, updatedBy } as Partial<UISchedule>, tenantId, effectiveAccountId);
+        } else {
+            const repo = getScheduleRepository();
+            result = await repo.updateSchedule(currentSchedule.id, { active, updatedBy } as Partial<UISchedule>, tenantId, effectiveAccountId);
+        }
+
+        await AuditService.logUserAction({
+            eventType: 'schedule.schedule.toggled',
+            action: active ? 'Activated Schedule' : 'Deactivated Schedule',
+            resourceType: 'Schedule',
+            resourceId: currentSchedule.id,
+            resourceName: currentSchedule.name,
+            user: updatedBy,
+            userType: 'user',
+            status: 'success',
+            severity: 'medium',
+            details: `Set schedule "${currentSchedule.name}" to ${active ? 'active' : 'inactive'}`,
+            tenantId,
+            changeSet: { before: { active: currentSchedule.active }, after: { active } },
+            metadata: { tenantId, active },
+        });
+
+        return result;
+    }
+
+    /**
+     * Trigger an immediate (async) execution of a schedule via pg-boss.
+     * Shared by the single-item execute route and the bulk execute endpoint.
+     * Throws on enqueue failure (after logging an audit failure event).
+     */
+    static async executeSchedule(
+        idOrName: string,
+        executedBy: string = 'system',
+        tenantId?: string
+    ): Promise<{ executionTime: string }> {
+        const schedule = await this.getSchedule(idOrName, undefined, tenantId);
+        if (!schedule) {
+            throw new Error('Schedule not found');
+        }
+
+        const executionTime = new Date().toISOString();
+
+        // Enqueue partial scan job via pg-boss (fire-and-forget)
+        try {
+            const payload = {
+                scheduleId: schedule.id,
+                scheduleName: schedule.name,
+                triggeredBy: 'web-ui',
+                userEmail: executedBy || 'unknown-web-user',
+                tenantId,
+            };
+            const boss = await getBoss();
+            await boss.send('scheduler-scan', payload);
+        } catch (enqueueError) {
+            const errorMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
+            await AuditService.logResourceAction({
+                eventType: 'schedule.schedule.executed',
+                action: 'Execute Schedule',
+                resourceType: 'Schedule',
+                resourceId: schedule.id,
+                resourceName: schedule.name,
+                status: 'error',
+                severity: 'high',
+                details: `Manual execution enqueue failed: ${errorMessage}`,
+                user: executedBy || 'unknown-web-user',
+                source: 'platform',
+                tenantId,
+                apiRoute: 'POST /api/schedules/[scheduleId]/execute',
+                httpMethod: 'POST',
+                metadata: { tenantId },
+            });
+            throw enqueueError;
+        }
+
+        // Update schedule metadata (skip audit — the "Execute Schedule" event below is the real one)
+        await this.updateSchedule(schedule.id, {
+            lastExecution: executionTime,
+            executionCount: (schedule.executionCount || 0) + 1,
+            active: true,
+        }, (schedule.accounts && schedule.accounts[0]) || 'unknown', tenantId, true);
+
+        await AuditService.logResourceAction({
+            eventType: 'schedule.schedule.executed',
+            action: 'Execute Schedule',
+            resourceType: 'Schedule',
+            resourceId: schedule.id,
+            resourceName: schedule.name,
+            status: 'success',
+            severity: 'high',
+            details: 'Manual execution triggered (Async). Execution running in background.',
+            user: executedBy || 'unknown-web-user',
+            source: 'platform',
+            tenantId,
+            apiRoute: 'POST /api/schedules/[scheduleId]/execute',
+            httpMethod: 'POST',
+            metadata: { tenantId },
+        });
+
+        return { executionTime };
     }
 }

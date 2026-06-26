@@ -6,7 +6,7 @@
 # Networking (only when VPC/subnets change)
 cd infra/networking && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
 
-# Compute (builds lambdas + Docker image + deploys everything automatically)
+# Compute (builds web-ui + workers Docker images + deploys everything automatically)
 PULUMI_CONFIG_PASSPHRASE="" cd infra/compute && AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
 ```
 
@@ -23,12 +23,16 @@ The compute stack auto-detects source changes and builds/deploys without manual 
 
 | What changed | What Pulumi does automatically |
 |---|---|
-| `lambda/scheduler/src/` | Runs `build-lambdas.sh --lambda=scheduler`, uploads new zip |
-| `lambda/vector_processor/src/` | Runs `build-lambdas.sh --lambda=vector_processor`, uploads new zip |
-| `lambda/kb_sync_processor/src/` | Runs `build-lambdas.sh --lambda=kb_sync_processor`, uploads new zip |
-| `apps/web-ui/` or `libs/prisma/` | Builds ARM64 Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out new tasks |
+| `apps/web-ui/` or `libs/prisma/` | Builds ARM64 web-ui Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out new tasks |
+| `apps/workers/` or `libs/prisma/` | Builds ARM64 workers Docker image, pushes to ECR with unique digest, creates new ECS task definition revision, ECS rolls out new tasks |
 
-No manual `build-lambdas.sh`, `build-images.sh`, or `aws ecs update-service` needed.
+Change detection is a recursive sha256 of the relevant source dirs (`apps/web-ui` + `libs/prisma` for web-ui, `apps/workers` + `libs/prisma` for workers), used as the image tag — see `infra/compute/index.ts`.
+
+No manual `build-images.sh` or `aws ecs update-service` needed.
+
+> **Note:** There are no Lambda functions in this stack. The former scheduler, discovery, and
+> kb-sync Lambdas were migrated to pg-boss jobs that run inside the `workers` ECS service
+> (`apps/workers/src/jobs/`). The compute stack declares no `aws.lambda.Function` resources.
 
 ---
 
@@ -54,9 +58,8 @@ aws sts get-caller-identity --profile PLATFORM-ADMIN  # verify
 infra/
 ├── bootstrap/        # One-time S3 state backend + KMS key setup
 ├── networking/       # Pulumi stack — VPC, subnets, subnet groups
-├── compute/          # Pulumi stack — ECS, Lambda, RDS, DynamoDB, Cognito, CloudFront
-├── build-lambdas.sh  # Lambda build script (called automatically by pulumi up)
-└── build-images.sh   # Manual Docker build script (no longer needed for normal deploys)
+├── compute/          # Pulumi stack — ECS (web-ui + workers), RDS, Cognito, CloudFront
+└── build-images.sh   # Manual Docker build/push fallback (pulumi up builds images automatically)
 ```
 
 Pulumi state: `s3://nucleus-pulumi-state` (us-east-1) · Secrets: `alias/pulumi-secrets`
@@ -281,7 +284,7 @@ docker pull public.ecr.aws/docker/library/node:20.9.0-slim
 ```
 
 **Docker build fails with `/prisma: not found`**
-The `Dockerfile.ecs` copies `../libs/prisma/` which is outside `web-ui/`. The build context must be the repo root, not `web-ui/`. This is already handled in `infra/compute/index.ts` (`context: repoRoot`).
+`apps/web-ui/Dockerfile` copies `libs/prisma/`, which is outside `apps/web-ui/`. The build context must be the repo root, not `apps/web-ui/`. This is already handled in `infra/compute/index.ts` (`context: repoRoot`).
 
 **RDS version not found**
 ```bash

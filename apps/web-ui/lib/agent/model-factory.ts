@@ -21,6 +21,7 @@ import {
     writeFileToS3Tool,
     getFileFromS3Tool,
 } from "./tools";
+import { createGetRightSizingRecommendationsTool } from "./right-sizing-tool";
 import { getActiveMCPTools, type AccountContext, type ResolvedModelConfig } from "./agent-shared";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
@@ -159,6 +160,7 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
         grepTool,
         createGetAwsCredentialsTool(effectiveTenantId),
         createListAwsAccountsTool(effectiveTenantId),
+        createGetRightSizingRecommendationsTool(effectiveTenantId),
         ...(includeS3Tools ? [writeFileToS3Tool, getFileFromS3Tool] : []),
         ...memoryTools,
     ];
