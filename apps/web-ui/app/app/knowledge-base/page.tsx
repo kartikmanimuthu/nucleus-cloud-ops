@@ -80,7 +80,7 @@ export default function KnowledgeBasePage() {
   };
 
   return (
-    <div className="flex-1 p-4 md:p-8 pt-6 bg-background">
+    <div className="flex-1 bg-background">
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <PageHeader
