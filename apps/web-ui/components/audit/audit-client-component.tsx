@@ -33,6 +33,7 @@ import {
   ChevronRight,
   Filter,
 } from "lucide-react";
+import { PageHeader } from "@/components/shared/page-header";
 import { AuditLogsTable } from "@/components/audit/audit-logs-table";
 import { AuditLogsChart } from "@/components/audit/audit-logs-chart";
 import { AuditFilters } from "@/components/audit/audit-filters";
@@ -206,12 +207,10 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
   if (error) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Audit Logs</h1>
-            <p className="text-muted-foreground">Monitor and track all system activities and events</p>
-          </div>
-        </div>
+        <PageHeader
+          title="Audit Logs"
+          description="Monitor and track all system activities and events"
+        />
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
             <AlertTriangle className="h-8 w-8 text-destructive mx-auto mb-4" />
@@ -229,22 +228,22 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between sticky top-0 z-10 bg-background p-4 border-b">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Audit Logs</h1>
-          <p className="text-muted-foreground">Monitor and track all system activities and events</p>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" onClick={handleRefresh} disabled={loading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button onClick={() => setExportDialogOpen(true)}>
-            <Download className="mr-2 h-4 w-4" />
-            Export
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Audit Logs"
+        description="Monitor and track all system activities and events"
+        actions={
+          <>
+            <Button variant="outline" onClick={handleRefresh} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button onClick={() => setExportDialogOpen(true)}>
+              <Download className="mr-2 h-4 w-4" />
+              Export
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
