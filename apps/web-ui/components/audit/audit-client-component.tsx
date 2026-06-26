@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -37,8 +37,12 @@ import { AuditLogsTable } from "@/components/audit/audit-logs-table";
 import { AuditLogsChart } from "@/components/audit/audit-logs-chart";
 import { AuditFilters } from "@/components/audit/audit-filters";
 import { ExportAuditDialog } from "@/components/audit/export-audit-dialog";
-import { AuditLog } from "@/lib/types";
-import { AuditLogFilters, ClientAuditService } from "@/lib/client-audit-service-api";
+import { AuditLogFilters } from "@/lib/client-audit-service-api";
+import {
+  useAuditLogs,
+  useAuditLogStats,
+  useAuditFilterOptions,
+} from "@/lib/queries/audit";
 import type { DateRange } from "react-day-picker";
 
 interface AuditStats {
@@ -60,25 +64,7 @@ interface AuditClientProps {
 }
 
 export default function AuditClient({ initialFilters }: AuditClientProps) {
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [filteredLogs, setFilteredLogs] = useState<AuditLog[]>([]);
-  const [stats, setStats] = useState<AuditStats>({
-    totalLogs: 0, errorCount: 0, warningCount: 0, successCount: 0, byEventType: {},
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Dynamic filter values fetched from DB
-  const [filterOptions, setFilterOptions] = useState<{
-    sources: string[];
-    users: string[];
-    resourceTypes: string[];
-    eventTypes: string[];
-    severities: string[];
-    statuses: string[];
-    userTypes: string[];
-  }>({ sources: [], users: [], resourceTypes: [], eventTypes: [], severities: [], statuses: [], userTypes: [] });
-
+  // Filter state
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedEventType, setSelectedEventType] = useState<string>(initialFilters?.eventType || "all");
   const [selectedStatus, setSelectedStatus] = useState<string>(initialFilters?.status || "all");
@@ -95,116 +81,84 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState<Partial<AuditLogFilters>>({});
 
-  // Pagination state
+  // Pagination state (cursor/token based). pageToken = token for the current page.
   const [pageSize, setPageSize] = useState(20);
-  const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
+  const [pageToken, setPageToken] = useState<string | undefined>(undefined);
   const [pageHistory, setPageHistory] = useState<(string | undefined)[]>([]);
 
-  // Track whether filters have been applied at least once (skip auto-fetch on filter change before mount)
-  const isMounted = useRef(false);
-  // Track pending page token for pagination (separate from filter-driven fetches)
-  const pendingPageToken = useRef<string | undefined>(undefined);
+  // Build the effective filters for the logs query (also serves as the query key).
+  const logFilters: AuditLogFilters = { limit: pageSize };
+  if (selectedEventType !== "all") logFilters.eventType = selectedEventType;
+  if (selectedStatus !== "all") logFilters.status = selectedStatus;
+  if (selectedUser !== "all") logFilters.user = selectedUser;
+  if (searchTerm) logFilters.searchTerm = searchTerm;
+  if (dateRange?.from) {
+    const start = new Date(dateRange.from);
+    start.setHours(0, 0, 0, 0);
+    logFilters.startDate = start.toISOString();
+  }
+  if (dateRange?.to) {
+    const end = new Date(dateRange.to);
+    end.setHours(23, 59, 59, 999);
+    logFilters.endDate = end.toISOString();
+  }
+  // Merge advanced filters (correlationId, executionId, ipAddress, resourceId, severity, source)
+  Object.assign(logFilters, advancedFilters);
+  if (pageToken) logFilters.nextPageToken = pageToken;
 
-  // Core fetch function — always uses API route
-  const fetchAuditData = useCallback(async (pageToken?: string) => {
-    try {
-      setLoading(true);
-      setError(null);
+  // Stats use only the date range so the dropdowns stay populated.
+  const statsFilters: AuditLogFilters = {};
+  if (logFilters.startDate) statsFilters.startDate = logFilters.startDate;
+  if (logFilters.endDate) statsFilters.endDate = logFilters.endDate;
 
-      const filters: AuditLogFilters = {};
-      if (selectedEventType !== "all") filters.eventType = selectedEventType;
-      if (selectedStatus !== "all") filters.status = selectedStatus;
-      if (selectedUser !== "all") filters.user = selectedUser;
-      if (searchTerm) filters.searchTerm = searchTerm;
-      if (dateRange?.from) {
-        const start = new Date(dateRange.from);
-        start.setHours(0, 0, 0, 0);
-        filters.startDate = start.toISOString();
-      }
-      if (dateRange?.to) {
-        const end = new Date(dateRange.to);
-        end.setHours(23, 59, 59, 999);
-        filters.endDate = end.toISOString();
-      }
-      // Merge advanced filters (correlationId, executionId, ipAddress, resourceId, severity, source)
-      Object.assign(filters, advancedFilters);
-      if (pageToken) filters.nextPageToken = pageToken;
-      filters.limit = pageSize;
+  const logsQuery = useAuditLogs(logFilters);
+  const statsQuery = useAuditLogStats(statsFilters);
+  const filterOptionsQuery = useAuditFilterOptions();
+  const filterOptions = filterOptionsQuery.data ?? {
+    sources: [], users: [], resourceTypes: [], eventTypes: [], severities: [], statuses: [], userTypes: [],
+  };
 
-      // Update URL to reflect current filters
-      const urlParams = new URLSearchParams();
-      if (filters.eventType) urlParams.set("eventType", filters.eventType);
-      if (filters.status) urlParams.set("status", filters.status);
-      if (filters.user) urlParams.set("user", filters.user);
-      if (filters.startDate) urlParams.set("startDate", filters.startDate);
-      if (filters.endDate) urlParams.set("endDate", filters.endDate);
-      window.history.replaceState({}, "", `${window.location.pathname}${urlParams.toString() ? "?" + urlParams.toString() : ""}`);
+  const auditLogs = logsQuery.data?.logs ?? [];
+  const filteredLogs = auditLogs;
+  const nextPageToken = logsQuery.data?.nextPageToken;
+  const loading = logsQuery.isFetching;
+  const error = logsQuery.error
+    ? logsQuery.error instanceof Error
+      ? logsQuery.error.message
+      : "Failed to load audit data"
+    : null;
 
-      // Fetch stats without eventType/user filter so the dropdown stays populated
-      const statsFilters: AuditLogFilters = {};
-      if (dateRange?.from) statsFilters.startDate = filters.startDate;
-      if (dateRange?.to) statsFilters.endDate = filters.endDate;
+  const stats: AuditStats = {
+    totalLogs: statsQuery.data?.totalLogs || 0,
+    errorCount: statsQuery.data?.errorCount || 0,
+    warningCount: statsQuery.data?.warningCount || 0,
+    successCount: statsQuery.data?.successCount || 0,
+    byEventType: statsQuery.data?.byEventType || {},
+  };
 
-      const [logsResponse, statsResponse] = await Promise.all([
-        ClientAuditService.getAuditLogs(filters),
-        ClientAuditService.getAuditLogStats(statsFilters),
-      ]);
-
-      setAuditLogs(logsResponse.logs);
-      setFilteredLogs(logsResponse.logs);
-      setNextPageToken(logsResponse.nextPageToken);
-      setStats({
-        totalLogs: statsResponse.totalLogs || 0,
-        errorCount: statsResponse.errorCount || 0,
-        warningCount: statsResponse.warningCount || 0,
-        successCount: statsResponse.successCount || 0,
-        byEventType: statsResponse.byEventType || {},
-      });
-    } catch (err) {
-      console.error("Error fetching audit data:", err);
-      setError(err instanceof Error ? err.message : "Failed to load audit data");
-    } finally {
-      setLoading(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEventType, selectedStatus, selectedUser, searchTerm, dateRange, pageSize, advancedFilters]);
-
-  // Fetch dynamic filter values from DB on mount
+  // Keep the URL in sync with the active filters.
   useEffect(() => {
-    fetch('/api/audit/filters')
-      .then(res => res.json())
-      .then(result => {
-        if (result.success) setFilterOptions(result.data);
-      })
-      .catch(() => {});
-  }, []);
+    const urlParams = new URLSearchParams();
+    if (logFilters.eventType) urlParams.set("eventType", logFilters.eventType);
+    if (logFilters.status) urlParams.set("status", logFilters.status);
+    if (logFilters.user) urlParams.set("user", logFilters.user);
+    if (logFilters.startDate) urlParams.set("startDate", logFilters.startDate);
+    if (logFilters.endDate) urlParams.set("endDate", logFilters.endDate);
+    window.history.replaceState({}, "", `${window.location.pathname}${urlParams.toString() ? "?" + urlParams.toString() : ""}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEventType, selectedStatus, selectedUser, dateRange]);
 
-  // Initial load on mount
+  // Reset pagination whenever the (non-token) filters change.
   useEffect(() => {
-    isMounted.current = true;
-    fetchAuditData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Re-fetch when filters change (skip on first render — initial load handles that)
-  useEffect(() => {
-    if (!isMounted.current) return;
-    // Reset pagination and seen users whenever filters change
     setPageHistory([]);
-    setNextPageToken(undefined);
-    pendingPageToken.current = undefined;
-    fetchAuditData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    setPageToken(undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEventType, selectedStatus, selectedUser, searchTerm, dateRange, pageSize, advancedFilters]);
-
-  // searchTerm is now sent to the API — no client-side filtering needed
 
   const handleNextPage = () => {
     if (!nextPageToken || loading) return;
-    // Push current "start of this page" token to history so we can go back
-    setPageHistory((prev) => [...prev, pendingPageToken.current]);
-    pendingPageToken.current = nextPageToken;
-    fetchAuditData(nextPageToken);
+    setPageHistory((prev) => [...prev, pageToken]);
+    setPageToken(nextPageToken);
   };
 
   const handlePrevPage = () => {
@@ -212,15 +166,14 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
     const newHistory = [...pageHistory];
     const prevToken = newHistory.pop();
     setPageHistory(newHistory);
-    pendingPageToken.current = prevToken;
-    fetchAuditData(prevToken);
+    setPageToken(prevToken);
   };
 
   const handleRefresh = () => {
     setPageHistory([]);
-    setNextPageToken(undefined);
-    pendingPageToken.current = undefined;
-    fetchAuditData();
+    setPageToken(undefined);
+    logsQuery.refetch();
+    statsQuery.refetch();
   };
 
   const clearFilters = () => {
@@ -234,6 +187,7 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
 
   // Event types from dynamic filter options (DB-driven)
   const uniqueEventTypes = filterOptions.eventTypes
+    .slice()
     .sort()
     .map((eventType) => ({
       value: eventType,

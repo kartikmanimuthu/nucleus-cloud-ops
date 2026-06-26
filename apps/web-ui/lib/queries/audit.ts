@@ -47,4 +47,44 @@ export function useAuditLogStats(
     });
 }
 
+export interface AuditFilterOptions {
+    sources: string[];
+    users: string[];
+    resourceTypes: string[];
+    eventTypes: string[];
+    severities: string[];
+    statuses: string[];
+    userTypes: string[];
+}
+
+const EMPTY_FILTER_OPTIONS: AuditFilterOptions = {
+    sources: [],
+    users: [],
+    resourceTypes: [],
+    eventTypes: [],
+    severities: [],
+    statuses: [],
+    userTypes: [],
+};
+
+/**
+ * DB-driven dropdown values for the audit filters. Changes rarely, so it's
+ * cached for 5 minutes. Shows empty options as placeholder while loading.
+ */
+export function useAuditFilterOptions() {
+    return useQuery({
+        queryKey: [...queryKeys.audit.all, 'filter-options'] as const,
+        queryFn: async (): Promise<AuditFilterOptions> => {
+            const res = await fetch('/api/audit/filters');
+            const json = await res.json();
+            if (!res.ok || !json.success) {
+                throw new Error(json.error || 'Failed to fetch audit filter options');
+            }
+            return json.data as AuditFilterOptions;
+        },
+        staleTime: 5 * 60_000,
+        placeholderData: EMPTY_FILTER_OPTIONS,
+    });
+}
+
 export type { AuditLogFilters, AuditLogResponse, AuditLogStats };
