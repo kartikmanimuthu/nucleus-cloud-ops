@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useKnowledgeBases, useCreateKnowledgeBase, useDeleteKnowledgeBase } from '@/lib/queries/knowledge-base';
 import { BookOpen, Loader2, Plus, Database, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,32 +25,19 @@ import type { KnowledgeBase } from '@/lib/knowledge-base/types';
 
 export default function KnowledgeBasePage() {
   const router = useRouter();
-  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [loading, setLoading] = useState(true);
+  const kbQuery = useKnowledgeBases();
+  const createKB = useCreateKnowledgeBase();
+  const deleteKB = useDeleteKnowledgeBase();
+
+  const knowledgeBases = kbQuery.data ?? [];
+  const loading = kbQuery.isLoading;
+  const creating = createKB.isPending;
+  const deleting = deleteKB.isPending;
+
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeBase | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  const fetchKBs = async () => {
-    try {
-      const res = await fetch('/api/knowledge-base');
-      if (!res.ok) throw new Error('Failed to fetch knowledge bases');
-      const data = await res.json();
-      setKnowledgeBases(data.knowledgeBases ?? []);
-    } catch (error) {
-      console.error('Error fetching knowledge bases:', error);
-      toast.error('Failed to load knowledge bases');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchKBs();
-  }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,30 +45,18 @@ export default function KnowledgeBasePage() {
       toast.error('Name is required');
       return;
     }
-
-    setCreating(true);
     try {
-      const res = await fetch('/api/knowledge-base', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: formName.trim(), description: formDescription.trim() || undefined }),
+      await createKB.mutateAsync({
+        name: formName.trim(),
+        description: formDescription.trim() || undefined,
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error ?? 'Failed to create knowledge base');
-      }
-
       toast.success('Knowledge base created');
       setDialogOpen(false);
       setFormName('');
       setFormDescription('');
-      await fetchKBs();
     } catch (error) {
       console.error('Error creating knowledge base:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to create knowledge base');
-    } finally {
-      setCreating(false);
     }
   };
 
@@ -92,17 +68,12 @@ export default function KnowledgeBasePage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    setDeleting(true);
     try {
-      const res = await fetch(`/api/knowledge-base/${deleteTarget.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Delete failed');
+      await deleteKB.mutateAsync(deleteTarget.id);
       toast.success(`"${deleteTarget.name}" deleted`);
       setDeleteTarget(null);
-      await fetchKBs();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Delete failed');
-    } finally {
-      setDeleting(false);
     }
   };
 
