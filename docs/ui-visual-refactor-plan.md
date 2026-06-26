@@ -334,15 +334,18 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - Verify: typecheck; screenshot accounts, schedules, inventory, audit; compare to reference.
 - Commit (split if large): `refactor(web-ui): tables-only for accounts/schedules/inventory + audit stat cards`.
 
-### Phase V5 — Auth reskin  🔄 IN PROGRESS
+### Phase V5 — Auth reskin  ✅ DONE
 - [x] Created `app/(auth)/layout.tsx` (centered column, muted bg, max-w-sm; each page renders its
       own logo badge + Card). Route group → URLs preserved. (commit 63409318)
 - [x] login: moved under `(auth)/login/page.tsx` (deleted old `app/login`), restyled to logo badge +
       Card (centered CardHeader) + footer; ALL signIn/RHF/zod/SSO/lockout logic intact. Screenshot-
       VERIFIED vs reference (/login is public). (commit 63409318)
-- [ ] signup + create-org: same reskin (move under `(auth)/`, Card layout; keep signup POST /
-      slug-check / POST /api/tenants logic). Delete old `app/signup` + `app/create-org` dirs.
-- [ ] Confirm logout still `signOut({callbackUrl:'/login'})` from nav-user.
+- [x] signup + create-org: moved under `(auth)/`, Card layout; signup POST + auto-signin /
+      slug-check / POST /api/tenants + session update all intact. Old dirs deleted. /signup
+      screenshot-VERIFIED (create-org redirects to /login unauth, but structurally identical + tsc
+      clean). (commit 3e71cc4e)
+- [x] Logout: confirmed nav-user already calls `signOut({callbackUrl:'/login'})` (line 96); no
+      stale refs to old auth dirs; route group clean. Verification-only, no code change.
 - Verify: typecheck; screenshot `/login`, `/signup`, `/create-org`; compare to reference auth card.
 - Commit: `feat(web-ui): reskin auth pages (login/signup/create-org) to chatbot template`.
 
@@ -445,6 +448,15 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   slug-check / POST /api/tenants logic; move under `(auth)/`, delete old dirs). Screenshot /signup +
   /create-org after (both public). Then chunk 3: confirm logout (nav-user already
   signOut({callbackUrl:'/login'}) — likely just a verification check).
+- 2026-06-27 — V5 COMPLETE. Chunk 2 (commit 3e71cc4e): reskinned signup + create-org to (auth) Card
+  layout (moved under route group, old dirs deleted; signup POST/auto-signin + slug-check + POST
+  /api/tenants + session update all intact). /signup screenshot-VERIFIED vs reference. Chunk 3:
+  logout verification-only — nav-user already signOut({callbackUrl:'/login'}); no stale auth-path
+  refs; route group clean. All auth pages (login/signup/create-org) now on the chatbot template,
+  logic untouched. tsc clean. Next ⏭: Phase V6 — per-page polish sweep. Start with chunk 1: wire
+  PageHeader (with icon) on remaining pages lacking it (dashboard, right-sizing, knowledge-base,
+  channels, certificates, settings/*, agent, agent-ops) — do a FEW per fire, grep each page's
+  current header markup first; these are /app/* → user QA. Keep each page's existing actions.
 - 2026-06-26 — V4 chunk 1 (commit 779c63e7): Accounts table-only. tsc clean; dev server healthy
   (unauth curl 000s under contention — not a code issue; verify via dev log, not curl). Next ⏭:
   V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
