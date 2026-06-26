@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,11 +24,34 @@ interface DiscordSettingsFormProps {
     backLabel?: string;
 }
 
-export function DiscordSettingsForm({ backHref = '/channels', backLabel = 'Back to Channels' }: DiscordSettingsFormProps) {
+export function DiscordSettingsForm(props: DiscordSettingsFormProps) {
+    const { data, isLoading } = useChannelSettings('discord');
+    if (isLoading) {
+        return (
+            <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
+    return (
+        <DiscordSettingsFormInner
+            {...props}
+            initialConfigured={data?.configured ?? false}
+            initialEnabled={data?.enabled ?? true}
+        />
+    );
+}
+
+function DiscordSettingsFormInner({
+    backHref = '/channels',
+    backLabel = 'Back to Channels',
+    initialConfigured,
+    initialEnabled,
+}: DiscordSettingsFormProps & { initialConfigured: boolean; initialEnabled: boolean }) {
     const router = useRouter();
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [configured, setConfigured] = useState(false);
+    const saveMutation = useSaveChannelSettings('discord');
+    const saving = saveMutation.isPending;
+    const [configured, setConfigured] = useState(initialConfigured);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [showPublicKey, setShowPublicKey] = useState(false);
@@ -38,31 +62,13 @@ export function DiscordSettingsForm({ backHref = '/channels', backLabel = 'Back 
         applicationId: '',
         publicKey: '',
         botToken: '',
-        enabled: true,
+        enabled: initialEnabled,
     });
 
     const interactionsEndpointUrl =
         typeof window !== 'undefined'
             ? `${window.location.origin}/api/v1/gateway/discord`
             : '/api/v1/gateway/discord';
-
-    useEffect(() => {
-        fetchSettings();
-    }, []);
-
-    const fetchSettings = async () => {
-        try {
-            setLoading(true);
-            const res = await fetch('/api/agent-ops/settings/discord');
-            const data = await res.json();
-            setConfigured(data.configured ?? false);
-            setForm(prev => ({ ...prev, enabled: data.enabled ?? true }));
-        } catch (error) {
-            console.error('[DiscordSettings] Failed to fetch settings:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleSave = async () => {
         if (!form.applicationId.trim()) {
@@ -81,33 +87,20 @@ export function DiscordSettingsForm({ backHref = '/channels', backLabel = 'Back 
             return;
         }
         try {
-            setSaving(true);
             setErrorMessage('');
-            const res = await fetch('/api/agent-ops/settings/discord', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    applicationId: form.applicationId,
-                    publicKey: form.publicKey,
-                    botToken: form.botToken,
-                    enabled: form.enabled,
-                }),
+            await saveMutation.mutateAsync({
+                applicationId: form.applicationId,
+                publicKey: form.publicKey,
+                botToken: form.botToken,
+                enabled: form.enabled,
             });
-            const data = await res.json();
-            if (res.ok) {
-                setConfigured(true);
-                setSaveStatus('saved');
-                setForm(prev => ({ ...prev, applicationId: '', publicKey: '', botToken: '' }));
-                setTimeout(() => setSaveStatus('idle'), 3000);
-            } else {
-                setErrorMessage(data.error || 'Failed to save');
-                setSaveStatus('error');
-            }
+            setConfigured(true);
+            setSaveStatus('saved');
+            setForm(prev => ({ ...prev, applicationId: '', publicKey: '', botToken: '' }));
+            setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
             setSaveStatus('error');
-        } finally {
-            setSaving(false);
         }
     };
 
@@ -116,14 +109,6 @@ export function DiscordSettingsForm({ backHref = '/channels', backLabel = 'Back 
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
-
-    if (loading) {
-        return (
-            <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-        );
-    }
 
     return (
         <div className="flex-1 p-4 md:p-8 pt-6 bg-background max-w-3xl mx-auto space-y-6">
