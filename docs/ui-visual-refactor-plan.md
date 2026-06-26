@@ -358,13 +358,14 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - [x] **V4-FOLLOWUP (missed grid toggle):** `certificate-client-component.tsx` made table-only
       (removed Tabs/viewMode/LayoutGrid/TableIcon; deleted unused `certificate-cards.tsx`) + wired
       PageHeader (ShieldCheck icon, Upload action kept). (commit 3a85d52f) tsc clean; 🔎 /app/certificates → QA.
-- [~] Consistent section spacing/padding inside `SidebarInset` content. layout-wrapper provides
-      `p-4`; pages that ALSO carried `flex-1 ... p-4 md:p-8 pt-6 bg-background` (or `flex-1 overflow-auto
-      p-6`) were double-padding → normalized to the validated bare `space-y-*` pattern.
-      DONE: settings cluster ×5 (36e7c51a), agent-ops cluster ×4 (a45b3df2), channels + knowledge-base
-      outer wrapper (35a0edfb, kept inner max-w-5xl). REMAINING: mcp-settings ×3 (agent/agent-ops/
-      channels) — padding entangled with `max-w-4xl` on one element (narrow centered forms; low
-      priority, width is a decision); kb detail/sources sub-pages; misc. empty-states/Spinner audit.
+- [x] Consistent section spacing/padding inside `SidebarInset` content. layout-wrapper provides
+      `p-4`; every page/component that ALSO carried `flex-1 ... p-4 md:p-8 pt-6 bg-background` (or
+      `flex-1 overflow-auto p-6`) was double-padding → normalized to the validated bare `space-y-*`
+      pattern (kept any separate-element `max-w-*` widths). DONE: settings ×5 (36e7c51a), agent-ops
+      ×4 (a45b3df2), channels+kb outer (35a0edfb), mcp-settings ×3 (b1154173), kb sub-pages ×2
+      (3fd80e2b), 5 channel forms (cf296bf0), provider/org-settings/dashboard components (ec43ad78).
+      grep confirms NO double-pad wrappers remain. (Left one `p-6` on a "Task not found" early-return
+      error branch — edge case, not main flow.) 🔎 all /app/* → user QA.
 - [ ] Final visual QA pass with screenshots of every primary route; flag anything needing the
       user's eyes.
 - Commit(s): `polish(web-ui): consistent page headers + spacing across app`.
