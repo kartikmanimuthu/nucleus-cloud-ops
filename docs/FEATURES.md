@@ -173,6 +173,51 @@ resizing (the `applied` status is reserved for a future phase).
 
 ---
 
+## Right Sizing (Cost Optimization)
+
+Analyzes real CloudWatch utilization of discovered compute/storage resources and produces
+cost-saving right-sizing recommendations with a review workflow. Complements the Cost
+Scheduler: scheduling saves by *stopping* resources, right-sizing saves by matching a
+resource's *shape* to its actual demand. **v1 is recommend + review only** — no automated
+resizing (the `applied` status is reserved for a future phase).
+
+### Key Capabilities
+
+- Classifies each resource as over-provisioned, under-provisioned, idle, or optimized from
+  CPU, memory (CloudWatch agent), network, and IOPS over a configurable lookback (default 14d).
+- Recommends a target instance type / DB class / volume change (incl. gp2→gp3) with estimated
+  monthly savings, confidence (from data coverage), and risk level.
+- Review workflow: approve / dismiss / snooze, fully audit-logged.
+- Filterable table + KPI summary cards + per-recommendation detail dialog with utilization charts.
+- Scheduled per-tenant refresh (pg-boss fan-out) + on-demand "Run scan"; pricing from a cached
+  catalog refreshed weekly from the AWS Price List API.
+- Queryable by the AI agent (text-to-SQL + `get_right_sizing_recommendations` tool).
+
+### Supported Resource Types
+
+- EC2 instances, RDS instances, EBS volumes, Auto Scaling Groups.
+  (ASG analysis is dormant until autoscaling groups are added to discovery.)
+
+### Configuration
+
+- Gated by the `RIGHT_SIZING_ENABLED` feature flag (set `NEXT_PUBLIC_RIGHT_SIZING_ENABLED=true`
+  to show the sidebar nav). RBAC: the `RightSizing` subject maps to the `Inventory` module.
+- Assumed-role IAM (read-only): `cloudwatch:GetMetricData`, `cloudwatch:ListMetrics`,
+  `ec2:Describe*`, `rds:Describe*`. The Price List API is called from the platform account.
+
+### Relevant Code
+
+- `web-ui/app/app/right-sizing/` · `web-ui/components/right-sizing/`
+- `web-ui/lib/right-sizing-service.ts` · `web-ui/lib/right-sizing/` (config, types, feature flag)
+- `web-ui/app/api/right-sizing/` (recommendations, runs, summary)
+- `web-ui/lib/db/repositories/right-sizing/` · `web-ui/lib/db/repositories/pricing/`
+- `web-ui/lib/agent/right-sizing-tool.ts`
+- `workers/src/jobs/right-sizing/` (orchestrator, engine, rules, metric collector, pricing refresh)
+- `prisma/schema.prisma` (`RightSizingRecommendation`, `RightSizingRun`, `PricingCatalogEntry`)
+- `prisma/seed-pricing.ts`
+
+---
+
 ## Audit Logging & Compliance
 
 Immutable, tiered-retention audit trail for user actions, system events, agent tool executions, and external triggers.
