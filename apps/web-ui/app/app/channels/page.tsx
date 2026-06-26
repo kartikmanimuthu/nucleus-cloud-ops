@@ -6,6 +6,7 @@ import { Cable, CheckCircle2, Globe, Loader2, Settings2, Server, Send, Webhook }
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/shared/page-header';
 
 function SlackIcon({ className }: { className?: string }) {
     return (
@@ -134,15 +135,11 @@ export default function ChannelsPage() {
         <div className="flex-1 p-4 md:p-8 pt-6 bg-background">
             <div className="max-w-5xl mx-auto space-y-6">
                 {/* Header */}
-                <div className="flex items-center gap-3">
-                    <Cable className="h-7 w-7 text-primary" />
-                    <div>
-                        <h1 className="text-2xl font-bold">Channels</h1>
-                        <p className="text-muted-foreground mt-0.5 text-sm">
-                            Configure integrations and external tool servers used across the platform.
-                        </p>
-                    </div>
-                </div>
+                <PageHeader
+                    icon={Cable}
+                    title="Channels"
+                    description="Configure integrations and external tool servers used across the platform."
+                />
 
                 {/* Card grid */}
                 {loading ? (
