@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Shield, Plus } from "lucide-react";
 import { RolesList } from "@/components/settings/roles-list";
@@ -14,60 +14,32 @@ import {
 } from "@/components/ui/tooltip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { PermissionSet } from "@/lib/rbac/types";
-
-interface PredefinedRole {
-    id: string;
-    name: string;
-    permissions: PermissionSet;
-    level: number;
-    predefined: true;
-}
-
-interface CustomRole {
-    id: string;
-    tenantId: string;
-    name: string;
-    permissions: PermissionSet;
-    level: number;
-    createdAt: string;
-    updatedAt: string;
-    createdBy: string;
-}
+import {
+    useRoles,
+    useSaveRole,
+    useDeleteRole,
+    type CustomRole,
+} from "@/lib/queries/roles";
 
 export default function RolesPage() {
-    const [predefinedRoles, setPredefinedRoles] = useState<PredefinedRole[]>([]);
-    const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const rolesQuery = useRoles();
+    const saveRole = useSaveRole();
+    const deleteRole = useDeleteRole();
+
+    const predefinedRoles = rolesQuery.data?.predefined ?? [];
+    const customRoles = rolesQuery.data?.custom ?? [];
+    const loading = rolesQuery.isLoading;
+    const error = rolesQuery.error
+        ? rolesQuery.error instanceof Error
+            ? rolesQuery.error.message
+            : "Failed to load roles."
+        : null;
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingRole, setEditingRole] = useState<CustomRole | null>(null);
 
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [deletingRole, setDeletingRole] = useState<CustomRole | null>(null);
-
-    const fetchRoles = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const res = await fetch("/api/settings/roles");
-            const json = await res.json();
-            if (!res.ok || !json.success) {
-                setError(json.error ?? "Failed to load roles.");
-                return;
-            }
-            setPredefinedRoles(json.data.predefined ?? []);
-            setCustomRoles(json.data.custom ?? []);
-        } catch {
-            setError("Failed to load roles.");
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchRoles();
-    }, [fetchRoles]);
 
     const handleCreateClick = () => {
         setEditingRole(null);
@@ -85,43 +57,16 @@ export default function RolesPage() {
     };
 
     const handleSave = async (name: string, permissions: PermissionSet) => {
-        if (editingRole) {
-            const res = await fetch(`/api/settings/roles/${editingRole.id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, permissions }),
-            });
-            const json = await res.json();
-            if (!res.ok || !json.success) {
-                throw new Error(json.error ?? "Failed to update role.");
-            }
-        } else {
-            const res = await fetch("/api/settings/roles", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, permissions }),
-            });
-            const json = await res.json();
-            if (!res.ok || !json.success) {
-                throw new Error(json.error ?? "Failed to create role.");
-            }
-        }
+        // mutateAsync throws on failure so the dialog can surface the error.
+        await saveRole.mutateAsync({ id: editingRole?.id, name, permissions });
         setDialogOpen(false);
-        await fetchRoles();
     };
 
     const handleConfirmDelete = async () => {
         if (!deletingRole) return;
-        const res = await fetch(`/api/settings/roles/${deletingRole.id}`, {
-            method: "DELETE",
-        });
-        const json = await res.json();
-        if (!res.ok || !json.success) {
-            throw new Error(json.error ?? "Failed to delete role.");
-        }
+        await deleteRole.mutateAsync(deletingRole.id);
         setDeleteDialogOpen(false);
         setDeletingRole(null);
-        await fetchRoles();
     };
 
     const atLimit = customRoles.length >= 10;

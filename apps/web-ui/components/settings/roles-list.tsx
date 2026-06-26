@@ -5,21 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
 import type { PermissionSet, Module } from "@/lib/rbac/types";
-
-interface PredefinedRole {
-    id: string;
-    name: string;
-    permissions: PermissionSet;
-    level: number;
-}
-
-interface CustomRole {
-    id: string;
-    name: string;
-    permissions: PermissionSet;
-    level: number;
-    createdBy: string;
-}
+import type { PredefinedRole, CustomRole } from "@/lib/queries/roles";
 
 interface RolesListProps {
     predefinedRoles: PredefinedRole[];
