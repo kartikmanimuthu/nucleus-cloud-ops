@@ -324,9 +324,10 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - [x] Schedules: removed Tabs toggle in `schedules-page-client.tsx` (renders SchedulesTable only,
       keeps !loading guard); removed viewMode + Tabs/SchedulesGrid imports; deleted
       `schedules-grid.tsx` (no other importers). (commit fa5a3aa5) tsc clean; 🔎 /app/schedules → QA.
-- [ ] Inventory: rebuild `app/app/inventory/page.tsx` to a table (columns: name/id, type, account,
-      region, state/status, tags) replacing `resource-grid.tsx`; keep filters/search/pagination/
-      sync/Ask-AI; keep query hooks. Retire `resource-grid.tsx` if unused.
+- [x] Inventory: **premise correction** — `resource-grid.tsx` is ALREADY a TanStack table (not a
+      card grid), so no rebuild needed. Instead migrated the 4 hand-rolled stat cards
+      (Total Resources / Accounts Synced / Last Sync / Current View) → `StatCard`. Kept Card import
+      (filters + table cards still use it). (commit f5d96eba) tsc clean; 🔎 /app/inventory → QA.
 - [ ] Audit: add the 4 StatCards row (Total Events / Successful / Warnings / Errors) above the table;
       ensure the table matches reference (sortable headers, two-line cells, Showing X–Y + Prev/Next).
 - Verify: typecheck; screenshot accounts, schedules, inventory, audit; compare to reference.
@@ -419,8 +420,13 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   Phase V4 — start with Accounts: remove the Tabs Table/Grid toggle in
   `components/accounts/accounts-client-component.tsx` (render the existing AccountsTable only),
   delete `accounts-grid.tsx` if no other importer (grep first). Keep it scoped — one page per chunk.
-  NOTE: V4 reuses the EXISTING AccountsTable/SchedulesTable (already good) — only REMOVE the grid
-  toggle; full DataTable re-basing is optional/later, don't rewrite working tables blindly.
+- 2026-06-26 — V4 chunk 3 (commit f5d96eba): Inventory — PREMISE CORRECTION: resource-grid.tsx was
+  already a TanStack table, not a card grid, so no rebuild. Migrated its 4 stat cards → StatCard.
+  tsc clean. Next ⏭: V4 chunk 4 (last V4 item) — Audit: add the 4-StatCard row (Total Events /
+  Successful / Warnings / Errors with ok/warn/err badges) above the audit table in
+  `components/audit/audit-client-component.tsx`. Check whether audit stats are already computed/
+  available (filter-options or a stats field) before adding; if counts aren't readily available,
+  wire from the existing audit data/query. Keep the existing table + filters intact.
 - 2026-06-26 — V4 chunk 1 (commit 779c63e7): Accounts table-only. tsc clean; dev server healthy
   (unauth curl 000s under contention — not a code issue; verify via dev log, not curl). Next ⏭:
   V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
