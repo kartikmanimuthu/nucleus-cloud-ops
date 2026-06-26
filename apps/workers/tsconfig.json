@@ -19,11 +19,9 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "allowSyntheticDefaultImports": true,
+    "typeRoots": ["./node_modules/@types", "../../node_modules/@types"],
     "types": ["node"],
-    "baseUrl": ".",
-    "paths": {
-      "pdf-parse": ["./node_modules/pdf-parse"]
-    }
+    "baseUrl": "."
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]

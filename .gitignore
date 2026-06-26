@@ -35,6 +35,8 @@ node_modules/
 # TypeScript compilation output
 *.js
 *.d.ts
+# Handwritten ambient declarations (not build artifacts)
+!apps/workers/src/types/*.d.ts
 
 # Logs
 logs
