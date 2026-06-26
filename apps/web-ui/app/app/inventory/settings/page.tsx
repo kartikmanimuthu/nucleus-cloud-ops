@@ -9,7 +9,7 @@ export default function InventorySettingsPage() {
     const router = useRouter();
 
     return (
-        <div className="flex-1 space-y-6 p-4 md:p-8 pt-6 bg-background">
+        <div className="space-y-6">
             <div className="flex items-center space-x-4">
                 <Button variant="ghost" size="icon" onClick={() => router.push("/app/inventory")}>
                     <ArrowLeft className="h-5 w-5" />

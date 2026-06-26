@@ -12,7 +12,7 @@ export default function SettingsPage() {
   const router = useRouter()
 
   return (
-    <div className="flex-1 space-y-4 p-4 md:p-8 pt-6 bg-background">
+    <div className="space-y-4">
       <PageHeader
         icon={Settings}
         title="Settings"
