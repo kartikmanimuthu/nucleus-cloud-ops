@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,11 +30,34 @@ const EXAMPLE_PAYLOAD = `{
   "autoApprove": false
 }`;
 
-export function WebhookSettingsForm({ backHref = '/agent-ops', backLabel = 'Back to Agent Ops' }: WebhookSettingsFormProps) {
+export function WebhookSettingsForm(props: WebhookSettingsFormProps) {
+    const { data, isLoading } = useChannelSettings('webhook');
+    if (isLoading) {
+        return (
+            <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
+    return (
+        <WebhookSettingsFormInner
+            {...props}
+            initialConfigured={data?.configured ?? false}
+            initialEnabled={data?.enabled ?? true}
+        />
+    );
+}
+
+function WebhookSettingsFormInner({
+    backHref = '/agent-ops',
+    backLabel = 'Back to Agent Ops',
+    initialConfigured,
+    initialEnabled,
+}: WebhookSettingsFormProps & { initialConfigured: boolean; initialEnabled: boolean }) {
     const router = useRouter();
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [configured, setConfigured] = useState(false);
+    const saveMutation = useSaveChannelSettings('webhook');
+    const saving = saveMutation.isPending;
+    const [configured, setConfigured] = useState(initialConfigured);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [showSecret, setShowSecret] = useState(false);
@@ -42,31 +66,13 @@ export function WebhookSettingsForm({ backHref = '/agent-ops', backLabel = 'Back
 
     const [form, setForm] = useState<WebhookSettingsState>({
         webhookSecret: '',
-        enabled: true,
+        enabled: initialEnabled,
     });
 
     const gatewayUrl =
         typeof window !== 'undefined'
             ? `${window.location.origin}/api/v1/gateway/webhook`
             : '/api/v1/gateway/webhook';
-
-    useEffect(() => {
-        fetchSettings();
-    }, []);
-
-    const fetchSettings = async () => {
-        try {
-            setLoading(true);
-            const res = await fetch('/api/agent-ops/settings/webhook');
-            const data = await res.json();
-            setConfigured(data.configured ?? false);
-            setForm(prev => ({ ...prev, enabled: data.enabled ?? true }));
-        } catch (error) {
-            console.error('[WebhookSettings] Failed to fetch settings:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleSave = async () => {
         if (!form.webhookSecret.trim()) {
@@ -75,31 +81,18 @@ export function WebhookSettingsForm({ backHref = '/agent-ops', backLabel = 'Back
             return;
         }
         try {
-            setSaving(true);
             setErrorMessage('');
-            const res = await fetch('/api/agent-ops/settings/webhook', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    webhookSecret: form.webhookSecret,
-                    enabled: form.enabled,
-                }),
+            await saveMutation.mutateAsync({
+                webhookSecret: form.webhookSecret,
+                enabled: form.enabled,
             });
-            const data = await res.json();
-            if (res.ok) {
-                setConfigured(true);
-                setSaveStatus('saved');
-                setForm(prev => ({ ...prev, webhookSecret: '' }));
-                setTimeout(() => setSaveStatus('idle'), 3000);
-            } else {
-                setErrorMessage(data.error || 'Failed to save');
-                setSaveStatus('error');
-            }
+            setConfigured(true);
+            setSaveStatus('saved');
+            setForm(prev => ({ ...prev, webhookSecret: '' }));
+            setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
             setSaveStatus('error');
-        } finally {
-            setSaving(false);
         }
     };
 
@@ -108,14 +101,6 @@ export function WebhookSettingsForm({ backHref = '/agent-ops', backLabel = 'Back
         setter(true);
         setTimeout(() => setter(false), 2000);
     };
-
-    if (loading) {
-        return (
-            <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-        );
-    }
 
     return (
         <div className="flex-1 p-4 md:p-8 pt-6 bg-background max-w-3xl mx-auto space-y-6">
