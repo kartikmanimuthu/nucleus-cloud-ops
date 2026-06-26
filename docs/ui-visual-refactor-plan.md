@@ -307,7 +307,9 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
       (commit 60557e89) 🔎 /app pages → user QA. API backward-compatible (icon optional).
 - [x] `components/shared/stat-card.tsx` — label + value + sub + optional icon OR ok/warn/err badge
       (success/warning tokens + destructive). (commit 08d8e910) Not wired until V4.
-- [ ] `components/ui/data-table.tsx` + `data-table-column-header.tsx` + `data-table-pagination.tsx`
+- [x] `data-table-column-header.tsx` + `data-table-pagination.tsx` ported (chunk 3a, commit
+      a8749954). Column-header render→asChild; pagination verbatim (Radix Select/Button).
+- [ ] `components/ui/data-table.tsx` (chunk 3b) — main wrapper
       — port from chatbot, adapt Base-UI `render` → Radix `asChild`; use our `ui/table`,
       `ui/dropdown-menu`, `ui/select`, `ui/button`.
 - Verify: typecheck; mount DataTable on one page (audit or right-sizing) as a smoke test screenshot.
@@ -401,3 +403,9 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   trio from the chatbot (`/Users/kartik/Documents/git-repo/chatbot/apps/web-ui/components/ui/`).
   Adapt Base-UI `render={}` → Radix `asChild`; consume our ui/table + dropdown-menu + select +
   button. This is a larger chunk — may split column-header/pagination from the main table.
+- 2026-06-26 — V3 chunk 3a (commit a8749954): ported `data-table-column-header.tsx` +
+  `data-table-pagination.tsx`. @tanstack/react-table resolves; tsc clean. Next ⏭: V3 chunk 3b —
+  port `components/ui/data-table.tsx` (useReactTable + TableHeader/flexRender rows + empty state +
+  `<DataTablePagination/>`). Ref:
+  `/Users/kartik/Documents/git-repo/chatbot/apps/web-ui/components/ui/data-table.tsx`. After 3b,
+  V3 done → V4 (tables-only grids + audit stat row via StatCard + DataTable).
