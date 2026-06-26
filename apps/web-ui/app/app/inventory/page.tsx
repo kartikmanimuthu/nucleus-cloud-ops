@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { StatCard } from "@/components/shared/stat-card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
@@ -284,50 +285,30 @@ export default function InventoryPage() {
 
                 {/* Stats Cards */}
                 <div className="grid gap-4 md:grid-cols-4">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Total Resources</CardTitle>
-                            <Database className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{totalResources.toLocaleString()}</div>
-                            <p className="text-xs text-muted-foreground">Across all accounts</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Accounts Synced</CardTitle>
-                            <Server className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{accountsSynced}</div>
-                            <p className="text-xs text-muted-foreground">of {inventoryStatus?.accountCount || 0} total</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Last Sync</CardTitle>
-                            <RefreshCw className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">
-                                {lastSyncedAt ? formatDate(lastSyncedAt, 'shortDate', timezone) : "Never"}
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                                {lastSyncedAt ? formatTime(lastSyncedAt, timezone) : "Click Sync Now"}
-                            </p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Current View</CardTitle>
-                            <Filter className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{totalItems.toLocaleString()}</div>
-                            <p className="text-xs text-muted-foreground">Matching filters</p>
-                        </CardContent>
-                    </Card>
+                    <StatCard
+                        label="Total Resources"
+                        icon={Database}
+                        value={totalResources.toLocaleString()}
+                        sub="Across all accounts"
+                    />
+                    <StatCard
+                        label="Accounts Synced"
+                        icon={Server}
+                        value={accountsSynced}
+                        sub={`of ${inventoryStatus?.accountCount || 0} total`}
+                    />
+                    <StatCard
+                        label="Last Sync"
+                        icon={RefreshCw}
+                        value={lastSyncedAt ? formatDate(lastSyncedAt, 'shortDate', timezone) : "Never"}
+                        sub={lastSyncedAt ? formatTime(lastSyncedAt, timezone) : "Click Sync Now"}
+                    />
+                    <StatCard
+                        label="Current View"
+                        icon={Filter}
+                        value={totalItems.toLocaleString()}
+                        sub="Matching filters"
+                    />
                 </div>
 
                 {/* Filters */}
