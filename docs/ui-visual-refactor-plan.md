@@ -321,7 +321,9 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - [x] Accounts: removed Tabs Table/Grid toggle in `accounts-client-component.tsx` (renders
       AccountsTable only); removed viewMode + Tabs/AccountsGrid imports; deleted `accounts-grid.tsx`
       (no other importers). (commit 779c63e7) tsc clean; 🔎 /app/accounts → user QA.
-- [ ] Schedules: same in `schedules-page-client.tsx`; delete `schedules-grid.tsx` if unused.
+- [x] Schedules: removed Tabs toggle in `schedules-page-client.tsx` (renders SchedulesTable only,
+      keeps !loading guard); removed viewMode + Tabs/SchedulesGrid imports; deleted
+      `schedules-grid.tsx` (no other importers). (commit fa5a3aa5) tsc clean; 🔎 /app/schedules → QA.
 - [ ] Inventory: rebuild `app/app/inventory/page.tsx` to a table (columns: name/id, type, account,
       region, state/status, tags) replacing `resource-grid.tsx`; keep filters/search/pagination/
       sync/Ask-AI; keep query hooks. Retire `resource-grid.tsx` if unused.
@@ -424,3 +426,9 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
   ~line 274 area; render SchedulesTable only; drop viewMode + Tabs/SchedulesGrid imports; delete
   `schedules-grid.tsx` if no other importer — grep first).
+- 2026-06-26 — V4 chunk 2 (commit fa5a3aa5): Schedules table-only. tsc clean. Next ⏭: V4 chunk 3 —
+  Inventory: `app/app/inventory/page.tsx` currently renders `resource-grid.tsx` (cards) only. Build
+  a table view (columns: name/id, type, account, region, state/status, tags) and swap the grid for
+  it; KEEP filters/search/pagination/sync/Ask-AI + query hooks intact. This is a BUILD (not just a
+  toggle removal) — read resource-grid.tsx to mirror its data shape/actions. Bigger chunk; may split
+  (build ResourceTable component first, wire it second). Retire resource-grid.tsx if unused after.
