@@ -358,8 +358,13 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - [x] **V4-FOLLOWUP (missed grid toggle):** `certificate-client-component.tsx` made table-only
       (removed Tabs/viewMode/LayoutGrid/TableIcon; deleted unused `certificate-cards.tsx`) + wired
       PageHeader (ShieldCheck icon, Upload action kept). (commit 3a85d52f) tsc clean; 🔎 /app/certificates → QA.
-- [ ] Consistent section spacing/padding inside `SidebarInset` content (`p-4` / `space-y-4`),
-      empty states, loading via Spinner.
+- [~] Consistent section spacing/padding inside `SidebarInset` content. layout-wrapper provides
+      `p-4`; pages that ALSO carried `flex-1 ... p-4 md:p-8 pt-6 bg-background` (or `flex-1 overflow-auto
+      p-6`) were double-padding → normalized to the validated bare `space-y-*` pattern.
+      DONE: settings cluster ×5 (36e7c51a), agent-ops cluster ×4 (a45b3df2), channels + knowledge-base
+      outer wrapper (35a0edfb, kept inner max-w-5xl). REMAINING: mcp-settings ×3 (agent/agent-ops/
+      channels) — padding entangled with `max-w-4xl` on one element (narrow centered forms; low
+      priority, width is a decision); kb detail/sources sub-pages; misc. empty-states/Spinner audit.
 - [ ] Final visual QA pass with screenshots of every primary route; flag anything needing the
       user's eyes.
 - Commit(s): `polish(web-ui): consistent page headers + spacing across app`.
@@ -487,6 +492,13 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   drop the `max-w-5xl mx-auto` on channels/knowledge-base for consistency). ⚠️ This is VISUAL and
   spans many files — do a FEW pages per fire, tsc each, and FLAG for user QA (loop can't see /app).
   Consider doing it page-by-page in small commits rather than one sweep.
+- 2026-06-27 — V6 chunk 2 spacing (3 commits): de-double-padded settings ×5 (36e7c51a),
+  agent-ops ×4 (a45b3df2), channels + knowledge-base outer wrapper (35a0edfb, kept inner max-w-5xl).
+  All → bare `space-y-*` matching the validated accounts/schedules/audit/inventory pattern; no width
+  changes. tsc clean (pre-existing unrelated route/timezone errors noted, untouched). 🔎 /app/* → QA.
+  Next ⏭: mcp-settings ×3 (agent/agent-ops/channels) — strip the `p-4 md:p-8 pt-6` from the wrapper
+  but KEEP `max-w-4xl mx-auto` (padding-only edit, width unchanged). Then kb [kbId]/sources sub-pages
+  if same pattern. Then V6 chunk 3 — final QA pass + flag for user.
 - 2026-06-26 — V4 chunk 1 (commit 779c63e7): Accounts table-only. tsc clean; dev server healthy
   (unauth curl 000s under contention — not a code issue; verify via dev log, not curl). Next ⏭:
   V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
