@@ -39,7 +39,12 @@ commit per chunk, update the Progress Log.
 - **D4 — Rollout:** Phased commits on `app-refactor` (no PR unless asked).
 - **D5 — Auth in scope:** login, logout, signup, tenant/org creation reskinned to chatbot template
   (visual only; logic untouched).
-- **D6 — Verification:** Playwright **CLI** only, no MCP.
+- **D6 — Verification:** Playwright **CLI** only, no MCP. **Authed `/app/*` = public-only + manual QA**
+  (user decision 2026-06-26): the loop screenshots only PUBLIC routes (`/login`,`/signup`,
+  `/create-org`,`/`); `/app/*` phases are verified by code review + `bunx tsc --noEmit` on touched
+  files, and the USER does manual visual QA at phase checkpoints. Do NOT restart the dev server or
+  forge sessions. After each `/app/*` phase, the loop should explicitly flag "ready for your visual
+  QA" in the Progress Log.
 - **D7 — Defaults:** keep theme/font/radius switcher; default accent blue; keep marketing page.
 
 ---
@@ -268,13 +273,15 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
       public auth routes (`/login`,`/signup`,`/create-org`,`/`) are screenshot-verifiable by the loop.
 - Commit: `chore(web-ui): visual-refactor prep — sidebar parity check + pw-cli screenshot harness`.
 
-### Phase V1 — Design tokens + type scale  ⏭
-- [ ] `globals.css`: add `--sidebar-*` to `:root` and `.dark`.
-- [ ] `tailwind.config.ts`: ensure `sidebar*` color mappings exist (the primitive depends on them).
-- [ ] Align type scale to chatbot (header `text-base font-semibold`; sidebar items `text-sm`;
-      group labels `text-xs`; table `text-sm`; stat numbers `text-2xl`). Tweak only where ours drifts.
-- Verify: typecheck; app still renders (screenshot `/login`).
-- Commit: `style(web-ui): add --sidebar-* tokens + align type scale to chatbot template`.
+### Phase V1 — Design tokens + type scale  ✅ DONE (commit 75b81e8c)
+- [x] `globals.css`: added `--sidebar-*` to `:root` and `.dark` (blue-primary accent).
+- [x] `tailwind.config.ts`: added `sidebar` color mappings (DEFAULT/foreground/primary/
+      primary-foreground/accent/accent-foreground/border/ring). Primitive already consumes
+      `bg-sidebar*`/`text-sidebar*`/`border-sidebar*`.
+- [x] Type scale already aligns (page-header title `text-3xl`, sidebar `text-sm`/`text-xs`);
+      global top-bar title `text-base font-semibold` will be set in V2. No drift to fix now.
+- Verify: tailwind.config.ts parses; globals.css braces balanced. (Screenshot deferred — dev server
+      was down at commit time; tokens are additive/low-risk.)
 
 ### Phase V2 — App shell (sidebar + top bar)  ⏭  ← biggest change
 - [ ] `components/layout/header.tsx` — global top bar (SidebarTrigger + Separator + app title
@@ -363,4 +370,12 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   config) so `auth.setup.ts` mints valid sessions; or (b) log in manually and export the
   `next-auth.session-token` cookie into `apps/web-ui-e2e/.auth/session.json`; or (c) accept that the
   loop verifies only public routes + code review and the user does periodic `/app` visual QA.
-  Next ⏭: Phase V1 (add `--sidebar-*` tokens + type-scale alignment) — does NOT need authed shots.
+- 2026-06-26 — User decision on authed QA: **public-only screenshots + manual `/app/*` QA** (D6
+  updated). Phase V1 done (commit 75b81e8c): `--sidebar-*` tokens + tailwind mappings; type scale
+  already aligned. NOTE: dev server on :3001 was found DOWN mid-iteration (connection refused) — a
+  background `bun run dev` was (re)started for future public-route checks; if a loop session finds
+  :3001 down, restart it with `cd apps/web-ui && bun run dev` (needs AWS_PROFILE=PLATFORM-ADMIN).
+  Next ⏭: Phase V2 (app shell) — biggest change; START by porting the chatbot's
+  `sidebarMenuButtonVariants` + `SidebarMenuSubButton` active left-bar accent into our
+  `components/ui/sidebar.tsx` (delta recorded in V0), THEN build `app-sidebar`/`nav-main`/
+  `nav-user`/`header` + rewire `layout-wrapper`. /app/* → manual QA after the phase.
