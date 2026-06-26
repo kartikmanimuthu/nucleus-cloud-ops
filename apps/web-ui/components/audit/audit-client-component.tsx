@@ -208,6 +208,7 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
     return (
       <div className="space-y-6">
         <PageHeader
+          icon={Activity}
           title="Audit Logs"
           description="Monitor and track all system activities and events"
         />
@@ -229,6 +230,7 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
     <div className="space-y-6">
       {/* Header */}
       <PageHeader
+        icon={Activity}
         title="Audit Logs"
         description="Monitor and track all system activities and events"
         actions={

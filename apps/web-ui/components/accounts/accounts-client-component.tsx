@@ -265,6 +265,7 @@ export default function AccountsClient({
     <div className="space-y-6">
       {/* Header */}
       <PageHeader
+        icon={Server}
         title="AWS Accounts"
         description="Manage and monitor your AWS accounts and their configurations"
         actions={

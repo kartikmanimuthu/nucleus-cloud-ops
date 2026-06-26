@@ -254,6 +254,7 @@ export default function InventoryPage() {
             <div className="space-y-6">
                 {/* Header */}
                 <PageHeader
+                    icon={Database}
                     title="Inventory Discovery"
                     description="Auto-discovered AWS resources across all connected accounts"
                     actions={

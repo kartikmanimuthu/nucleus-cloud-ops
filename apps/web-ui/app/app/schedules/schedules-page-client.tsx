@@ -272,6 +272,7 @@ export function SchedulesPageClient({
     <div className="space-y-6">
       {/* Header */}
       <PageHeader
+        icon={Calendar}
         title="Cost Scheduler"
         description="Manage cost optimization schedules and time configurations"
         actions={
