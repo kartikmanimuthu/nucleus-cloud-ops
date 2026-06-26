@@ -317,7 +317,7 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - Verify: typecheck; mount DataTable on one page (audit or right-sizing) as a smoke test screenshot.
 - Commit: `feat(web-ui): page-header icon slot + StatCard + TanStack DataTable primitives`.
 
-### Phase V4 — Tables & grid removal  🔄 IN PROGRESS
+### Phase V4 — Tables & grid removal  ✅ DONE
 - [x] Accounts: removed Tabs Table/Grid toggle in `accounts-client-component.tsx` (renders
       AccountsTable only); removed viewMode + Tabs/AccountsGrid imports; deleted `accounts-grid.tsx`
       (no other importers). (commit 779c63e7) tsc clean; 🔎 /app/accounts → user QA.
@@ -328,8 +328,9 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
       card grid), so no rebuild needed. Instead migrated the 4 hand-rolled stat cards
       (Total Resources / Accounts Synced / Last Sync / Current View) → `StatCard`. Kept Card import
       (filters + table cards still use it). (commit f5d96eba) tsc clean; 🔎 /app/inventory → QA.
-- [ ] Audit: add the 4 StatCards row (Total Events / Successful / Warnings / Errors) above the table;
-      ensure the table matches reference (sortable headers, two-line cells, Showing X–Y + Prev/Next).
+- [x] Audit: migrated the 4 hand-rolled stat cards → `StatCard` (Total Events keeps Activity icon;
+      Successful/Warning/Error get ok/warn/err colored badges). Stats already computed via
+      `useAuditLogStats`. Table + filters untouched. (commit 197d2791) tsc clean; 🔎 /app/audit → QA.
 - Verify: typecheck; screenshot accounts, schedules, inventory, audit; compare to reference.
 - Commit (split if large): `refactor(web-ui): tables-only for accounts/schedules/inventory + audit stat cards`.
 
@@ -427,6 +428,15 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   `components/audit/audit-client-component.tsx`. Check whether audit stats are already computed/
   available (filter-options or a stats field) before adding; if counts aren't readily available,
   wire from the existing audit data/query. Keep the existing table + filters intact.
+- 2026-06-26 — V4 COMPLETE (chunk 4, commit 197d2791): Audit stat cards → StatCard with ok/warn/err
+  badges (stats already from useAuditLogStats; table+filters untouched). All of Phase V4 done:
+  Accounts/Schedules table-only, Inventory+Audit stat cards on the StatCard primitive. tsc clean.
+  ⚠️ DEV SERVER IS DOWN (user killed it). V5 = auth pages, which are PUBLIC routes → screenshot-
+  verifiable, but the next fire must restart the dev server first: `cd apps/web-ui && bun run dev`
+  (background; needs AWS_PROFILE=PLATFORM-ADMIN), wait for ":3001 Ready", then capture /login etc.
+  Next ⏭: Phase V5 — Auth reskin. Start with chunk 1: create `app/(auth)/layout.tsx` route group
+  shell (centered card + logo badge) and move /login under it (preserve the /login URL). Read the
+  current `app/login/page.tsx` first; keep ALL signIn/RHF/zod logic, restyle to Card layout only.
 - 2026-06-26 — V4 chunk 1 (commit 779c63e7): Accounts table-only. tsc clean; dev server healthy
   (unauth curl 000s under contention — not a code issue; verify via dev log, not curl). Next ⏭:
   V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
