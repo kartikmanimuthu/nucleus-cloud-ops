@@ -35,6 +35,7 @@ import { AccountsTable } from "@/components/accounts/accounts-table";
 import { AccountsGrid } from "@/components/accounts/accounts-grid";
 import { ImportAccountsDialog } from "@/components/accounts/import-accounts-dialog";
 import { BulkActionBar } from "@/components/shared/bulk-action-bar";
+import { PageHeader } from "@/components/shared/page-header";
 import { useBulkSelection } from "@/hooks/use-bulk-selection";
 import type { BulkAction, BulkActionResult } from "@/lib/bulk-actions/types";
 import { UIAccount } from "@/lib/types";
@@ -262,30 +263,22 @@ export default function AccountsClient({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between sticky top-0 z-10 bg-background p-4 border-b">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">AWS Accounts</h1>
-          <p className="text-muted-foreground">
-            Manage and monitor your AWS accounts and their configurations
-          </p>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="outline"
-            onClick={refreshAccounts}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
+      <PageHeader
+        title="AWS Accounts"
+        description="Manage and monitor your AWS accounts and their configurations"
+        actions={
+          <>
+            <Button variant="outline" onClick={refreshAccounts} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
             <Button onClick={() => router.push("/app/accounts/create")}>
               <Plus className="mr-2 h-4 w-4" />
               Integrate Account
             </Button>
-          </div>
-        </div>
+          </>
+        }
+      />
 
       {/* Error Alert */}
       {error && (

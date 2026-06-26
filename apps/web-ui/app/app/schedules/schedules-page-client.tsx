@@ -24,6 +24,7 @@ import { SchedulesTable } from "@/components/schedules/schedules-table";
 import { SchedulesGrid } from "@/components/schedules/schedules-grid";
 import { ImportSchedulesDialog } from "@/components/schedules/import-schedules-dialog";
 import { BulkActionBar } from "@/components/shared/bulk-action-bar";
+import { PageHeader } from "@/components/shared/page-header";
 import type { BulkAction, BulkActionResult } from "@/lib/bulk-actions/types";
 import { UISchedule } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -270,27 +271,25 @@ export function SchedulesPageClient({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between sticky top-0 z-10 bg-background p-4 border-b">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Cost Scheduler</h1>
-          <p className="text-muted-foreground">
-            Manage cost optimization schedules and time configurations
-          </p>
-        </div>
-        <div className="flex items-center justify-end space-x-2">
-          <Button variant="outline" size="icon" onClick={() => router.push("/app/schedules/settings")} title="Scheduler Settings">
-            <Settings className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" onClick={refreshSchedules}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          <Button onClick={handleCreateSchedule}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Schedule
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Cost Scheduler"
+        description="Manage cost optimization schedules and time configurations"
+        actions={
+          <>
+            <Button variant="outline" size="icon" onClick={() => router.push("/app/schedules/settings")} title="Scheduler Settings">
+              <Settings className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={refreshSchedules}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button onClick={handleCreateSchedule}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Schedule
+            </Button>
+          </>
+        }
+      />
 
 
 
