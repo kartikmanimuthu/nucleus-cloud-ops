@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -396,13 +397,11 @@ export function AccountsGrid({
       </div>
 
       {accounts.length === 0 && (
-        <div className="text-center py-12">
-          <Server className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-2 text-sm font-semibold">No accounts found</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Try adjusting your search terms or add a new AWS account.
-          </p>
-        </div>
+        <EmptyState
+          icon={Server}
+          title="No accounts found"
+          description="Try adjusting your search terms or add a new AWS account."
+        />
       )}
 
       <DeleteAccountDialog
