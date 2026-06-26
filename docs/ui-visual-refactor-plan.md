@@ -349,11 +349,17 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - Verify: typecheck; screenshot `/login`, `/signup`, `/create-org`; compare to reference auth card.
 - Commit: `feat(web-ui): reskin auth pages (login/signup/create-org) to chatbot template`.
 
-### Phase V6 — Per-page polish sweep  ⏭
-- [~] Wire PageHeader (with icon) across remaining pages. DONE: right-sizing (59824f42),
-      channels (7ad46d77), knowledge-base (d2c6825f), agent-ops (f535fd6d). REMAINING (inspect
-      per-file; some delegate headers to subcomponents or are special): dashboard (server
-      component), agent (chat UI — may have no standard header), certificates, settings/* pages.
+### Phase V6 — Per-page polish sweep  🔄 IN PROGRESS
+- [x] Wire PageHeader (with icon) across remaining pages. DONE: right-sizing (59824f42),
+      channels (7ad46d77), knowledge-base (d2c6825f), agent-ops (f535fd6d), settings overview +
+      members + roles (f2217040), provider-settings (ca517282). SKIP (no standard hand-rolled
+      header / delegated / special): dashboard (server component → DashboardClient), agent (chat UI),
+      settings/organization (delegates), certificates (handled in V4-followup below, NOT here).
+- [ ] **V4-FOLLOWUP (missed grid toggle):** `components/certificates/certificate-client-component.tsx`
+      has a Table/Cards (grid) toggle — same card-view pattern removed in V4 for accounts/schedules
+      but NOT caught then. Make it table-only (remove Tabs + viewMode + grid component import; delete
+      the certificate card-grid component if no other importer — grep first) AND wire PageHeader
+      (ShieldCheck icon, keep the upload action). One commit.
 - [ ] Consistent section spacing/padding inside `SidebarInset` content (`p-4` / `space-y-4`),
       empty states, loading via Spinner.
 - [ ] Final visual QA pass with screenshots of every primary route; flag anything needing the
@@ -468,6 +474,11 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   header (agent chat, dashboard server component). Then V6 chunk 2 — consistent SidebarInset
   content spacing (page wrappers still carry their own p-4/p-6/p-8 + max-w containers that now
   double up with layout-wrapper's p-4; reconcile). Then chunk 3 — final QA pass.
+- 2026-06-27 — V6 chunk 1 finished (commits f2217040 settings/members/roles, ca517282
+  provider-settings). 7 page headers wired total. DISCOVERED a missed V4 grid toggle in
+  certificate-client-component (Table/Cards) — recorded as a V4-followup in the V6 block. Next ⏭:
+  certificates V4-followup — make it table-only (remove Tabs/viewMode/grid import; delete card-grid
+  component if unused) + wire PageHeader (ShieldCheck icon, keep upload action). One commit.
 - 2026-06-26 — V4 chunk 1 (commit 779c63e7): Accounts table-only. tsc clean; dev server healthy
   (unauth curl 000s under contention — not a code issue; verify via dev log, not curl). Next ⏭:
   V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
