@@ -28,9 +28,10 @@ Project is NOT a blank slate. Strong shadcn/ui foundation already:
 - **Phase 0** ✅ DONE — deps (@tanstack/react-query+devtools, @t3-oss/env-nextjs, zustand, framer-motion, geist) + QueryProvider + `env.ts` + `components/ui/spinner.tsx`. (commit 6629220)
 - **Phase 1a** ✅ DONE — `lib/queries/` query-keys + accounts hooks (reference pattern). (commit aff426e)
 - **Phase 1b** ✅ DONE — accounts page migrated to query hooks; initialData seeding for server first-paint; mutations invalidate cache. (commit 5db9611)
-- **Phase 1c** ⏭ NEXT — add schedules + audit query hooks (mirror `accounts.ts`), migrate those pages:
-    - schedules: client `client-schedule-service.ts` → `lib/queries/schedules.ts` (list/detail + create/update/delete/toggle). Page(s): `schedules-page-client.tsx` (LIVE one per memory) + edit form.
-    - audit: `client-audit-service.ts` → `lib/queries/audit.ts` (getAuditLogs + getAuditLogStats). Page: `app/app/audit` AuditClient.
+- **Phase 1c** ✅ DONE — schedules + audit hooks; schedules page migrated. (commit 4003fe1)
+    - GOTCHA found: live audit page uses `client-audit-service-**api**` (cursor pagination, `{logs,nextPageToken}`); `client-audit-service.ts` (non-api) is DEAD code. audit.ts now wraps the live -api service.
+    - Audit page component migration DEFERRED (cursor pagination → needs `useInfiniteQuery`). Hooks are ready.
+- **Phase 1d** ⏭ NEXT — migrate audit page (`components/audit/audit-client-component.tsx`) to `useAuditLogs`/`useAuditLogStats`. Token pagination: either keep manual pageToken state feeding the filter (simplest — each page is its own query key) or use useInfiniteQuery. Also consider deleting dead `client-audit-service.ts` + dead `audit-client-component-api.tsx` after confirming unused.
 - **Phase 2** (toast consolidation) — migrate Radix `toast()` call sites (delete-account-dialog, etc.) to sonner; remove `<Toaster/>` (radix) from `app/layout.tsx`; delete `components/ui/toast.tsx`+`toaster.tsx`+`use-toast` hook. GREP `useToast` / `@/components/ui/use-toast` first.
 - **Phase 3** (forms) — migrate ~7 manual `useState` dialogs to RHF+zod (create-account-dialog, edit-account-dialog, create-schedule-dialog, …). Reuse `components/ui/form.tsx`.
 - **Phase 4** (Zod 3→4) — DEDICATED: bump zod^4 + @hookform/resolvers compat + t3-env may need ^0.13; fix ~17 zod files (API changes). Full typecheck.
@@ -43,3 +44,4 @@ Project is NOT a blank slate. Strong shadcn/ui foundation already:
 ## Progress Log
 - 2026-06-26 14:41–15:05 — Iteration 1: explored codebase (3 agents); user confirmed D1=full overhaul, D2=incremental commits, D3=Zustand+Zod4. Set up 30-min loop (cron dbc3fe83). Shipped Phase 0 (6629220) + Phase 1a (aff426e). New files typecheck clean. Next: Phase 1b (wire accounts page to hooks).
 - 2026-06-26 15:13 — Iteration 2: Shipped Phase 1b (5db9611) — accounts page fully migrated to TanStack Query (list+stats queries, initialData seeding, cache invalidation on mutate). Removed 6 useState + 3 useEffect + manual refetch callbacks. Typecheck clean, no dangling refs. Next: Phase 1c (schedules + audit query hooks + page migrations).
+- 2026-06-26 15:?? — Iteration 3 (loop now 15-min, cron 93a5b782): Shipped Phase 1c (4003fe1) — schedules + audit hooks; schedules page migrated (mirrors accounts). Found+routed around dead audit service (live = -api, cursor paginated). Deferred audit COMPONENT migration to 1d. Typecheck clean. Next: Phase 1d (audit page) then Phase 2 (toast consolidation).
