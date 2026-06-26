@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { MembersTable } from "@/components/settings/members-table";
 import { InvitationsTable } from "@/components/settings/invitations-table";
 import { InviteMemberDialog } from "@/components/settings/invite-member-dialog";
+import { PageHeader } from "@/components/shared/page-header";
 import {
     useMembers,
     useInvitations,
@@ -90,18 +91,12 @@ export default function MembersPage() {
 
     return (
         <div className="flex-1 space-y-6 p-4 md:p-8 pt-6 bg-background">
-            <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                        <Users className="h-6 w-6" />
-                        <h2 className="text-3xl font-semibold tracking-tight">Members</h2>
-                    </div>
-                    <p className="text-muted-foreground">
-                        Manage your organization&apos;s team members and pending invitations.
-                    </p>
-                </div>
-                <Button onClick={() => setDialogOpen(true)}>Invite Member</Button>
-            </div>
+            <PageHeader
+                icon={Users}
+                title="Members"
+                description="Manage your organization's team members and pending invitations."
+                actions={<Button onClick={() => setDialogOpen(true)}>Invite Member</Button>}
+            />
 
             <section className="space-y-4">
                 <h3 className="text-xl font-semibold">Team Members</h3>

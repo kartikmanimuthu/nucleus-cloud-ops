@@ -6,6 +6,7 @@ import { Shield, Plus } from "lucide-react";
 import { RolesList } from "@/components/settings/roles-list";
 import { RoleDialog } from "@/components/settings/role-dialog";
 import { DeleteRoleDialog } from "@/components/settings/delete-role-dialog";
+import { PageHeader } from "@/components/shared/page-header";
 import {
     Tooltip,
     TooltipContent,
@@ -73,40 +74,33 @@ export default function RolesPage() {
 
     return (
         <div className="flex-1 space-y-6 p-4 md:p-8 pt-6 bg-background">
-            <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                        <Shield className="h-6 w-6" />
-                        <h2 className="text-3xl font-bold tracking-tight text-foreground">
-                            Roles
-                        </h2>
-                    </div>
-                    <p className="text-muted-foreground">
-                        Manage predefined and custom roles for your organization.
-                    </p>
-                </div>
-
-                <TooltipProvider>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <span>
-                                <Button
-                                    onClick={handleCreateClick}
-                                    disabled={atLimit}
-                                >
-                                    <Plus className="mr-2 h-4 w-4" />
-                                    Create Role
-                                </Button>
-                            </span>
-                        </TooltipTrigger>
-                        {atLimit && (
-                            <TooltipContent>
-                                Maximum 10 custom roles reached
-                            </TooltipContent>
-                        )}
-                    </Tooltip>
-                </TooltipProvider>
-            </div>
+            <PageHeader
+                icon={Shield}
+                title="Roles"
+                description="Manage predefined and custom roles for your organization."
+                actions={
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span>
+                                    <Button
+                                        onClick={handleCreateClick}
+                                        disabled={atLimit}
+                                    >
+                                        <Plus className="mr-2 h-4 w-4" />
+                                        Create Role
+                                    </Button>
+                                </span>
+                            </TooltipTrigger>
+                            {atLimit && (
+                                <TooltipContent>
+                                    Maximum 10 custom roles reached
+                                </TooltipContent>
+                            )}
+                        </Tooltip>
+                    </TooltipProvider>
+                }
+            />
 
             {error && (
                 <p className="text-sm text-destructive">{error}</p>
