@@ -317,9 +317,10 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - Verify: typecheck; mount DataTable on one page (audit or right-sizing) as a smoke test screenshot.
 - Commit: `feat(web-ui): page-header icon slot + StatCard + TanStack DataTable primitives`.
 
-### Phase V4 — Tables & grid removal  ⏭
-- [ ] Accounts: remove Tabs Table/Grid toggle in `accounts-client-component.tsx`; render table only.
-      Delete `accounts-grid.tsx` if no other importer (grep). Optionally re-base on DataTable.
+### Phase V4 — Tables & grid removal  🔄 IN PROGRESS
+- [x] Accounts: removed Tabs Table/Grid toggle in `accounts-client-component.tsx` (renders
+      AccountsTable only); removed viewMode + Tabs/AccountsGrid imports; deleted `accounts-grid.tsx`
+      (no other importers). (commit 779c63e7) tsc clean; 🔎 /app/accounts → user QA.
 - [ ] Schedules: same in `schedules-page-client.tsx`; delete `schedules-grid.tsx` if unused.
 - [ ] Inventory: rebuild `app/app/inventory/page.tsx` to a table (columns: name/id, type, account,
       region, state/status, tags) replacing `resource-grid.tsx`; keep filters/search/pagination/
@@ -418,3 +419,8 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   delete `accounts-grid.tsx` if no other importer (grep first). Keep it scoped — one page per chunk.
   NOTE: V4 reuses the EXISTING AccountsTable/SchedulesTable (already good) — only REMOVE the grid
   toggle; full DataTable re-basing is optional/later, don't rewrite working tables blindly.
+- 2026-06-26 — V4 chunk 1 (commit 779c63e7): Accounts table-only. tsc clean; dev server healthy
+  (unauth curl 000s under contention — not a code issue; verify via dev log, not curl). Next ⏭:
+  V4 chunk 2 — Schedules: same removal in `app/app/schedules/schedules-page-client.tsx` (Tabs at
+  ~line 274 area; render SchedulesTable only; drop viewMode + Tabs/SchedulesGrid imports; delete
+  `schedules-grid.tsx` if no other importer — grep first).
