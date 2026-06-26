@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useMyOrgs, useSwitchOrg, type Org } from "@/lib/queries/orgs";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -15,14 +15,6 @@ import {
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface Org {
-    id: string;
-    name: string;
-    slug: string | null;
-    role: string | null;
-    logoUrl: string | null;
-}
-
 interface OrgSwitcherProps {
     collapsed: boolean;
 }
@@ -30,38 +22,17 @@ interface OrgSwitcherProps {
 export function OrgSwitcher({ collapsed }: OrgSwitcherProps) {
     const { data: session, update } = useSession();
     const router = useRouter();
-    const [orgs, setOrgs] = useState<Org[]>([]);
-    const [loading, setLoading] = useState(true);
+    const orgsQuery = useMyOrgs();
+    const switchOrg = useSwitchOrg();
+    const orgs: Org[] = orgsQuery.data ?? [];
+    const loading = orgsQuery.isLoading;
 
     const currentTenantId = session?.user?.tenantId;
-
-    const fetchOrgs = useCallback(async () => {
-        try {
-            const res = await fetch("/api/tenants/my-orgs");
-            if (res.ok) {
-                const data = await res.json();
-                setOrgs(data.orgs ?? []);
-            }
-        } catch (err) {
-            console.error("Failed to fetch orgs:", err);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchOrgs();
-    }, [fetchOrgs]);
 
     const handleSwitch = async (tenantId: string) => {
         if (tenantId === currentTenantId) return;
         try {
-            const res = await fetch("/api/tenants/switch", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tenantId }),
-            });
-            if (!res.ok) return;
+            await switchOrg.mutateAsync(tenantId);
             // update() refreshes session, then router.refresh() re-renders server components
             await update();
             router.refresh();
