@@ -13,7 +13,7 @@ export interface ThemeConfig {
 const defaultConfig: ThemeConfig = {
   theme: "zinc",
   radius: 0.5,
-  font: "inter",
+  font: "geist",
 }
 
 type ThemeConfigContextType = {
@@ -73,9 +73,10 @@ export function ThemeConfigProvider({ children }: { children: React.ReactNode })
 
     root.style.setProperty("--radius", `${config.radius}rem`)
 
-    let fontVar = "system-ui"
-    if (config.font === "inter") fontVar = "var(--font-inter)"
-    if (config.font === "manrope") fontVar = "var(--font-manrope)"
+    // Geist is the default; allow overriding to the mono cut or the system stack.
+    let fontVar = "var(--font-geist-sans)"
+    if (config.font === "mono") fontVar = "var(--font-geist-mono)"
+    if (config.font === "system") fontVar = "ui-sans-serif, system-ui, sans-serif"
     root.style.setProperty("--font-sans", fontVar)
 
   }, [config, mode])
