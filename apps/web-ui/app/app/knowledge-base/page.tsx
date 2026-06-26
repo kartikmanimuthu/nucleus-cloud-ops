@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useKnowledgeBases, useCreateKnowledgeBase, useDeleteKnowledgeBase } from '@/lib/queries/knowledge-base';
+import { Spinner } from '@/components/ui/spinner';
 import { BookOpen, Loader2, Plus, Database, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -100,7 +101,7 @@ export default function KnowledgeBasePage() {
         {/* Card grid */}
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Spinner size="md" />
           </div>
         ) : knowledgeBases.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">

@@ -45,6 +45,7 @@ import { useAccounts } from "@/lib/queries/accounts";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries/query-keys";
 import { PaginationBar } from "@/components/ui/pagination-bar";
+import { SpinnerOverlay } from "@/components/ui/spinner";
 
 const ACCOUNT_BULK_ACTIONS: BulkAction[] = [
   { key: "activate", label: "Activate", icon: Power },
@@ -300,13 +301,8 @@ export default function AccountsClient({
       {/* Loading State */}
       {loading && !error && accounts.length === 0 && (
         <Card>
-          <CardContent className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <Loader2 className="mx-auto h-8 w-8 animate-spin" />
-              <p className="mt-2 text-sm text-muted-foreground">
-                Loading accounts...
-              </p>
-            </div>
+          <CardContent className="py-12">
+            <SpinnerOverlay label="Loading accounts..." />
           </CardContent>
         </Card>
       )}
