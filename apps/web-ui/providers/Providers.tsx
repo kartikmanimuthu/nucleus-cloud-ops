@@ -2,6 +2,7 @@
 
 import { SessionProvider } from 'next-auth/react';
 import { TenantProvider } from '@/lib/tenant-context';
+import { QueryProvider } from '@/providers/query-provider';
 
 interface ProvidersProps {
     children: React.ReactNode;
@@ -10,9 +11,11 @@ interface ProvidersProps {
 export default function Providers({ children }: ProvidersProps) {
     return (
         <SessionProvider>
-            <TenantProvider>
-                {children}
-            </TenantProvider>
+            <QueryProvider>
+                <TenantProvider>
+                    {children}
+                </TenantProvider>
+            </QueryProvider>
         </SessionProvider>
     );
 }
