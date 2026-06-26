@@ -103,7 +103,7 @@ function TelegramSettingsFormInner({
     };
 
     return (
-        <div className="flex-1 p-4 md:p-8 pt-6 bg-background max-w-3xl mx-auto space-y-6">
+        <div className="flex-1 bg-background max-w-3xl mx-auto space-y-6">
             <div>
                 <Button
                     variant="ghost"
