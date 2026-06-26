@@ -133,7 +133,7 @@ export function ProviderSettings() {
     };
 
     return (
-        <div className="flex-1 space-y-6 p-4 md:p-8 pt-6 bg-background">
+        <div className="space-y-6">
             <PageHeader
                 icon={Server}
                 title="LLM Providers"
