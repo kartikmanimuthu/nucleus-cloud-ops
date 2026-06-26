@@ -51,7 +51,8 @@ Project is NOT a blank slate. Strong shadcn/ui foundation already:
     - ✅ telegram form → shared hooks (3575bef2).
     - ✅ webhook form → shared hooks (5f74adb0). ALL 5 channel forms done.
     - ✅ provider-settings → `lib/queries/providers.ts` (17810a1d); CRUD + test.
-    - ⏭ NEXT — org-settings-form, knowledge-base, inventory data layer, dashboard sections. SKIP (low value/high risk): mcp-settings (455-line Monaco editor).
+    - ✅ knowledge-base page → `lib/queries/knowledge-base.ts` (00c778f2); list + create + delete.
+    - ⏭ NEXT — inventory data layer (high-traffic, complex: resources+sync+filters+refs), dashboard sections (refreshKey, multi-file). SKIP/DEFER: mcp-settings (Monaco), org-settings-form (logo S3 flow + overlaps TenantContext — low value/moderate risk), KB detail/sources sub-pages.
 - **Phase 2** (toast consolidation) — migrate Radix `toast()` call sites (delete-account-dialog, etc.) to sonner; remove `<Toaster/>` (radix) from `app/layout.tsx`; delete `components/ui/toast.tsx`+`toaster.tsx`+`use-toast` hook. GREP `useToast` / `@/components/ui/use-toast` first.
 - **Phase 3** (forms) — migrate ~7 manual `useState` dialogs to RHF+zod (create-account-dialog, edit-account-dialog, create-schedule-dialog, …). Reuse `components/ui/form.tsx`.
 - **Phase 4** (Zod 3→4) — DEDICATED: bump zod^4 + @hookform/resolvers compat + t3-env may need ^0.13; fix ~17 zod files (API changes). Full typecheck.
@@ -76,6 +77,7 @@ Project is NOT a blank slate. Strong shadcn/ui foundation already:
 - 2026-06-26 15:?? — Iteration 3 (loop now 15-min, cron 93a5b782): Shipped Phase 1c (4003fe1) — schedules + audit hooks; schedules page migrated (mirrors accounts). Found+routed around dead audit service (live = -api, cursor paginated). Deferred audit COMPONENT migration to 1d. Typecheck clean. Next: Phase 1d (audit page) then Phase 2 (toast consolidation).
 - 2026-06-26 16:?? — Iteration 4: Shipped Phase 1d (cd069be) — audit page migrated to TanStack Query (cursor pagination via pageToken→query key; useAuditFilterOptions). Deleted dead client-audit-service.ts. 3 feature pages (accounts/schedules/audit) now fully on TanStack Query. Typecheck clean. Next: Phase 2 (toast consolidation) — biggest cross-cutting change so far (many call sites).
 - 2026-06-26 16:?? — Iteration 5: Shipped Phase 2 (d61b4d2) — toast consolidation via SHIM strategy (use-toast.ts forwards to sonner) instead of rewriting ~17 call sites; removed Radix Toaster + deleted toast.tsx/toaster.tsx. Single toast system. Typecheck clean. Next: Phase 3 (forms standardization).
+- 2026-06-27 03:?? — Iteration 28: Shipped knowledge-base migration (00c778f2) — list+create+delete hooks. Typecheck clean. 17 surfaces on TanStack Query. Remaining clean targets nearly exhausted; next are complex (inventory/dashboard) or deferred.
 - 2026-06-27 02:?? — Iteration 27: Shipped provider-settings migration (17810a1d) — CRUD + test hooks. Typecheck clean. 16 surfaces on TanStack Query. Next: org-settings-form / knowledge-base / heavier pages.
 - 2026-06-27 02:?? — Iteration 26: Shipped webhook form migration (5f74adb0) — all 5 channel forms now on shared hooks. Typecheck clean. 15 surfaces on TanStack Query. Next: provider-settings / org-settings-form / heavier pages.
 - 2026-06-27 01:?? — Iteration 25: Shipped telegram form migration (3575bef2). Typecheck clean. 14 surfaces on TanStack Query. Next: webhook form (last channel form).
