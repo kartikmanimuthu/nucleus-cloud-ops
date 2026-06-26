@@ -1,31 +1,21 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Users } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { MembersTable } from "@/components/settings/members-table";
 import { InvitationsTable } from "@/components/settings/invitations-table";
 import { InviteMemberDialog } from "@/components/settings/invite-member-dialog";
-
-interface Member {
-    id: string;
-    userId: string;
-    email: string;
-    role: string;
-    assignedAt: string;
-}
-
-interface Invitation {
-    id: string;
-    tenantId: string;
-    email: string;
-    role: string;
-    invitedBy: string;
-    status: "pending" | "accepted" | "revoked" | "expired";
-    createdAt: string;
-    expiresAt: string;
-}
+import {
+    useMembers,
+    useInvitations,
+    useInviteMember,
+    useResendInvitation,
+    useChangeMemberRole,
+    useRevokeInvitation,
+} from "@/lib/queries/members";
+import { useRoles } from "@/lib/queries/roles";
 
 const ROLE_HIERARCHY: Record<string, number> = {
     Owner: 4,
@@ -37,123 +27,56 @@ const ROLE_HIERARCHY: Record<string, number> = {
 export default function MembersPage() {
     const { data: session } = useSession();
 
-    const [members, setMembers] = useState<Member[]>([]);
-    const [membersLoading, setMembersLoading] = useState(true);
-    const [membersError, setMembersError] = useState<string | null>(null);
+    const membersQuery = useMembers();
+    const invitationsQuery = useInvitations();
+    const rolesQuery = useRoles();
 
-    const [invitations, setInvitations] = useState<Invitation[]>([]);
-    const [invitationsLoading, setInvitationsLoading] = useState(true);
-    const [invitationsError, setInvitationsError] = useState<string | null>(null);
+    const inviteMember = useInviteMember();
+    const resendInvitation = useResendInvitation();
+    const changeMemberRole = useChangeMemberRole();
+    const revokeInvitation = useRevokeInvitation();
 
-    const [predefinedRoles, setPredefinedRoles] = useState<{ name: string; level: number }[]>([]);
-    const [customRoles, setCustomRoles] = useState<{ name: string; level: number }[]>([]);
+    const members = membersQuery.data ?? [];
+    const membersLoading = membersQuery.isLoading;
+    const membersError = membersQuery.error
+        ? membersQuery.error instanceof Error
+            ? membersQuery.error.message
+            : "Failed to load members. Refresh the page to try again."
+        : null;
+
+    const invitations = invitationsQuery.data ?? [];
+    const invitationsLoading = invitationsQuery.isLoading;
+    const invitationsError = invitationsQuery.error
+        ? invitationsQuery.error instanceof Error
+            ? invitationsQuery.error.message
+            : "Failed to load invitations. Refresh the page to try again."
+        : null;
+
+    const predefinedRoles = rolesQuery.data?.predefined ?? [];
+    const customRoles = rolesQuery.data?.custom ?? [];
 
     const [dialogOpen, setDialogOpen] = useState(false);
 
-    const fetchMembers = useCallback(async () => {
-        setMembersLoading(true);
-        setMembersError(null);
-        try {
-            const res = await fetch("/api/settings/members");
-            const json = await res.json();
-            if (!res.ok || !json.success) {
-                setMembersError(json.error ?? "Failed to load members. Refresh the page to try again.");
-                return;
-            }
-            setMembers(json.data ?? []);
-        } catch {
-            setMembersError("Failed to load members. Refresh the page to try again.");
-        } finally {
-            setMembersLoading(false);
-        }
-    }, []);
-
-    const fetchInvitations = useCallback(async () => {
-        setInvitationsLoading(true);
-        setInvitationsError(null);
-        try {
-            const res = await fetch("/api/invitations");
-            const json = await res.json();
-            if (!res.ok || !json.success) {
-                setInvitationsError(json.error ?? "Failed to load invitations. Refresh the page to try again.");
-                return;
-            }
-            setInvitations(json.data ?? []);
-        } catch {
-            setInvitationsError("Failed to load invitations. Refresh the page to try again.");
-        } finally {
-            setInvitationsLoading(false);
-        }
-    }, []);
-
-    const fetchRoles = useCallback(async () => {
-        try {
-            const res = await fetch("/api/settings/roles");
-            const json = await res.json();
-            if (!res.ok || !json.success) return;
-            const predefined = (json.data?.predefined ?? []) as { name: string; level: number }[];
-            const custom = (json.data?.custom ?? []) as { name: string; level: number }[];
-            setPredefinedRoles(predefined);
-            setCustomRoles(custom);
-        } catch {
-            // Non-blocking — predefined roles still work
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchMembers();
-        fetchInvitations();
-        fetchRoles();
-    }, [fetchMembers, fetchInvitations, fetchRoles]);
-
     const handleInvite = async (email: string, role: string) => {
-        const res = await fetch("/api/invitations", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, role }),
-        });
-        const json = await res.json();
-        if (!res.ok || !json.success) {
-            throw new Error(json.error ?? "Invitation failed.");
-        }
+        // mutateAsync throws on failure so the dialog can surface the error.
+        await inviteMember.mutateAsync({ email, role });
         setDialogOpen(false);
-        await Promise.all([fetchMembers(), fetchInvitations()]);
     };
 
     const handleResend = async (id: string) => {
-        const res = await fetch(`/api/invitations/${id}/resend`, { method: "POST" });
-        const json = await res.json();
-        if (!res.ok || !json.success) {
-            throw new Error(json.error ?? "Resend failed.");
-        }
-        await fetchInvitations();
+        await resendInvitation.mutateAsync(id);
     };
 
     const handleRoleChange = async (memberId: string, role: string) => {
-        const res = await fetch(`/api/settings/members/${memberId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ role }),
-        });
-        const json = await res.json();
-        if (!res.ok || !json.success) {
-            throw new Error(json.error ?? "Role update failed.");
-        }
-        await fetchMembers();
+        await changeMemberRole.mutateAsync({ memberId, role });
     };
 
     const handleRevoke = async (id: string) => {
-        // Optimistic removal
-        setInvitations((prev) => prev.filter((inv) => inv.id !== id));
+        // Optimistic removal + rollback handled inside the mutation's onMutate/onError.
         try {
-            const res = await fetch(`/api/invitations/${id}/revoke`, { method: "POST" });
-            const json = await res.json();
-            if (!res.ok || !json.success) {
-                // Restore on error
-                await fetchInvitations();
-            }
+            await revokeInvitation.mutateAsync(id);
         } catch {
-            await fetchInvitations();
+            // error already surfaced via rollback; nothing else to do
         }
     };
 
