@@ -300,7 +300,7 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
       left-bar accent, icon-rail collapse (toggle/Cmd-B), org switcher dropdown (+ create org),
       user dropdown (Profile/Sign out), top bar page title. Report any deltas vs the reference.
 
-### Phase V3 — Shared primitives  🔄 IN PROGRESS
+### Phase V3 — Shared primitives  ✅ DONE
 - [x] `components/shared/page-header.tsx` — added optional `icon` slot (tinted rounded square);
       converted from sticky-bordered bar → plain content header (top bar owns the sticky border now);
       title text-2xl + description text-sm. Wired icons on accounts/audit/schedules/inventory.
@@ -309,7 +309,9 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
       (success/warning tokens + destructive). (commit 08d8e910) Not wired until V4.
 - [x] `data-table-column-header.tsx` + `data-table-pagination.tsx` ported (chunk 3a, commit
       a8749954). Column-header render→asChild; pagination verbatim (Radix Select/Button).
-- [ ] `components/ui/data-table.tsx` (chunk 3b) — main wrapper
+- [x] `components/ui/data-table.tsx` (chunk 3b, commit 2d8d0186) — main wrapper: useReactTable
+      (sort/filter/paginate), flexRender header+rows, skeleton loading, empty-state, header/footer
+      slots + DataTablePagination. Ports verbatim (uses our ui/table+skeleton, no Base-UI).
       — port from chatbot, adapt Base-UI `render` → Radix `asChild`; use our `ui/table`,
       `ui/dropdown-menu`, `ui/select`, `ui/button`.
 - Verify: typecheck; mount DataTable on one page (audit or right-sizing) as a smoke test screenshot.
@@ -409,3 +411,10 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   `<DataTablePagination/>`). Ref:
   `/Users/kartik/Documents/git-repo/chatbot/apps/web-ui/components/ui/data-table.tsx`. After 3b,
   V3 done → V4 (tables-only grids + audit stat row via StatCard + DataTable).
+- 2026-06-26 — V3 COMPLETE (chunk 3b, commit 2d8d0186): DataTable wrapper. tsc clean; all ui/table
+  exports present. Shared primitives ready (PageHeader+icon, StatCard, DataTable trio). Next ⏭:
+  Phase V4 — start with Accounts: remove the Tabs Table/Grid toggle in
+  `components/accounts/accounts-client-component.tsx` (render the existing AccountsTable only),
+  delete `accounts-grid.tsx` if no other importer (grep first). Keep it scoped — one page per chunk.
+  NOTE: V4 reuses the EXISTING AccountsTable/SchedulesTable (already good) — only REMOVE the grid
+  toggle; full DataTable re-basing is optional/later, don't rewrite working tables blindly.
