@@ -18,7 +18,7 @@ setup('create authenticated session', async ({ page }) => {
 
     const tokenJson = execSync(
         `node -e "
-const { encode } = require('${path.resolve(__dirname, '../../apps/web-ui/node_modules/next-auth/jwt')}');
+const { encode } = require('${path.resolve(__dirname, '../../node_modules/next-auth/jwt')}');
 encode({
     token: {
         name: 'Test User',
