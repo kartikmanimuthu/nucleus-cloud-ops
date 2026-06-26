@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useChannelStatus } from '@/lib/queries/channels';
 import Link from 'next/link';
 import { Cable, CheckCircle2, Globe, Loader2, Settings2, Server, Send, Webhook } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -46,41 +46,13 @@ function TelegramIcon({ className }: { className?: string }) {
     );
 }
 
-interface ChannelStatus {
-    slack: { configured: boolean; enabled: boolean } | null;
-    jira: { configured: boolean; enabled: boolean } | null;
-    discord: { configured: boolean; enabled: boolean } | null;
-    telegram: { configured: boolean; enabled: boolean } | null;
-    webhook: { configured: boolean; enabled: boolean } | null;
-    mcp: { serverCount: number } | null;
-    providers: { count: number } | null;
-}
 
 export default function ChannelsPage() {
-    const [status, setStatus] = useState<ChannelStatus>({ slack: null, jira: null, discord: null, telegram: null, webhook: null, mcp: null, providers: null });
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        Promise.all([
-            fetch('/api/agent-ops/settings/slack').then(r => r.json()).catch(() => null),
-            fetch('/api/agent-ops/settings/jira').then(r => r.json()).catch(() => null),
-            fetch('/api/agent-ops/settings/discord').then(r => r.json()).catch(() => null),
-            fetch('/api/agent-ops/settings/telegram').then(r => r.json()).catch(() => null),
-            fetch('/api/agent-ops/settings/webhook').then(r => r.json()).catch(() => null),
-            fetch('/api/agent-ops/mcp-settings').then(r => r.json()).catch(() => null),
-            fetch('/api/settings/providers').then(r => r.json()).catch(() => null),
-        ]).then(([slack, jira, discord, telegram, webhook, mcp, providers]) => {
-            setStatus({
-                slack: slack ? { configured: slack.configured ?? false, enabled: slack.enabled ?? false } : null,
-                jira: jira ? { configured: jira.configured ?? false, enabled: jira.enabled ?? false } : null,
-                discord: discord ? { configured: discord.configured ?? false, enabled: discord.enabled ?? false } : null,
-                telegram: telegram ? { configured: telegram.configured ?? false, enabled: telegram.enabled ?? false } : null,
-                webhook: webhook ? { configured: webhook.configured ?? false, enabled: webhook.enabled ?? false } : null,
-                mcp: mcp?.servers ? { serverCount: Object.keys(mcp.servers).length } : null,
-                providers: providers?.success ? { count: providers.data?.providers?.length ?? 0 } : null,
-            });
-        }).finally(() => setLoading(false));
-    }, []);
+    const channelQuery = useChannelStatus();
+    const status = channelQuery.data ?? {
+        slack: null, jira: null, discord: null, telegram: null, webhook: null, mcp: null, providers: null,
+    };
+    const loading = channelQuery.isLoading;
 
     const channels = [
         {
