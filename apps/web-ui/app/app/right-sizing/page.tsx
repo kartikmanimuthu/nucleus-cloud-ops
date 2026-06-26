@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { SummaryCards } from "@/components/right-sizing/summary-cards";
 import { RecommendationsTable } from "@/components/right-sizing/recommendations-table";
 import { RecommendationDetailDialog } from "@/components/right-sizing/recommendation-detail-dialog";
+import { PageHeader } from "@/components/shared/page-header";
 import type { RightSizingRecommendation } from "@/lib/db/repositories/right-sizing/interface";
 import { queryKeys } from "@/lib/queries/query-keys";
 import {
@@ -75,26 +76,23 @@ export default function RightSizingPage() {
 
     return (
         <div className="space-y-6 p-6">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="flex items-center gap-2 text-2xl font-bold">
-                        <TrendingDown className="h-6 w-6" /> Right Sizing
-                    </h1>
-                    <p className="text-sm text-muted-foreground">
-                        Cost-saving recommendations from real CloudWatch utilization.
-                    </p>
-                </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={refresh} disabled={loading}>
-                        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                        <span className="ml-1">Refresh</span>
-                    </Button>
-                    <Button onClick={runScan} disabled={scanning}>
-                        {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                        <span className="ml-1">Run scan</span>
-                    </Button>
-                </div>
-            </div>
+            <PageHeader
+                icon={TrendingDown}
+                title="Right Sizing"
+                description="Cost-saving recommendations from real CloudWatch utilization."
+                actions={
+                    <>
+                        <Button variant="outline" onClick={refresh} disabled={loading}>
+                            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                            <span className="ml-1">Refresh</span>
+                        </Button>
+                        <Button onClick={runScan} disabled={scanning}>
+                            {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                            <span className="ml-1">Run scan</span>
+                        </Button>
+                    </>
+                }
+            />
 
             <SummaryCards summary={summary} loading={loading} />
 
