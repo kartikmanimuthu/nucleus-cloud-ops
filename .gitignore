@@ -82,6 +82,8 @@ Thumbs.db
 .env.*.local
 .env.bk
 .env.bak
+.env*.bck
+*.bck
 
 # CDK context
 # cdk.context.json
