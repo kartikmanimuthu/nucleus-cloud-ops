@@ -35,4 +35,10 @@ export const queryKeys = {
         list: (filters?: unknown) => [...queryKeys.audit.lists(), filters ?? {}] as const,
         stats: (filters?: unknown) => [...queryKeys.audit.all, 'stats', filters ?? {}] as const,
     },
+    rightSizing: {
+        all: ['right-sizing'] as const,
+        recommendations: (filters?: unknown) =>
+            [...queryKeys.rightSizing.all, 'recommendations', filters ?? {}] as const,
+        summary: () => [...queryKeys.rightSizing.all, 'summary'] as const,
+    },
 } as const;
