@@ -290,8 +290,9 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
       `isActive` is set by `app-sidebar`.
 - [ ] `components/layout/header.tsx` — global top bar (SidebarTrigger + Separator + app title
       "Nucleus Cloud Ops" + ThemeToggle). Title can come from a small route→title map or a context.
-- [ ] `components/nav-main.tsx` — grouped + nested nav from the IA config (Collapsible parents,
-      `isActive` detection, settings special-case).
+- [x] `components/nav-main.tsx` — grouped + nested nav (SidebarGroup per section, Collapsible
+      parents w/ separate chevron action, longest-prefix `isActive`). Takes `groups: NavGroup[]`;
+      config supplied by app-sidebar. (commit 4f70ee6f) Not wired yet.
 - [ ] `components/nav-user.tsx` — footer user dropdown (Profile / Sign out).
 - [ ] `components/settings/org-switcher.tsx` — reskin existing org switcher to the
       SidebarMenuButton + dropdown style (keep `/api/tenants/*` calls + "Create new organization"
@@ -380,9 +381,12 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   background `bun run dev` was (re)started for future public-route checks; if a loop session finds
   :3001 down, restart it with `cd apps/web-ui && bun run dev` (needs AWS_PROFILE=PLATFORM-ADMIN).
 - 2026-06-26 — V2 chunk 1 (commit 7638b7fd): ported active left-bar accent into the sidebar
-  primitive. Dev server confirmed up on :3001 (serves /login 200). Next ⏭: V2 chunk 2 — build
-  `components/nav-main.tsx` (grouped+nested nav from the IA config), then `nav-user.tsx`,
-  reskin `org-switcher.tsx`, compose `app-sidebar.tsx`, add `header.tsx`, and finally rewire
-  `layout-wrapper.tsx` to `SidebarProvider`/`SidebarInset` + retire old `components/sidebar.tsx`.
-  Do these as separate commits. After the shell is wired, FLAG "ready for your visual QA" (sidebar
-  groups/nesting/active bar + top bar are /app/* → user manual QA).
+  primitive. V2 chunk 2 (commit 4f70ee6f): built `nav-main.tsx`. Next ⏭: V2 chunk 3 —
+  `nav-user.tsx` (footer dropdown: Profile→/app/settings, Sign out→signOut callbackUrl /login;
+  preserve getUserInitials + session). Then chunk 4: reskin `org-switcher.tsx` to SidebarMenuButton
+  style (keep /api/tenants/* + Create-new-org→/create-org). Then chunk 5: `app-sidebar.tsx`
+  composing header(org-switcher)+content(nav-main w/ IA config incl. Right-Sizing flag)+footer
+  (nav-user). Then chunk 6: `components/layout/header.tsx` top bar. Then chunk 7: rewire
+  `layout-wrapper.tsx` → SidebarProvider/AppSidebar/SidebarInset/Header; retire old
+  `components/sidebar.tsx` (only importer = layout-wrapper). FLAG manual QA after chunk 7.
+  IA config + reference class strings are in this doc's "Navigation IA" + "Reference class strings".
