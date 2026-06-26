@@ -283,29 +283,22 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
 - Verify: tailwind.config.ts parses; globals.css braces balanced. (Screenshot deferred — dev server
       was down at commit time; tokens are additive/low-risk.)
 
-### Phase V2 — App shell (sidebar + top bar)  🔄 IN PROGRESS  ← biggest change
-- [x] Ported active left-bar accent into `components/ui/sidebar.tsx` (`sidebarMenuButtonVariants`
-      + `SidebarMenuSubButton`): `data-[active=true]` → 3px primary rounded left bar +
-      bg-sidebar-accent + font-semibold/medium. (commit 7638b7fd) No visible change until
-      `isActive` is set by `app-sidebar`.
-- [ ] `components/layout/header.tsx` — global top bar (SidebarTrigger + Separator + app title
-      "Nucleus Cloud Ops" + ThemeToggle). Title can come from a small route→title map or a context.
-- [x] `components/nav-main.tsx` — grouped + nested nav (SidebarGroup per section, Collapsible
-      parents w/ separate chevron action, longest-prefix `isActive`). Takes `groups: NavGroup[]`;
-      config supplied by app-sidebar. (commit 4f70ee6f) Not wired yet.
-- [x] `components/nav-user.tsx` — footer user dropdown (avatar+name/email, Profile→/app/settings,
-      Sign out→signOut /login; preserves session + initials). (commit 9db1e8df) Not wired yet.
-- [ ] `components/settings/org-switcher.tsx` — reskin existing org switcher to the
-      SidebarMenuButton + dropdown style (keep `/api/tenants/*` calls + "Create new organization"
-      → `/create-org`).
-- [ ] `components/layout/app-sidebar.tsx` — compose header(org-switcher) + content(nav-main) +
-      footer(nav-user).
-- [ ] Rewire `components/layout-wrapper.tsx` → `SidebarProvider`/`AppSidebar`/`SidebarInset`/`Header`
-      for `/app/*`; keep non-`/app` routes bare.
-- [ ] Retire `components/sidebar.tsx` (delete after confirming no other importers; grep first).
-- Verify: typecheck; screenshot `/app/dashboard` (collapsed + expanded), compare to reference
-      sidebar shots (groups, nested expand, active left-bar, org/user dropdowns).
-- Commit: `feat(web-ui): adopt shadcn sidebar shell + global top bar (chatbot parity)`.
+### Phase V2 — App shell (sidebar + top bar)  ✅ DONE  ← 🔎 READY FOR USER VISUAL QA
+- [x] Active left-bar accent in `components/ui/sidebar.tsx`. (commit 7638b7fd)
+- [x] `components/nav-main.tsx` — grouped + nested nav. (commit 4f70ee6f)
+- [x] `components/nav-user.tsx` — footer user dropdown. (commit 9db1e8df)
+- [x] **Shell swap (commit 7d472cc9):** `lib/nav-config.ts` (IA + getPageTitle, keeps Right-Sizing
+      flag); reskinned `org-switcher.tsx` to SidebarMenuButton (kept /api/tenants/* + create-org;
+      dropped `collapsed` prop); `components/layout/app-sidebar.tsx`; `components/layout/header.tsx`
+      (sticky top bar, SidebarTrigger + page title + ThemeToggle); rewired `layout-wrapper.tsx` to
+      SidebarProvider/AppSidebar/SidebarInset/Header; deleted old `components/sidebar.tsx`.
+- Verify: tsc clean across all shell files; dev log showed authed `/app/*` pages returning 200 with
+      no render/`useSidebar` errors during the swap (live session was browsing). Public `/login`
+      screenshot attempt timed out on server contention (route unaffected by this phase).
+- 🔎 **USER QA NEEDED:** open `/app/*` and check: grouped sidebar (Platform/Operations/Resources/
+      Knowledge/Integrations/Settings), nested expand (Agent Ops, Knowledge Base, Settings), active
+      left-bar accent, icon-rail collapse (toggle/Cmd-B), org switcher dropdown (+ create org),
+      user dropdown (Profile/Sign out), top bar page title. Report any deltas vs the reference.
 
 ### Phase V3 — Shared primitives  ⏭
 - [ ] `components/shared/page-header.tsx` — add optional `icon` slot (tinted rounded square);
@@ -391,8 +384,13 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   `layout-wrapper.tsx` → SidebarProvider/AppSidebar/SidebarInset/Header; retire old
   `components/sidebar.tsx` (only importer = layout-wrapper). FLAG manual QA after chunk 7.
   IA config + reference class strings are in this doc's "Navigation IA" + "Reference class strings".
-- 2026-06-26 — V2 chunk 3 (commit 9db1e8df): built `nav-user.tsx`. Next ⏭: V2 chunk 4 — reskin
-  `components/settings/org-switcher.tsx` to the SidebarMenuButton + dropdown style (keep its
-  /api/tenants/my-orgs + /api/tenants/switch calls and "Create new organization"→/create-org;
-  the current one takes a `collapsed` prop — the shadcn primitive handles collapse via data attrs,
-  so drop/ignore `collapsed`). Read the current file first to preserve its data logic.
+- 2026-06-26 — V2 chunk 3 (commit 9db1e8df): built `nav-user.tsx`.
+- 2026-06-26 — V2 COMPLETE via atomic shell swap (commit 7d472cc9). Combined chunks 4–7 into one
+  commit because the reskinned OrgSwitcher/NavUser use `useSidebar()` and would throw if rendered by
+  the old (provider-less) sidebar — so the swap had to be atomic. Files: nav-config, org-switcher
+  reskin, app-sidebar, header, layout-wrapper rewire, deleted old sidebar.tsx. tsc clean; dev log
+  showed authed `/app` pages 200 w/ no errors. **🔎 FLAGGED FOR USER VISUAL QA** (see V2 block).
+  NOTE: dev server gets saturated during big recompiles (15k modules) — unauth curls/screenshots may
+  000/timeout transiently; not a code problem (check dev log for real errors instead).
+  Next ⏭: Phase V3 — shared primitives. Start with `page-header.tsx` icon slot (backward-compatible),
+  then `stat-card.tsx`, then port the TanStack `data-table*` trio (Base-UI render → Radix asChild).
