@@ -17,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Server,
@@ -32,7 +31,6 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { AccountsTable } from "@/components/accounts/accounts-table";
-import { AccountsGrid } from "@/components/accounts/accounts-grid";
 import { ImportAccountsDialog } from "@/components/accounts/import-accounts-dialog";
 import { BulkActionBar } from "@/components/shared/bulk-action-bar";
 import { PageHeader } from "@/components/shared/page-header";
@@ -103,7 +101,6 @@ export default function AccountsClient({
   const [localStatusFilter, setLocalStatusFilter] = useState(initialFilters?.statusFilter || "all");
   const [localConnectionFilter, setLocalConnectionFilter] = useState(initialFilters?.connectionFilter || "all");
 
-  const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
 
@@ -458,37 +455,18 @@ export default function AccountsClient({
         itemNoun="account"
       />
 
-      {/* View Toggle and Content */}
-      <Tabs
-        value={viewMode}
-        onValueChange={(value) => setViewMode(value as "table" | "grid")}
-      >
-        <TabsList>
-          <TabsTrigger value="table">Table View</TabsTrigger>
-          <TabsTrigger value="grid">Grid View</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="table" className="space-y-4">
-          <AccountsTable
-            accounts={accounts}
-            onAccountUpdated={handleAccountUpdated}
-            isSelected={selection.isSelected}
-            onToggleSelect={selection.toggle}
-            allSelected={selection.allSelected}
-            someSelected={selection.someSelected}
-            onToggleSelectAll={selection.selectAll}
-          />
-        </TabsContent>
-
-        <TabsContent value="grid" className="space-y-4">
-          <AccountsGrid
-            accounts={accounts}
-            onAccountUpdated={handleAccountUpdated}
-            isSelected={selection.isSelected}
-            onToggleSelect={selection.toggle}
-          />
-        </TabsContent>
-      </Tabs>
+      {/* Accounts table */}
+      <div className="space-y-4">
+        <AccountsTable
+          accounts={accounts}
+          onAccountUpdated={handleAccountUpdated}
+          isSelected={selection.isSelected}
+          onToggleSelect={selection.toggle}
+          allSelected={selection.allSelected}
+          someSelected={selection.someSelected}
+          onToggleSelectAll={selection.selectAll}
+        />
+      </div>
 
       {/* Pagination */}
       {accounts.length > 0 && (
