@@ -305,7 +305,8 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
       converted from sticky-bordered bar → plain content header (top bar owns the sticky border now);
       title text-2xl + description text-sm. Wired icons on accounts/audit/schedules/inventory.
       (commit 60557e89) 🔎 /app pages → user QA. API backward-compatible (icon optional).
-- [ ] `components/shared/stat-card.tsx` — label + value + sub + optional badge (ok/warn/err).
+- [x] `components/shared/stat-card.tsx` — label + value + sub + optional icon OR ok/warn/err badge
+      (success/warning tokens + destructive). (commit 08d8e910) Not wired until V4.
 - [ ] `components/ui/data-table.tsx` + `data-table-column-header.tsx` + `data-table-pagination.tsx`
       — port from chatbot, adapt Base-UI `render` → Radix `asChild`; use our `ui/table`,
       `ui/dropdown-menu`, `ui/select`, `ui/button`.
@@ -395,7 +396,8 @@ Loop sessions can't "see" the UI, so verify visual changes with the Playwright *
   NOTE: dev server gets saturated during big recompiles (15k modules) — unauth curls/screenshots may
   000/timeout transiently; not a code problem (check dev log for real errors instead).
 - 2026-06-26 — V3 chunk 1 (commit 60557e89): PageHeader icon slot + de-sticky + wired 4 pages.
-  tsc clean. Next ⏭: V3 chunk 2 — `components/shared/stat-card.tsx` (label + value + sub + optional
-  ok/warn/err badge; classes in "Reference class strings → Stat card"). Then V3 chunk 3 — port the
-  TanStack `data-table.tsx` + `data-table-column-header.tsx` + `data-table-pagination.tsx` trio from
-  the chatbot (adapt Base-UI `render` → Radix `asChild`; use our ui/table+dropdown-menu+select).
+- 2026-06-26 — V3 chunk 2 (commit 08d8e910): StatCard primitive. tsc clean. Next ⏭: V3 chunk 3 —
+  port the TanStack `data-table.tsx` + `data-table-column-header.tsx` + `data-table-pagination.tsx`
+  trio from the chatbot (`/Users/kartik/Documents/git-repo/chatbot/apps/web-ui/components/ui/`).
+  Adapt Base-UI `render={}` → Radix `asChild`; consume our ui/table + dropdown-menu + select +
+  button. This is a larger chunk — may split column-header/pagination from the main table.
