@@ -21,6 +21,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { PageHeader } from '@/components/shared/page-header';
 import { toast } from 'sonner';
 import type { KnowledgeBase } from '@/lib/knowledge-base/types';
 
@@ -82,21 +83,17 @@ export default function KnowledgeBasePage() {
     <div className="flex-1 p-4 md:p-8 pt-6 bg-background">
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <BookOpen className="h-7 w-7 text-primary" />
-            <div>
-              <h1 className="text-2xl font-bold">Knowledge Base</h1>
-              <p className="text-muted-foreground mt-0.5 text-sm">
-                Manage your knowledge bases and the documents they contain.
-              </p>
-            </div>
-          </div>
-          <Button onClick={openDialog} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Create Knowledge Base
-          </Button>
-        </div>
+        <PageHeader
+          icon={BookOpen}
+          title="Knowledge Base"
+          description="Manage your knowledge bases and the documents they contain."
+          actions={
+            <Button onClick={openDialog} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Create Knowledge Base
+            </Button>
+          }
+        />
 
         {/* Card grid */}
         {loading ? (
