@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Trash2, Plus, TestTube, Loader2, Server } from "lucide-react";
+import { PageHeader } from "@/components/shared/page-header";
 import {
     Dialog,
     DialogContent,
@@ -133,20 +134,16 @@ export function ProviderSettings() {
 
     return (
         <div className="flex-1 space-y-6 p-4 md:p-8 pt-6 bg-background">
-            <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                        <Server className="h-6 w-6" />
-                        <h2 className="text-3xl font-bold tracking-tight text-foreground">LLM Providers</h2>
-                    </div>
-                    <p className="text-muted-foreground">
-                        Configure self-hosted LLM endpoints (Ollama, vLLM, LiteLLM) for your organization.
-                    </p>
-                </div>
-                <Button onClick={() => { resetForm(); setDialogOpen(true); }}>
-                    <Plus className="mr-2 h-4 w-4" /> Add Provider
-                </Button>
-            </div>
+            <PageHeader
+                icon={Server}
+                title="LLM Providers"
+                description="Configure self-hosted LLM endpoints (Ollama, vLLM, LiteLLM) for your organization."
+                actions={
+                    <Button onClick={() => { resetForm(); setDialogOpen(true); }}>
+                        <Plus className="mr-2 h-4 w-4" /> Add Provider
+                    </Button>
+                }
+            />
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 
