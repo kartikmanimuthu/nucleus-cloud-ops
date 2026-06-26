@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -252,35 +253,33 @@ export default function InventoryPage() {
         <>
             <div className="space-y-6">
                 {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Inventory Discovery</h1>
-                        <p className="text-muted-foreground">
-                            Auto-discovered AWS resources across all connected accounts
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => router.push("/app/inventory/settings")} title="Inventory Settings">
-                            <Settings className="h-5 w-5" />
-                        </Button>
-                        <Button variant="outline" onClick={() => { fetchResourcesRef.current(); fetchSyncStatus(); }} disabled={loading}>
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                            Refresh
-                        </Button>
-                        <Button variant="secondary" onClick={() => setAskAIOpen(true)}>
-                            <Sparkles className="h-4 w-4 mr-2 text-indigo-500" />
-                            Ask AI
-                        </Button>
-                        <Button variant="outline" onClick={handleExport} disabled={exporting}>
-                            {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
-                            Export
-                        </Button>
-                        <Button onClick={() => setSyncDialogOpen(true)}>
-                            <RefreshCw className="h-4 w-4 mr-2" />
-                            Sync Now
-                        </Button>
-                    </div>
-                </div>
+                <PageHeader
+                    title="Inventory Discovery"
+                    description="Auto-discovered AWS resources across all connected accounts"
+                    actions={
+                        <>
+                            <Button variant="ghost" size="icon" onClick={() => router.push("/app/inventory/settings")} title="Inventory Settings">
+                                <Settings className="h-5 w-5" />
+                            </Button>
+                            <Button variant="outline" onClick={() => { fetchResourcesRef.current(); fetchSyncStatus(); }} disabled={loading}>
+                                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                                Refresh
+                            </Button>
+                            <Button variant="secondary" onClick={() => setAskAIOpen(true)}>
+                                <Sparkles className="h-4 w-4 mr-2 text-indigo-500" />
+                                Ask AI
+                            </Button>
+                            <Button variant="outline" onClick={handleExport} disabled={exporting}>
+                                {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
+                                Export
+                            </Button>
+                            <Button onClick={() => setSyncDialogOpen(true)}>
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                                Sync Now
+                            </Button>
+                        </>
+                    }
+                />
 
                 {/* Stats Cards */}
                 <div className="grid gap-4 md:grid-cols-4">
