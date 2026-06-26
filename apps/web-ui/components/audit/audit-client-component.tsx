@@ -34,6 +34,7 @@ import {
   Filter,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
+import { StatCard } from "@/components/shared/stat-card";
 import { AuditLogsTable } from "@/components/audit/audit-logs-table";
 import { AuditLogsChart } from "@/components/audit/audit-logs-chart";
 import { AuditFilters } from "@/components/audit/audit-filters";
@@ -249,46 +250,30 @@ export default function AuditClient({ initialFilters }: AuditClientProps) {
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Events</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalLogs}</div>
-            <p className="text-xs text-muted-foreground">audit log entries</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Successful Events</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-success dark:text-success">{stats.successCount}</div>
-            <p className="text-xs text-muted-foreground">completed successfully</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Warning Events</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-warning dark:text-warning">{stats.warningCount}</div>
-            <p className="text-xs text-muted-foreground">completed with warnings</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Error Events</CardTitle>
-            <XCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive dark:text-destructive">{stats.errorCount}</div>
-            <p className="text-xs text-muted-foreground">failed or encountered errors</p>
-          </CardContent>
-        </Card>
+        <StatCard
+          label="Total Events"
+          icon={Activity}
+          value={stats.totalLogs}
+          sub="audit log entries"
+        />
+        <StatCard
+          label="Successful Events"
+          value={stats.successCount}
+          sub="completed successfully"
+          badge={{ label: "ok", tone: "ok" }}
+        />
+        <StatCard
+          label="Warning Events"
+          value={stats.warningCount}
+          sub="completed with warnings"
+          badge={{ label: "warn", tone: "warn" }}
+        />
+        <StatCard
+          label="Error Events"
+          value={stats.errorCount}
+          sub="failed or encountered errors"
+          badge={{ label: "err", tone: "err" }}
+        />
       </div>
 
       {/* Filters */}
