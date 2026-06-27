@@ -8,6 +8,7 @@ import { getEmbedding } from '@/lib/knowledge-base/embedder';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { getPrismaClient } from '@/lib/db/pg-config';
+import { env } from '@/env';
 
 // ============================================================================
 // AWS Clients
@@ -17,7 +18,7 @@ const credentialProvider = fromNodeProviderChain();
 
 function getBedrockClient() {
   return createAmazonBedrock({
-    region: process.env.AWS_REGION || 'ap-south-1',
+    region: env.AWS_REGION || 'ap-south-1',
     credentialProvider: async () => {
       const creds = await credentialProvider();
       return {
@@ -34,7 +35,7 @@ function getBedrockClient() {
 // ============================================================================
 
 const GENERATION_MODEL_ID =
-  process.env.ASK_AI_GENERATION_MODEL || 'global.anthropic.claude-sonnet-4-6';
+  env.ASK_AI_GENERATION_MODEL || 'global.anthropic.claude-sonnet-4-6';
 
 // ============================================================================
 // Types

@@ -2,6 +2,7 @@
 // Orchestrates schedule-centric processing - iterates through schedules and their resources (ARN-driven)
 
 import { logger } from '../utils/logger.js';
+import { env } from '../../../env.js';
 import {
     fetchActiveSchedules as fetchActiveSchedulesDynamo,
     fetchActiveAccounts,
@@ -18,7 +19,7 @@ import {
 } from './pg-service.js';
 
 // USE_PG_SCHEDULES=true routes schedule reads/writes to PostgreSQL
-const USE_PG_SCHEDULES = process.env.USE_PG_SCHEDULES === 'true';
+const USE_PG_SCHEDULES = env.USE_PG_SCHEDULES === 'true';
 import {
     createExecutionRecord,
     updateExecutionRecord,

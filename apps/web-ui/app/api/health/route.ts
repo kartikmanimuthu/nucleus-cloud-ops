@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getPrismaClient } from '@/lib/db/pg-config';
+import { env } from '@/env';
 
 interface HealthCheck {
     status: string;
@@ -14,7 +15,7 @@ export async function GET() {
         status: 'healthy',
         timestamp: new Date().toISOString(),
         service: 'web-ui',
-        environment: process.env.NODE_ENV || 'development',
+        environment: env.NODE_ENV || 'development',
     };
 
     try {

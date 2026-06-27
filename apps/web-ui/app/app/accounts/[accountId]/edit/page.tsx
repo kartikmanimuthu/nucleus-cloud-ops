@@ -1,5 +1,6 @@
 
 import EditAccountView from "./edit-account-view";
+import { env } from "@/env";
 
 interface EditAccountPageProps {
   params: Promise<{
@@ -9,7 +10,7 @@ interface EditAccountPageProps {
 
 export default function EditAccountPage({ params }: EditAccountPageProps) {
   // Access environment variable on the server side
-  const hubAccountId = process.env.HUB_ACCOUNT_ID || "";
+  const hubAccountId = env.HUB_ACCOUNT_ID || "";
   
   return <EditAccountView params={params} hubAccountId={hubAccountId} />;
 }

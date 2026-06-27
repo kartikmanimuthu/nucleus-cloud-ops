@@ -7,6 +7,7 @@
 // + audit. Gated by RIGHT_SIZING_ENABLED.
 import type PgBoss from 'pg-boss';
 import { createLogger } from '../../lib/logger.js';
+import { env } from '../../env.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { getAllTenants, getTenantAccounts } from '../discovery/services/account-service.js';
 import { assumeRole } from '../discovery/services/sts-service.js';
@@ -33,7 +34,7 @@ const FAN_OUT = 'right-sizing-fan-out';
 const SCAN = 'right-sizing-scan';
 
 export function isRightSizingEnabled(): boolean {
-    return process.env.RIGHT_SIZING_ENABLED === 'true';
+    return env.RIGHT_SIZING_ENABLED === 'true';
 }
 
 export interface RightSizingScanJob {

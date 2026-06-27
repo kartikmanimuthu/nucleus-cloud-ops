@@ -4,6 +4,7 @@ import { UISchedule } from './types';
 import { AuditService } from './audit-service';
 import { getScheduleRepository } from '@/lib/db/repository-factory';
 import { getBoss } from '@/lib/boss-client';
+import { env } from '@/env';
 
 // Re-export helpers for API routes that import them directly
 export const buildSchedulePK = (tenantId: string, accountId: string) =>
@@ -79,7 +80,7 @@ export class ScheduleService {
         schedule: Omit<UISchedule, 'id'>,
         tenantId: string
     ): Promise<UISchedule> {
-        const usePg = process.env.USE_PG_SCHEDULES === 'true';
+        const usePg = env.USE_PG_SCHEDULES === 'true';
 
         try {
             let result: UISchedule;
@@ -150,7 +151,7 @@ export class ScheduleService {
         tenantId?: string,
         skipAudit = false
     ): Promise<UISchedule> {
-        const usePg = process.env.USE_PG_SCHEDULES === 'true';
+        const usePg = env.USE_PG_SCHEDULES === 'true';
 
         try {
             let result: UISchedule;
@@ -201,7 +202,7 @@ export class ScheduleService {
         deletedBy: string = 'system',
         tenantId?: string
     ): Promise<void> {
-        const usePg = process.env.USE_PG_SCHEDULES === 'true';
+        const usePg = env.USE_PG_SCHEDULES === 'true';
 
         try {
             // Fetch schedule name for the audit log before deleting
@@ -257,7 +258,7 @@ export class ScheduleService {
         const newActive = !currentSchedule.active;
 
         // Use updateSchedule but we'll log a specific "Toggled" event instead of generic "Updated"
-        const usePg = process.env.USE_PG_SCHEDULES === 'true';
+        const usePg = env.USE_PG_SCHEDULES === 'true';
         let result: UISchedule;
         if (usePg) {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -311,7 +312,7 @@ export class ScheduleService {
         }
 
         const effectiveAccountId = accountId || currentSchedule.accounts?.[0];
-        const usePg = process.env.USE_PG_SCHEDULES === 'true';
+        const usePg = env.USE_PG_SCHEDULES === 'true';
         let result: UISchedule;
         if (usePg) {
             // eslint-disable-next-line @typescript-eslint/no-require-imports

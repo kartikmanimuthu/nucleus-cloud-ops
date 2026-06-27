@@ -12,13 +12,14 @@ import { getExecutionHistory as getExecutionHistoryPg } from './pg-service.js';
 import { logger } from '../utils/logger.js';
 import { calculateTTL } from '../utils/time-utils.js';
 import { v4 as uuidv4 } from 'uuid';
+import { env } from '../../../env.js';
 import type {
     ExecutionRecord,
     ExecutionStatus,
     ScheduleExecutionMetadata,
 } from '../types/index.js';
 
-const USE_PG_SCHEDULES = process.env.USE_PG_SCHEDULES === 'true';
+const USE_PG_SCHEDULES = env.USE_PG_SCHEDULES === 'true';
 
 // TTL in days for execution history
 const EXECUTION_TTL_DAYS = 30;

@@ -10,6 +10,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { env } from '@/env';
 
 // Global singleton — Next.js hot reloads can create multiple instances in dev
 // Use global object to prevent "Too many connections" in development
@@ -22,7 +23,7 @@ let prismaClient: PrismaClient | undefined;
 
 export function getPrismaClient(): PrismaClient {
     // In production, create once per process (ECS container, max 10 connections)
-    if (process.env.NODE_ENV === 'production') {
+    if (env.NODE_ENV === 'production') {
         if (!prismaClient) {
             prismaClient = new PrismaClient({
                 log: ['error'],

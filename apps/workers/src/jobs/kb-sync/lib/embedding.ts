@@ -1,14 +1,15 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { Pool } from 'pg';
 import type { Chunk } from './chunking.js';
+import { env } from '../../../env.js';
 
 // ---------------------------------------------------------------------------
 // Clients & config
 // ---------------------------------------------------------------------------
 
-const region = process.env.AWS_REGION || 'ap-south-1';
+const region = env.AWS_REGION || 'ap-south-1';
 const bedrock = new BedrockRuntimeClient({ region });
-const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID || 'amazon.titan-embed-text-v2:0';
+const BEDROCK_MODEL = env.BEDROCK_MODEL_ID || 'amazon.titan-embed-text-v2:0';
 
 export const EMBEDDING_CONCURRENCY = 5;
 export const VECTOR_BATCH_SIZE = 20;
@@ -20,7 +21,7 @@ export const VECTOR_BATCH_SIZE = 20;
 let _pool: Pool | null = null;
 function getPool(): Pool {
   if (!_pool) {
-    const DATABASE_URL = process.env.DATABASE_URL;
+    const DATABASE_URL = env.DATABASE_URL;
     if (!DATABASE_URL) throw new Error('DATABASE_URL is required for kb-sync embedding');
     _pool = new Pool({
       connectionString: DATABASE_URL,

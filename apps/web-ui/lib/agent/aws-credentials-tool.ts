@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { AccountService } from '../account-service';
 import { createSessionProfile } from './session-manager';
+import { env } from '@/env';
 
 /**
  * AWS Credentials Tool
@@ -33,7 +34,7 @@ export async function assumeRoleForAccount(
     sessionName: string = 'NucleusDevOpsAgentSession'
 ): Promise<{ credentials: any; expiration: Date }> {
     const stsClient = new STSClient({
-        region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1'
+        region: env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1'
     });
 
     const assumeRoleCommand = new AssumeRoleCommand({
@@ -103,7 +104,7 @@ export function createGetAwsCredentialsTool(tenantId: string) {
                 );
 
                 // 3. Determine region (use first region from account, or default)
-                const region = account.regions?.[0] || process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
+                const region = account.regions?.[0] || env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
 
                 // 4. Create session profile
                 const profile = await createSessionProfile(

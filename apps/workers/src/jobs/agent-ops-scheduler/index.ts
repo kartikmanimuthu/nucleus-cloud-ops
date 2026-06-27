@@ -2,17 +2,18 @@ import type PgBoss from 'pg-boss';
 import { createLogger } from '../../lib/logger.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { Pool, type PoolClient } from 'pg';
+import { env } from '../../env.js';
 
 const log = createLogger('agent-ops-scheduler');
 
 const QUEUE_PREFIX = 'agent-ops-task';
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'internal-worker-key';
-const WEB_UI_BASE_URL = process.env.WEB_UI_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+const INTERNAL_API_KEY = env.INTERNAL_API_KEY || 'internal-worker-key';
+const WEB_UI_BASE_URL = env.WEB_UI_BASE_URL || `http://localhost:${env.PORT || 3000}`;
 
 let _pool: Pool | null = null;
 function getPool(): Pool {
     if (!_pool) {
-        _pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+        _pool = new Pool({ connectionString: env.DATABASE_URL, max: 2 });
     }
     return _pool;
 }

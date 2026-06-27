@@ -5,12 +5,13 @@ import * as XLSX from 'xlsx';
 import { getExportColumnsForType, resolveExportValue } from '@/lib/inventory/export-column-map';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { getTenantClient } from '@/lib/db/pg-config';
+import { env } from '@/env';
 
 const s3Client = new S3Client({
-    region: process.env.AWS_REGION || 'ap-south-1',
+    region: env.AWS_REGION || 'ap-south-1',
 });
 
-const APP_BUCKET = process.env.APP_BUCKET_NAME || '';
+const APP_BUCKET = env.APP_BUCKET_NAME || '';
 
 interface ExportParams {
     accountId?: string;

@@ -5,8 +5,9 @@ import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { notifyScheduledRunResult } from '@/lib/agent-ops/scheduled-notifier';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import { env } from '@/env';
 
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'internal-worker-key';
+const INTERNAL_API_KEY = env.INTERNAL_API_KEY || 'internal-worker-key';
 
 /**
  * Resolve tenantId from either session auth or internal worker header.

@@ -4,12 +4,13 @@ import * as AWS_RDS from '@aws-sdk/client-rds';
 import * as AWS_CW from '@aws-sdk/client-cloudwatch';
 import * as AWS_STS from '@aws-sdk/client-sts';
 import vm from 'vm';
+import { env } from '@/env';
 
 /**
  * Creates a sandbox environment with read-only AWS clients
  */
 export async function executeCodeInSandbox(code: string): Promise<string> {
-    const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'ap-south-1';
+    const region = env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'ap-south-1';
 
     // Initialize Clients
     const ec2 = new AWS_EC2.EC2Client({ region });

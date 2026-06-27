@@ -26,6 +26,7 @@ import { getActiveMCPTools, type AccountContext, type ResolvedModelConfig } from
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { saveMemory, searchMemory } from "./persistence";
+import { env } from "@/env";
 
 export interface AgentModels {
     /** Primary model: streaming. Used for all generation nodes. */
@@ -63,7 +64,7 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
     }
 
     // Default: Bedrock
-    const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null';
+    const region = env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'Null';
     const bedrockConfig = { region, model: config.modelId, temperature: 0 };
     const defaultMaxTokens = config.maxTokens || 4096;
     return {

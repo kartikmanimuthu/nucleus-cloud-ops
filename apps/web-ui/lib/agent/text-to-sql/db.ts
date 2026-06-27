@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from 'pg';
 import type { SQLResult } from './state';
+import { env } from '@/env';
 
 let pool: Pool | null = null;
 
@@ -10,7 +11,7 @@ let pool: Pool | null = null;
  */
 export function getTextToSQLPool(): Pool {
     if (!pool) {
-        const connectionString = process.env.DATABASE_URL;
+        const connectionString = env.DATABASE_URL;
         if (!connectionString) throw new Error('DATABASE_URL is required for text-to-sql agent');
         pool = new Pool({ connectionString, max: 3, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 });
     }

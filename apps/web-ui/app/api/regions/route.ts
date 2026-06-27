@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EC2Client, DescribeRegionsCommand } from '@aws-sdk/client-ec2';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { env } from '@/env';
 
 export async function GET(request: NextRequest) {
     try {
         // Verify user is authenticated
         await getSessionTenantId();
 
-        const ec2Client = new EC2Client({ region: process.env.AWS_REGION || 'us-east-1' });
+        const ec2Client = new EC2Client({ region: env.AWS_REGION || 'us-east-1' });
         const result = await ec2Client.send(new DescribeRegionsCommand({ AllRegions: true }));
 
         const regions = (result.Regions || [])

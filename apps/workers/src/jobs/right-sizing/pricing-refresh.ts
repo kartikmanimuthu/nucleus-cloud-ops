@@ -5,6 +5,7 @@
 // active tenant accounts. Per-region failures are isolated. Gated by RIGHT_SIZING_ENABLED.
 import type PgBoss from 'pg-boss';
 import { createLogger } from '../../lib/logger.js';
+import { env } from '../../env.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { fetchAllPricing } from './services/pricing-client.js';
 import { getDistinctAccountRegions, upsertPricingEntries } from './services/pricing-writer.js';
@@ -13,7 +14,7 @@ const log = createLogger('right-sizing-pricing-refresh');
 const QUEUE = 'right-sizing-pricing-refresh';
 
 export function isRightSizingEnabled(): boolean {
-    return process.env.RIGHT_SIZING_ENABLED === 'true';
+    return env.RIGHT_SIZING_ENABLED === 'true';
 }
 
 export async function handlePricingRefresh(): Promise<void> {

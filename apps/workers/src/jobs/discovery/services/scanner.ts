@@ -1,6 +1,7 @@
 // workers/src/jobs/discovery/services/scanner.ts
 import type { ScanConfig, Resource, ScanResult, EnrichmentStep, AssumedCredentials } from '../types.js';
 import { createLogger } from '../../../lib/logger.js';
+import { env } from '../../../env.js';
 
 const log = createLogger('discovery/scanner');
 
@@ -12,8 +13,8 @@ const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 2000;
 const RETRYABLE_ERROR_NAMES = new Set(['ThrottlingException', 'RequestLimitExceeded', 'Throttling', 'TooManyRequestsException']);
 
-const CONCURRENT_REGIONS = parseInt(process.env.CONCURRENT_REGIONS || '5', 10);
-const CONCURRENT_SERVICES = parseInt(process.env.CONCURRENT_SERVICES || '10', 10);
+const CONCURRENT_REGIONS = parseInt(env.CONCURRENT_REGIONS || '5', 10);
+const CONCURRENT_SERVICES = parseInt(env.CONCURRENT_SERVICES || '10', 10);
 
 // ---------------------------------------------------------------------------
 // SERVICE_REGISTRY — maps scanfile service name → AWS SDK v3 client constructor

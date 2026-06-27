@@ -3,6 +3,7 @@ import { getCertificateRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import JSZip from 'jszip';
+import { env } from '@/env';
 
 export async function GET(
     request: NextRequest,
@@ -21,8 +22,8 @@ export async function GET(
             );
         }
 
-        const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
-        const bucket = process.env.APP_BUCKET_NAME || '';
+        const s3Client = new S3Client({ region: env.AWS_REGION || 'ap-south-1' });
+        const bucket = env.APP_BUCKET_NAME || '';
 
         // Load all three parts from S3
         const [bodyObj, chainObj, keyObj] = await Promise.all([

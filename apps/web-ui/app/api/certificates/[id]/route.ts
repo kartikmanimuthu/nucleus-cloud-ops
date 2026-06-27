@@ -6,6 +6,7 @@ import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { AuditService } from '@/lib/audit-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
+import { env } from '@/env';
 
 export async function GET(
     request: NextRequest,
@@ -55,8 +56,8 @@ export async function DELETE(
             );
         }
 
-        const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
-        const bucket = process.env.APP_BUCKET_NAME || '';
+        const s3Client = new S3Client({ region: env.AWS_REGION || 'ap-south-1' });
+        const bucket = env.APP_BUCKET_NAME || '';
         const keys = [cert.s3BodyKey, cert.s3PrivateKeyKey];
         if (cert.s3ChainKey) keys.push(cert.s3ChainKey);
 

@@ -9,6 +9,7 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { ACMClient, ImportCertificateCommand } from '@aws-sdk/client-acm';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { getTenantClient } from '@/lib/db/pg-config';
+import { env } from '@/env';
 
 export async function POST(
     request: NextRequest,
@@ -62,8 +63,8 @@ export async function POST(
         }
 
         // Load certificate files from S3
-        const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
-        const bucket = process.env.APP_BUCKET_NAME || '';
+        const s3Client = new S3Client({ region: env.AWS_REGION || 'ap-south-1' });
+        const bucket = env.APP_BUCKET_NAME || '';
 
         const [bodyObj, chainObj, keyObj] = await Promise.all([
             s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3BodyKey })),

@@ -3,6 +3,7 @@
 // USE_PG_ACCOUNTS to select DynamoDB or PostgreSQL backend.
 import { UIAccount } from './types';
 import { AuditService } from './audit-service';
+import { env } from '@/env';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { ECSClient, ListClustersCommand, ListServicesCommand, DescribeServicesCommand, DescribeCapacityProvidersCommand, ListClustersCommandOutput, ListServicesCommandOutput, DescribeCapacityProvidersCommandOutput, DescribeServicesCommandOutput } from '@aws-sdk/client-ecs';
 import { RDSClient, DescribeDBInstancesCommand, DescribeDBInstancesCommandOutput, DescribeDBClustersCommand, DescribeDBClustersCommandOutput } from '@aws-sdk/client-rds';
@@ -125,7 +126,7 @@ export class AccountService {
             console.log(`AccountService - Validating credentials for ${roleArn} in ${region}`);
 
             // 1. Assume Role
-            const stsClient = new STSClient({ region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null' });
+            const stsClient = new STSClient({ region: env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'Null' });
             const assumeRoleCommand = new AssumeRoleCommand({
                 RoleArn: roleArn,
                 RoleSessionName: 'NucleusValidationSession',
@@ -198,7 +199,7 @@ export class AccountService {
             const validationDetails = await this.validateCredentials({
                 roleArn: account.roleArn,
                 externalId: account.externalId,
-                region: account.regions?.[0] || process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null',
+                region: account.regions?.[0] || env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'Null',
             });
 
             const finalStatus: 'connected' | 'error' = validationDetails.isValid ? 'connected' : 'error';
@@ -291,10 +292,10 @@ export class AccountService {
                 throw new Error('Account or Role ARN not found');
             }
 
-            const region = account.regions?.[0] || process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null';
+            const region = account.regions?.[0] || env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'Null';
 
             // 1. Assume Role
-            const stsClient = new STSClient({ region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'Null' });
+            const stsClient = new STSClient({ region: env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'Null' });
             const assumeRoleCommand = new AssumeRoleCommand({
                 RoleArn: account.roleArn,
                 RoleSessionName: 'NucleusScanSession',

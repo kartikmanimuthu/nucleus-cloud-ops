@@ -114,6 +114,13 @@ export const env = createEnv({
      * Skip validation during Docker build / CI where runtime secrets are absent.
      * Also treats empty strings as undefined so `FOO=` behaves like unset.
      */
-    skipValidation: !!process.env.SKIP_ENV_VALIDATION,
+    /**
+     * Skip validation during the Docker build / CI where runtime secrets are
+     * absent (SKIP_ENV_VALIDATION), and under Vitest (NODE_ENV==='test'), where
+     * tests populate process.env in beforeEach — after module import would have
+     * run createEnv(). Also treats empty strings as undefined so `FOO=` is unset.
+     */
+    skipValidation:
+        !!process.env.SKIP_ENV_VALIDATION || process.env.NODE_ENV === 'test',
     emptyStringAsUndefined: true,
 });

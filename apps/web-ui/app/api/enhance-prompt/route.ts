@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ChatBedrockConverse } from "@langchain/aws";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { env } from "@/env";
 
 export async function POST(req: Request) {
     try {
@@ -12,7 +13,7 @@ export async function POST(req: Request) {
 
         // Initialize Bedrock Client
         const llm = new ChatBedrockConverse({
-            region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
+            region: env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
             model: 'global.anthropic.claude-haiku-4-5-20251001-v1:0', // Force Haiku for speed
             maxTokens: 512,
             temperature: 0.5, // Less creative, more concise

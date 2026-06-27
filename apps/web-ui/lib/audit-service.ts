@@ -3,6 +3,7 @@
 import { AuditLog } from './types';
 import { getAuditLogRepository } from '@/lib/db/repository-factory';
 import type { NextRequest } from 'next/server';
+import { env } from '@/env';
 
 export interface AuditLogFilters {
     startDate?: string;
@@ -70,7 +71,7 @@ export class AuditService {
      */
     static async createAuditLog(auditData: Omit<AuditLog, 'id' | 'type' | 'timestamp'>): Promise<void> {
         try {
-            if (process.env.NODE_ENV === 'development' && process.env.SKIP_AUDIT_LOGGING === 'true') {
+            if (env.NODE_ENV === 'development' && env.SKIP_AUDIT_LOGGING === 'true') {
                 return;
             }
 

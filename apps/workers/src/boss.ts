@@ -1,7 +1,8 @@
 import PgBoss from 'pg-boss';
+import { env } from './env.js';
 
 export function createBoss(): PgBoss {
-  const DATABASE_URL = process.env.DATABASE_URL;
+  const DATABASE_URL = env.DATABASE_URL;
   if (!DATABASE_URL) {
     throw new Error('DATABASE_URL environment variable is required');
   }

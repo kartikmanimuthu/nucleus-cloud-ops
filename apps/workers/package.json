@@ -49,12 +49,14 @@
     "@aws-sdk/credential-provider-node": "^3.958.0",
     "@aws-sdk/lib-dynamodb": "^3.700.0",
     "@prisma/client": "^6.0.0",
+    "@t3-oss/env-core": "^0.13.11",
     "dayjs": "^1.11.13",
     "p-limit": "^7.3.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.20.0",
     "pg-boss": "^10.1.5",
-    "uuid": "^11.0.3"
+    "uuid": "^11.0.3",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

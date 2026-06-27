@@ -1,3 +1,5 @@
+import { env } from '../env.js';
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const LEVEL_PRIORITY: Record<LogLevel, number> = {
@@ -7,8 +9,8 @@ const LEVEL_PRIORITY: Record<LogLevel, number> = {
     error: 3,
 };
 
-const currentLevel: LogLevel = (process.env.LOG_LEVEL?.toLowerCase() as LogLevel) || 'debug';
-const serviceName: string = process.env.SERVICE_NAME || 'workers';
+const currentLevel: LogLevel = (env.LOG_LEVEL?.toLowerCase() as LogLevel) || 'debug';
+const serviceName: string = env.SERVICE_NAME || 'workers';
 
 export interface Logger {
     debug(message: string, meta?: Record<string, unknown>): void;

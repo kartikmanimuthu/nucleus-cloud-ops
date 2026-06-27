@@ -5,8 +5,9 @@
 import { Pool, type PoolClient } from 'pg';
 import { logger } from '../utils/logger.js';
 import type { Schedule, ScheduleExecutionMetadata } from '../types/index.js';
+import { env } from '../../../env.js';
 
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL = env.DATABASE_URL;
 
 let pool: Pool | null = null;
 

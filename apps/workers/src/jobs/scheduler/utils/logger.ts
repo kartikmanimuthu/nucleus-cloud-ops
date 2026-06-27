@@ -1,4 +1,5 @@
 // Structured JSON logger optimized for Lambda/CloudWatch
+import { env } from '../../../env.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -93,7 +94,7 @@ class Logger {
 }
 
 // Singleton logger instance
-const logLevel = (process.env.LOG_LEVEL as LogLevel) || 'info';
+const logLevel = (env.LOG_LEVEL as LogLevel) || 'info';
 export const logger = new Logger(logLevel);
 
 export default logger;

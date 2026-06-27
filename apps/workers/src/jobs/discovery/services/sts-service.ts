@@ -1,8 +1,9 @@
 // workers/src/jobs/discovery/services/sts-service.ts
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import type { AssumedCredentials } from '../types.js';
+import { env } from '../../../env.js';
 
-const AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'ap-south-1';
+const AWS_REGION = env.AWS_REGION || env.AWS_DEFAULT_REGION || 'ap-south-1';
 
 let stsClient: STSClient | null = null;
 

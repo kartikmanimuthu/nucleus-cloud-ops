@@ -1,4 +1,5 @@
 import PgBoss from 'pg-boss';
+import { env } from '@/env';
 
 let _boss: PgBoss | null = null;
 
@@ -10,7 +11,7 @@ let _boss: PgBoss | null = null;
 export async function getBoss(): Promise<PgBoss> {
   if (_boss) return _boss;
 
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is required for pg-boss');
   }

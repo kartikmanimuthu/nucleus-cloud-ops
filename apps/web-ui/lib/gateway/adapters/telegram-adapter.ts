@@ -8,6 +8,7 @@
 
 import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { env } from '@/env';
 import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
 import { ChannelRateLimiter } from '@/lib/gateway/utils/rate-limiter';
 import type {
@@ -111,7 +112,7 @@ export class TelegramAdapter implements ChannelAdapter {
             expectedSecret = config?.secretToken || '';
         }
         if (!expectedSecret) {
-            expectedSecret = process.env.TELEGRAM_SECRET_TOKEN || '';
+            expectedSecret = env.TELEGRAM_SECRET_TOKEN || '';
         }
         if (!expectedSecret) {
             console.error('[TelegramAdapter] Secret token not configured');
@@ -158,7 +159,7 @@ export class TelegramAdapter implements ChannelAdapter {
                 const config = await this.loadConfig(
                     req.headers.get('x-tenant-id') || String(chatId),
                 );
-                const botToken = config?.botToken || process.env.TELEGRAM_BOT_TOKEN || '';
+                const botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || '';
                 if (botToken) {
                     const res = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/sendMessage`, {
                         method: 'POST',
@@ -395,7 +396,7 @@ export class TelegramAdapter implements ChannelAdapter {
         replyMarkup?: Record<string, unknown>,
     ): Promise<void> {
         const config = await this.loadConfig(run.tenantId);
-        const botToken = config?.botToken || process.env.TELEGRAM_BOT_TOKEN || '';
+        const botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || '';
 
         if (!botToken) {
             console.warn('[TelegramAdapter] Bot token not configured');
@@ -434,7 +435,7 @@ export class TelegramAdapter implements ChannelAdapter {
         text: string,
     ): Promise<void> {
         const config = await this.loadConfig(run.tenantId);
-        const botToken = config?.botToken || process.env.TELEGRAM_BOT_TOKEN || '';
+        const botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || '';
 
         if (!botToken) {
             console.warn('[TelegramAdapter] Bot token not configured');

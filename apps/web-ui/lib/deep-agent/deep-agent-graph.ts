@@ -21,6 +21,7 @@ import {
     type FileData,
 } from 'deepagents';
 import { InMemoryStore, MemorySaver } from '@langchain/langgraph';
+import { env } from '@/env';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -135,7 +136,7 @@ export async function createDeepAgentGraph(config: DeepAgentConfig) {
 
     // --- Model ---
     const model = new ChatBedrockConverse({
-        region: process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
+        region: env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
         model: modelId,
         maxTokens: 8192,
         temperature: 0,
@@ -144,12 +145,12 @@ export async function createDeepAgentGraph(config: DeepAgentConfig) {
 
     // --- MongoDB Checkpointer (deep-agent-specific, avoids DynamoDB schema conflicts) ---
     let agentCheckpointer: any;
-    if (process.env.MONGODB_URI) {
+    if (env.MONGODB_URI) {
         try {
             const mongoClient = await getMongoClient();
             agentCheckpointer = new SafeMongoDBSaver({
                 client: mongoClient as any,
-                dbName: process.env.DEEP_AGENT_DB_NAME || 'nucleus',
+                dbName: env.DEEP_AGENT_DB_NAME || 'nucleus',
                 checkpointCollectionName: 'checkpoints',
                 checkpointWritesCollectionName: 'checkpoint_writes',
             });
@@ -224,7 +225,7 @@ ${accountContext}`;
 
     // --- Long-term memory store ---
     // Use MongoStore in production, InMemoryStore as fallback
-    const store = process.env.MONGODB_URI
+    const store = env.MONGODB_URI
         ? (mongoStore as unknown as InstanceType<typeof InMemoryStore>)
         : new InMemoryStore();
 

@@ -14,6 +14,7 @@ import { BedrockEmbeddings } from "@langchain/aws";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
 import { getPrismaClient } from "@/lib/db/pg-config";
+import { env } from "@/env";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -194,8 +195,8 @@ class PostgresMemoryStore implements MemoryStoreInterface {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 async function initPersistence(): Promise<PersistenceInstances> {
-    const region = process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || "us-east-1";
-    const databaseUrl = process.env.DATABASE_URL!;
+    const region = env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || "us-east-1";
+    const databaseUrl = env.DATABASE_URL!;
 
     // PostgresSaver manages its own schema — call setup() on first use
     const checkpointer = PostgresSaver.fromConnString(databaseUrl);

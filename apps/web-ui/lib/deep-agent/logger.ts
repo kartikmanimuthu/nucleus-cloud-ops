@@ -15,6 +15,8 @@
 //   agentLog.debug('Raw chunk', { namespace, chunk });
 // ============================================================================
 
+import { env } from '@/env';
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const LEVELS: Record<LogLevel, number> = {
@@ -41,7 +43,7 @@ const COLORS: Record<LogLevel, string> = {
 const RESET = '\x1b[0m';
 
 function getConfiguredLevel(): number {
-    const raw = (process.env.DEEP_AGENT_LOG_LEVEL || 'debug').toLowerCase() as LogLevel;
+    const raw = (env.DEEP_AGENT_LOG_LEVEL || 'debug').toLowerCase() as LogLevel;
     return LEVELS[raw] ?? LEVELS.debug;
 }
 

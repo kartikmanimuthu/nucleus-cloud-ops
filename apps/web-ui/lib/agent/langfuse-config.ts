@@ -10,6 +10,8 @@
  *   const callbacks = handler ? [handler as any] : [];
  */
 
+import { env } from "@/env";
+
 /**
  * Returns a configured Langfuse CallbackHandler, or null if:
  * - LANGFUSE_ENABLED !== "true"
@@ -23,12 +25,12 @@ export async function getLangfuseCallbackHandler(
   userId?: string
 ): Promise<object | null> {
   // Feature flag: disabled by default; requires explicit opt-in
-  if (process.env.LANGFUSE_ENABLED !== "true") {
+  if (env.LANGFUSE_ENABLED !== "true") {
     return null;
   }
 
-  const publicKey = process.env.LANGFUSE_PUBLIC_KEY;
-  const secretKey = process.env.LANGFUSE_SECRET_KEY;
+  const publicKey = env.LANGFUSE_PUBLIC_KEY;
+  const secretKey = env.LANGFUSE_SECRET_KEY;
 
   if (!publicKey || !secretKey) {
     console.warn(
@@ -47,8 +49,8 @@ export async function getLangfuseCallbackHandler(
     sessionId,
   };
 
-  if (process.env.LANGFUSE_HOST) {
-    config.baseUrl = process.env.LANGFUSE_HOST;
+  if (env.LANGFUSE_HOST) {
+    config.baseUrl = env.LANGFUSE_HOST;
   }
 
   if (userId) {
