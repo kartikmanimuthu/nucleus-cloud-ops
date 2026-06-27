@@ -14,10 +14,7 @@ interface CertificateDetail {
     status: string;
     issuer: string | null;
     notBefore: string | null;
-    notAfter: string;
-    s3BodyKey: string;
-    s3ChainKey: string | null;
-    s3PrivateKeyKey: string;
+    notAfter: string | null;
 }
 
 interface CertificateContent {
@@ -138,7 +135,7 @@ export function CertificateDetailTab({ certificateId }: CertificateDetailTabProp
                 <div>
                     <span className="text-muted-foreground">Expires</span>
                     <p className="font-mono text-sm">
-                        {new Date(detail.notAfter).toLocaleDateString()}
+                        {detail.notAfter ? new Date(detail.notAfter).toLocaleDateString() : "—"}
                     </p>
                 </div>
             </div>
@@ -162,7 +159,7 @@ export function CertificateDetailTab({ certificateId }: CertificateDetailTabProp
             )}
 
             {/* Certificate Chain */}
-            {detail.s3ChainKey && renderBlock(
+            {content?.chain && renderBlock(
                 "Certificate Chain",
                 content?.chain,
                 showChain,

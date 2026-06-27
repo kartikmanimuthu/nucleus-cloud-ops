@@ -25,6 +25,8 @@ import {
     MoreHorizontal,
     Calendar,
     Building,
+    Loader2,
+    Radar,
 } from "lucide-react";
 import { daysUntilExpiry, getExpiryColor, maskDomain } from "@/lib/certificate-utils";
 
@@ -32,9 +34,9 @@ export interface CertificateCard {
     id: string;
     name: string;
     domainName: string;
-    status: 'active' | 'expiring' | 'expired';
+    status: 'active' | 'expiring' | 'expired' | 'no_material';
     issuer: string | null;
-    notAfter: string;
+    notAfter: string | null;
     associatedAccountIds: string[];
     associatedAccountNames: string[];
 }
@@ -44,6 +46,8 @@ interface CertificateCardsProps {
     onCardClick: (cert: CertificateCard) => void;
     onDownload: (cert: CertificateCard) => void;
     onDelete: (cert: CertificateCard) => void;
+    onDiscover?: (cert: CertificateCard) => void;
+    discoveringId?: string | null;
 }
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
@@ -57,6 +61,8 @@ export function CertificateCards({
     onCardClick,
     onDownload,
     onDelete,
+    onDiscover,
+    discoveringId,
 }: CertificateCardsProps) {
     const router = useRouter();
 
@@ -64,9 +70,9 @@ export function CertificateCards({
         <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {data.map((cert) => {
-                    const days = daysUntilExpiry(cert.notAfter);
-                    const expiryColor = getExpiryColor(days);
-                    const isExpiringSoon = days >= 0 && days <= 60;
+                    const days = cert.notAfter ? daysUntilExpiry(cert.notAfter) : NaN;
+                    const expiryColor = Number.isNaN(days) ? "" : getExpiryColor(days);
+                    const isExpiringSoon = !Number.isNaN(days) && days >= 0 && days <= 60;
 
                     return (
                         <Card
@@ -109,6 +115,22 @@ export function CertificateCards({
                                                 <Eye className="mr-2 h-4 w-4" />
                                                 View Details
                                             </DropdownMenuItem>
+                                            {onDiscover && (
+                                                <DropdownMenuItem
+                                                    disabled={discoveringId === cert.id}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onDiscover(cert);
+                                                    }}
+                                                >
+                                                    {discoveringId === cert.id ? (
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    ) : (
+                                                        <Radar className="mr-2 h-4 w-4" />
+                                                    )}
+                                                    Discover / Rescan
+                                                </DropdownMenuItem>
+                                            )}
                                             <DropdownMenuItem
                                                 onClick={(e) => {
                                                     e.stopPropagation();
@@ -142,8 +164,10 @@ export function CertificateCards({
                                     <div className="flex items-center gap-1.5">
                                         <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                                         <span className={`text-sm font-mono ${expiryColor}`}>
-                                            {new Date(cert.notAfter).toLocaleDateString()}
-                                            {days >= 0 && days <= 60 ? ` (${days}d)` : ""}
+                                            {cert.notAfter
+                                                ? new Date(cert.notAfter).toLocaleDateString()
+                                                : "—"}
+                                            {!Number.isNaN(days) && days >= 0 && days <= 60 ? ` (${days}d)` : ""}
                                         </span>
                                     </div>
                                 </div>

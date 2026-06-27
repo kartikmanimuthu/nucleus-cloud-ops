@@ -3,20 +3,23 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, LayoutGrid, TableIcon } from "lucide-react";
 import { CertificateGrid, type CertificateRow } from "./certificate-grid";
 import { CertificateCards } from "./certificate-cards";
 import { UploadCertificateDialog } from "./upload-certificate-dialog";
 import { DeleteCertificateDialog } from "./delete-certificate-dialog";
+import { useToast } from "@/hooks/use-toast";
 
 export function CertificateClientComponent() {
     const router = useRouter();
+    const { toast } = useToast();
     const [certificates, setCertificates] = useState<CertificateRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [uploadOpen, setUploadOpen] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<CertificateRow | null>(null);
     const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
+    const [discoveringId, setDiscoveringId] = useState<string | null>(null);
 
     const fetchCertificates = useCallback(async () => {
         try {
@@ -40,7 +43,12 @@ export function CertificateClientComponent() {
         try {
             const res = await fetch(`/api/certificates/${cert.id}/download`);
             if (!res.ok) {
-                console.error("Download failed:", res.statusText);
+                let msg = res.statusText;
+                try {
+                    const j = await res.json();
+                    msg = j.error || msg;
+                } catch { /* non-JSON (e.g. the zip) — keep statusText */ }
+                toast({ title: "Download failed", description: msg, variant: "destructive" });
                 return;
             }
             const blob = await res.blob();
@@ -55,6 +63,29 @@ export function CertificateClientComponent() {
             window.URL.revokeObjectURL(url);
         } catch (e) {
             console.error("Download error:", e);
+            toast({ title: "Download failed", description: "Network error — please try again", variant: "destructive" });
+        }
+    };
+
+    const handleDiscover = async (cert: CertificateRow) => {
+        setDiscoveringId(cert.id);
+        try {
+            const res = await fetch(`/api/certificates/${cert.id}/discover`, { method: "POST" });
+            const json = await res.json();
+            if (!json.success) {
+                toast({ title: "Discover failed", description: json.error || "Scan failed", variant: "destructive" });
+                return;
+            }
+            const d = json.data;
+            toast({
+                title: `Discover complete (${d.status})`,
+                description: `${d.matched} ACM match(es) across ${d.accountsScanned} active account(s)${d.errored ? `, ${d.errored} error(s)` : ""}${d.skipped ? `, ${d.skipped} skipped` : ""}.`,
+            });
+            fetchCertificates();
+        } catch {
+            toast({ title: "Discover failed", description: "Network error — please try again", variant: "destructive" });
+        } finally {
+            setDiscoveringId(null);
         }
     };
 
@@ -111,6 +142,8 @@ export function CertificateClientComponent() {
                                     onCardClick={(cert) => router.push(`/app/certificates/${cert.id}`)}
                                     onDownload={handleDownload}
                                     onDelete={setDeleteTarget}
+                                    onDiscover={handleDiscover}
+                                    discoveringId={discoveringId}
                                 />
                             )}
                         </>

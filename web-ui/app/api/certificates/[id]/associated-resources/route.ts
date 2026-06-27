@@ -3,8 +3,7 @@ import { getCertificateRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { authorize } from '@/lib/rbac/authorize';
 import { getTenantClient } from '@/lib/db/pg-config';
-import { ACMClient, DescribeCertificateCommand } from '@aws-sdk/client-acm';
-import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
+import { assumeAccountRole, describeAcmCertificate } from '@/lib/certificate-aws';
 
 interface AssociatedResource {
     arn: string;
@@ -12,6 +11,7 @@ interface AssociatedResource {
     service: string;
     accountId: string;
     accountName: string;
+    region: string;
 }
 
 function parseResourceType(arn: string): { type: string; service: string } {
@@ -19,22 +19,11 @@ function parseResourceType(arn: string): { type: string; service: string } {
     if (parts.length < 6) return { type: 'Unknown', service: 'Unknown' };
     const service = parts[2];
     const resourceType = parts[5]?.split('/')[0] || '';
-
-    if (service === 'elasticloadbalancing') {
-        return { type: 'ALB/NLB', service: 'ELB' };
-    }
-    if (service === 'cloudfront') {
-        return { type: 'Distribution', service: 'CloudFront' };
-    }
-    if (service === 'apigateway') {
-        return { type: 'Domain Name', service: 'API Gateway' };
-    }
-    if (service === 'execute-api') {
-        return { type: 'API', service: 'API Gateway' };
-    }
-    if (service === 'cognito-idp') {
-        return { type: 'User Pool', service: 'Cognito' };
-    }
+    if (service === 'elasticloadbalancing') return { type: 'ALB/NLB', service: 'ELB' };
+    if (service === 'cloudfront') return { type: 'Distribution', service: 'CloudFront' };
+    if (service === 'apigateway') return { type: 'Domain Name', service: 'API Gateway' };
+    if (service === 'execute-api') return { type: 'API', service: 'API Gateway' };
+    if (service === 'cognito-idp') return { type: 'User Pool', service: 'Cognito' };
     return { type: resourceType || 'Unknown', service: service || 'Unknown' };
 }
 
@@ -50,126 +39,53 @@ export async function GET(
         const { id } = await params;
         const repo = getCertificateRepository();
         const cert = await repo.getCertificate(tenantId, id);
-
         if (!cert) {
-            return NextResponse.json(
-                { success: false, error: 'Certificate not found' },
-                { status: 404 }
-            );
+            return NextResponse.json({ success: false, error: 'Certificate not found' }, { status: 404 });
         }
 
-        const db = getTenantClient(tenantId);
-
-        if (cert.associatedAccountIds.length === 0) {
+        // Use the discovered ACM ARNs (CertificateDeployment) — no inventory lookup.
+        const deployments = (await repo.listDeployments(tenantId, id)).filter(d => d.acmArn);
+        if (deployments.length === 0) {
             return NextResponse.json({ success: true, data: { resources: [] } });
         }
 
-        // Get account details
+        const db = getTenantClient(tenantId);
+        const accountIds = [...new Set(deployments.map(d => d.accountId))];
         const accounts = await db.account.findMany({
-            where: {
-                tenantId,
-                accountId: { in: cert.associatedAccountIds },
-            },
-            select: {
-                accountId: true,
-                name: true,
-                roleArn: true,
-                externalId: true,
-                regions: true,
-            },
+            where: { tenantId, accountId: { in: accountIds } },
+            select: { accountId: true, name: true, roleArn: true, externalId: true },
         });
-
-        const accountNameMap: Record<string, string> = {};
-        for (const a of accounts) {
-            accountNameMap[a.accountId] = a.name || a.accountId;
-        }
-
-        // Find matching ACM certificate ARNs per account
-        const acmResources = await db.inventoryResource.findMany({
-            where: {
-                tenantId,
-                resourceType: 'acm_certificates',
-                accountId: { in: cert.associatedAccountIds },
-            },
-            select: {
-                accountId: true,
-                resourceId: true,
-                metadata: true,
-            },
-        });
-
-        const certArnMap: Record<string, string> = {};
-        for (const r of acmResources) {
-            const meta = r.metadata as Record<string, unknown> | null;
-            const metaDomain = (meta?.domainName as string) || '';
-            if (metaDomain.toLowerCase() === cert.domainName.toLowerCase()) {
-                certArnMap[r.accountId] = r.resourceId;
-            }
-        }
+        const accountMeta = new Map(accounts.map(a => [a.accountId, a]));
 
         const allResources: AssociatedResource[] = [];
-
-        for (const account of accounts) {
-            const certArn = certArnMap[account.accountId];
-            if (!certArn) {
-                continue;
-            }
-
+        for (const dep of deployments) {
+            const meta = accountMeta.get(dep.accountId);
+            if (!meta) continue;
             try {
-                const stsClient = new STSClient({
-                    region: account.regions[0] || 'us-east-1',
-                });
-                const { Credentials } = await stsClient.send(
-                    new AssumeRoleCommand({
-                        RoleArn: account.roleArn,
-                        RoleSessionName: 'cert-associated-resources',
-                        ...(account.externalId ? { ExternalId: account.externalId } : {}),
-                    })
+                const creds = await assumeAccountRole(
+                    { accountId: dep.accountId, roleArn: meta.roleArn, externalId: meta.externalId },
+                    dep.region,
+                    'cert-associated-resources'
                 );
-
-                if (!Credentials) {
-                    console.warn(`Could not assume role for account ${account.accountId}`);
-                    continue;
-                }
-
-                const acmClient = new ACMClient({
-                    region: account.regions[0] || 'us-east-1',
-                    credentials: {
-                        accessKeyId: Credentials.AccessKeyId!,
-                        secretAccessKey: Credentials.SecretAccessKey!,
-                        sessionToken: Credentials.SessionToken!,
-                    },
-                });
-
-                const desc = await acmClient.send(
-                    new DescribeCertificateCommand({
-                        CertificateArn: certArn,
-                    })
-                );
-
-                const inUseBy = desc.Certificate?.InUseBy || [];
-                for (const arn of inUseBy) {
+                if (!creds) continue;
+                const desc = await describeAcmCertificate(creds, dep.region, dep.acmArn!);
+                for (const arn of desc?.InUseBy ?? []) {
                     const { type, service } = parseResourceType(arn);
                     allResources.push({
                         arn,
                         type,
                         service,
-                        accountId: account.accountId,
-                        accountName: accountNameMap[account.accountId] || account.accountId,
+                        accountId: dep.accountId,
+                        accountName: meta.name ?? dep.accountId,
+                        region: dep.region,
                     });
                 }
             } catch (err) {
-                console.error(
-                    `Error fetching associated resources for account ${account.accountId}:`
-                    , err
-                );
+                console.error(`Error fetching InUseBy for account ${dep.accountId}/${dep.region}:`, err);
             }
         }
 
-        return NextResponse.json({
-            success: true,
-            data: { resources: allResources },
-        });
+        return NextResponse.json({ success: true, data: { resources: allResources } });
     } catch (error: unknown) {
         console.error('Error fetching associated resources:', error);
         const message = error instanceof Error ? error.message : 'Failed to fetch associated resources';

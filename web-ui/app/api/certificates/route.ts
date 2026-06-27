@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { getCertificateRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { getTenantClient } from '@/lib/db/pg-config';
 import { authorize } from '@/lib/rbac/authorize';
 import { AuditService } from '@/lib/audit-service';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { parseCertificatePem, computeExpiryStatus } from '@/lib/certificate-utils';
+import { computeExpiryStatus, parseCertificatePem } from '@/lib/certificate-utils';
+import { parseCertificate, validateKeyPair } from '@/lib/certificate-crypto';
+import { putVersionMaterial, versionS3Prefix } from '@/lib/certificate-material';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
-import { X509Certificate } from 'crypto';
-
-function getS3Client(): S3Client {
-    return new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
-}
-
-const APP_BUCKET = process.env.APP_BUCKET_NAME || '';
 
 export async function GET(request: NextRequest) {
     try {
@@ -26,42 +21,59 @@ export async function GET(request: NextRequest) {
         const repo = getCertificateRepository();
         const result = await repo.listCertificates({
             tenantId,
-            status: searchParams.get('status') as 'active' | 'expiring' | 'expired' | undefined,
+            status: searchParams.get('status') as
+                | 'active'
+                | 'expiring'
+                | 'expired'
+                | 'no_material'
+                | undefined,
             searchTerm: searchParams.get('search') || undefined,
             limit: parseInt(searchParams.get('limit') || '50', 10),
             page: parseInt(searchParams.get('page') || '1', 10),
         });
 
-        const distinctAccountIds = [
-            ...new Set(result.certificates.flatMap(c => c.associatedAccountIds)),
-        ];
+        // Account linkage now comes from CertificateDeployment (live, ACM-discovered),
+        // not the legacy associatedAccountIds / inventory correlation.
+        const db = getTenantClient(tenantId);
+        const certIds = result.certificates.map(c => c.id);
+        const deployments = certIds.length
+            ? await db.certificateDeployment.findMany({
+                  where: { tenantId, certificateId: { in: certIds } },
+                  select: { certificateId: true, accountId: true },
+              })
+            : [];
+
+        const accountIdsByCert = new Map<string, Set<string>>();
+        const allAccountIds = new Set<string>();
+        for (const d of deployments) {
+            if (!accountIdsByCert.has(d.certificateId)) accountIdsByCert.set(d.certificateId, new Set());
+            accountIdsByCert.get(d.certificateId)!.add(d.accountId);
+            allAccountIds.add(d.accountId);
+        }
+
         const accountNameMap: Record<string, string> = {};
-        if (distinctAccountIds.length > 0) {
+        if (allAccountIds.size > 0) {
             try {
-                const accounts = await getTenantClient(tenantId).account.findMany({
-                    where: { tenantId, accountId: { in: distinctAccountIds } },
+                const accounts = await db.account.findMany({
+                    where: { tenantId, accountId: { in: [...allAccountIds] } },
                     select: { accountId: true, name: true },
                 });
-                for (const a of accounts) {
-                    if (a.name) accountNameMap[a.accountId] = a.name;
-                }
+                for (const a of accounts) if (a.name) accountNameMap[a.accountId] = a.name;
             } catch (e) {
                 console.warn('Could not fetch account names for certificates:', e);
             }
         }
 
-        const certificates = result.certificates.map(c => ({
-            ...c,
-            associatedAccountNames: c.associatedAccountIds
-                .map(id => accountNameMap[id] || id)
-                .filter(Boolean),
-        }));
-
-        return NextResponse.json({
-            success: true,
-            data: certificates,
-            total: result.total,
+        const certificates = result.certificates.map(c => {
+            const ids = [...(accountIdsByCert.get(c.id) ?? [])];
+            return {
+                ...c,
+                associatedAccountIds: ids,
+                associatedAccountNames: ids.map(id => accountNameMap[id] || id),
+            };
         });
+
+        return NextResponse.json({ success: true, data: certificates, total: result.total });
     } catch (error: unknown) {
         console.error('Error fetching certificates:', error);
         const message = error instanceof Error ? error.message : 'Failed to fetch certificates';
@@ -85,16 +97,13 @@ export async function POST(request: NextRequest) {
         let privateKeyPem: string;
 
         const contentType = request.headers.get('content-type') || '';
-
         if (contentType.includes('multipart/form-data')) {
             const formData = await request.formData();
             name = formData.get('name') as string;
             domainName = formData.get('domainName') as string;
-
             const bodyFile = formData.get('body') as File | null;
             const chainFile = formData.get('chain') as File | null;
             const keyFile = formData.get('privateKey') as File | null;
-
             if (!bodyFile || !keyFile) {
                 return NextResponse.json(
                     { success: false, error: 'Certificate body and private key are required' },
@@ -120,99 +129,50 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        parseCertificatePem(bodyPem);
-
-        if (!privateKeyPem.includes('-----BEGIN') || !privateKeyPem.includes('PRIVATE KEY-----')) {
+        // --- validation / authentication of the uploaded material ---
+        try {
+            parseCertificatePem(bodyPem);
+            if (!privateKeyPem.includes('-----BEGIN') || !privateKeyPem.includes('PRIVATE KEY-----')) {
+                throw new Error('Invalid private key PEM format');
+            }
+            validateKeyPair(bodyPem, privateKeyPem);
+        } catch (e) {
             return NextResponse.json(
-                { success: false, error: 'Invalid private key PEM format' },
+                { success: false, error: e instanceof Error ? e.message : 'Invalid certificate material' },
                 { status: 400 }
             );
         }
 
-        const x509 = new X509Certificate(bodyPem);
-        const notBefore = new Date(x509.validFrom);
-        const notAfter = new Date(x509.validTo);
-        const issuer = x509.issuer.split('\n').find(l => l.startsWith('O='))?.replace('O=', '') || x509.issuer;
-        const status = computeExpiryStatus(notAfter.toISOString());
+        const parsed = parseCertificate(bodyPem);
+        const status = computeExpiryStatus(parsed.notAfter);
 
-        const certId = crypto.randomUUID();
-        const s3Prefix = `certificates/${tenantId}/${certId}`;
-
-        const s3Client = getS3Client();
-        await Promise.all([
-            s3Client.send(
-                new PutObjectCommand({
-                    Bucket: APP_BUCKET,
-                    Key: `${s3Prefix}/body.pem`,
-                    Body: bodyPem,
-                    ContentType: 'application/x-pem-file',
-                })
-            ),
-            chainPem
-                ? s3Client.send(
-                      new PutObjectCommand({
-                          Bucket: APP_BUCKET,
-                          Key: `${s3Prefix}/chain.pem`,
-                          Body: chainPem,
-                          ContentType: 'application/x-pem-file',
-                      })
-                  )
-                : Promise.resolve(),
-            s3Client.send(
-                new PutObjectCommand({
-                    Bucket: APP_BUCKET,
-                    Key: `${s3Prefix}/private.key`,
-                    Body: privateKeyPem,
-                    ContentType: 'application/x-pem-file',
-                })
-            ),
-        ]);
-
-        // Auto-discover associated accounts from inventory
-        const associatedAccountIds: string[] = [];
-        try {
-            const db = getTenantClient(tenantId);
-            const matchingResources = await db.inventoryResource.findMany({
-                where: {
-                    tenantId,
-                    resourceType: 'acm_certificates',
-                },
-                select: { accountId: true, metadata: true },
-            });
-
-            const seen = new Set<string>();
-            for (const r of matchingResources) {
-                const meta = r.metadata as Record<string, unknown> | null;
-                const metaDomain = (meta?.domainName as string) || '';
-                if (
-                    !seen.has(r.accountId) &&
-                    metaDomain.toLowerCase() === domainName.toLowerCase()
-                ) {
-                    associatedAccountIds.push(r.accountId);
-                    seen.add(r.accountId);
-                }
-            }
-        } catch (e) {
-            console.warn('Could not auto-discover associated accounts:', e);
-        }
+        const certId = randomUUID();
+        const prefix = versionS3Prefix(tenantId, certId, 1);
+        const keys = await putVersionMaterial(prefix, {
+            body: bodyPem,
+            chain: chainPem,
+            privateKey: privateKeyPem,
+        });
 
         const repo = getCertificateRepository();
         const session = await getServerSession(authOptions);
+        const createdBy = session?.user?.email || 'unknown';
 
-        const certificate = await repo.createCertificate({
+        const { certificate } = await repo.createWithInitialVersion({
+            id: certId,
             tenantId,
             name,
             domainName,
+            createdBy,
+            issuer: parsed.issuer,
+            notBefore: parsed.notBefore,
+            notAfter: parsed.notAfter,
+            fingerprint: parsed.fingerprint,
+            serialNumber: parsed.serialNumber,
+            s3BodyKey: keys.s3BodyKey,
+            s3ChainKey: keys.s3ChainKey,
+            s3PrivateKeyKey: keys.s3PrivateKeyKey,
             status,
-            issuer,
-            notBefore: notBefore.toISOString(),
-            notAfter: notAfter.toISOString(),
-            s3BodyKey: `${s3Prefix}/body.pem`,
-            s3ChainKey: chainPem ? `${s3Prefix}/chain.pem` : null,
-            s3PrivateKeyKey: `${s3Prefix}/private.key`,
-            associatedAccountIds,
-            tags: {},
-            createdBy: session?.user?.email || 'unknown',
         });
 
         await AuditService.logUserAction({
@@ -220,12 +180,12 @@ export async function POST(request: NextRequest) {
             resourceType: 'certificate',
             resourceId: certId,
             resourceName: name,
-            user: session?.user?.email || 'unknown',
+            user: createdBy,
             userType: 'user',
             status: 'success',
-            details: `Certificate "${name}" uploaded for domain ${domainName}`,
+            details: `Certificate "${name}" uploaded for domain ${domainName} (v1)`,
             tenantId,
-            metadata: { domainName, associatedAccountIds },
+            metadata: { domainName, fingerprint: parsed.fingerprint },
         });
 
         return NextResponse.json({ success: true, data: certificate }, { status: 201 });

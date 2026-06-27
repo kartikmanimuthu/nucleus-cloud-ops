@@ -19,9 +19,9 @@ export interface CertificateRow {
     id: string;
     name: string;
     domainName: string;
-    status: 'active' | 'expiring' | 'expired';
+    status: 'active' | 'expiring' | 'expired' | 'no_material';
     issuer: string | null;
-    notAfter: string;
+    notAfter: string | null;
     associatedAccountIds: string[];
     associatedAccountNames: string[];
 }
@@ -75,7 +75,8 @@ export function CertificateGrid({ data, onRowClick, onDownload, onDelete }: Cert
             accessorKey: "notAfter",
             header: "Expiry",
             cell: ({ getValue }) => {
-                const dateStr = getValue<string>();
+                const dateStr = getValue<string | null>();
+                if (!dateStr) return <span className="font-mono text-sm text-muted-foreground">—</span>;
                 const days = daysUntilExpiry(dateStr);
                 const color = getExpiryColor(days);
                 return (
@@ -158,8 +159,8 @@ export function CertificateGrid({ data, onRowClick, onDownload, onDelete }: Cert
                 </TableHeader>
                 <TableBody>
                     {table.getRowModel().rows.map(row => {
-                        const days = daysUntilExpiry(row.original.notAfter);
-                        const isExpiringSoon = days >= 0 && days <= 60;
+                        const days = row.original.notAfter ? daysUntilExpiry(row.original.notAfter) : NaN;
+                        const isExpiringSoon = !Number.isNaN(days) && days >= 0 && days <= 60;
                         return (
                             <TableRow
                                 key={row.id}

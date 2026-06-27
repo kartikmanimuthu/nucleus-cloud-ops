@@ -11,6 +11,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Loader2, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import type { CertificateRow } from "./certificate-grid";
 
 interface DeleteCertificateDialogProps {
@@ -26,6 +27,7 @@ export function DeleteCertificateDialog({
     onOpenChange,
     onDeleted,
 }: DeleteCertificateDialogProps) {
+    const { toast } = useToast();
     const [deleting, setDeleting] = useState(false);
     const [error, setError] = useState("");
 
@@ -38,12 +40,15 @@ export function DeleteCertificateDialog({
             const json = await res.json();
             if (!json.success) {
                 setError(json.error || "Delete failed");
+                toast({ title: "Delete failed", description: json.error || "Delete failed", variant: "destructive" });
             } else {
                 onOpenChange(false);
+                toast({ title: "Certificate deleted", description: certificate.name });
                 onDeleted();
             }
         } catch {
             setError("Network error — please try again");
+            toast({ title: "Delete failed", description: "Network error — please try again", variant: "destructive" });
         } finally {
             setDeleting(false);
         }

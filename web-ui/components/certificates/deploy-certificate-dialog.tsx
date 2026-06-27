@@ -19,12 +19,14 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Loader2, UploadCloud } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 interface AccountOption {
     accountId: string;
     name: string;
     regions: string[];
     connectionStatus: string;
+    active: boolean;
 }
 
 interface DeployCertificateDialogProps {
@@ -42,6 +44,7 @@ export function DeployCertificateDialog({
     onDeployed,
     excludedAccountIds = [],
 }: DeployCertificateDialogProps) {
+    const { toast } = useToast();
     const [accounts, setAccounts] = useState<AccountOption[]>([]);
     const [regions, setRegions] = useState<{ value: string; label: string }[]>([]);
     const [loadingAccounts, setLoadingAccounts] = useState(false);
@@ -64,14 +67,17 @@ export function DeployCertificateDialog({
                         name: string;
                         regions: string[];
                         connectionStatus: string;
+                        active?: boolean;
                     }) => ({
                         accountId: a.accountId,
                         name: a.name,
                         regions: a.regions || [],
                         connectionStatus: a.connectionStatus,
+                        active: a.active !== false,
                     }));
+                    // Only active accounts that don't already have this certificate.
                     const filtered = allAccounts.filter(
-                        a => !excludedAccountIds.includes(a.accountId)
+                        a => a.active && !excludedAccountIds.includes(a.accountId)
                     );
                     setAccounts(filtered);
                 }
@@ -143,19 +149,20 @@ export function DeployCertificateDialog({
             const json = await res.json();
             if (!json.success) {
                 setError(json.error || "Deploy failed");
+                toast({ title: "Deploy failed", description: json.error || "Deploy failed", variant: "destructive" });
             } else {
                 resetForm();
                 onOpenChange(false);
+                toast({ title: "Certificate deployed", description: `Account ${selectedAccountId} / ${selectedRegion}` });
                 onDeployed();
             }
         } catch {
             setError("Network error — please try again");
+            toast({ title: "Deploy failed", description: "Network error — please try again", variant: "destructive" });
         } finally {
             setSubmitting(false);
         }
     };
-
-    const selectedAccount = accounts.find(a => a.accountId === selectedAccountId);
 
     return (
         <Dialog open={open} onOpenChange={(v) => { if (!v) resetForm(); onOpenChange(v); }}>

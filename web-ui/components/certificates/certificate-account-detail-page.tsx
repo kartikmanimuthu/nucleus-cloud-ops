@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowLeft, RefreshCw, Loader2, ShieldCheck } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 interface AssociatedResource {
     arn: string;
@@ -67,6 +68,8 @@ export function CertificateAccountDetailPage({
     const router = useRouter();
     const [data, setData] = useState<CertificateAccountDetail | null>(null);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState("");
+    const { toast } = useToast();
     const [reimporting, setReimporting] = useState(false);
 
     useEffect(() => {
@@ -76,9 +79,12 @@ export function CertificateAccountDetailPage({
                 const json = await res.json();
                 if (json.success) {
                     setData(json.data);
+                } else {
+                    setLoadError(json.error || "Certificate or account not found.");
                 }
             } catch (e) {
                 console.error("Failed to fetch account certificate detail:", e);
+                setLoadError("Network error — please try again.");
             } finally {
                 setLoading(false);
             }
@@ -96,10 +102,14 @@ export function CertificateAccountDetailPage({
             });
             const json = await res.json();
             if (!json.success) {
-                throw new Error(json.error || "Reimport failed");
+                toast({ title: "Reimport failed", description: json.error || "Reimport failed", variant: "destructive" });
+            } else if (json.data?.status === "partial") {
+                toast({ title: "Reimport partially succeeded", description: json.error || "Some regions failed — see Execution History.", variant: "destructive" });
+            } else {
+                toast({ title: "Reimport complete", description: `Pushed active version to account ${accountId}.` });
             }
-        } catch (e) {
-            console.error("Reimport failed:", e);
+        } catch {
+            toast({ title: "Reimport failed", description: "Network error — please try again", variant: "destructive" });
         } finally {
             setReimporting(false);
         }
@@ -116,7 +126,7 @@ export function CertificateAccountDetailPage({
     if (!data) {
         return (
             <div className="p-8 text-center text-muted-foreground">
-                Certificate or account not found.
+                {loadError || "Certificate or account not found."}
             </div>
         );
     }

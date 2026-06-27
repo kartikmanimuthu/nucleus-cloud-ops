@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { getCertificateRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
 import { authorize } from '@/lib/rbac/authorize';
 import { AuditService } from '@/lib/audit-service';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { ACMClient, ImportCertificateCommand } from '@aws-sdk/client-acm';
-import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { getTenantClient } from '@/lib/db/pg-config';
+import { loadVersionMaterial } from '@/lib/certificate-material';
+import { assumeAccountRole, importToAcm } from '@/lib/certificate-aws';
+
+const TTL_90_DAYS_MS = 90 * 86400000;
 
 export async function POST(
     request: NextRequest,
@@ -22,115 +24,145 @@ export async function POST(
         const { id: certId } = await params;
         const body = await request.json();
         const targetAccountId = body.accountId as string;
-
         if (!targetAccountId) {
-            return NextResponse.json(
-                { success: false, error: 'accountId is required' },
-                { status: 400 }
-            );
+            return NextResponse.json({ success: false, error: 'accountId is required' }, { status: 400 });
         }
 
         const repo = getCertificateRepository();
         const cert = await repo.getCertificate(tenantId, certId);
-
         if (!cert) {
+            return NextResponse.json({ success: false, error: 'Certificate not found' }, { status: 404 });
+        }
+
+        const version = await repo.getActiveVersion(tenantId, certId);
+        if (!version) {
             return NextResponse.json(
-                { success: false, error: 'Certificate not found' },
-                { status: 404 }
+                { success: false, error: 'Certificate has no active version to reimport.' },
+                { status: 409 }
+            );
+        }
+        // ACM rejects importing expired material (ValidationException). Catch it early with a
+        // clear, actionable message instead of a cross-account round trip to a guaranteed failure.
+        if (new Date(version.notAfter).getTime() < Date.now()) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    code: 'ACTIVE_VERSION_EXPIRED',
+                    error: `Active version v${version.version} expired on ${new Date(version.notAfter).toLocaleDateString()}. Upload a renewed certificate version and Make it Active before reimporting (AWS ACM does not accept expired certificates).`,
+                },
+                { status: 409 }
             );
         }
 
-        if (!cert.associatedAccountIds.includes(targetAccountId)) {
+        // Every place this cert is deployed in the account (acmArn known), across regions.
+        const deployments = (await repo.listDeployments(tenantId, certId)).filter(
+            d => d.accountId === targetAccountId && d.acmArn
+        );
+        if (deployments.length === 0) {
             return NextResponse.json(
-                { success: false, error: 'Certificate not associated with this account' },
-                { status: 400 }
+                {
+                    success: false,
+                    error: 'No deployed certificate found in this account. Run Discover (or Deploy) first.',
+                    code: 'NOT_DISCOVERED',
+                },
+                { status: 409 }
             );
         }
 
-        // Get account details
         const db = getTenantClient(tenantId);
         const account = await db.account.findFirst({
             where: { tenantId, accountId: targetAccountId },
-            select: { roleArn: true, externalId: true, regions: true, name: true },
+            select: { roleArn: true, externalId: true, name: true },
         });
-
         if (!account) {
-            return NextResponse.json(
-                { success: false, error: 'Account not found' },
-                { status: 404 }
-            );
+            return NextResponse.json({ success: false, error: 'Account not found' }, { status: 404 });
         }
 
-        // Load certificate files from S3
-        const s3Client = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
-        const bucket = process.env.APP_BUCKET_NAME || '';
+        const executionId = randomUUID();
+        const startedAt = Date.now();
+        const session = await getServerSession(authOptions);
+        await repo.createExecution({
+            tenantId,
+            certificateId: certId,
+            executionId,
+            operation: 'reimport',
+            versionId: version.id,
+            accountId: targetAccountId,
+            status: 'running',
+            triggeredBy: session?.user?.email || 'unknown',
+            expiresAt: new Date(Date.now() + TTL_90_DAYS_MS).toISOString(),
+        });
 
-        const [bodyObj, chainObj, keyObj] = await Promise.all([
-            s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3BodyKey })),
-            cert.s3ChainKey
-                ? s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3ChainKey }))
-                : Promise.resolve(null),
-            s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3PrivateKeyKey })),
-        ]);
+        const material = await loadVersionMaterial(version);
+        const perRegion: Array<{ region: string; arn: string | null; ok: boolean; error?: string }> = [];
 
-        const certBody = await bodyObj.Body!.transformToString();
-        const certChain = chainObj ? await chainObj.Body!.transformToString() : undefined;
-        const privateKey = await keyObj.Body!.transformToString();
-
-        // STS AssumeRole into target account
-        const stsClient = new STSClient({ region: account.regions[0] || 'us-east-1' });
-        const { Credentials } = await stsClient.send(
-            new AssumeRoleCommand({
-                RoleArn: account.roleArn,
-                RoleSessionName: 'cert-reimport',
-                ...(account.externalId ? { ExternalId: account.externalId } : {}),
-            })
+        console.log(
+            `[reimport] cert=${certId} account=${targetAccountId} version=v${version.version} ` +
+            `regions=[${deployments.map(d => d.region).join(',')}] roleArn=${account.roleArn} ` +
+            `material={bodyLen:${material.body.length},chain:${material.chain ? material.chain.length : 0},keyLen:${material.privateKey.length}}`
         );
 
-        if (!Credentials) {
-            return NextResponse.json(
-                { success: false, error: 'Failed to assume role into target account' },
-                { status: 500 }
-            );
+        for (const dep of deployments) {
+            try {
+                const creds = await assumeAccountRole(
+                    { accountId: targetAccountId, roleArn: account.roleArn, externalId: account.externalId },
+                    dep.region,
+                    'cert-reimport'
+                );
+                if (!creds) throw new Error(`AssumeRole returned no credentials for ${account.roleArn}`);
+                console.log(`[reimport] assumed role ok, importing to ARN=${dep.acmArn} region=${dep.region}`);
+                const arn = await importToAcm(creds, dep.region, {
+                    body: material.body,
+                    privateKey: material.privateKey,
+                    chain: material.chain,
+                    arn: dep.acmArn!,
+                });
+                await repo.upsertDeployment({
+                    tenantId,
+                    certificateId: certId,
+                    accountId: targetAccountId,
+                    region: dep.region,
+                    acmArn: arn,
+                    acmDomainName: cert.domainName,
+                    acmNotAfter: version.notAfter,
+                    acmStatus: 'ISSUED',
+                    deployedVersionId: version.id,
+                    linkState: 'deployed',
+                    lastScannedAt: new Date().toISOString(),
+                    lastDeployedAt: new Date().toISOString(),
+                });
+                perRegion.push({ region: dep.region, arn, ok: true });
+            } catch (e) {
+                const errName = e instanceof Error ? e.name : 'Error';
+                const errMsg = e instanceof Error ? e.message : 'reimport failed';
+                // Surface the real AWS error (STS AccessDenied, ACM ValidationException, S3 NoSuchKey, …).
+                console.error(
+                    `[reimport] FAILED cert=${certId} account=${targetAccountId} region=${dep.region} ` +
+                    `arn=${dep.acmArn} ${errName}: ${errMsg}`,
+                    e
+                );
+                perRegion.push({
+                    region: dep.region,
+                    arn: dep.acmArn,
+                    ok: false,
+                    error: `${errName}: ${errMsg}`,
+                });
+            }
         }
 
-        // Find the existing ACM certificate ARN from inventory
-        const acmResources = await db.inventoryResource.findMany({
-            where: {
-                tenantId,
-                accountId: targetAccountId,
-                resourceType: 'acm_certificates',
-            },
-            select: { resourceId: true, metadata: true },
+        const okCount = perRegion.filter(r => r.ok).length;
+        const status = okCount === perRegion.length ? 'success' : okCount === 0 ? 'failed' : 'partial';
+        const firstError = perRegion.find(r => !r.ok)?.error;
+        const summary =
+            `Reimported v${version.version} to ${okCount}/${perRegion.length} region(s) in ${account.name}` +
+            (firstError ? ` — ${firstError}` : '');
+        await repo.finishExecution(tenantId, executionId, {
+            status,
+            message: summary,
+            details: perRegion,
+            duration: Math.round((Date.now() - startedAt) / 1000),
         });
 
-        const matchingAcmCert = acmResources.find(r => {
-            const meta = r.metadata as Record<string, unknown>;
-            return (meta?.domainName as string || '').toLowerCase() === cert.domainName.toLowerCase();
-        });
-
-        const certificateArn = matchingAcmCert?.resourceId;
-
-        // Reimport to ACM
-        const acmClient = new ACMClient({
-            region: account.regions[0] || 'us-east-1',
-            credentials: {
-                accessKeyId: Credentials.AccessKeyId!,
-                secretAccessKey: Credentials.SecretAccessKey!,
-                sessionToken: Credentials.SessionToken!,
-            },
-        });
-
-        const importCommand = new ImportCertificateCommand({
-            Certificate: Buffer.from(certBody),
-            PrivateKey: Buffer.from(privateKey),
-            ...(certChain ? { CertificateChain: Buffer.from(certChain) } : {}),
-            ...(certificateArn ? { CertificateArn: certificateArn } : {}),
-        });
-
-        const result = await acmClient.send(importCommand);
-
-        const session = await getServerSession(authOptions);
         await AuditService.logUserAction({
             action: 'reimport',
             resourceType: 'certificate',
@@ -138,22 +170,16 @@ export async function POST(
             resourceName: cert.name,
             user: session?.user?.email || 'unknown',
             userType: 'user',
-            status: 'success',
-            details: `Certificate "${cert.name}" reimported to ACM in account ${account.name} (${targetAccountId})`,
+            status: status === 'failed' ? 'error' : 'success',
+            details: `Certificate "${cert.name}" v${version.version} reimported to ${okCount}/${perRegion.length} region(s) in ${account.name} (${targetAccountId})`,
             tenantId,
-            metadata: {
-                accountId: targetAccountId,
-                accountName: account.name,
-                certificateArn: result.CertificateArn,
-            },
+            metadata: { accountId: targetAccountId, version: version.version, perRegion },
         });
 
         return NextResponse.json({
-            success: true,
-            data: {
-                certificateArn: result.CertificateArn,
-                accountId: targetAccountId,
-            },
+            success: status !== 'failed',
+            ...(status !== 'success' ? { error: summary } : {}),
+            data: { accountId: targetAccountId, version: version.version, perRegion, status },
         });
     } catch (error: unknown) {
         console.error('Error reimporting certificate:', error);

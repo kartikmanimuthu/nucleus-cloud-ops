@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Upload } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 interface UploadCertificateDialogProps {
     open: boolean;
@@ -27,6 +28,7 @@ export function UploadCertificateDialog({
     onOpenChange,
     onUploaded,
 }: UploadCertificateDialogProps) {
+    const { toast } = useToast();
     const [name, setName] = useState("");
     const [domainName, setDomainName] = useState("");
     const [body, setBody] = useState("");
@@ -61,13 +63,16 @@ export function UploadCertificateDialog({
             const json = await res.json();
             if (!json.success) {
                 setError(json.error || "Upload failed");
+                toast({ title: "Upload failed", description: json.error || "Upload failed", variant: "destructive" });
             } else {
                 resetForm();
                 onOpenChange(false);
+                toast({ title: "Certificate uploaded", description: `${name} (${domainName})` });
                 onUploaded();
             }
         } catch {
             setError("Network error — please try again");
+            toast({ title: "Upload failed", description: "Network error — please try again", variant: "destructive" });
         } finally {
             setSubmitting(false);
         }
@@ -93,13 +98,16 @@ export function UploadCertificateDialog({
             const json = await res.json();
             if (!json.success) {
                 setError(json.error || "Upload failed");
+                toast({ title: "Upload failed", description: json.error || "Upload failed", variant: "destructive" });
             } else {
                 resetForm();
                 onOpenChange(false);
+                toast({ title: "Certificate uploaded" });
                 onUploaded();
             }
         } catch {
             setError("Network error — please try again");
+            toast({ title: "Upload failed", description: "Network error — please try again", variant: "destructive" });
         } finally {
             setSubmitting(false);
         }
