@@ -10,14 +10,15 @@ import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedroc
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { getPrismaClient } from '@/lib/db/pg-config';
 import type { KBChunk, VectorMetadata } from './types';
+import { env } from '@/env';
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
 const EMBEDDING_MODEL_ID =
-  process.env.BEDROCK_MODEL_ID || 'amazon.titan-embed-text-v2:0';
-const AWS_REGION = process.env.AWS_REGION || 'ap-south-1';
+  env.BEDROCK_MODEL_ID || 'amazon.titan-embed-text-v2:0';
+const AWS_REGION = env.AWS_REGION || 'ap-south-1';
 
 const CHUNK_SIZE = 1500;
 const CHUNK_OVERLAP = 200;

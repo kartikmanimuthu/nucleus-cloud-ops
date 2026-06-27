@@ -10,21 +10,22 @@
 
 import { MongoClient, Db } from 'mongodb';
 import * as fs from 'fs';
+import { env } from '@/env';
 
 // Path where the RDS CA bundle is baked into the Docker image (see Dockerfile.ecs)
 const RDS_CA_BUNDLE_PATH = '/etc/ssl/certs/rds-combined-ca-bundle.pem';
 
 function buildMongoUri(): string {
     // Prefer an explicit full URI (local dev / custom setups)
-    if (process.env.MONGODB_URI) {
-        return process.env.MONGODB_URI;
+    if (env.MONGODB_URI) {
+        return env.MONGODB_URI;
     }
 
     // Build from individual DocumentDB env vars injected by CDK / Secrets Manager
-    const host = process.env.DOCDB_ENDPOINT;
-    const port = process.env.DOCDB_PORT ?? '27017';
-    const username = process.env.DOCDB_USERNAME;
-    const password = process.env.DOCDB_PASSWORD;
+    const host = env.DOCDB_ENDPOINT;
+    const port = env.DOCDB_PORT ?? '27017';
+    const username = env.DOCDB_USERNAME;
+    const password = env.DOCDB_PASSWORD;
 
     if (host && username && password) {
         const encodedPassword = encodeURIComponent(password);
@@ -62,8 +63,8 @@ function buildMongoClientOptions() {
 }
 
 const DB_NAME =
-    process.env.MONGODB_DB_NAME ||
-    process.env.DEEP_AGENT_DB_NAME ||
+    env.MONGODB_DB_NAME ||
+    env.DEEP_AGENT_DB_NAME ||
     'nucleus';
 
 // Use globalThis to survive Next.js hot-reloads in dev
@@ -85,7 +86,7 @@ export async function getMongoClient(): Promise<MongoClient> {
 
         await _client.connect();
 
-        if (process.env.NODE_ENV !== 'production') {
+        if (env.NODE_ENV !== 'production') {
             globalForMongo.mongoClient = _client;
         }
     }
@@ -104,7 +105,7 @@ export async function getDb(): Promise<Db> {
     const client = await getMongoClient();
     _db = client.db(DB_NAME);
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (env.NODE_ENV !== 'production') {
         globalForMongo.mongoDb = _db;
     }
 

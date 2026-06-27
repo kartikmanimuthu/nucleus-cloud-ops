@@ -8,6 +8,7 @@
 import nacl from 'tweetnacl';
 import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { env } from '@/env';
 import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
 import { ChannelRateLimiter } from '@/lib/gateway/utils/rate-limiter';
 import type {
@@ -107,7 +108,7 @@ export class DiscordAdapter implements ChannelAdapter {
 
         // Fallback to env var
         if (!publicKey) {
-            publicKey = process.env.DISCORD_PUBLIC_KEY || '';
+            publicKey = env.DISCORD_PUBLIC_KEY || '';
         }
 
         if (!publicKey) {

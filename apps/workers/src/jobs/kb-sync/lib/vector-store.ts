@@ -1,10 +1,11 @@
 import { Pool, type PoolClient } from 'pg';
+import { env } from '../../../env.js';
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_TENANT = process.env.DEFAULT_TENANT_ID || 'org-default';
+export const DEFAULT_TENANT = env.DEFAULT_TENANT_ID || 'org-default';
 
 // ---------------------------------------------------------------------------
 // pg Pool lazy init (matches scheduler/discovery pattern — no Prisma)
@@ -13,7 +14,7 @@ export const DEFAULT_TENANT = process.env.DEFAULT_TENANT_ID || 'org-default';
 let _pool: Pool | null = null;
 export function getPool(): Pool {
   if (!_pool) {
-    const DATABASE_URL = process.env.DATABASE_URL;
+    const DATABASE_URL = env.DATABASE_URL;
     if (!DATABASE_URL) throw new Error('DATABASE_URL is required for kb-sync PG mode');
     _pool = new Pool({
       connectionString: DATABASE_URL,

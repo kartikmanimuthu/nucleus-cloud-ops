@@ -38,6 +38,12 @@ COPY libs/prisma/ ./libs/prisma/
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_SHARP_PATH=/tmp/node_modules/sharp
 
+# Skip T3 ENV validation during the image build — runtime secrets (DATABASE_URL,
+# NEXTAUTH_SECRET, COGNITO_*) are absent here and are injected by the ECS task at
+# runtime. The runner stage deliberately does NOT set this, so the container
+# fails fast at startup if a required var is missing.
+ENV SKIP_ENV_VALIDATION=1
+
 # Set build-time environment variables
 ENV NEXT_PUBLIC_AWS_REGION=ap-south-1
 ENV NEXT_PUBLIC_APP_TABLE_NAME=NucleusAppTable

@@ -1,5 +1,6 @@
 import { ECSClient, RunTaskCommand, DescribeTasksCommand } from '@aws-sdk/client-ecs';
 import { createLogger } from '../lib/logger.js';
+import { env } from '../env.js';
 import type { JobExecutor } from './types.js';
 
 const log = createLogger('horizontal-executor');
@@ -27,8 +28,8 @@ export class HorizontalExecutor implements JobExecutor {
         const taskDefArn = getRequiredEnv('HORIZONTAL_TASK_DEF_ARN');
         const subnetsRaw = getRequiredEnv('HORIZONTAL_SUBNETS');
         const securityGroup = getRequiredEnv('HORIZONTAL_SECURITY_GROUP');
-        const timeoutMs = parseInt(process.env.HORIZONTAL_TASK_TIMEOUT_MS ?? String(DEFAULT_TIMEOUT_MS), 10);
-        const initialPollMs = parseInt(process.env.HORIZONTAL_POLL_INTERVAL_MS ?? String(INITIAL_POLL_INTERVAL_MS), 10);
+        const timeoutMs = parseInt(env.HORIZONTAL_TASK_TIMEOUT_MS ?? String(DEFAULT_TIMEOUT_MS), 10);
+        const initialPollMs = parseInt(env.HORIZONTAL_POLL_INTERVAL_MS ?? String(INITIAL_POLL_INTERVAL_MS), 10);
 
         const subnets = subnetsRaw.split(',').map((s) => s.trim()).filter(Boolean);
         const ecsClient = new ECSClient({});

@@ -24,7 +24,7 @@ export const env = createEnv({
             .default('development'),
 
         // Database
-        DATABASE_URL: z.string().url().optional(),
+        DATABASE_URL: z.string().url(),
 
         // AWS
         AWS_REGION: z.string().optional(),
@@ -33,11 +33,11 @@ export const env = createEnv({
         HUB_ACCOUNT_ID: z.string().optional(),
 
         // Auth (NextAuth + Cognito)
-        NEXTAUTH_SECRET: z.string().optional(),
+        NEXTAUTH_SECRET: z.string().min(1),
         NEXTAUTH_URL: z.string().url().optional(),
-        COGNITO_USER_POOL_ID: z.string().optional(),
-        COGNITO_APP_CLIENT_ID: z.string().optional(),
-        COGNITO_APP_CLIENT_SECRET: z.string().optional(),
+        COGNITO_USER_POOL_ID: z.string().min(1),
+        COGNITO_APP_CLIENT_ID: z.string().min(1),
+        COGNITO_APP_CLIENT_SECRET: z.string().min(1),
         COGNITO_ISSUER: z.string().optional(),
 
         // AI / Bedrock / observability
@@ -55,11 +55,18 @@ export const env = createEnv({
         APP_BUCKET_NAME: z.string().optional(),
         ASSETS_CDN_URL: z.string().optional(),
 
-        // Deep agent / MongoDB
+        // Deep agent / MongoDB / DocumentDB
         MONGODB_URI: z.string().optional(),
         MONGODB_DB_NAME: z.string().optional(),
         DEEP_AGENT_DB_NAME: z.string().optional(),
         DEEP_AGENT_LOG_LEVEL: z.string().optional(),
+        DOCDB_ENDPOINT: z.string().optional(),
+        DOCDB_PORT: z.string().optional(),
+        DOCDB_USERNAME: z.string().optional(),
+        DOCDB_PASSWORD: z.string().optional(),
+
+        // Misc runtime
+        DATA_DIR: z.string().optional(),
 
         // Integrations
         SLACK_SIGNING_SECRET: z.string().optional(),
@@ -107,7 +114,13 @@ export const env = createEnv({
      * Skip validation during Docker build / CI where runtime secrets are absent.
      * Also treats empty strings as undefined so `FOO=` behaves like unset.
      */
+    /**
+     * Skip validation during the Docker build / CI where runtime secrets are
+     * absent (SKIP_ENV_VALIDATION), and under Vitest (NODE_ENV==='test'), where
+     * tests populate process.env in beforeEach — after module import would have
+     * run createEnv(). Also treats empty strings as undefined so `FOO=` is unset.
+     */
     skipValidation:
-        !!process.env.SKIP_ENV_VALIDATION || process.env.NODE_ENV === 'production',
+        !!process.env.SKIP_ENV_VALIDATION || process.env.NODE_ENV === 'test',
     emptyStringAsUndefined: true,
 });

@@ -8,10 +8,11 @@ import { register as registerAgentOpsJobs } from './jobs/agent-ops-scheduler/ind
 import { register as registerCertificateExpiryMonitorJobs } from './jobs/certificate-expiry-monitor/index.js';
 import { register as registerRightSizingPricingRefresh } from './jobs/right-sizing/pricing-refresh.js';
 import { register as registerRightSizingJobs } from './jobs/right-sizing/index.js';
+import { env } from './env.js';
 
 const log = createLogger('workers');
 const boss = createBoss();
-const executor = createExecutor(process.env.WORKER_ARCH ?? 'vertical');
+const executor = createExecutor(env.WORKER_ARCH ?? 'vertical');
 
 async function main() {
   log.info('Starting pg-boss...');

@@ -6,6 +6,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { getPrismaClient } from "@/lib/db/pg-config";
 import { AuditService } from "@/lib/audit-service";
+import { env } from "@/env";
 
 const prisma = getPrismaClient();
 
@@ -114,9 +115,9 @@ export const authOptions: NextAuthOptions = {
             },
         }),
         CognitoProvider({
-            clientId: process.env.COGNITO_APP_CLIENT_ID as string,
-            clientSecret: process.env.COGNITO_APP_CLIENT_SECRET as string,
-            issuer: process.env.COGNITO_ISSUER as string,
+            clientId: env.COGNITO_APP_CLIENT_ID,
+            clientSecret: env.COGNITO_APP_CLIENT_SECRET,
+            issuer: env.COGNITO_ISSUER as string,
             allowDangerousEmailAccountLinking: true,
         }),
     ],
@@ -193,7 +194,7 @@ export const authOptions: NextAuthOptions = {
             return baseUrl;
         },
     },
-    secret: process.env.NEXTAUTH_SECRET,
+    secret: env.NEXTAUTH_SECRET,
     events: {
         async signIn({ user, account }) {
             const utr = await prisma.userTenantRole.findFirst({ where: { userId: user.id } });

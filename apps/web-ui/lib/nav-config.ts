@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 
 import type { NavGroup } from "@/components/nav-main"
+import { env } from "@/env"
 
 /**
  * Single source of truth for the sidebar information architecture (grouped +
@@ -51,7 +52,7 @@ export const navGroups: NavGroup[] = [
       { title: "AWS Accounts", href: "/app/accounts", icon: Server },
       { title: "Inventory", href: "/app/inventory", icon: Boxes },
       // Right Sizing — hidden unless the feature flag is enabled (NEXT_PUBLIC_ inlined at build).
-      ...(process.env.NEXT_PUBLIC_RIGHT_SIZING_ENABLED === "true"
+      ...(env.NEXT_PUBLIC_RIGHT_SIZING_ENABLED === "true"
         ? [{ title: "Right Sizing", href: "/app/right-sizing", icon: Gauge }]
         : []),
       { title: "Cost Scheduler", href: "/app/schedules", icon: CalendarClock },

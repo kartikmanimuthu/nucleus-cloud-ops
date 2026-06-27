@@ -2,8 +2,9 @@
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { logger } from '../utils/logger.js';
 import type { AssumedCredentials } from '../types/index.js';
+import { env } from '../../../env.js';
 
-const AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'ap-south-1';
+const AWS_REGION = env.AWS_REGION || env.AWS_DEFAULT_REGION || 'ap-south-1';
 
 // STS client singleton
 let stsClient: STSClient | null = null;

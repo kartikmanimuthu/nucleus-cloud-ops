@@ -8,6 +8,7 @@
 
 import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { env } from '@/env';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
 import type {
@@ -103,7 +104,7 @@ export class JiraAdapter implements ChannelAdapter {
 
         // Env var fallback
         if (!webhookSecret) {
-            webhookSecret = process.env.JIRA_WEBHOOK_SECRET || '';
+            webhookSecret = env.JIRA_WEBHOOK_SECRET || '';
         }
 
         if (!webhookSecret) {
@@ -348,9 +349,9 @@ export class JiraAdapter implements ChannelAdapter {
 
     private resolveApiConfig(config: JiraIntegrationConfig | null) {
         return {
-            baseUrl: config?.baseUrl || process.env.JIRA_BASE_URL || '',
-            userEmail: config?.userEmail || process.env.JIRA_USER_EMAIL || '',
-            apiToken: config?.apiToken || process.env.JIRA_API_TOKEN || '',
+            baseUrl: config?.baseUrl || env.JIRA_BASE_URL || '',
+            userEmail: config?.userEmail || env.JIRA_USER_EMAIL || '',
+            apiToken: config?.apiToken || env.JIRA_API_TOKEN || '',
         };
     }
 

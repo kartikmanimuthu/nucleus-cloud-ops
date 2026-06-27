@@ -7,14 +7,15 @@ import { AuditService } from '@/lib/audit-service';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { getBoss } from '@/lib/boss-client';
+import { env } from '@/env';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const SUPPORTED_MIME = new Set(['application/pdf', 'text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/yaml', 'application/x-yaml']);
 const SUPPORTED_EXT = new Set(['pdf', 'md', 'txt', 'csv', 'json', 'yaml', 'yml']);
 
-const s3 = new S3Client({ region: process.env.AWS_REGION });
+const s3 = new S3Client({ region: env.AWS_REGION });
 
-const KB_STAGING_BUCKET = process.env.APP_BUCKET_NAME!;
+const KB_STAGING_BUCKET = env.APP_BUCKET_NAME!;
 
 function isSupportedFile(mimeType: string, fileName: string): boolean {
   if (SUPPORTED_MIME.has(mimeType)) return true;

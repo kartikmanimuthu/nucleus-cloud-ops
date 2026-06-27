@@ -11,6 +11,7 @@ import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createLogger } from '../../lib/logger.js';
+import { env } from '../../env.js';
 import type { JobExecutor } from '../../executor/index.js';
 
 const log = createLogger('discovery');
@@ -34,7 +35,7 @@ export function shouldRunTenant(
 }
 
 function loadScanConfigs() {
-    const scanfilePath = process.env.SCANFILE_PATH ?? join(__dirname, 'scanfile.json');
+    const scanfilePath = env.SCANFILE_PATH ?? join(__dirname, 'scanfile.json');
     return JSON.parse(readFileSync(scanfilePath, 'utf-8'));
 }
 

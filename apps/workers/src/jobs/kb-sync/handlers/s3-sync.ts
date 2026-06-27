@@ -4,6 +4,7 @@ import { chunkText } from '../lib/chunking.js';
 import { embedAndStore } from '../lib/embedding.js';
 import type { S3SyncJob } from '../types.js';
 import { createLogger } from '../../../lib/logger.js';
+import { env } from '../../../env.js';
 
 const log = createLogger('kb-sync/s3');
 
@@ -11,7 +12,7 @@ const log = createLogger('kb-sync/s3');
 // Constants
 // ---------------------------------------------------------------------------
 
-const region = process.env.AWS_REGION || 'ap-south-1';
+const region = env.AWS_REGION || 'ap-south-1';
 const MAX_FILES = 50;
 
 // ---------------------------------------------------------------------------

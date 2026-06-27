@@ -2,6 +2,7 @@ import { ChatBedrockConverse } from "@langchain/aws";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { buildReflectionPrompt } from '../prompts';
 import type { TextToSQLState } from '../state';
+import { env } from '@/env';
 
 export async function reflectNode(state: TextToSQLState): Promise<Partial<TextToSQLState>> {
     const newIteration = state.iteration + 1;
@@ -19,8 +20,8 @@ export async function reflectNode(state: TextToSQLState): Promise<Partial<TextTo
         };
     }
 
-    const region = process.env.AWS_REGION || 'us-east-1';
-    const modelId = process.env.ASK_AI_GENERATION_MODEL || 'us.anthropic.claude-sonnet-4-6-20250514';
+    const region = env.AWS_REGION || 'us-east-1';
+    const modelId = env.ASK_AI_GENERATION_MODEL || 'us.anthropic.claude-sonnet-4-6-20250514';
 
     const model = new ChatBedrockConverse({
         region,

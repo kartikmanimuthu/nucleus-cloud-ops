@@ -8,6 +8,7 @@
 
 import * as crypto from 'crypto';
 import type { NextRequest } from 'next/server';
+import { env } from '@/env';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
@@ -80,7 +81,7 @@ export class SlackAdapter implements ChannelAdapter {
             signingSecret = config?.signingSecret || '';
         }
         if (!signingSecret) {
-            signingSecret = process.env.SLACK_SIGNING_SECRET || '';
+            signingSecret = env.SLACK_SIGNING_SECRET || '';
         }
         if (!signingSecret) {
             console.error('[SlackAdapter] Signing secret not configured');

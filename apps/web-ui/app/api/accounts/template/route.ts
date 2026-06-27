@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { generateOnboardingTemplate, generateOnboardingYaml } from '@/lib/cf-template-generator';
+import { env } from '@/env';
 
 export async function GET(request: Request) {
     try {
@@ -8,7 +9,7 @@ export async function GET(request: Request) {
         const accountName = searchParams.get('accountName') || undefined;
 
         // In a real app, these would come from config or the current user's organization context
-        const hubAccountId = process.env.NEXT_PUBLIC_HUB_ACCOUNT_ID || process.env.HUB_ACCOUNT_ID || '044656767899';
+        const hubAccountId = env.NEXT_PUBLIC_HUB_ACCOUNT_ID || env.HUB_ACCOUNT_ID || '044656767899';
 
         // Generate a random external ID for security (should be persisted in session or DB in real implementation)
         const externalId = 'nucleus-' + Math.random().toString(36).substring(2, 15);
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
         const body = await request.json();
         const { accountId, accountName, externalId: providedExternalId } = body;
 
-        const hubAccountId = process.env.NEXT_PUBLIC_HUB_ACCOUNT_ID || process.env.HUB_ACCOUNT_ID || '044656767899';
+        const hubAccountId = env.NEXT_PUBLIC_HUB_ACCOUNT_ID || env.HUB_ACCOUNT_ID || '044656767899';
 
         // Use provided External ID (for edits) or generate new one (for creates)
         const externalId = providedExternalId || 'nucleus-' + Math.random().toString(36).substring(2, 15);

@@ -1,6 +1,7 @@
 import { BaseMessage, AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { StateGraphArgs } from "@langchain/langgraph";
 import { getCheckpointer as getPersistenceCheckpointer, getMemoryStore as getPersistenceMemoryStore } from "./persistence";
+import { env } from "@/env";
 
 /** Resolved model configuration — provider-agnostic. */
 export interface ResolvedModelConfig {
@@ -113,7 +114,7 @@ export const MAX_ITERATIONS = 30;
 type AuditDepth = 'full' | 'compact';
 
 function getAuditDepth(): AuditDepth | null {
-    const v = process.env.LLM_AUDIT?.toLowerCase();
+    const v = env.LLM_AUDIT?.toLowerCase();
     if (!v || v === '0' || v === 'false') return null;
     if (v === 'compact') return 'compact';
     return 'full'; // any other truthy value → full
@@ -517,7 +518,7 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
                     console.warn(`[getActiveMCPTools] Account ${accountCtx.accountId} not found or missing roleArn — skipping`);
                     continue;
                 }
-                const region = account.regions?.[0] || process.env.AWS_REGION || process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
+                const region = account.regions?.[0] || env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
                 const { credentials } = await assumeRoleForAccount(account.roleArn, account.externalId);
                 const awsCredentials = {
                     accessKeyId: credentials.AccessKeyId!,

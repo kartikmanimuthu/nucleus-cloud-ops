@@ -9,12 +9,13 @@ import { parseCertificatePem, computeExpiryStatus } from '@/lib/certificate-util
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
 import { X509Certificate } from 'crypto';
+import { env } from '@/env';
 
 function getS3Client(): S3Client {
-    return new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
+    return new S3Client({ region: env.AWS_REGION || 'ap-south-1' });
 }
 
-const APP_BUCKET = process.env.APP_BUCKET_NAME || '';
+const APP_BUCKET = env.APP_BUCKET_NAME || '';
 
 export async function GET(request: NextRequest) {
     try {

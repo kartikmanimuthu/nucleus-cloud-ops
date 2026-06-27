@@ -16,6 +16,7 @@ import { getTenantClient } from '@/lib/db/pg-config';
 import type { AuditLog } from '@/lib/types';
 import type { AuditLogFilters, AuditLogResponse } from '@/lib/audit-service';
 import type { IAuditLogRepository } from './interface';
+import { env } from '@/env';
 
 export class AuditLogPostgresRepository implements IAuditLogRepository {
     /**
@@ -26,8 +27,8 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
     ): Promise<void> {
         try {
             if (
-                process.env.NODE_ENV === 'development' &&
-                process.env.SKIP_AUDIT_LOGGING === 'true'
+                env.NODE_ENV === 'development' &&
+                env.SKIP_AUDIT_LOGGING === 'true'
             ) {
                 return;
             }

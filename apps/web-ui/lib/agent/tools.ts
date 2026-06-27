@@ -6,6 +6,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
+import { env } from '@/env';
 
 // Re-export AWS credentials tool factories
 export { createGetAwsCredentialsTool, createListAwsAccountsTool } from './aws-credentials-tool';
@@ -360,7 +361,7 @@ export const webSearchTool = tool(
     async ({ query }: { query: string }) => {
         console.log(`[Tool] Web search: ${query}`);
 
-        const apiKey = process.env.TAVILY_API_KEY;
+        const apiKey = env.TAVILY_API_KEY;
         if (!apiKey) {
             return 'Error: TAVILY_API_KEY not configured in environment variables.';
         }
@@ -427,7 +428,7 @@ const getS3Key = (threadId: string, key: string) => {
 
 export const writeFileToS3Tool = tool(
     async ({ key, content, thread_id }: { key: string; content: string; thread_id: string }) => {
-        const bucketName = process.env.APP_BUCKET_NAME;
+        const bucketName = env.APP_BUCKET_NAME;
         if (!bucketName) {
             return 'Error: APP_BUCKET_NAME environment variable is not set.';
         }
@@ -464,7 +465,7 @@ export const writeFileToS3Tool = tool(
 
 export const getFileFromS3Tool = tool(
     async ({ key, thread_id }: { key: string; thread_id: string }) => {
-        const bucketName = process.env.APP_BUCKET_NAME;
+        const bucketName = env.APP_BUCKET_NAME;
         if (!bucketName) {
             return 'Error: APP_BUCKET_NAME environment variable is not set.';
         }

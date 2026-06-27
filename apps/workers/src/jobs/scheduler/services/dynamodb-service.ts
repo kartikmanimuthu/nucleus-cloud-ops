@@ -19,11 +19,12 @@ import type {
 } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { calculateTTL } from '../utils/time-utils.js';
+import { env } from '../../../env.js';
 
 // Environment variables
-const APP_TABLE_NAME = process.env.APP_TABLE_NAME || 'cost-optimization-scheduler-app-table';
-const AUDIT_TABLE_NAME = process.env.AUDIT_TABLE_NAME || 'cost-optimization-scheduler-audit-table';
-const AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'ap-south-1';
+const APP_TABLE_NAME = env.APP_TABLE_NAME || 'cost-optimization-scheduler-app-table';
+const AUDIT_TABLE_NAME = env.AUDIT_TABLE_NAME || 'cost-optimization-scheduler-audit-table';
+const AWS_REGION = env.AWS_REGION || env.AWS_DEFAULT_REGION || 'ap-south-1';
 
 // Singleton DynamoDB client
 let docClient: DynamoDBDocumentClient | null = null;
@@ -35,7 +36,7 @@ export function getDynamoDBClient(): DynamoDBDocumentClient {
         // Use defaultProvider which correctly handles environment, shared config, and SSO
         // We pass the profile explicitly if it's set in the environment to be extra safe
         clientConfig.credentials = defaultProvider({
-            profile: process.env.AWS_PROFILE,
+            profile: env.AWS_PROFILE,
         });
 
         const client = new DynamoDBClient(clientConfig);
@@ -189,7 +190,7 @@ export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
         return;
     }
     // When PG is the source of truth, write audit log to PostgreSQL instead
-    if (process.env.USE_PG_SCHEDULES === 'true') {
+    if (env.USE_PG_SCHEDULES === 'true') {
         await createAuditLogPg({ ...entry, tenantId: entry.tenantId || 'system' });
         return;
     }

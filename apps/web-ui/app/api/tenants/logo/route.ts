@@ -6,6 +6,7 @@ import { AuditService } from "@/lib/audit-service";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { z } from "zod";
+import { env } from "@/env";
 
 const ALLOWED_CONTENT_TYPES = ["image/png", "image/jpeg", "image/svg+xml"];
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB per D-14
@@ -27,7 +28,7 @@ const saveLogoSchema = z.object({
  * Per D-12: client uploads directly to S3 via presigned URL.
  */
 export async function POST(req: NextRequest) {
-    if (!process.env.APP_BUCKET_NAME) {
+    if (!env.APP_BUCKET_NAME) {
         return NextResponse.json(
             { error: "Logo storage not configured (APP_BUCKET_NAME missing)" },
             { status: 500 }
@@ -51,9 +52,9 @@ export async function POST(req: NextRequest) {
         const { contentType, size, ext } = parsed.data;
         const s3Key = `assets/tenants/${tenantId}/logos/${Date.now()}.${ext}`;
 
-        const s3 = new S3Client({ region: process.env.AWS_REGION });
+        const s3 = new S3Client({ region: env.AWS_REGION });
         const command = new PutObjectCommand({
-            Bucket: process.env.APP_BUCKET_NAME!,
+            Bucket: env.APP_BUCKET_NAME,
             Key: s3Key,
             ContentType: contentType,
             ContentLength: size,
@@ -61,9 +62,9 @@ export async function POST(req: NextRequest) {
         const presignedUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
 
         // Build the public URL (CloudFront or direct S3)
-        const publicUrl = process.env.ASSETS_CDN_URL
-            ? `${process.env.ASSETS_CDN_URL}/${s3Key}`
-            : `https://${process.env.APP_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+        const publicUrl = env.ASSETS_CDN_URL
+            ? `${env.ASSETS_CDN_URL}/${s3Key}`
+            : `https://${env.APP_BUCKET_NAME}.s3.${env.AWS_REGION}.amazonaws.com/${s3Key}`;
 
         console.log(`API - POST /api/tenants/logo - Generated presigned URL for tenant ${tenantId}`);
 
@@ -100,9 +101,9 @@ export async function PUT(req: NextRequest) {
             );
         }
 
-        const publicUrl = process.env.ASSETS_CDN_URL
-            ? `${process.env.ASSETS_CDN_URL}/${parsed.data.key}`
-            : `https://${process.env.APP_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${parsed.data.key}`;
+        const publicUrl = env.ASSETS_CDN_URL
+            ? `${env.ASSETS_CDN_URL}/${parsed.data.key}`
+            : `https://${env.APP_BUCKET_NAME}.s3.${env.AWS_REGION}.amazonaws.com/${parsed.data.key}`;
 
         await TenantSettingsService.saveLogo(
             tenantId,

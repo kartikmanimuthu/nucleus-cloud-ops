@@ -8,6 +8,7 @@
 
 import * as crypto from 'crypto';
 import type { NextRequest } from 'next/server';
+import { env } from '@/env';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
 import type {
@@ -94,7 +95,7 @@ export class WebhookAdapter implements ChannelAdapter {
             webhookSecret = config?.webhookSecret || '';
         }
         if (!webhookSecret) {
-            webhookSecret = process.env.WEBHOOK_SECRET || '';
+            webhookSecret = env.WEBHOOK_SECRET || '';
         }
         if (!webhookSecret) {
             console.error('[WebhookAdapter] Webhook secret not configured');
