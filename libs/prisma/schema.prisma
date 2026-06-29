@@ -57,20 +57,27 @@ model TenantConfig {
 // Stores OpenAI-compatible endpoint configs (Ollama, vLLM, LiteLLM, LocalAI)
 // Bedrock is the built-in default and is NOT stored here
 model ProviderModel {
-  id        String   @id @default(uuid())
-  tenantId  String   @map("tenant_id")
-  name      String
-  provider  String   @default("openai-compatible")
-  baseUrl   String   @map("base_url")
-  apiKey    String?  @map("api_key")
-  models    Json     // Array<{ id: string; label: string; maxTokens?: number }>
-  isEnabled Boolean  @default(true) @map("is_enabled")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  name                String
+  provider            String   @default("openai-compatible") // bedrock | openai | anthropic | ollama | vllm | lmstudio | litellm | openai-compatible
+  baseUrl             String?  @map("base_url")
+  apiKey              String?  @map("api_key") // legacy plaintext; new code stores secrets in `credentials`
+  region              String?  @map("region") // Bedrock region
+  credentials         String?  @map("credentials") // AES-256-GCM encrypted JSON: { apiKey?, accessKeyId?, secretAccessKey?, baseUrl? }
+  chatModel           String?  @map("chat_model")
+  embeddingModel      String?  @map("embedding_model")
+  embeddingDimensions Int?     @map("embedding_dimensions")
+  models              Json     // Array<{ id: string; label: string; capabilities?: string[]; maxTokens?: number }>
+  isDefault           Boolean  @default(false) @map("is_default")
+  isEnabled           Boolean  @default(true) @map("is_enabled")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([tenantId, isDefault])
   @@map("provider_models")
 }
 

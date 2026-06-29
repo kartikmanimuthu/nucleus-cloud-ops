@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createUIMessageStreamResponse, UIMessageChunk } from 'ai';
 import { createReflectionGraph, createFastGraph, createDeepGraph } from '@/lib/agent/graph-factory';
 import { resolveModelConfig } from '@/lib/agent/model-resolver';
+import { ProviderModelService } from '@/lib/provider-model-service';
 import { buildClientErrorText } from '@/lib/agent/stream-error';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
@@ -116,9 +117,22 @@ export async function POST(req: Request) {
         console.log(`   AWS Accounts: ${accounts?.length || 0} selected${accounts?.length ? ` (${accounts.map((a: any) => a.accountId).join(', ')})` : ' (none)'}`);
         console.log(`   Timestamp:    ${new Date().toISOString()}`);
 
-        // Resolve model string into a ResolvedModelConfig before graph creation
+        // Resolve model string into a ResolvedModelConfig before graph creation.
+        // Selection precedence: explicit picker model → tenant default provider's
+        // chat model → native Bedrock fallback (keeps chat working with zero config).
+        let modelString = model as string | undefined;
+        if (!modelString) {
+            try {
+                const defaultProvider = await ProviderModelService.getDefaultConfig(resolvedTenantId);
+                if (defaultProvider?.chatModel) {
+                    modelString = `${defaultProvider.provider}:${defaultProvider.chatModel}:${defaultProvider.id}`;
+                }
+            } catch (e) {
+                console.warn('[chat] default provider lookup failed, falling back to Bedrock:', e);
+            }
+        }
         const resolvedModel = await resolveModelConfig(
-            model || 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
+            modelString || 'global.anthropic.claude-sonnet-4-5-20250929-v1:0',
             resolvedTenantId,
         );
 

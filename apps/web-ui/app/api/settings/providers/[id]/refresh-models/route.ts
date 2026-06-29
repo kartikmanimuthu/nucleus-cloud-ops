@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId } from '@/lib/auth-session';
-import { ProviderModelService, isProviderType } from '@/lib/provider-model-service';
+import {
+    ProviderModelService,
+    isProviderType,
+    type ProviderModelEntry,
+} from '@/lib/provider-model-service';
 import { discoverModels } from '@/lib/agent/model-discovery';
 
 /**
- * POST /api/settings/providers/[id]/test
+ * POST /api/settings/providers/[id]/refresh-models
  *
- * Connectivity check for an existing provider — runs discovery with the stored
- * (decrypted) credentials and reports how many models are reachable. Works for
- * every provider type (Bedrock included) via the shared discovery layer.
+ * Re-runs discovery for an existing provider using its stored (decrypted)
+ * credentials, then persists the refreshed model list.
  */
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
-    console.log(`API - POST /api/settings/providers/${id}/test - Testing connectivity`);
+    console.log(`API - POST /api/settings/providers/${id}/refresh-models`);
     const authError = await authorize('update', 'Settings');
     if (authError) return authError;
 
@@ -27,7 +30,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
             return NextResponse.json({ success: false, error: `Invalid provider type: ${config.provider}` }, { status: 400 });
         }
 
-        const models = await discoverModels(
+        const discovered = await discoverModels(
             config.provider,
             {
                 apiKey: config.apiKey,
@@ -38,16 +41,23 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
             config.region,
         );
 
+        // Preserve any manually-set maxTokens for models that still exist.
+        const prevById = new Map(config.models.map((m) => [m.id, m]));
+        const models: ProviderModelEntry[] = discovered.map((m) => ({
+            id: m.id,
+            label: m.name,
+            capabilities: m.capabilities,
+            maxTokens: prevById.get(m.id)?.maxTokens,
+        }));
+
+        const updated = await ProviderModelService.updateModels(id, tenantId, models);
         return NextResponse.json({
             success: true,
-            data: {
-                status: 'connected',
-                availableModels: models.map((m) => ({ id: m.id, name: m.name })),
-            },
+            data: ProviderModelService.toClientProvider(updated as never),
         });
     } catch (error) {
-        console.error('API - Error testing provider:', error);
-        const message = error instanceof Error ? error.message : 'Connection failed';
+        console.error('API - Error refreshing models:', error);
+        const message = error instanceof Error ? error.message : 'Failed to refresh models';
         return NextResponse.json({ success: false, error: message }, { status: 502 });
     }
 }
