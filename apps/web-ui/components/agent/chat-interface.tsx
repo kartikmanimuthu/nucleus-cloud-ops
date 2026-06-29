@@ -1577,26 +1577,51 @@ export function ChatInterface({
                   </div>
                 </SelectTrigger>
                 <SelectContent>
-                  {availableModels.filter(m => m.provider === 'bedrock').length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel className="text-xs text-muted-foreground px-2">Bedrock</SelectLabel>
-                      {availableModels.filter(m => m.provider === 'bedrock').map((model) => (
-                        <SelectItem key={model.id} value={model.id} className="text-xs">
-                          {model.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  )}
-                  {availableModels.filter(m => m.provider === 'openai-compatible').length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel className="text-xs text-muted-foreground px-2">Self-Hosted</SelectLabel>
-                      {availableModels.filter(m => m.provider === 'openai-compatible').map((model) => (
-                        <SelectItem key={model.id} value={model.id} className="text-xs">
-                          {model.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  )}
+                  {(() => {
+                    // Group label per provider type. Bedrock first, then the rest in a
+                    // stable order; any unrecognised provider falls back to its raw key.
+                    const PROVIDER_GROUP_LABELS: Record<string, string> = {
+                      bedrock: "Bedrock",
+                      openai: "OpenAI",
+                      anthropic: "Anthropic",
+                      ollama: "Ollama",
+                      vllm: "vLLM",
+                      lmstudio: "LM Studio",
+                      litellm: "LiteLLM Gateway",
+                      "openai-compatible": "Self-Hosted",
+                    };
+                    const GROUP_ORDER = [
+                      "bedrock",
+                      "openai",
+                      "anthropic",
+                      "ollama",
+                      "vllm",
+                      "lmstudio",
+                      "litellm",
+                      "openai-compatible",
+                    ];
+                    const present = Array.from(new Set(availableModels.map(m => m.provider)));
+                    const orderedProviders = [
+                      ...GROUP_ORDER.filter(p => present.includes(p)),
+                      ...present.filter(p => !GROUP_ORDER.includes(p)),
+                    ];
+                    return orderedProviders.map((providerKey) => {
+                      const models = availableModels.filter(m => m.provider === providerKey);
+                      if (models.length === 0) return null;
+                      return (
+                        <SelectGroup key={providerKey}>
+                          <SelectLabel className="text-xs text-muted-foreground px-2">
+                            {PROVIDER_GROUP_LABELS[providerKey] ?? providerKey}
+                          </SelectLabel>
+                          {models.map((model) => (
+                            <SelectItem key={model.id} value={model.id} className="text-xs">
+                              {model.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      );
+                    });
+                  })()}
                 </SelectContent>
               </Select>
 

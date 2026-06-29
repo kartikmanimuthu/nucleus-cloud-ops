@@ -182,7 +182,7 @@ export default function ChannelsPage() {
                             <div>
                                 <h2 className="text-lg font-semibold">Model Providers</h2>
                                 <p className="text-muted-foreground text-sm">
-                                    Connect self-hosted LLM endpoints to use open-source models alongside AWS Bedrock.
+                                    Connect Ollama, LM Studio, LiteLLM, Anthropic, or other LLM endpoints to use alongside AWS Bedrock.
                                 </p>
                             </div>
                         </div>
@@ -204,7 +204,7 @@ export default function ChannelsPage() {
                                         </div>
                                         <CardTitle className="text-base mt-3">LLM Providers</CardTitle>
                                         <CardDescription className="text-sm leading-relaxed">
-                                            Configure OpenAI-compatible endpoints (Ollama, vLLM, LiteLLM) to use self-hosted models in AI Ops.
+                                            Configure LLM endpoints (Ollama, LM Studio, LiteLLM, Anthropic, vLLM) to use in AI Ops.
                                         </CardDescription>
                                     </CardHeader>
                                     <CardContent className="mt-auto pt-0">

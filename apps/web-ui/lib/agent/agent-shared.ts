@@ -5,11 +5,45 @@ import { env } from "@/env";
 
 /** Resolved model configuration — provider-agnostic. */
 export interface ResolvedModelConfig {
-    provider: "bedrock" | "openai-compatible";
+    provider:
+        | "bedrock"
+        | "openai"
+        | "openai-compatible"
+        | "anthropic"
+        | "ollama"
+        | "vllm"
+        | "litellm"
+        | "lmstudio";
     modelId: string;
     baseUrl?: string;
     apiKey?: string;
     maxTokens?: number;
+    /** Bedrock-only: region + explicit static credentials (when configured as a provider record). */
+    region?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+}
+
+/**
+ * Provider types whose wire protocol is OpenAI-compatible (`/v1/chat/completions`),
+ * so they all share the ChatOpenAI transport in model-factory. OpenAI, Ollama,
+ * LiteLLM, LM Studio, vLLM, LocalAI, etc. expose this same surface.
+ */
+export const OPENAI_COMPATIBLE_PROVIDERS = [
+    "openai",
+    "openai-compatible",
+    "ollama",
+    "vllm",
+    "litellm",
+    "lmstudio",
+] as const;
+
+export type OpenAICompatibleProvider = (typeof OPENAI_COMPATIBLE_PROVIDERS)[number];
+
+export function isOpenAICompatibleProvider(
+    provider: ResolvedModelConfig["provider"],
+): provider is OpenAICompatibleProvider {
+    return (OPENAI_COMPATIBLE_PROVIDERS as readonly string[]).includes(provider);
 }
 
 // --- Components & Interfaces ---

@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
-import { ProviderModelService } from '@/lib/provider-model-service';
+import {
+    ProviderModelService,
+    isProviderType,
+    type ProviderModelEntry,
+} from '@/lib/provider-model-service';
 import { AuditService } from '@/lib/audit-service';
 
+// Native Bedrock baseline (host/task-role credentials) — always available so the
+// chat model picker works even with zero tenant-configured providers.
 const BEDROCK_MODELS = [
     { id: 'bedrock:global.anthropic.claude-sonnet-4-6', label: 'Claude 4.6 Sonnet', provider: 'bedrock' },
     { id: 'bedrock:global.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude 4.5 Sonnet', provider: 'bedrock' },
@@ -20,16 +26,23 @@ export async function GET(_request: NextRequest) {
 
     try {
         const tenantId = await getSessionTenantId();
-        const providers = await ProviderModelService.listAllProviders(tenantId);
+        const records = await ProviderModelService.listAllProviders(tenantId);
+        const providers = records.map((r) => ProviderModelService.toClientProvider(r as never));
 
-        const selfHostedModels = providers
-            .filter(p => p.isEnabled)
-            .flatMap(p => {
-                const models = p.models as Array<{ id: string; label: string; maxTokens?: number }>;
-                return models.map(m => ({
-                    id: `openai-compatible:${m.id}:${p.id}`,
+        // Build the flat chat-picker list. Each model id is the composite
+        // `{providerType}:{modelId}:{providerRecordId}` so model-resolver routes
+        // it to the right transport (bedrock record / anthropic / openai-family).
+        const configuredModels = providers
+            .filter((p) => p.isEnabled)
+            .flatMap((p) => {
+                const providerType = p.provider || 'openai-compatible';
+                const chatModels = (p.models ?? []).filter(
+                    (m) => !m.capabilities || m.capabilities.includes('chat'),
+                );
+                return chatModels.map((m: ProviderModelEntry) => ({
+                    id: `${providerType}:${m.id}:${p.id}`,
                     label: `${m.label} (${p.name})`,
-                    provider: 'openai-compatible' as const,
+                    provider: providerType,
                 }));
             });
 
@@ -37,7 +50,7 @@ export async function GET(_request: NextRequest) {
             success: true,
             data: {
                 providers,
-                models: [...BEDROCK_MODELS, ...selfHostedModels],
+                models: [...BEDROCK_MODELS, ...configuredModels],
             },
         });
     } catch (error) {
@@ -59,23 +72,40 @@ export async function POST(request: NextRequest) {
         const session = await getAuthSession();
         const callerEmail = session?.user?.email ?? 'unknown';
         const body = await request.json();
-        const { name, baseUrl, apiKey, models } = body;
+        const {
+            name,
+            provider,
+            region,
+            credentials,
+            baseUrl,
+            chatModel,
+            embeddingModel,
+            embeddingDimensions,
+            models,
+            isDefault,
+        } = body;
 
         if (!name || typeof name !== 'string' || name.trim().length === 0) {
             return NextResponse.json({ success: false, error: 'Provider name is required' }, { status: 400 });
         }
-        if (!baseUrl || typeof baseUrl !== 'string') {
-            return NextResponse.json({ success: false, error: 'Base URL is required' }, { status: 400 });
+        if (provider !== undefined && !isProviderType(provider)) {
+            return NextResponse.json({ success: false, error: `Invalid provider type: ${provider}` }, { status: 400 });
         }
         if (!models || !Array.isArray(models) || models.length === 0) {
             return NextResponse.json({ success: false, error: 'At least one model is required' }, { status: 400 });
         }
 
-        const provider = await ProviderModelService.createProvider(tenantId, {
+        const created = await ProviderModelService.createProvider(tenantId, {
             name: name.trim(),
-            baseUrl: baseUrl.trim(),
-            apiKey: apiKey || undefined,
+            provider: provider ?? undefined,
+            region: region || undefined,
+            credentials: credentials || undefined,
+            baseUrl: baseUrl?.trim() || undefined,
+            chatModel: chatModel || undefined,
+            embeddingModel: embeddingModel || undefined,
+            embeddingDimensions: typeof embeddingDimensions === 'number' ? embeddingDimensions : undefined,
             models,
+            isDefault: !!isDefault,
         });
 
         AuditService.logUserAction({
@@ -85,16 +115,16 @@ export async function POST(request: NextRequest) {
             httpMethod: 'POST',
             action: 'Created Provider',
             resourceType: 'integration',
-            resourceId: provider.id,
+            resourceId: created.id,
             resourceName: name.trim(),
             user: callerEmail,
             userType: 'user',
             status: 'success',
             details: `Created provider "${name.trim()}"`,
-            metadata: { tenantId, baseUrl: baseUrl.trim(), modelCount: models.length },
+            metadata: { tenantId, provider: provider ?? 'openai-compatible', modelCount: models.length },
         }).catch(() => {});
 
-        return NextResponse.json({ success: true, data: provider }, { status: 201 });
+        return NextResponse.json({ success: true, data: ProviderModelService.toClientProvider(created as never) }, { status: 201 });
     } catch (error) {
         console.error('API - Error creating provider:', error);
 

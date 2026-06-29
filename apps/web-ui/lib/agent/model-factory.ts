@@ -7,6 +7,7 @@
 
 import { ChatBedrockConverse } from "@langchain/aws";
 import { ChatOpenAI } from "@langchain/openai";
+import { ChatAnthropic } from "@langchain/anthropic";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import {
     executeCommandTool,
@@ -22,7 +23,7 @@ import {
     getFileFromS3Tool,
 } from "./tools";
 import { createGetRightSizingRecommendationsTool } from "./right-sizing-tool";
-import { getActiveMCPTools, type AccountContext, type ResolvedModelConfig } from "./agent-shared";
+import { getActiveMCPTools, isOpenAICompatibleProvider, type AccountContext, type ResolvedModelConfig } from "./agent-shared";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { saveMemory, searchMemory } from "./persistence";
@@ -40,7 +41,9 @@ export interface AgentModels {
  * Routes to ChatBedrockConverse (AWS) or ChatOpenAI (self-hosted) based on provider.
  */
 export function createAgentModels(config: ResolvedModelConfig): AgentModels {
-    if (config.provider === "openai-compatible") {
+    if (isOpenAICompatibleProvider(config.provider)) {
+        // Ollama, LiteLLM, LM Studio, and generic OpenAI-compatible endpoints all
+        // speak the same /v1 protocol, so they share this ChatOpenAI path.
         const openaiConfig = {
             modelName: config.modelId,
             configuration: {
@@ -63,9 +66,44 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
         };
     }
 
-    // Default: Bedrock
-    const region = env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'Null';
-    const bedrockConfig = { region, model: config.modelId, temperature: 0 };
+    if (config.provider === "anthropic") {
+        // Native Anthropic API (api.anthropic.com or a compatible gateway via baseUrl).
+        // ChatAnthropic supports bindTools natively, so the agent graphs work unchanged.
+        const anthropicConfig = {
+            model: config.modelId,
+            apiKey: config.apiKey,
+            temperature: 0,
+            ...(config.baseUrl ? { anthropicApiUrl: config.baseUrl } : {}),
+        };
+        const defaultMaxTokens = config.maxTokens || 4096;
+        return {
+            main: new ChatAnthropic({
+                ...anthropicConfig,
+                maxTokens: defaultMaxTokens,
+                streaming: true,
+            }),
+            reflector: new ChatAnthropic({
+                ...anthropicConfig,
+                maxTokens: Math.min(defaultMaxTokens, 2048),
+                streaming: false,
+            }),
+        };
+    }
+
+    // Default: Bedrock. A record-backed Bedrock provider supplies an explicit
+    // region + static credentials; native Bedrock falls back to env region and
+    // the host/task-role credential chain (credentials omitted).
+    const region = config.region || env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
+    const explicitCredentials =
+        config.accessKeyId && config.secretAccessKey
+            ? { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey }
+            : undefined;
+    const bedrockConfig = {
+        region,
+        model: config.modelId,
+        temperature: 0,
+        ...(explicitCredentials ? { credentials: explicitCredentials } : {}),
+    };
     const defaultMaxTokens = config.maxTokens || 4096;
     return {
         main: new ChatBedrockConverse({

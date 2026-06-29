@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
-import { ProviderModelService } from '@/lib/provider-model-service';
+import { ProviderModelService, isProviderType } from '@/lib/provider-model-service';
 import { AuditService } from '@/lib/audit-service';
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -15,6 +15,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         const session = await getAuthSession();
         const callerEmail = session?.user?.email ?? 'unknown';
         const body = await request.json();
+        if (body.provider !== undefined && !isProviderType(body.provider)) {
+            return NextResponse.json({ success: false, error: `Invalid provider type: ${body.provider}` }, { status: 400 });
+        }
         const updated = await ProviderModelService.updateProvider(id, tenantId, body);
 
         AuditService.logUserAction({
@@ -33,7 +36,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             metadata: { tenantId },
         }).catch(() => {});
 
-        return NextResponse.json({ success: true, data: updated });
+        return NextResponse.json({ success: true, data: ProviderModelService.toClientProvider(updated as never) });
     } catch (error) {
         console.error('API - Error updating provider:', error);
 
