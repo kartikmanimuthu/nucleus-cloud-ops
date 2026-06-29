@@ -4,108 +4,148 @@ import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { createLogger } from '../../lib/logger';
 
 const logger = createLogger('certificate-expiry-monitor');
+const DAY_MS = 86_400_000;
 
+/** Mirror of web-ui computeExpiryStatus (workers cannot import from web-ui). */
+function computeStatus(notAfter: Date): 'active' | 'expiring' | 'expired' {
+    const days = Math.ceil((notAfter.getTime() - Date.now()) / DAY_MS);
+    if (days < 0) return 'expired';
+    if (days <= 60) return 'expiring';
+    return 'active';
+}
+
+interface Creds {
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken: string;
+}
+
+/**
+ * Daily reconciliation:
+ *  1. Refresh ACM data on every discovered/deployed CertificateDeployment (live DescribeCertificate),
+ *     keeping the cached per-account expiry in the UI fresh (complements manual Rescan).
+ *  2. Recompute CertificateVersion.status from notAfter.
+ *  3. Recompute the cached Certificate.status/notAfter/issuer from the active version.
+ *
+ * No dependence on inventoryResource — the Certificate Manager owns its own linkage.
+ */
 export async function handleCertificateExpiryMonitor(): Promise<void> {
     logger.info('Starting certificate expiry monitor');
-
     const db = new PrismaClient();
-    const sixtyDaysFromNow = new Date(Date.now() + 60 * 86400000);
 
     try {
-        const certificates = await db.certificate.findMany({
-            where: {
-                notAfter: { lte: sixtyDaysFromNow },
-                status: { in: ['active', 'expiring'] },
-                associatedAccountIds: { isEmpty: false },
-            },
+        // --- 1. Refresh ACM deployment data ---
+        const deployments = await db.certificateDeployment.findMany({
+            where: { acmArn: { not: null } },
         });
+        logger.info(`Refreshing ${deployments.length} certificate deployment(s)`);
 
-        logger.info(`Found ${certificates.length} certificates expiring within 60 days`);
+        const credCache = new Map<string, Creds | null>();
+        const stsClients = new Map<string, STSClient>();
 
-        for (const cert of certificates) {
-            for (const accountId of cert.associatedAccountIds) {
-                try {
-                    const account = await db.account.findFirst({
-                        where: { tenantId: cert.tenantId, accountId },
-                        select: { roleArn: true, externalId: true, regions: true },
+        for (const dep of deployments) {
+            try {
+                const account = await db.account.findFirst({
+                    where: { tenantId: dep.tenantId, accountId: dep.accountId },
+                    select: { roleArn: true, externalId: true },
+                });
+                if (!account) {
+                    await db.certificateDeployment.update({
+                        where: { id: dep.id },
+                        data: { linkState: 'error', lastScannedAt: new Date() },
                     });
-
-                    if (!account) {
-                        logger.warn(`Account ${accountId} not found for cert ${cert.id}`);
-                        continue;
-                    }
-
-                    const stsClient = new STSClient({ region: account.regions[0] || 'us-east-1' });
-                    const assumeCommand = new AssumeRoleCommand({
-                        RoleArn: account.roleArn,
-                        RoleSessionName: 'cert-expiry-monitor',
-                        ...(account.externalId ? { ExternalId: account.externalId } : {}),
-                    });
-                    const { Credentials } = await stsClient.send(assumeCommand);
-
-                    if (!Credentials) {
-                        logger.warn(`Could not assume role for account ${accountId}`);
-                        continue;
-                    }
-
-                    const acmClient = new ACMClient({
-                        region: account.regions[0] || 'us-east-1',
-                        credentials: {
-                            accessKeyId: Credentials.AccessKeyId!,
-                            secretAccessKey: Credentials.SecretAccessKey!,
-                            sessionToken: Credentials.SessionToken!,
-                        },
-                    });
-
-                    const acmCerts = await db.inventoryResource.findMany({
-                        where: {
-                            tenantId: cert.tenantId,
-                            accountId,
-                            resourceType: 'acm_certificates',
-                        },
-                        select: { resourceId: true, metadata: true },
-                    });
-
-                    for (const acmCert of acmCerts) {
-                        const metaDomain = (acmCert.metadata as Record<string, unknown>)?.domainName as string;
-                        if (metaDomain?.toLowerCase() !== cert.domainName.toLowerCase()) continue;
-
-                        try {
-                            const desc = await acmClient.send(
-                                new DescribeCertificateCommand({
-                                    CertificateArn: acmCert.resourceId,
-                                })
-                            );
-                            logger.info(
-                                `Cert ${cert.name} in account ${accountId}: ACM status=${desc.Certificate?.Status}, ACM expiry=${desc.Certificate?.NotAfter}`
-                            );
-                        } catch (acmErr) {
-                            logger.warn(`Could not describe ACM cert ${acmCert.resourceId}: ${acmErr}`);
-                        }
-                    }
-                } catch (err) {
-                    logger.error(`Error processing account ${accountId} for cert ${cert.id}: ${err}`);
+                    continue;
                 }
+
+                const cacheKey = `${dep.tenantId}:${dep.accountId}:${dep.region}`;
+                let creds = credCache.get(cacheKey);
+                if (creds === undefined) {
+                    const sts =
+                        stsClients.get(dep.region) ?? new STSClient({ region: dep.region });
+                    stsClients.set(dep.region, sts);
+                    const { Credentials } = await sts.send(
+                        new AssumeRoleCommand({
+                            RoleArn: account.roleArn,
+                            RoleSessionName: 'cert-expiry-monitor',
+                            ...(account.externalId ? { ExternalId: account.externalId } : {}),
+                        })
+                    );
+                    creds = Credentials?.AccessKeyId
+                        ? {
+                              accessKeyId: Credentials.AccessKeyId,
+                              secretAccessKey: Credentials.SecretAccessKey!,
+                              sessionToken: Credentials.SessionToken!,
+                          }
+                        : null;
+                    credCache.set(cacheKey, creds);
+                }
+
+                if (!creds) {
+                    await db.certificateDeployment.update({
+                        where: { id: dep.id },
+                        data: { linkState: 'error', lastScannedAt: new Date() },
+                    });
+                    continue;
+                }
+
+                const acm = new ACMClient({ region: dep.region, credentials: creds });
+                const { Certificate } = await acm.send(
+                    new DescribeCertificateCommand({ CertificateArn: dep.acmArn! })
+                );
+
+                await db.certificateDeployment.update({
+                    where: { id: dep.id },
+                    data: {
+                        acmNotAfter: Certificate?.NotAfter ?? null,
+                        acmStatus: Certificate?.Status ?? null,
+                        inUseByCount: Certificate?.InUseBy?.length ?? 0,
+                        linkState: Certificate ? 'deployed' : 'missing',
+                        lastScannedAt: new Date(),
+                    },
+                });
+            } catch (err) {
+                logger.warn(`Could not refresh deployment ${dep.id}: ${err}`);
+                await db.certificateDeployment
+                    .update({
+                        where: { id: dep.id },
+                        data: { linkState: 'missing', lastScannedAt: new Date() },
+                    })
+                    .catch(() => undefined);
             }
         }
 
-        // Update status for expired certs
-        const now = new Date();
-        const expiredResult = await db.certificate.updateMany({
-            where: { notAfter: { lt: now }, status: { not: 'expired' } },
-            data: { status: 'expired' },
+        // --- 2. Recompute version statuses ---
+        const versions = await db.certificateVersion.findMany({
+            select: { id: true, notAfter: true, status: true },
         });
-        if (expiredResult.count > 0) {
-            logger.info(`Updated ${expiredResult.count} certificates to 'expired'`);
+        for (const v of versions) {
+            const next = computeStatus(v.notAfter);
+            if (next !== v.status) {
+                await db.certificateVersion.update({ where: { id: v.id }, data: { status: next } });
+            }
         }
 
-        // Update status for expiring certs
-        const expiringResult = await db.certificate.updateMany({
-            where: { notAfter: { gte: now, lte: sixtyDaysFromNow }, status: 'active' },
-            data: { status: 'expiring' },
+        // --- 3. Recompute cached certificate status from the active version ---
+        const certs = await db.certificate.findMany({
+            where: { activeVersionId: { not: null } },
+            select: { id: true, tenantId: true, activeVersionId: true, status: true },
         });
-        if (expiringResult.count > 0) {
-            logger.info(`Updated ${expiringResult.count} certificates to 'expiring'`);
+        for (const c of certs) {
+            const active = await db.certificateVersion.findFirst({
+                where: { tenantId: c.tenantId, id: c.activeVersionId! },
+                select: { notAfter: true, issuer: true, notBefore: true },
+            });
+            if (!active) continue;
+            const next = computeStatus(active.notAfter);
+            await db.certificate.update({
+                where: { id: c.id },
+                data: {
+                    status: next,
+                    notAfter: active.notAfter,
+                    notBefore: active.notBefore,
+                    issuer: active.issuer,
+                },
+            });
         }
 
         logger.info('Certificate expiry monitor complete');

@@ -1,44 +1,42 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Plus, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
-import { CertificateGrid, type CertificateRow } from "./certificate-grid";
+import { CertificateGrid } from "./certificate-grid";
 import { UploadCertificateDialog } from "./upload-certificate-dialog";
 import { DeleteCertificateDialog } from "./delete-certificate-dialog";
+import {
+    useCertificates,
+    useDiscoverCertificate,
+    type CertificateRow,
+} from "@/lib/queries/certificates";
 
 export function CertificateClientComponent() {
     const router = useRouter();
-    const [certificates, setCertificates] = useState<CertificateRow[]>([]);
-    const [loading, setLoading] = useState(true);
     const [uploadOpen, setUploadOpen] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<CertificateRow | null>(null);
+    const [discoveringId, setDiscoveringId] = useState<string | null>(null);
 
-    const fetchCertificates = useCallback(async () => {
-        try {
-            const res = await fetch("/api/certificates?limit=100");
-            const json = await res.json();
-            if (json.success) {
-                setCertificates(json.data);
-            }
-        } catch (e) {
-            console.error("Failed to fetch certificates:", e);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchCertificates();
-    }, [fetchCertificates]);
+    const { data, isLoading } = useCertificates({ limit: 100 });
+    const certificates = data?.data ?? [];
+    const discover = useDiscoverCertificate();
 
     const handleDownload = async (cert: CertificateRow) => {
         try {
             const res = await fetch(`/api/certificates/${cert.id}/download`);
             if (!res.ok) {
-                console.error("Download failed:", res.statusText);
+                let msg = res.statusText;
+                try {
+                    const j = await res.json();
+                    msg = j.error || msg;
+                } catch {
+                    /* non-JSON (e.g. the zip) — keep statusText */
+                }
+                toast.error("Download failed", { description: msg });
                 return;
             }
             const blob = await res.blob();
@@ -53,6 +51,25 @@ export function CertificateClientComponent() {
             window.URL.revokeObjectURL(url);
         } catch (e) {
             console.error("Download error:", e);
+            toast.error("Download failed", { description: "Network error — please try again" });
+        }
+    };
+
+    const handleDiscover = async (cert: CertificateRow) => {
+        setDiscoveringId(cert.id);
+        try {
+            const d = await discover.mutateAsync(cert.id);
+            toast.success(`Discover complete (${d.status})`, {
+                description: `${d.matched} ACM match(es) across ${d.accountsScanned} active account(s)${
+                    d.errored ? `, ${d.errored} error(s)` : ""
+                }${d.skipped ? `, ${d.skipped} skipped` : ""}.`,
+            });
+        } catch (e) {
+            toast.error("Discover failed", {
+                description: e instanceof Error ? e.message : "Scan failed",
+            });
+        } finally {
+            setDiscoveringId(null);
         }
     };
 
@@ -74,7 +91,7 @@ export function CertificateClientComponent() {
                 </div>
 
                 <div className="px-6 flex-1 overflow-auto">
-                    {loading ? (
+                    {isLoading ? (
                         <div className="text-center py-12 text-muted-foreground">
                             Loading certificates...
                         </div>
@@ -84,22 +101,21 @@ export function CertificateClientComponent() {
                             onRowClick={(cert) => router.push(`/app/certificates/${cert.id}`)}
                             onDownload={handleDownload}
                             onDelete={setDeleteTarget}
+                            onDiscover={handleDiscover}
+                            discoveringId={discoveringId}
                         />
                     )}
                 </div>
             </div>
 
-            <UploadCertificateDialog
-                open={uploadOpen}
-                onOpenChange={setUploadOpen}
-                onUploaded={fetchCertificates}
-            />
+            <UploadCertificateDialog open={uploadOpen} onOpenChange={setUploadOpen} />
 
             <DeleteCertificateDialog
                 certificate={deleteTarget}
                 open={!!deleteTarget}
-                onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}
-                onDeleted={() => { fetchCertificates(); }}
+                onOpenChange={(v) => {
+                    if (!v) setDeleteTarget(null);
+                }}
             />
         </div>
     );

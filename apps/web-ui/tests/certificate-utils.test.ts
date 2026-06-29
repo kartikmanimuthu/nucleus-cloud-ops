@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseCertificatePem, computeExpiryStatus } from '@/lib/certificate-utils';
+import {
+    parseCertificatePem,
+    computeExpiryStatus,
+    domainMatches,
+    wildcardCovers,
+} from '@/lib/certificate-utils';
 
 const SAMPLE_CERT = `-----BEGIN CERTIFICATE-----
 MIIDazCCAlOgAwIBAgIUSJwAAABBVpTOaP2xFqAAAAAElhgwDQYJKoZIhvcNAQEL
@@ -49,5 +54,49 @@ describe('computeExpiryStatus', () => {
     it('returns active for dates beyond 60 days', () => {
         const in90Days = new Date(Date.now() + 90 * 86400000).toISOString();
         expect(computeExpiryStatus(in90Days)).toBe('active');
+    });
+});
+
+describe('wildcardCovers', () => {
+    it('covers a same-label-count subdomain', () => {
+        expect(wildcardCovers('*.example.com', 'api.example.com')).toBe(true);
+    });
+
+    it('does not cover the apex or deeper subdomains', () => {
+        expect(wildcardCovers('*.example.com', 'example.com')).toBe(false);
+        expect(wildcardCovers('*.example.com', 'a.b.example.com')).toBe(false);
+    });
+
+    it('returns false when pattern is not a wildcard', () => {
+        expect(wildcardCovers('example.com', 'example.com')).toBe(false);
+    });
+});
+
+describe('domainMatches', () => {
+    it('matches exact domain, case-insensitively', () => {
+        expect(domainMatches('Api.Example.com', 'api.example.com')).toBe(true);
+    });
+
+    it('matches against a SAN entry', () => {
+        expect(domainMatches('api.example.com', 'example.com', ['api.example.com'])).toBe(true);
+    });
+
+    it('matches a managed wildcard against a concrete ACM domain', () => {
+        // The real-world bug: managed "*.smcinvesteasy.com" vs ACM "api.smcinvesteasy.com"
+        expect(domainMatches('*.smcinvesteasy.com', 'api.smcinvesteasy.com')).toBe(true);
+    });
+
+    it('matches a managed concrete domain against an ACM wildcard SAN', () => {
+        expect(domainMatches('api.example.com', 'other.com', ['*.example.com'])).toBe(true);
+    });
+
+    it('does not match unrelated domains', () => {
+        expect(domainMatches('example.com', 'example.org')).toBe(false);
+        expect(domainMatches('*.example.com', 'example.net')).toBe(false);
+    });
+
+    it('returns false on empty inputs', () => {
+        expect(domainMatches('', 'example.com')).toBe(false);
+        expect(domainMatches('example.com', '')).toBe(false);
     });
 });
