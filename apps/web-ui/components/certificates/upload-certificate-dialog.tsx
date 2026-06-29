@@ -1,6 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Loader2, Upload } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -10,103 +15,85 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import {
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Upload } from "lucide-react";
+import { useUploadCertificate } from "@/lib/queries/certificates";
+
+const uploadSchema = z.object({
+    name: z.string().min(1, "Certificate name is required"),
+    domainName: z.string().min(1, "Domain name is required"),
+    body: z.string().min(1, "Certificate body is required"),
+    chain: z.string().optional(),
+    privateKey: z.string().min(1, "Private key is required"),
+});
+
+type UploadFormValues = z.infer<typeof uploadSchema>;
 
 interface UploadCertificateDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onUploaded: () => void;
 }
 
-export function UploadCertificateDialog({
-    open,
-    onOpenChange,
-    onUploaded,
-}: UploadCertificateDialogProps) {
-    const [name, setName] = useState("");
-    const [domainName, setDomainName] = useState("");
-    const [body, setBody] = useState("");
-    const [chain, setChain] = useState("");
-    const [privateKey, setPrivateKey] = useState("");
-    const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState("");
+export function UploadCertificateDialog({ open, onOpenChange }: UploadCertificateDialogProps) {
     const [mode, setMode] = useState<"paste" | "file">("paste");
+    const uploadCertificate = useUploadCertificate();
 
-    const resetForm = () => {
-        setName("");
-        setDomainName("");
-        setBody("");
-        setChain("");
-        setPrivateKey("");
-        setError("");
+    const form = useForm<UploadFormValues>({
+        resolver: zodResolver(uploadSchema),
+        defaultValues: { name: "", domainName: "", body: "", chain: "", privateKey: "" },
+    });
+
+    const handleClose = (next: boolean) => {
+        if (!next) {
+            form.reset();
+            setMode("paste");
+        }
+        onOpenChange(next);
     };
 
-    const handleSubmit = async () => {
-        setError("");
-        if (!name || !domainName || !body || !privateKey) {
-            setError("Name, domain, certificate body, and private key are required");
-            return;
-        }
-        setSubmitting(true);
-        try {
-            const res = await fetch("/api/certificates", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, domainName, body, chain: chain || undefined, privateKey }),
-            });
-            const json = await res.json();
-            if (!json.success) {
-                setError(json.error || "Upload failed");
-            } else {
-                resetForm();
-                onOpenChange(false);
-                onUploaded();
-            }
-        } catch {
-            setError("Network error — please try again");
-        } finally {
-            setSubmitting(false);
-        }
+    const readFileInto = (field: "body" | "chain" | "privateKey") => async (
+        e: React.ChangeEvent<HTMLInputElement>,
+    ) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        form.setValue(field, text, { shouldValidate: true });
     };
 
-    const handleFileUpload = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError("");
-        const form = e.target as HTMLFormElement;
-        const formData = new FormData(form);
-        const bodyFile = formData.get("body") as File;
-        const keyFile = formData.get("privateKey") as File;
-        if (!formData.get("name") || !formData.get("domainName") || !bodyFile || !keyFile) {
-            setError("Name, domain, certificate body, and private key files are required");
-            return;
-        }
-        setSubmitting(true);
+    const onSubmit = async (values: UploadFormValues) => {
         try {
-            const res = await fetch("/api/certificates", {
-                method: "POST",
-                body: formData,
+            await uploadCertificate.mutateAsync({
+                name: values.name,
+                domainName: values.domainName,
+                body: values.body,
+                chain: values.chain || undefined,
+                privateKey: values.privateKey,
             });
-            const json = await res.json();
-            if (!json.success) {
-                setError(json.error || "Upload failed");
-            } else {
-                resetForm();
-                onOpenChange(false);
-                onUploaded();
-            }
-        } catch {
-            setError("Network error — please try again");
-        } finally {
-            setSubmitting(false);
+            toast.success("Certificate uploaded", {
+                description: `${values.name} (${values.domainName})`,
+            });
+            form.reset();
+            setMode("paste");
+            onOpenChange(false);
+        } catch (e) {
+            toast.error("Upload failed", {
+                description: e instanceof Error ? e.message : "Please try again",
+            });
         }
     };
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={handleClose}>
             <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Upload Certificate</DialogTitle>
@@ -115,83 +102,157 @@ export function UploadCertificateDialog({
                     </DialogDescription>
                 </DialogHeader>
 
-                <Tabs value={mode} onValueChange={v => setMode(v as "paste" | "file")}>
-                    <TabsList className="w-full">
-                        <TabsTrigger value="paste" className="flex-1">Paste Text</TabsTrigger>
-                        <TabsTrigger value="file" className="flex-1">Upload Files</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="paste" className="space-y-4 mt-4">
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                         <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <Label htmlFor="name">Certificate Name</Label>
-                                <Input id="name" value={name} onChange={e => setName(e.target.value)} placeholder="My Wildcard Cert" />
-                            </div>
-                            <div>
-                                <Label htmlFor="domain">Domain Name</Label>
-                                <Input id="domain" value={domainName} onChange={e => setDomainName(e.target.value)} placeholder="*.example.com" />
-                            </div>
+                            <FormField
+                                control={form.control}
+                                name="name"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Certificate Name</FormLabel>
+                                        <FormControl>
+                                            <Input placeholder="My Wildcard Cert" {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="domainName"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Domain Name</FormLabel>
+                                        <FormControl>
+                                            <Input placeholder="*.example.com" {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
                         </div>
-                        <div>
-                            <Label htmlFor="body">Certificate Body (PEM)</Label>
-                            <Textarea id="body" value={body} onChange={e => setBody(e.target.value)} placeholder="-----BEGIN CERTIFICATE-----\n..." className="font-mono text-xs min-h-[120px]" />
-                        </div>
-                        <div>
-                            <Label htmlFor="chain">Certificate Chain (PEM, optional)</Label>
-                            <Textarea id="chain" value={chain} onChange={e => setChain(e.target.value)} placeholder="-----BEGIN CERTIFICATE-----\n..." className="font-mono text-xs min-h-[80px]" />
-                        </div>
-                        <div>
-                            <Label htmlFor="key">Private Key (PEM)</Label>
-                            <Textarea id="key" value={privateKey} onChange={e => setPrivateKey(e.target.value)} placeholder="-----BEGIN PRIVATE KEY-----\n..." className="font-mono text-xs min-h-[120px]" />
-                        </div>
-                    </TabsContent>
 
-                    <TabsContent value="file" className="space-y-4 mt-4">
-                        <form id="file-upload-form" onSubmit={handleFileUpload}>
-                            <div className="grid grid-cols-2 gap-3 mb-4">
-                                <div>
-                                    <Label htmlFor="fname">Certificate Name</Label>
-                                    <Input id="fname" name="name" placeholder="My Wildcard Cert" />
-                                </div>
-                                <div>
-                                    <Label htmlFor="fdomain">Domain Name</Label>
-                                    <Input id="fdomain" name="domainName" placeholder="*.example.com" />
-                                </div>
-                            </div>
-                            <div className="space-y-3">
+                        <Tabs value={mode} onValueChange={(v) => setMode(v as "paste" | "file")}>
+                            <TabsList className="w-full">
+                                <TabsTrigger value="paste" className="flex-1">
+                                    Paste Text
+                                </TabsTrigger>
+                                <TabsTrigger value="file" className="flex-1">
+                                    Upload Files
+                                </TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="paste" className="space-y-4 mt-4">
+                                <FormField
+                                    control={form.control}
+                                    name="body"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Certificate Body (PEM)</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                    placeholder="-----BEGIN CERTIFICATE-----"
+                                                    className="font-mono text-xs min-h-[120px]"
+                                                    {...field}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="chain"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Certificate Chain (PEM, optional)</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                    placeholder="-----BEGIN CERTIFICATE-----"
+                                                    className="font-mono text-xs min-h-[80px]"
+                                                    {...field}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="privateKey"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Private Key (PEM)</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                    placeholder="-----BEGIN PRIVATE KEY-----"
+                                                    className="font-mono text-xs min-h-[120px]"
+                                                    {...field}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </TabsContent>
+
+                            <TabsContent value="file" className="space-y-3 mt-4">
+                                <p className="text-xs text-muted-foreground">
+                                    Selecting a file loads its contents into the form. Switch to
+                                    Paste Text to review or edit before uploading.
+                                </p>
                                 <div>
                                     <Label htmlFor="bodyFile">Certificate Body (.pem, .crt)</Label>
-                                    <Input id="bodyFile" name="body" type="file" accept=".pem,.crt,.cer,.p7b" />
+                                    <Input
+                                        id="bodyFile"
+                                        type="file"
+                                        accept=".pem,.crt,.cer,.p7b"
+                                        onChange={readFileInto("body")}
+                                    />
                                 </div>
                                 <div>
-                                    <Label htmlFor="chainFile">Certificate Chain (.pem, optional)</Label>
-                                    <Input id="chainFile" name="chain" type="file" accept=".pem,.crt,.cer,.p7b" />
+                                    <Label htmlFor="chainFile">
+                                        Certificate Chain (.pem, optional)
+                                    </Label>
+                                    <Input
+                                        id="chainFile"
+                                        type="file"
+                                        accept=".pem,.crt,.cer,.p7b"
+                                        onChange={readFileInto("chain")}
+                                    />
                                 </div>
                                 <div>
                                     <Label htmlFor="keyFile">Private Key (.pem, .key)</Label>
-                                    <Input id="keyFile" name="privateKey" type="file" accept=".pem,.key" />
+                                    <Input
+                                        id="keyFile"
+                                        type="file"
+                                        accept=".pem,.key"
+                                        onChange={readFileInto("privateKey")}
+                                    />
                                 </div>
-                            </div>
-                        </form>
-                    </TabsContent>
-                </Tabs>
+                            </TabsContent>
+                        </Tabs>
 
-                {error && <p className="text-sm text-destructive">{error}</p>}
-
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button
-                        disabled={submitting}
-                        onClick={mode === "paste" ? handleSubmit : () => {
-                            const form = document.getElementById("file-upload-form") as HTMLFormElement;
-                            form?.requestSubmit();
-                        }}
-                    >
-                        {submitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                        {!submitting && <Upload className="h-4 w-4 mr-2" />}
-                        Upload
-                    </Button>
-                </DialogFooter>
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => handleClose(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button type="submit" disabled={uploadCertificate.isPending}>
+                                {uploadCertificate.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                ) : (
+                                    <Upload className="h-4 w-4 mr-2" />
+                                )}
+                                Upload
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
             </DialogContent>
         </Dialog>
     );

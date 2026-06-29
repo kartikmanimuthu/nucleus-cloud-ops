@@ -87,6 +87,19 @@
                                         "rds:StopDBInstance"
                                     ],
                                     "Resource": "*"
+                                },
+                                {
+                                    "Sid": "ACMCertificateManagement",
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "acm:ImportCertificate",
+                                        "acm:DescribeCertificate",
+                                        "acm:ListCertificates",
+                                        "acm:GetCertificate",
+                                        "acm:ListTagsForCertificate",
+                                        "acm:AddTagsToCertificate"
+                                    ],
+                                    "Resource": "*"
                                 }
                             ]
                         }

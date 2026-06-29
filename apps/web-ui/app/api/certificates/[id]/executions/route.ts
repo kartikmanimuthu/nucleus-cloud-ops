@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCertificateRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { authorize } from '@/lib/rbac/authorize';
-import { loadVersionMaterial } from '@/lib/certificate-material';
 
 export async function GET(
     request: NextRequest,
@@ -15,7 +14,7 @@ export async function GET(
 
         const { id } = await params;
         const { searchParams } = new URL(request.url);
-        const versionId = searchParams.get('versionId');
+        const limit = parseInt(searchParams.get('limit') || '50', 10);
 
         const repo = getCertificateRepository();
         const cert = await repo.getCertificate(tenantId, id);
@@ -23,24 +22,11 @@ export async function GET(
             return NextResponse.json({ success: false, error: 'Certificate not found' }, { status: 404 });
         }
 
-        const version = versionId
-            ? await repo.getVersion(tenantId, id, versionId)
-            : await repo.getActiveVersion(tenantId, id);
-        if (!version) {
-            return NextResponse.json(
-                { success: false, error: 'No certificate material available' },
-                { status: 404 }
-            );
-        }
-
-        const material = await loadVersionMaterial(version);
-        return NextResponse.json({
-            success: true,
-            data: { body: material.body, chain: material.chain, privateKey: material.privateKey },
-        });
+        const executions = await repo.listExecutions(tenantId, id, limit);
+        return NextResponse.json({ success: true, data: executions });
     } catch (error: unknown) {
-        console.error('Error fetching certificate content:', error);
-        const message = error instanceof Error ? error.message : 'Failed to fetch certificate content';
+        console.error('Error listing certificate executions:', error);
+        const message = error instanceof Error ? error.message : 'Failed to list executions';
         return NextResponse.json({ success: false, error: message }, { status: 500 });
     }
 }

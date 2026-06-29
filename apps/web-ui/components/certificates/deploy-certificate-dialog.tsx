@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
+import { Loader2, UploadCloud } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -10,7 +16,15 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import {
+    Form,
+    FormControl,
+    FormDescription,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
+} from "@/components/ui/form";
 import {
     Select,
     SelectContent,
@@ -18,20 +32,25 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Loader2, UploadCloud } from "lucide-react";
+import { useAccounts } from "@/lib/queries/accounts";
+import { useDeployCertificate } from "@/lib/queries/certificates";
 
-interface AccountOption {
-    accountId: string;
-    name: string;
-    regions: string[];
-    connectionStatus: string;
+const deploySchema = z.object({
+    accountId: z.string().min(1, "Please select an account"),
+    region: z.string().min(1, "Please select a region"),
+});
+
+type DeployFormValues = z.infer<typeof deploySchema>;
+
+interface RegionOption {
+    value: string;
+    label: string;
 }
 
 interface DeployCertificateDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     certificateId: string;
-    onDeployed: () => void;
     excludedAccountIds?: string[];
 }
 
@@ -39,126 +58,67 @@ export function DeployCertificateDialog({
     open,
     onOpenChange,
     certificateId,
-    onDeployed,
     excludedAccountIds = [],
 }: DeployCertificateDialogProps) {
-    const [accounts, setAccounts] = useState<AccountOption[]>([]);
-    const [regions, setRegions] = useState<{ value: string; label: string }[]>([]);
-    const [loadingAccounts, setLoadingAccounts] = useState(false);
-    const [loadingRegions, setLoadingRegions] = useState(false);
-    const [selectedAccountId, setSelectedAccountId] = useState("");
-    const [selectedRegion, setSelectedRegion] = useState("");
-    const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState("");
+    const deploy = useDeployCertificate();
+    const { data: accountsData, isLoading: loadingAccounts } = useAccounts({ limit: 1000 });
 
-    useEffect(() => {
-        if (!open) return;
-        async function fetchAccounts() {
-            setLoadingAccounts(true);
-            try {
-                const res = await fetch("/api/accounts?limit=1000");
-                const json = await res.json();
-                if (json.success) {
-                    const allAccounts: AccountOption[] = json.data.map((a: {
-                        accountId: string;
-                        name: string;
-                        regions: string[];
-                        connectionStatus: string;
-                    }) => ({
-                        accountId: a.accountId,
-                        name: a.name,
-                        regions: a.regions || [],
-                        connectionStatus: a.connectionStatus,
-                    }));
-                    const filtered = allAccounts.filter(
-                        a => !excludedAccountIds.includes(a.accountId)
-                    );
-                    setAccounts(filtered);
-                }
-            } catch {
-                setError("Failed to load accounts");
-            } finally {
-                setLoadingAccounts(false);
-            }
-        }
-        fetchAccounts();
-    }, [open, excludedAccountIds]);
-
-    useEffect(() => {
-        if (!open) return;
-        async function fetchRegions() {
-            setLoadingRegions(true);
-            try {
-                const res = await fetch("/api/regions");
-                const json = await res.json();
-                if (json.success) {
-                    setRegions(json.data.map((r: { value: string; label: string }) => ({
-                        value: r.value,
-                        label: r.label,
-                    })));
-                }
-            } catch {
-                setError("Failed to load regions");
-            } finally {
-                setLoadingRegions(false);
-            }
-        }
-        fetchRegions();
-    }, [open]);
-
-    useEffect(() => {
-        // Default region when account changes
-        if (selectedAccountId) {
-            const account = accounts.find(a => a.accountId === selectedAccountId);
-            if (account && account.regions.length > 0) {
-                setSelectedRegion(account.regions[0]);
-            } else {
-                setSelectedRegion("us-east-1");
-            }
-        }
-    }, [selectedAccountId, accounts]);
-
-    const resetForm = () => {
-        setSelectedAccountId("");
-        setSelectedRegion("");
-        setError("");
-    };
-
-    const handleDeploy = async () => {
-        setError("");
-        if (!selectedAccountId) {
-            setError("Please select an account");
-            return;
-        }
-        setSubmitting(true);
-        try {
-            const res = await fetch(`/api/certificates/${certificateId}/deploy`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    accountId: selectedAccountId,
-                    region: selectedRegion || undefined,
-                }),
-            });
+    const { data: regions = [], isLoading: loadingRegions } = useQuery({
+        queryKey: ["regions"],
+        enabled: open,
+        queryFn: async (): Promise<RegionOption[]> => {
+            const res = await fetch("/api/regions");
             const json = await res.json();
-            if (!json.success) {
-                setError(json.error || "Deploy failed");
-            } else {
-                resetForm();
-                onOpenChange(false);
-                onDeployed();
+            if (!res.ok || !json.success) {
+                throw new Error(json.error || "Failed to load regions");
             }
-        } catch {
-            setError("Network error — please try again");
-        } finally {
-            setSubmitting(false);
-        }
+            return json.data as RegionOption[];
+        },
+    });
+
+    const accounts = useMemo(() => {
+        const all = accountsData?.accounts ?? [];
+        return all.filter((a) => a.active && !excludedAccountIds.includes(a.accountId));
+    }, [accountsData, excludedAccountIds]);
+
+    const form = useForm<DeployFormValues>({
+        resolver: zodResolver(deploySchema),
+        defaultValues: { accountId: "", region: "" },
+    });
+
+    const handleClose = (next: boolean) => {
+        if (!next) form.reset();
+        onOpenChange(next);
     };
 
-    const selectedAccount = accounts.find(a => a.accountId === selectedAccountId);
+    const onAccountChange = (accountId: string) => {
+        form.setValue("accountId", accountId, { shouldValidate: true });
+        const account = accounts.find((a) => a.accountId === accountId);
+        const defaultRegion = account?.regions?.[0] ?? "us-east-1";
+        form.setValue("region", defaultRegion, { shouldValidate: true });
+    };
+
+    const onSubmit = async (values: DeployFormValues) => {
+        try {
+            await deploy.mutateAsync({
+                certId: certificateId,
+                accountId: values.accountId,
+                region: values.region,
+            });
+            toast.success("Certificate deployed", {
+                description: `Account ${values.accountId} / ${values.region}`,
+            });
+            form.reset();
+            onOpenChange(false);
+        } catch (e) {
+            toast.error("Deploy failed", {
+                description: e instanceof Error ? e.message : "Please try again",
+            });
+        }
+    };
 
     return (
-        <Dialog open={open} onOpenChange={(v) => { if (!v) resetForm(); onOpenChange(v); }}>
+        <Dialog open={open} onOpenChange={handleClose}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>Deploy to Account</DialogTitle>
@@ -167,91 +127,115 @@ export function DeployCertificateDialog({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4 py-2">
-                    <div className="space-y-2">
-                        <Label htmlFor="account">AWS Account</Label>
-                        <Select
-                            value={selectedAccountId}
-                            onValueChange={setSelectedAccountId}
-                            disabled={loadingAccounts || accounts.length === 0}
-                        >
-                            <SelectTrigger id="account" className="w-full">
-                                <SelectValue placeholder={
-                                    loadingAccounts
-                                        ? "Loading accounts..."
-                                        : accounts.length === 0
-                                            ? "No available accounts"
-                                            : "Select an account"
-                                } />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {accounts.map(account => (
-                                    <SelectItem key={account.accountId} value={account.accountId}>
-                                        {account.name}{" "}
-                                        <span className="text-muted-foreground text-xs">
-                                            ({account.accountId})
-                                        </span>
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        {accounts.length === 0 && !loadingAccounts && (
-                            <p className="text-xs text-muted-foreground">
-                                All accounts already have this certificate.
-                            </p>
-                        )}
-                    </div>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-2">
+                        <FormField
+                            control={form.control}
+                            name="accountId"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>AWS Account</FormLabel>
+                                    <Select
+                                        value={field.value}
+                                        onValueChange={onAccountChange}
+                                        disabled={loadingAccounts || accounts.length === 0}
+                                    >
+                                        <FormControl>
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue
+                                                    placeholder={
+                                                        loadingAccounts
+                                                            ? "Loading accounts..."
+                                                            : accounts.length === 0
+                                                              ? "No available accounts"
+                                                              : "Select an account"
+                                                    }
+                                                />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {accounts.map((account) => (
+                                                <SelectItem
+                                                    key={account.accountId}
+                                                    value={account.accountId}
+                                                >
+                                                    {account.name}{" "}
+                                                    <span className="text-muted-foreground text-xs">
+                                                        ({account.accountId})
+                                                    </span>
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    {accounts.length === 0 && !loadingAccounts && (
+                                        <FormDescription>
+                                            All accounts already have this certificate.
+                                        </FormDescription>
+                                    )}
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
 
-                    <div className="space-y-2">
-                        <Label htmlFor="region">Region</Label>
-                        <Select
-                            value={selectedRegion}
-                            onValueChange={setSelectedRegion}
-                            disabled={!selectedAccountId || loadingRegions}
-                        >
-                            <SelectTrigger id="region" className="w-full">
-                                <SelectValue placeholder={
-                                    loadingRegions ? "Loading regions..." : "Select a region"
-                                } />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {regions.map(region => (
-                                    <SelectItem key={region.value} value={region.value}>
-                                        {region.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                            Choose us-east-1 if this certificate will be used with CloudFront.
-                        </p>
-                    </div>
+                        <FormField
+                            control={form.control}
+                            name="region"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Region</FormLabel>
+                                    <Select
+                                        value={field.value}
+                                        onValueChange={field.onChange}
+                                        disabled={!form.watch("accountId") || loadingRegions}
+                                    >
+                                        <FormControl>
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue
+                                                    placeholder={
+                                                        loadingRegions
+                                                            ? "Loading regions..."
+                                                            : "Select a region"
+                                                    }
+                                                />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {regions.map((region) => (
+                                                <SelectItem key={region.value} value={region.value}>
+                                                    {region.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <FormDescription>
+                                        Choose us-east-1 if this certificate will be used with
+                                        CloudFront.
+                                    </FormDescription>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
 
-                    {error && (
-                        <p className="text-sm text-destructive">{error}</p>
-                    )}
-                </div>
-
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={() => { resetForm(); onOpenChange(false); }}
-                        disabled={submitting}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        disabled={submitting || !selectedAccountId}
-                        onClick={handleDeploy}
-                    >
-                        {submitting ? (
-                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        ) : (
-                            <UploadCloud className="h-4 w-4 mr-2" />
-                        )}
-                        Deploy
-                    </Button>
-                </DialogFooter>
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => handleClose(false)}
+                                disabled={deploy.isPending}
+                            >
+                                Cancel
+                            </Button>
+                            <Button type="submit" disabled={deploy.isPending}>
+                                {deploy.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                ) : (
+                                    <UploadCloud className="h-4 w-4 mr-2" />
+                                )}
+                                Deploy
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
             </DialogContent>
         </Dialog>
     );
