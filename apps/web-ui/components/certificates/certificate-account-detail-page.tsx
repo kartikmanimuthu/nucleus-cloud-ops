@@ -1,41 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
 import { ArrowLeft, RefreshCw, Loader2, ShieldCheck } from "lucide-react";
-
-interface AssociatedResource {
-    arn: string;
-    type: string;
-    service: string;
-}
-
-interface AcmCertificate {
-    arn: string;
-    status: string;
-    domainName: string;
-    issuer: string | null;
-    notBefore: string | null;
-    notAfter: string | null;
-    serial: string | null;
-    signatureAlgorithm: string | null;
-    type: string | null;
-    importedAt: string | null;
-    inUseBy: AssociatedResource[];
-}
-
-interface AccountInfo {
-    accountId: string;
-    name: string;
-}
-
-interface CertificateAccountDetail {
-    certificate: AcmCertificate;
-    account: AccountInfo;
-}
+import { toast } from "sonner";
+import {
+    useCertificateAccountDetail,
+    useReimportCertificate,
+} from "@/lib/queries/certificates";
 
 interface CertificateAccountDetailPageProps {
     certificateId: string;
@@ -65,47 +46,33 @@ export function CertificateAccountDetailPage({
     accountId,
 }: CertificateAccountDetailPageProps) {
     const router = useRouter();
-    const [data, setData] = useState<CertificateAccountDetail | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [reimporting, setReimporting] = useState(false);
-
-    useEffect(() => {
-        async function fetchData() {
-            try {
-                const res = await fetch(`/api/certificates/${certificateId}/accounts/${accountId}`);
-                const json = await res.json();
-                if (json.success) {
-                    setData(json.data);
-                }
-            } catch (e) {
-                console.error("Failed to fetch account certificate detail:", e);
-            } finally {
-                setLoading(false);
-            }
-        }
-        fetchData();
-    }, [certificateId, accountId]);
+    const { data, isLoading, error } = useCertificateAccountDetail(certificateId, accountId);
+    const reimport = useReimportCertificate();
 
     const handleReimport = async () => {
-        setReimporting(true);
         try {
-            const res = await fetch(`/api/certificates/${certificateId}/reimport`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ accountId }),
-            });
-            const json = await res.json();
-            if (!json.success) {
-                throw new Error(json.error || "Reimport failed");
+            const result = await reimport.mutateAsync({ certId: certificateId, accountId });
+            if (result.data?.status === "partial") {
+                toast.warning("Reimport partially succeeded", {
+                    description: result.error || "Some regions failed — see Execution History.",
+                });
+            } else if (result.data?.status === "failed" || !result.success) {
+                toast.error("Reimport failed", {
+                    description: result.error || "Reimport failed",
+                });
+            } else {
+                toast.success("Reimport complete", {
+                    description: `Pushed active version to account ${accountId}.`,
+                });
             }
         } catch (e) {
-            console.error("Reimport failed:", e);
-        } finally {
-            setReimporting(false);
+            toast.error("Reimport failed", {
+                description: e instanceof Error ? e.message : "Network error — please try again",
+            });
         }
     };
 
-    if (loading) {
+    if (isLoading) {
         return (
             <div className="p-8 text-center text-muted-foreground">
                 Loading certificate details...
@@ -116,7 +83,7 @@ export function CertificateAccountDetailPage({
     if (!data) {
         return (
             <div className="p-8 text-center text-muted-foreground">
-                Certificate or account not found.
+                {error instanceof Error ? error.message : "Certificate or account not found."}
             </div>
         );
     }
@@ -131,14 +98,22 @@ export function CertificateAccountDetailPage({
         { label: "Issuer", value: cert.issuer || "—" },
         { label: "Serial", value: cert.serial || "—" },
         { label: "Signature Algorithm", value: cert.signatureAlgorithm || "—" },
-        { label: "Not Before", value: cert.notBefore ? new Date(cert.notBefore).toLocaleDateString() : "—" },
-        { label: "Not After", value: cert.notAfter ? new Date(cert.notAfter).toLocaleDateString() : "—" },
-        { label: "Imported At", value: cert.importedAt ? new Date(cert.importedAt).toLocaleDateString() : "—" },
+        {
+            label: "Not Before",
+            value: cert.notBefore ? new Date(cert.notBefore).toLocaleDateString() : "—",
+        },
+        {
+            label: "Not After",
+            value: cert.notAfter ? new Date(cert.notAfter).toLocaleDateString() : "—",
+        },
+        {
+            label: "Imported At",
+            value: cert.importedAt ? new Date(cert.importedAt).toLocaleDateString() : "—",
+        },
     ];
 
     return (
         <div className="p-6 space-y-6">
-            {/* Back button */}
             <Button
                 variant="outline"
                 size="sm"
@@ -149,15 +124,12 @@ export function CertificateAccountDetailPage({
                 Back to Certificate
             </Button>
 
-            {/* Header */}
             <div className="flex items-start justify-between">
                 <div className="space-y-1">
                     <div className="flex items-center gap-3">
                         <ShieldCheck className="h-6 w-6 text-muted-foreground" />
                         <h1 className="text-2xl font-bold tracking-tight">{cert.domainName}</h1>
-                        <Badge variant={statusVariant}>
-                            {cert.status}
-                        </Badge>
+                        <Badge variant={statusVariant}>{cert.status}</Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">
                         Account: <span className="font-medium">{account.name}</span>{" "}
@@ -168,10 +140,10 @@ export function CertificateAccountDetailPage({
                     variant="outline"
                     size="sm"
                     className="gap-1"
-                    disabled={reimporting}
+                    disabled={reimport.isPending}
                     onClick={handleReimport}
                 >
-                    {reimporting ? (
+                    {reimport.isPending ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
                         <RefreshCw className="h-3.5 w-3.5" />
@@ -180,7 +152,6 @@ export function CertificateAccountDetailPage({
                 </Button>
             </div>
 
-            {/* Certificate Info */}
             <div className="space-y-3">
                 <h2 className="text-lg font-semibold">Certificate Information</h2>
                 <div className="grid grid-cols-3 gap-4 text-sm">
@@ -195,14 +166,14 @@ export function CertificateAccountDetailPage({
                 </div>
             </div>
 
-            {/* Associated Resources */}
             <div className="space-y-3">
                 <h2 className="text-lg font-semibold">Associated Resources</h2>
                 {cert.inUseBy.length === 0 ? (
                     <div className="p-6 text-center text-muted-foreground border rounded-md">
                         No associated resources found.
                         <p className="text-sm mt-1">
-                            This certificate is not attached to any ALB, CloudFront distribution, or API Gateway in this account.
+                            This certificate is not attached to any ALB, CloudFront distribution,
+                            or API Gateway in this account.
                         </p>
                     </div>
                 ) : (

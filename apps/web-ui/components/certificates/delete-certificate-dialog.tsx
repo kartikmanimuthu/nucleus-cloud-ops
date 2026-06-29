@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -11,41 +10,32 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Loader2, Trash2 } from "lucide-react";
-import type { CertificateRow } from "./certificate-grid";
+import { toast } from "sonner";
+import { useDeleteCertificate, type CertificateRow } from "@/lib/queries/certificates";
 
 interface DeleteCertificateDialogProps {
     certificate: CertificateRow | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onDeleted: () => void;
 }
 
 export function DeleteCertificateDialog({
     certificate,
     open,
     onOpenChange,
-    onDeleted,
 }: DeleteCertificateDialogProps) {
-    const [deleting, setDeleting] = useState(false);
-    const [error, setError] = useState("");
+    const deleteCertificate = useDeleteCertificate();
 
     const handleDelete = async () => {
         if (!certificate) return;
-        setError("");
-        setDeleting(true);
         try {
-            const res = await fetch(`/api/certificates/${certificate.id}`, { method: "DELETE" });
-            const json = await res.json();
-            if (!json.success) {
-                setError(json.error || "Delete failed");
-            } else {
-                onOpenChange(false);
-                onDeleted();
-            }
-        } catch {
-            setError("Network error — please try again");
-        } finally {
-            setDeleting(false);
+            await deleteCertificate.mutateAsync(certificate.id);
+            toast.success("Certificate deleted", { description: certificate.name });
+            onOpenChange(false);
+        } catch (e) {
+            toast.error("Delete failed", {
+                description: e instanceof Error ? e.message : "Network error — please try again",
+            });
         }
     };
 
@@ -57,17 +47,26 @@ export function DeleteCertificateDialog({
                 <DialogHeader>
                     <DialogTitle>Delete Certificate</DialogTitle>
                     <DialogDescription>
-                        This will permanently delete the certificate &quot;{certificate.name}&quot;
-                        ({certificate.domainName}) and all its files from S3. This action cannot be undone.
+                        This will permanently delete the certificate &quot;{certificate.name}&quot; (
+                        {certificate.domainName}) and all its files from S3. This action cannot be
+                        undone.
                     </DialogDescription>
                 </DialogHeader>
 
-                {error && <p className="text-sm text-destructive">{error}</p>}
-
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button variant="destructive" disabled={deleting} onClick={handleDelete}>
-                        {deleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="destructive"
+                        disabled={deleteCertificate.isPending}
+                        onClick={handleDelete}
+                    >
+                        {deleteCertificate.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : (
+                            <Trash2 className="h-4 w-4 mr-2" />
+                        )}
                         Delete
                     </Button>
                 </DialogFooter>

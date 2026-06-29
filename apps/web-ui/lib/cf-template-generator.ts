@@ -151,6 +151,31 @@ export const generateOnboardingTemplate = (hubAccountId: string, externalId: str
                                     }
                                 ]
                             }
+                        },
+                        {
+                            // Certificate Manager — deploy (ImportCertificate, no ARN) and
+                            // reimport/renew (ImportCertificate with the existing ARN) of TLS
+                            // certificates into this account's ACM. Read actions are also covered
+                            // by ReadOnlyAccess; listed here so the role is self-sufficient.
+                            PolicyName: "NucleusCertificateManagerPolicy",
+                            PolicyDocument: {
+                                Version: "2012-10-17",
+                                Statement: [
+                                    {
+                                        Sid: "ACMCertificateManagement",
+                                        Effect: "Allow",
+                                        Action: [
+                                            "acm:ImportCertificate",
+                                            "acm:DescribeCertificate",
+                                            "acm:ListCertificates",
+                                            "acm:GetCertificate",
+                                            "acm:ListTagsForCertificate",
+                                            "acm:AddTagsToCertificate"
+                                        ],
+                                        Resource: "*"
+                                    }
+                                ]
+                            }
                         }
                     ],
                     ManagedPolicyArns: [
@@ -285,6 +310,22 @@ Resources:
                   - ssm:GetParameters
                   - ssm:GetParametersByPath
                   - ssm:DescribeParameters
+                Resource: '*'
+        # Certificate Manager — deploy (ImportCertificate, no ARN) and reimport/renew
+        # (ImportCertificate with the existing ARN) of TLS certificates into this account's ACM.
+        - PolicyName: NucleusCertificateManagerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ACMCertificateManagement
+                Effect: Allow
+                Action:
+                  - acm:ImportCertificate
+                  - acm:DescribeCertificate
+                  - acm:ListCertificates
+                  - acm:GetCertificate
+                  - acm:ListTagsForCertificate
+                  - acm:AddTagsToCertificate
                 Resource: '*'
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/ReadOnlyAccess

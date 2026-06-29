@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCertificateRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { authorize } from '@/lib/rbac/authorize';
+import { loadVersionMaterial } from '@/lib/certificate-material';
 import JSZip from 'jszip';
-import { env } from '@/env';
 
 export async function GET(
     request: NextRequest,
@@ -11,51 +11,44 @@ export async function GET(
 ) {
     try {
         const tenantId = await getSessionTenantId();
+        const authError = await authorize('read', 'Certificate');
+        if (authError) return authError;
+
         const { id } = await params;
+        const { searchParams } = new URL(request.url);
+        const versionId = searchParams.get('versionId');
+
         const repo = getCertificateRepository();
         const cert = await repo.getCertificate(tenantId, id);
-
         if (!cert) {
+            return NextResponse.json({ success: false, error: 'Certificate not found' }, { status: 404 });
+        }
+
+        const version = versionId
+            ? await repo.getVersion(tenantId, id, versionId)
+            : await repo.getActiveVersion(tenantId, id);
+        if (!version) {
             return NextResponse.json(
-                { success: false, error: 'Certificate not found' },
+                { success: false, error: 'No certificate material available' },
                 { status: 404 }
             );
         }
 
-        const s3Client = new S3Client({ region: env.AWS_REGION || 'ap-south-1' });
-        const bucket = env.APP_BUCKET_NAME || '';
+        const material = await loadVersionMaterial(version);
+        const base = `${cert.name || 'certificate'}_v${version.version}`;
 
-        // Load all three parts from S3
-        const [bodyObj, chainObj, keyObj] = await Promise.all([
-            s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3BodyKey })),
-            cert.s3ChainKey
-                ? s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3ChainKey }))
-                : Promise.resolve(null),
-            s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: cert.s3PrivateKeyKey })),
-        ]);
-
-        const bodyContent = await bodyObj.Body!.transformToString();
-        const chainContent = chainObj ? await chainObj.Body!.transformToString() : null;
-        const keyContent = await keyObj.Body!.transformToString();
-
-        // Build ZIP
         const zip = new JSZip();
-        zip.file(`${cert.name || 'certificate'}_body.pem`, bodyContent);
-        if (chainContent) {
-            zip.file(`${cert.name || 'certificate'}_chain.pem`, chainContent);
-        }
-        zip.file(`${cert.name || 'certificate'}_private.key`, keyContent);
+        zip.file(`${base}_body.pem`, material.body);
+        if (material.chain) zip.file(`${base}_chain.pem`, material.chain);
+        zip.file(`${base}_private.key`, material.privateKey);
+        const zipBuffer = await zip.generateAsync({ type: 'uint8array' });
 
-        const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
-
-        const safeName = (cert.name || 'certificate').replace(/[^a-zA-Z0-9_-]/g, '_');
-        const filename = `${safeName}.zip`;
-
-        return new NextResponse(zipBuffer, {
+        const safeName = `${cert.name || 'certificate'}_v${version.version}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+        return new NextResponse(zipBuffer as unknown as BodyInit, {
             status: 200,
             headers: {
                 'Content-Type': 'application/zip',
-                'Content-Disposition': `attachment; filename="${filename}"`,
+                'Content-Disposition': `attachment; filename="${safeName}.zip"`,
             },
         });
     } catch (error: unknown) {

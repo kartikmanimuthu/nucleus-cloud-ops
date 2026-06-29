@@ -590,21 +590,28 @@ model Invitation {
   @@map("invitations")
 }
 
-// Certificate — stores uploaded TLS certificates for multi-account management
-// Certificate Manager is the source of truth; all sync is unidirectional (S3 → ACM)
-// status: active | expiring | expired — controlled by computeExpiryStatus()
+// Certificate — logical TLS certificate (domain/name) for multi-account management.
+// Certificate Manager is the source of truth; all sync is unidirectional (S3 → ACM).
+// Material + validity live on CertificateVersion (one active at a time). The cached
+// columns below mirror the active version so list/detail reads stay flat.
+// status: active | expiring | expired | no_material — derived from the active version.
+//
+// NOTE (Phase A migration): the legacy material columns (s3*Key, associatedAccountIds,
+// tags) are retained for cutover and dropped in a later migration.
 model Certificate {
   id                   String   @id @default(cuid())
   tenantId             String
   name                 String
   domainName           String
-  status               String   @default("active") // active | expiring | expired
-  issuer               String?
+  activeVersionId      String? // FK → CertificateVersion.id (app-enforced; active version cannot be deleted)
+  status               String   @default("active") // active | expiring | expired | no_material (cached from active version)
+  issuer               String? // cached from active version
   notBefore            DateTime?
-  notAfter             DateTime
-  s3BodyKey            String
+  notAfter             DateTime? // cached from active version — nullable once a cert may have no material
+  // --- legacy columns (Phase A: kept for cutover, removed in a later migration) ---
+  s3BodyKey            String?
   s3ChainKey           String?
-  s3PrivateKeyKey      String
+  s3PrivateKeyKey      String?
   associatedAccountIds String[] @default([])
   tags                 Json     @default("{}")
   createdAt            DateTime @default(now())
@@ -615,6 +622,83 @@ model Certificate {
   @@index([tenantId, status])
   @@index([tenantId, notAfter])
   @@map("certificates")
+}
+
+// CertificateVersion — one row per uploaded material set. Exactly one isActive=true per
+// certificate (enforced by a partial unique index in the migration + an activation
+// transaction in the repository). Material bytes live in S3; DB holds the keys.
+model CertificateVersion {
+  id              String    @id @default(cuid())
+  tenantId        String
+  certificateId   String
+  version         Int
+  isActive        Boolean   @default(false)
+  issuer          String?
+  notBefore       DateTime?
+  notAfter        DateTime
+  fingerprint     String? // sha256 hex of the cert body; nullable (lazy-computed for backfilled v1)
+  serialNumber    String?
+  s3BodyKey       String
+  s3ChainKey      String?
+  s3PrivateKeyKey String
+  status          String    @default("active") // active | expiring | expired
+  uploadedAt      DateTime  @default(now())
+  uploadedBy      String
+
+  @@unique([tenantId, certificateId, version])
+  @@index([tenantId, certificateId])
+  @@map("certificate_versions")
+}
+
+// CertificateDeployment — live per-account linkage discovered from ACM (replaces the old
+// inventory correlation + associatedAccountIds). One row per (certificate, account, region).
+// region is NOT NULL; backfilled rows use the 'unknown' sentinel and are reconciled by Discover.
+model CertificateDeployment {
+  id                String    @id @default(cuid())
+  tenantId          String
+  certificateId     String
+  accountId         String
+  region            String
+  acmArn            String?
+  acmDomainName     String?
+  acmNotAfter       DateTime?
+  acmStatus         String? // ISSUED | EXPIRED | ... (from ACM DescribeCertificate)
+  deployedVersionId String?
+  linkState         String    @default("discovered") // discovered | deployed | missing | error
+  inUseByCount      Int       @default(0)
+  lastScannedAt     DateTime?
+  lastDeployedAt    DateTime?
+
+  @@unique([tenantId, certificateId, accountId, region])
+  @@index([tenantId, certificateId])
+  @@map("certificate_deployments")
+}
+
+// CertificateExecution — execution history of cross-account operations (mirrors ScheduleExecution).
+// expiresAt drives TTL cleanup via cleanup-expired.ts.
+model CertificateExecution {
+  id            String    @id @default(cuid())
+  tenantId      String
+  certificateId String
+  executionId   String
+  operation     String // discover | deploy | reimport
+  versionId     String?
+  accountId     String?
+  region        String?
+  status        String // running | success | failed | partial
+  acmArn        String?
+  message       String?
+  details       Json? // per-account results for discover
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  duration      Int? // seconds
+  triggeredBy   String
+  expiresAt     DateTime
+
+  @@unique([tenantId, executionId])
+  @@index([tenantId, certificateId, startedAt])
+  @@index([expiresAt])
+  @@map("certificate_executions")
 }
 
 // === NextAuth Prisma Adapter Models ===

@@ -41,4 +41,18 @@ export const queryKeys = {
             [...queryKeys.rightSizing.all, 'recommendations', filters ?? {}] as const,
         summary: () => [...queryKeys.rightSizing.all, 'summary'] as const,
     },
+    certificates: {
+        all: ['certificates'] as const,
+        lists: () => [...queryKeys.certificates.all, 'list'] as const,
+        list: (filters?: unknown) => [...queryKeys.certificates.lists(), filters ?? {}] as const,
+        details: () => [...queryKeys.certificates.all, 'detail'] as const,
+        detail: (id: string) => [...queryKeys.certificates.details(), id] as const,
+        versions: (id: string) => [...queryKeys.certificates.detail(id), 'versions'] as const,
+        accounts: (id: string) => [...queryKeys.certificates.detail(id), 'accounts'] as const,
+        accountDetail: (id: string, accountId: string) =>
+            [...queryKeys.certificates.detail(id), 'account', accountId] as const,
+        executions: (id: string) => [...queryKeys.certificates.detail(id), 'executions'] as const,
+        content: (id: string, versionId?: string) =>
+            [...queryKeys.certificates.detail(id), 'content', versionId ?? 'active'] as const,
+    },
 } as const;
