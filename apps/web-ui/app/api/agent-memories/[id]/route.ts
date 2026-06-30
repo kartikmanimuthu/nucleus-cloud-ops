@@ -45,15 +45,17 @@ export async function DELETE(
             return NextResponse.json({ success: false, error: 'Memory not found' }, { status: 404 });
         }
 
+        const session = await getServerSession(authOptions);
+        const deletedBy = session?.user?.email || 'unknown';
+
         await repo.deleteById(tenantId, id);
 
-        const session = await getServerSession(authOptions);
         await AuditService.logUserAction({
             action: 'delete',
             resourceType: 'agent_memory',
             resourceId: id,
             resourceName: memory.key,
-            user: session?.user?.email || 'unknown',
+            user: deletedBy,
             userType: 'user',
             status: 'success',
             details: `Agent memory "${memory.key}" (${memory.namespace}) deleted`,
