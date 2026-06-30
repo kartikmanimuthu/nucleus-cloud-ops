@@ -52,8 +52,8 @@ export function SkillsClient() {
                 <p className="text-sm text-muted-foreground truncate">{s.description}</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <Button variant="ghost" size="icon" onClick={() => openEdit(s)} title="Edit"><Pencil className="w-4 h-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => onDelete(s)} title="Delete" className="hover:text-destructive"><Trash2 className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => openEdit(s)} title="Edit" aria-label="Edit"><Pencil className="w-4 h-4" /></Button>
+                <Button variant="ghost" size="icon" onClick={() => onDelete(s)} title="Delete" aria-label="Delete" className="hover:text-destructive"><Trash2 className="w-4 h-4" /></Button>
               </div>
             </div>
           ))}

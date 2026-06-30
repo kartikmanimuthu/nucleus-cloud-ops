@@ -33,7 +33,7 @@ export async function GET(
     try {
         const { id } = await params;
         const tenantId = await getSessionTenantId();
-        const skill = await getSkillRepository().getById(tenantId, id);
+        const skill = await getSkillRepository().getBySlug(tenantId, id);
         if (!skill) {
             return NextResponse.json({ success: false, error: 'Skill not found' }, { status: 404 });
         }
@@ -60,17 +60,37 @@ export async function PATCH(
         const { id } = await params;
         const tenantId = await getSessionTenantId();
         const session = await getAuthSession();
+        const existing = await getSkillRepository().getBySlug(tenantId, id);
+        if (!existing) {
+            return NextResponse.json({ success: false, error: 'Skill not found' }, { status: 404 });
+        }
         const body = await request.json();
         const updates: SkillUpdateInput = {};
         for (const k of ['name', 'description', 'tier', 'content', 'isEnabled'] as const) {
             if (body[k] !== undefined) (updates as Record<string, unknown>)[k] = body[k];
         }
         if (body.slug !== undefined) updates.slug = slugify(body.slug);
-        const updated = await getSkillRepository().update(tenantId, id, updates);
+        let updated: SkillRecord;
+        try {
+            updated = await getSkillRepository().update(tenantId, existing.id, updates);
+        } catch (updateError) {
+            if (
+                updateError !== null &&
+                typeof updateError === 'object' &&
+                (updateError as { code?: string }).code === 'P2002'
+            ) {
+                const newSlug = updates.slug ?? existing.slug;
+                return NextResponse.json(
+                    { success: false, error: `A skill with slug "${newSlug}" already exists` },
+                    { status: 409 }
+                );
+            }
+            throw updateError;
+        }
         AuditService.logUserAction({
             action: 'update',
             resourceType: 'Skill',
-            resourceId: id,
+            resourceId: existing.id,
             resourceName: updated.name,
             user: session?.user?.email || 'api-user',
             userType: 'user',
@@ -102,15 +122,15 @@ export async function DELETE(
         const { id } = await params;
         const tenantId = await getSessionTenantId();
         const session = await getAuthSession();
-        const existing = await getSkillRepository().getById(tenantId, id);
+        const existing = await getSkillRepository().getBySlug(tenantId, id);
         if (!existing) {
             return NextResponse.json({ success: false, error: 'Skill not found' }, { status: 404 });
         }
-        await getSkillRepository().remove(tenantId, id);
+        await getSkillRepository().remove(tenantId, existing.id);
         AuditService.logUserAction({
             action: 'delete',
             resourceType: 'Skill',
-            resourceId: id,
+            resourceId: existing.id,
             resourceName: existing.name,
             user: session?.user?.email || 'api-user',
             userType: 'user',
