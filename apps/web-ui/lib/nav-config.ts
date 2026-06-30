@@ -34,6 +34,7 @@ export const navMenus: NavItem[] = [
       { title: "Scheduled Tasks", href: "/app/agent-ops/scheduled-tasks" },
       { title: "Knowledge Base", href: "/app/knowledge-base" },
       { title: "Ask", href: "/app/knowledge-base/ask" },
+      { title: "Skills", href: "/app/skills" },
       // LLM providers power the agents — grouped with Agentic Ops, not Settings.
       { title: "Providers", href: "/app/settings/providers" },
     ],
