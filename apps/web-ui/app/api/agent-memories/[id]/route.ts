@@ -25,6 +25,9 @@ export async function GET(
     } catch (error: unknown) {
         console.error('API - Error fetching agent memory:', error);
         const message = error instanceof Error ? error.message : 'Failed to fetch memory';
+        if (message.includes('Unauthenticated')) {
+            return NextResponse.json({ success: false, error: message }, { status: 401 });
+        }
         return NextResponse.json({ success: false, error: message }, { status: 500 });
     }
 }
@@ -66,6 +69,9 @@ export async function DELETE(
     } catch (error: unknown) {
         console.error('API - Error deleting agent memory:', error);
         const message = error instanceof Error ? error.message : 'Failed to delete memory';
+        if (message.includes('Unauthenticated')) {
+            return NextResponse.json({ success: false, error: message }, { status: 401 });
+        }
         return NextResponse.json({ success: false, error: message }, { status: 500 });
     }
 }

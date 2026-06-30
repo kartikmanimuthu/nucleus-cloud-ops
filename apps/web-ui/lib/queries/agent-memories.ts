@@ -54,6 +54,8 @@ export function useAgentMemories(filters?: MemoryFilters) {
     });
 }
 
+// Intentionally provided for future per-record detail fetching; not wired into the UI yet
+// (the detail dialog currently reads from the already-fetched list row to avoid a second round-trip).
 export function useAgentMemory(id: string | undefined) {
     return useQuery({
         queryKey: queryKeys.agentMemories.detail(id ?? ''),
