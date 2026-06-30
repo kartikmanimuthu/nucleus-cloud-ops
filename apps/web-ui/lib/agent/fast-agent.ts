@@ -1,7 +1,7 @@
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { getSkillContent } from "./skills/skill-loader";
+import { getSkillContent } from "@/lib/skill-service";
 import {
     GraphConfig,
     ReflectionState,
@@ -38,25 +38,19 @@ export async function createFastGraph(config: GraphConfig) {
     const checkpointer = await getCheckpointer();
     const store = await getStore();
 
-    // Log skill loading
+    // Pre-fetch skill content once (tenant-scoped DB lookup). Used by the system
+    // prompt and reused by the reflector below — no repeated queries.
+    const skillContent = selectedSkill && tenantId ? (await getSkillContent(tenantId, selectedSkill)) || '' : '';
     if (selectedSkill) {
-        const content = getSkillContent(selectedSkill);
-        if (content) {
-            console.log(`[FastAgent] Loaded skill: ${selectedSkill}`);
-        } else {
-            console.warn(`[FastAgent] Failed to load skill content for: ${selectedSkill}`);
-        }
+        console.log(skillContent ? `[FastAgent] Loaded skill: ${selectedSkill}` : `[FastAgent] No content for skill: ${selectedSkill}`);
     }
+    const effectiveSkillSection = buildEffectiveSkillSection(selectedSkill, skillContent || null);
 
     // --- Shared prompt fragments (built once, reused across all nodes) ---
-    const effectiveSkillSection = buildEffectiveSkillSection(selectedSkill);
     const accountContext = buildAccountContext({ accounts, accountId, accountName });
     const awsCliStandards = buildAwsCliStandards();
     const autoApproveGuidance = buildAutoApproveGuidance(autoApprove);
     const operationalWorkflows = buildOperationalWorkflows();
-
-    // skillContent needed for the reflector's critique context
-    const skillContent = selectedSkill ? (getSkillContent(selectedSkill) || '') : '';
 
     // --- Model Initialization ---
     const { main: model, reflector: reflectorModel } = createAgentModels(modelConfig);
