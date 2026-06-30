@@ -25,6 +25,7 @@ import type { IScheduledTaskRepository } from './repositories/scheduled-task/int
 import type { ICertificateRepository } from './repositories/certificate/interface';
 import type { IRightSizingRepository } from './repositories/right-sizing/interface';
 import type { IPricingCatalogRepository } from './repositories/pricing/interface';
+import type { IAgentMemoryRepository } from './repositories/agent-memory/interface';
 
 export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -114,6 +115,12 @@ export function getPricingCatalogRepository(): IPricingCatalogRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { PricingCatalogPostgresRepository } = require('./repositories/pricing/postgres');
     return new PricingCatalogPostgresRepository();
+}
+
+export function getAgentMemoryRepository(): IAgentMemoryRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AgentMemoryPostgresRepository } = require('./repositories/agent-memory/postgres');
+    return new AgentMemoryPostgresRepository();
 }
 
 /**
