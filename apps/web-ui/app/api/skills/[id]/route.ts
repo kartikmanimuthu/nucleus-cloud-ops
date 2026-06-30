@@ -39,6 +39,9 @@ export async function GET(
         }
         return NextResponse.json({ success: true, data: toDTO(skill) });
     } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Unauthenticated')) {
+            return NextResponse.json({ success: false, error: 'Unauthenticated' }, { status: 401 });
+        }
         console.error('[SkillsAPI] GET [id] error:', error);
         return NextResponse.json(
             { success: false, error: error instanceof Error ? error.message : 'Failed to fetch skill' },

@@ -97,6 +97,13 @@ describe('GET /api/skills', () => {
         expect((res as any)._status).toBe(500);
         expect((res as any)._data.success).toBe(false);
     });
+
+    it('returns 401 with generic body when getSessionTenantId throws Unauthenticated', async () => {
+        vi.mocked(getSessionTenantId).mockRejectedValue(new Error('Unauthenticated: no valid session'));
+        const res = await GET(makeRequest(undefined));
+        expect((res as any)._status).toBe(401);
+        expect((res as any)._data).toEqual({ success: false, error: 'Unauthenticated' });
+    });
 });
 
 describe('POST /api/skills', () => {
@@ -121,6 +128,20 @@ describe('POST /api/skills', () => {
             listByTenant: vi.fn(),
             getBySlug: vi.fn().mockResolvedValue({ id: 'existing', slug: 'cost' }),
             create: vi.fn(),
+        };
+        vi.mocked(getSkillRepository).mockReturnValue(repo as any);
+        const res = await POST(makeRequest({ name: 'Cost', description: 'd', tier: 'read-only', content: 'x' }));
+        expect((res as any)._status).toBe(409);
+        expect((res as any)._data.success).toBe(false);
+    });
+
+    it('409s on unique-constraint race (P2002) during create', async () => {
+        vi.mocked(authorize).mockResolvedValue(null);
+        const p2002 = Object.assign(new Error('Unique constraint violation'), { code: 'P2002' });
+        const repo = {
+            listByTenant: vi.fn(),
+            getBySlug: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockRejectedValue(p2002),
         };
         vi.mocked(getSkillRepository).mockReturnValue(repo as any);
         const res = await POST(makeRequest({ name: 'Cost', description: 'd', tier: 'read-only', content: 'x' }));

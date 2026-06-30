@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
         const skills = await getSkillRepository().listByTenant(tenantId, { includeDisabled });
         return NextResponse.json({ success: true, skills: skills.map(toDTO) });
     } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Unauthenticated')) {
+            return NextResponse.json({ success: false, error: 'Unauthenticated' }, { status: 401 });
+        }
         console.error('[SkillsAPI] GET error:', error);
         return NextResponse.json(
             { success: false, error: error instanceof Error ? error.message : 'Failed to load skills' },
@@ -60,17 +63,28 @@ export async function POST(request: NextRequest) {
                 { status: 409 }
             );
         }
-        const created = await getSkillRepository().create(tenantId, {
-            slug,
-            name,
-            description,
-            tier,
-            content,
-            source,
-            isEnabled,
-            createdBy: session?.user?.id ?? null,
-            sourceRunId,
-        });
+        let created: SkillRecord;
+        try {
+            created = await getSkillRepository().create(tenantId, {
+                slug,
+                name,
+                description,
+                tier,
+                content,
+                source,
+                isEnabled,
+                createdBy: session?.user?.id ?? null,
+                sourceRunId,
+            });
+        } catch (err) {
+            if (err && typeof err === 'object' && (err as { code?: string }).code === 'P2002') {
+                return NextResponse.json(
+                    { success: false, error: `A skill with slug "${slug}" already exists` },
+                    { status: 409 }
+                );
+            }
+            throw err;
+        }
         AuditService.logUserAction({
             action: 'create',
             resourceType: 'Skill',
