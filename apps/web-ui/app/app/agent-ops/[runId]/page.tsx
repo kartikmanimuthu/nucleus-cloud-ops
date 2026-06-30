@@ -30,7 +30,7 @@ const EVENT_TYPE_CONFIG: Record<AgentEventType, { label: string; icon: typeof Br
 
 // ─── Single event row ────────────────────────────────────────────────────────
 
-function EventRow({ event, idx }: { event: AgentOpsEvent; idx: number }) {
+function EventRow({ event, idx, timezone }: { event: AgentOpsEvent; idx: number; timezone?: string }) {
     const [expanded, setExpanded] = useState(false)
     const config = EVENT_TYPE_CONFIG[event.eventType] || EVENT_TYPE_CONFIG.execution
     const EventIcon = config.icon
@@ -496,7 +496,7 @@ export default function RunDetailPage() {
                         <div className="relative space-y-0">
                             <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
                             {events.map((event, idx) => (
-                                <EventRow key={`${event.SK}-${idx}`} event={event} idx={idx} />
+                                <EventRow key={`${event.SK}-${idx}`} event={event} idx={idx} timezone={timezone} />
                             ))}
                         </div>
                     )}

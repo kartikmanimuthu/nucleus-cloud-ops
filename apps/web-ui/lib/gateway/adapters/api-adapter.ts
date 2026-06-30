@@ -16,6 +16,7 @@ import type {
     GatewayMessage,
 } from '@/lib/gateway/types';
 import type { AgentOpsRun, AgentOpsEvent } from '@/lib/agent-ops/types';
+import { getAuthSession } from '@/lib/auth-session';
 
 export class ApiAdapter implements ChannelAdapter {
     readonly channelType: ChannelType = 'api';
@@ -43,7 +44,16 @@ export class ApiAdapter implements ChannelAdapter {
     async parseInbound(req: NextRequest): Promise<GatewayMessage> {
         const payload = await req.json();
 
-        const tenantId = req.headers.get('x-tenant-id') || 'default';
+        // Resolve tenant from the authenticated session first (UI-driven flow).
+        // The read paths (GET /api/agent-ops[/runId]) resolve tenant via
+        // getSessionTenantId(), so the write path MUST agree — otherwise runs are
+        // created under one tenant and queried under another (404 "Run not found",
+        // plus provider lookups miss the tenant's configured LLM provider).
+        // Fall back to the x-tenant-id header only for genuine external API-key
+        // callers that have no session.
+        const session = await getAuthSession();
+        const tenantId =
+            session?.user?.tenantId || req.headers.get('x-tenant-id') || 'default';
 
         return {
             channelType: 'api',
