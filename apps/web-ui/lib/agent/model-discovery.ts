@@ -75,6 +75,10 @@ async function discoverBedrock(creds: ProviderCredentials, region?: string): Pro
         const id = model.modelId.toLowerCase();
 
         if (id.includes('embed')) {
+            // Surface ALL embedding models so the user has the full list. Whether
+            // a given model is actually usable (supported request schema + 1024
+            // dims) is determined per-selection by the probe-embedding route; the
+            // wizard greys out / blocks the ones that don't work, with a reason.
             if (model.inferenceTypesSupported?.includes('ON_DEMAND')) {
                 models.push({
                     id: model.modelId,

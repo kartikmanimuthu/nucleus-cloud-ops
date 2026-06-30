@@ -27,7 +27,8 @@ import { getActiveMCPTools, isOpenAICompatibleProvider, type AccountContext, typ
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { saveMemory, searchMemory } from "./persistence";
-import { env } from "@/env";
+import { ProviderConfigError } from "./provider-errors";
+import { normalizeOpenAICompatibleBaseUrl } from "@/lib/provider-model-service";
 
 export interface AgentModels {
     /** Primary model: streaming. Used for all generation nodes. */
@@ -44,10 +45,18 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
     if (isOpenAICompatibleProvider(config.provider)) {
         // Ollama, LiteLLM, LM Studio, and generic OpenAI-compatible endpoints all
         // speak the same /v1 protocol, so they share this ChatOpenAI path.
+        // Self-hosted providers REQUIRE an explicit base URL — without it ChatOpenAI
+        // silently routes to api.openai.com, the exact implicit default this SaaS
+        // model forbids. Only native "openai" may omit baseUrl (defaults correctly).
+        if (config.provider !== "openai" && !config.baseUrl) {
+            throw new ProviderConfigError(
+                `Provider "${config.provider}" is missing a base URL. Set the endpoint on the provider in Settings → Providers.`,
+            );
+        }
         const openaiConfig = {
             modelName: config.modelId,
             configuration: {
-                baseURL: config.baseUrl,
+                baseURL: normalizeOpenAICompatibleBaseUrl(config.provider, config.baseUrl),
                 apiKey: config.apiKey || "not-needed",
             },
             temperature: 0,
@@ -90,19 +99,22 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
         };
     }
 
-    // Default: Bedrock. A record-backed Bedrock provider supplies an explicit
-    // region + static credentials; native Bedrock falls back to env region and
-    // the host/task-role credential chain (credentials omitted).
-    const region = config.region || env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
-    const explicitCredentials =
-        config.accessKeyId && config.secretAccessKey
-            ? { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey }
-            : undefined;
+    // Default: Bedrock. A record-backed Bedrock provider MUST supply an explicit
+    // region + static credentials — there is no implicit host/task-role fallback
+    // (SaaS model: only the tenant-configured provider is ever used).
+    if (!config.accessKeyId || !config.secretAccessKey || !config.region) {
+        throw new ProviderConfigError(
+            'Bedrock provider is missing an access key, secret key, or region. Re-configure the provider in Settings → Providers.',
+        );
+    }
     const bedrockConfig = {
-        region,
+        region: config.region,
         model: config.modelId,
         temperature: 0,
-        ...(explicitCredentials ? { credentials: explicitCredentials } : {}),
+        credentials: {
+            accessKeyId: config.accessKeyId,
+            secretAccessKey: config.secretAccessKey,
+        },
     };
     const defaultMaxTokens = config.maxTokens || 4096;
     return {

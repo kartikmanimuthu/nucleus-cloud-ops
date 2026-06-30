@@ -80,6 +80,14 @@ export interface CreateProviderInput {
 export type UpdateProviderInput = Partial<CreateProviderInput> & { isEnabled?: boolean };
 
 const providersKey = ['settings', 'providers'] as const;
+const providerModelsKey = ['settings', 'providers', 'models'] as const;
+
+/** A flat chat-model picker entry: composite id `{provider}:{modelId}:{recordId}`. */
+export interface ProviderModelOption {
+    id: string;
+    label: string;
+    provider: string;
+}
 
 export function useProviders() {
     return useQuery({
@@ -91,6 +99,25 @@ export function useProviders() {
                 throw new Error(json.error ?? 'Failed to load providers.');
             }
             return json.data.providers ?? [];
+        },
+    });
+}
+
+/**
+ * The flat chat-model picker list, sourced ONLY from tenant-configured providers
+ * (no hardcoded Bedrock baseline). Shared by every model dropdown so the fetch,
+ * response shape, and caching live in one place.
+ */
+export function useProviderModels() {
+    return useQuery({
+        queryKey: providerModelsKey,
+        queryFn: async (): Promise<ProviderModelOption[]> => {
+            const res = await fetch('/api/settings/providers');
+            const json = await res.json();
+            if (!res.ok || !json.success) {
+                throw new Error(json.error ?? 'Failed to load models.');
+            }
+            return (json.data.models ?? []) as ProviderModelOption[];
         },
     });
 }
@@ -215,6 +242,44 @@ export function useDiscoverModels() {
             const json = await res.json();
             if (!res.ok || !json.success) throw new Error(json.error ?? 'Failed to discover models');
             return (json.data?.models ?? []) as DiscoveredModel[];
+        },
+    });
+}
+
+export interface EmbeddingProbeResult {
+    /** True only when the model is invocable AND outputs `required`-dim vectors. */
+    compatible: boolean;
+    /** False when the model's request schema isn't supported (Cohere/Nova/multimodal). */
+    supported: boolean;
+    /** Effective output dimension, or null when the model couldn't be invoked. */
+    dimensions: number | null;
+    required: number;
+    /** Human-readable reason when not compatible; null when compatible. */
+    reason: string | null;
+}
+
+/**
+ * Probes an embedding model's effective output dimension (after any
+ * text-embedding-3 reduction) so the wizard can auto-detect + validate it
+ * against the platform's fixed vector columns. One-shot; no cache.
+ */
+export function useProbeEmbedding() {
+    return useMutation({
+        mutationFn: async (input: {
+            providerType: ProviderType;
+            embeddingModel: string;
+            credentials?: ProviderCredentialsInput;
+            region?: string;
+            providerId?: string;
+        }): Promise<EmbeddingProbeResult> => {
+            const res = await fetch('/api/settings/providers/probe-embedding', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(input),
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error ?? 'Failed to probe embedding model');
+            return json.data as EmbeddingProbeResult;
         },
     });
 }

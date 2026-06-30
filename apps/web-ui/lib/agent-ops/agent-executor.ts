@@ -13,6 +13,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { HumanMessage } from '@langchain/core/messages';
 import { createDynamicExecutorGraph } from './executor-graphs';
+import { resolveModelConfig, resolveDefaultModelConfig } from '../agent/model-resolver';
 import { agentOpsService } from './agent-ops-service';
 import { getMCPManager } from '../agent/mcp-manager';
 import { registerRun, cleanupRun, isAborted } from './run-manager';
@@ -92,8 +93,13 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
         });
 
         // ── Build graph ───────────────────────────────────────────────────────
+        // Resolve the configured provider — no hardcoded Bedrock default.
+        const modelString = (run as any).model as string | undefined;
+        const resolvedModel = modelString
+            ? await resolveModelConfig(modelString, tenantId)
+            : await resolveDefaultModelConfig(tenantId);
         const graphConfig = {
-            model: (run as any).model || 'global.anthropic.claude-sonnet-4-6',
+            model: resolvedModel,
             autoApprove,
             accounts: accountId ? [{ accountId, accountName: accountName || accountId }] : [],
             accountId,
@@ -515,8 +521,12 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
             console.warn(`[AgentExecutor] MCP reconnect failed (non-fatal):`, mcpErr);
         }
 
+        const modelString = (run as any).model as string | undefined;
+        const resolvedModel = modelString
+            ? await resolveModelConfig(modelString, tenantId)
+            : await resolveDefaultModelConfig(tenantId);
         const graphConfig = {
-            model: (run as any).model || 'global.anthropic.claude-sonnet-4-6',
+            model: resolvedModel,
             autoApprove: false, // keep approval mode — tools still need approval
             accounts: accountId ? [{ accountId, accountName: accountName || accountId }] : [],
             accountId,

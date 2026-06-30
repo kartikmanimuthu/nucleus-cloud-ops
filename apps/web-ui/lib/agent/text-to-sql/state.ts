@@ -1,4 +1,5 @@
 import { Annotation } from "@langchain/langgraph";
+import type { ResolvedModelConfig } from "../agent-shared";
 
 export interface SQLResult {
     rows: Record<string, unknown>[];
@@ -17,6 +18,8 @@ export const TextToSQLAnnotation = Annotation.Root({
         reducer: (_x, y) => y, default: () => [],
     }),
     tenantId: Annotation<string>({ reducer: (_x, y) => y, default: () => "" }),
+    /** Resolved config for the tenant's configured provider — drives every LLM node. */
+    modelConfig: Annotation<ResolvedModelConfig | null>({ reducer: (_x, y) => y, default: () => null }),
     filters: Annotation<TextToSQLFilters | undefined>({
         reducer: (_x, y) => y, default: () => undefined,
     }),
@@ -35,3 +38,18 @@ export const TextToSQLAnnotation = Annotation.Root({
 });
 
 export type TextToSQLState = typeof TextToSQLAnnotation.State;
+
+/**
+ * Returns the resolved provider config, throwing a clear error if it's missing.
+ * `invokeTextToSQL` always seeds `modelConfig`; this guard protects any direct
+ * `createTextToSQLGraph()` invocation that bypasses it (the annotation defaults
+ * to null), turning a confusing undefined-spread into an explicit failure.
+ */
+export function requireModelConfig(state: TextToSQLState): ResolvedModelConfig {
+    if (!state.modelConfig) {
+        throw new Error(
+            'Text-to-SQL graph was invoked without a resolved model config. Use invokeTextToSQL(), which resolves the tenant provider first.',
+        );
+    }
+    return state.modelConfig;
+}

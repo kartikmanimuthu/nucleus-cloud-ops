@@ -12,7 +12,7 @@ import {
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
 import { OrgSwitcher } from "@/components/settings/org-switcher"
-import { navGroups } from "@/lib/nav-config"
+import { navMenus } from "@/lib/nav-config"
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   return (
@@ -21,7 +21,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
         <OrgSwitcher />
       </SidebarHeader>
       <SidebarContent>
-        <NavMain groups={navGroups} />
+        <NavMain items={navMenus} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />

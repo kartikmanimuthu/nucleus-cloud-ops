@@ -100,19 +100,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
+import { useProviderModels } from "@/lib/queries/providers";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
-
-// Available models
-interface AvailableModel {
-  id: string;
-  label: string;
-  provider: string;
-}
-
-const DEFAULT_MODELS: AvailableModel[] = [
-  { id: "bedrock:global.anthropic.claude-sonnet-4-6", label: "Claude 4.6 Sonnet", provider: "bedrock" },
-  { id: "bedrock:global.anthropic.claude-sonnet-4-5-20250929-v1:0", label: "Claude 4.5 Sonnet", provider: "bedrock" },
-];
 
 // Phase types matching backend
 type AgentPhase =
@@ -474,23 +463,17 @@ export function ChatInterface({
   // Configuration state (before conversation starts)
   const [autoApprove, setAutoApprove] = useState(true);
   const [showTools, setShowTools] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("bedrock:global.anthropic.claude-sonnet-4-6");
-  const [availableModels, setAvailableModels] = useState<AvailableModel[]>(DEFAULT_MODELS);
+  const [selectedModel, setSelectedModel] = useState("");
+  // Models are sourced ONLY from tenant-configured providers (shared TanStack
+  // Query hook — no hardcoded Bedrock baseline). Auto-select the first available
+  // model so a configured tenant has a sensible default without picking one.
+  const { data: availableModels = [] } = useProviderModels();
 
   useEffect(() => {
-    async function fetchModels() {
-      try {
-        const res = await fetch('/api/settings/providers');
-        const json = await res.json();
-        if (res.ok && json.success && json.data?.models?.length > 0) {
-          setAvailableModels(json.data.models);
-        }
-      } catch {
-        // Silently fall back to defaults
-      }
-    }
-    fetchModels();
-  }, []);
+    setSelectedModel((prev) =>
+      prev && availableModels.some((m) => m.id === prev) ? prev : availableModels[0]?.id ?? "",
+    );
+  }, [availableModels]);
   const [agentMode, setAgentMode] = useState("fast");
   const [hasStarted, setHasStarted] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -1573,10 +1556,15 @@ export function ChatInterface({
                 <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px]">
                   <div className="flex items-center gap-1.5">
                     <Sparkles className="w-3 h-3 text-primary" />
-                    <SelectValue placeholder="Select Model" />
+                    <SelectValue placeholder={availableModels.length === 0 ? "No providers configured" : "Select Model"} />
                   </div>
                 </SelectTrigger>
                 <SelectContent>
+                  {availableModels.length === 0 && (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      No LLM providers configured. Add one in Settings → Providers.
+                    </div>
+                  )}
                   {(() => {
                     // Group label per provider type. Bedrock first, then the rest in a
                     // stable order; any unrecognised provider falls back to its raw key.

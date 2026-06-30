@@ -1,23 +1,32 @@
 import { NextResponse } from 'next/server';
-import { ChatBedrockConverse } from "@langchain/aws";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { env } from "@/env";
+import { getSessionTenantId } from "@/lib/auth-session";
+import { resolveDefaultModelConfig } from "@/lib/agent/model-resolver";
+import { createAgentModels } from "@/lib/agent/model-factory";
+import { isProviderConfigError } from "@/lib/agent/provider-errors";
 
 export async function POST(req: Request) {
     try {
-        const { prompt, model } = await req.json();
+        const { prompt } = await req.json();
 
         if (!prompt) {
             return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
         }
 
-        // Initialize Bedrock Client
-        const llm = new ChatBedrockConverse({
-            region: env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
-            model: 'global.anthropic.claude-haiku-4-5-20251001-v1:0', // Force Haiku for speed
-            maxTokens: 512,
-            temperature: 0.5, // Less creative, more concise
-        });
+        // Use the tenant's configured default provider — no hardcoded Bedrock.
+        // The reflector instance is the small, non-streaming model variant, ideal
+        // for a quick prompt-enhancement pass.
+        let llm;
+        try {
+            const tenantId = await getSessionTenantId();
+            const config = await resolveDefaultModelConfig(tenantId);
+            llm = createAgentModels({ ...config, maxTokens: 512 }).reflector;
+        } catch (e) {
+            if (isProviderConfigError(e)) {
+                return NextResponse.json({ error: e.message }, { status: 400 });
+            }
+            throw e;
+        }
 
         const systemPrompt = new SystemMessage(
             `You are an expert prompt engineer for an advanced AI DevOps Agent.

@@ -15,14 +15,14 @@ const UUID = '550e8400-e29b-41d4-a716-446655440000';
 describe('resolveModelConfig', () => {
     beforeEach(() => vi.clearAllMocks());
 
-    it('resolves bare Bedrock model ID (backward compat)', async () => {
-        const result = await resolveModelConfig('global.anthropic.claude-sonnet-4-6', 'tenant-1');
-        expect(result).toEqual({ provider: 'bedrock', modelId: 'global.anthropic.claude-sonnet-4-6' });
+    it('throws for a bare model ID — no implicit Bedrock fallback (SaaS)', async () => {
+        await expect(resolveModelConfig('global.anthropic.claude-sonnet-4-6', 'tenant-1'))
+            .rejects.toThrow('is not backed by a configured provider');
     });
 
-    it('resolves bedrock: prefixed native model ID (no provider record)', async () => {
-        const result = await resolveModelConfig('bedrock:global.anthropic.claude-sonnet-4-6', 'tenant-1');
-        expect(result).toEqual({ provider: 'bedrock', modelId: 'global.anthropic.claude-sonnet-4-6' });
+    it('throws for a bedrock: native model ID without a provider record (SaaS)', async () => {
+        await expect(resolveModelConfig('bedrock:global.anthropic.claude-sonnet-4-6', 'tenant-1'))
+            .rejects.toThrow('is not backed by a configured provider');
     });
 
     it('resolves record-backed Bedrock model with explicit credentials', async () => {

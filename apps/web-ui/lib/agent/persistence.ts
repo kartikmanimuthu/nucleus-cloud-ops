@@ -10,10 +10,10 @@
  * Uses globalThis to survive Next.js hot reloads in dev mode.
  */
 
-import { BedrockEmbeddings } from "@langchain/aws";
+import type { Embeddings } from "@langchain/core/embeddings";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
-import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
 import { getPrismaClient } from "@/lib/db/pg-config";
+import { getTenantEmbeddings } from "./embeddings-factory";
 import { env } from "@/env";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -88,10 +88,22 @@ class PostgresChatHistory implements ChatHistoryInterface {
 // ─── PostgreSQL Memory Store ──────────────────────────────────────────────────
 
 class PostgresMemoryStore implements MemoryStoreInterface {
-    private embeddings: BedrockEmbeddings;
+    // Embeddings are resolved PER TENANT from the configured default provider —
+    // there is no shared/default Bedrock embedder. Cached per tenant to avoid
+    // re-decrypting credentials on every memory op. If a tenant has no
+    // embedding-capable provider, embedding is skipped and we fall back to
+    // recency-ordered text search (semantic search degrades gracefully).
+    private embeddingsCache = new Map<string, Promise<Embeddings>>();
 
-    constructor(embeddings: BedrockEmbeddings) {
-        this.embeddings = embeddings;
+    private getEmbeddings(tenantId: string): Promise<Embeddings> {
+        let cached = this.embeddingsCache.get(tenantId);
+        if (!cached) {
+            cached = getTenantEmbeddings(tenantId);
+            // Don't cache a rejected promise — a later provider config should retry.
+            cached.catch(() => this.embeddingsCache.delete(tenantId));
+            this.embeddingsCache.set(tenantId, cached);
+        }
+        return cached;
     }
 
     async batch(ops: unknown[], _config?: unknown): Promise<unknown[]> {
@@ -112,9 +124,10 @@ class PostgresMemoryStore implements MemoryStoreInterface {
                 let embeddingVector: number[] | null = null;
                 try {
                     const text = JSON.stringify(value);
-                    embeddingVector = await this.embeddings.embedQuery(text);
+                    const emb = await this.getEmbeddings(tenantId);
+                    embeddingVector = await emb.embedQuery(text);
                 } catch {
-                    // embedding failure is non-fatal — store without vector
+                    // no provider / embedding failure is non-fatal — store without vector
                 }
 
                 const embeddingStr = embeddingVector ? `[${embeddingVector.join(",")}]` : null;
@@ -145,9 +158,10 @@ class PostgresMemoryStore implements MemoryStoreInterface {
 
                 let queryEmbedding: number[] | null = null;
                 try {
-                    queryEmbedding = await this.embeddings.embedQuery(query);
+                    const emb = await this.getEmbeddings(tenantId);
+                    queryEmbedding = await emb.embedQuery(query);
                 } catch {
-                    // fallback to text search
+                    // no provider / embedding failure — fallback to text search
                 }
 
                 if (queryEmbedding) {
@@ -195,19 +209,15 @@ class PostgresMemoryStore implements MemoryStoreInterface {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 async function initPersistence(): Promise<PersistenceInstances> {
-    const region = env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || "us-east-1";
     const databaseUrl = env.DATABASE_URL!;
 
     // PostgresSaver manages its own schema — call setup() on first use
     const checkpointer = PostgresSaver.fromConnString(databaseUrl);
     await checkpointer.setup();
 
-    const embeddings = new BedrockEmbeddings({
-        region,
-        model: "amazon.titan-embed-text-v2:0",
-    });
-
-    const store = new PostgresMemoryStore(embeddings);
+    // Embeddings are resolved per-tenant from the configured provider inside
+    // PostgresMemoryStore — no shared Bedrock embedder is created here.
+    const store = new PostgresMemoryStore();
     const chatHistory = new PostgresChatHistory();
 
     console.log("[Persistence] Initialized PostgresSaver, PostgresMemoryStore, PostgresChatHistory");
