@@ -60,4 +60,8 @@ export const queryKeys = {
         sessions: () => [...queryKeys.kbChat.all, 'sessions'] as const,
         messages: (sessionId: string) => [...queryKeys.kbChat.all, 'messages', sessionId] as const,
     },
+    mcpServers: {
+        all: ['mcp-servers'] as const,
+        config: (apiPath: string) => [...queryKeys.mcpServers.all, apiPath] as const,
+    },
 } as const;
