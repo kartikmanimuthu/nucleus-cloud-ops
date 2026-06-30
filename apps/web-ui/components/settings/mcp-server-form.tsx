@@ -106,7 +106,7 @@ export function McpServerForm({ value, onChange, apiPath }: McpServerFormProps) 
                       className="min-h-[64px] rounded-md border bg-background px-3 py-2 text-xs font-mono"
                       value={row.args.join('\n')}
                       placeholder={'-y\n@modelcontextprotocol/server-filesystem'}
-                      onChange={(e) => updateRow(i, { ...row, args: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) })}
+                      onChange={(e) => updateRow(i, { ...row, args: e.target.value.split('\n') })}
                     />
                   </div>
                   <KeyValueEditor label="Environment variables" value={row.env} onChange={(env) => updateRow(i, { ...row, env })} keyPlaceholder="VAR_NAME" />

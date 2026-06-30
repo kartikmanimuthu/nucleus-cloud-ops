@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { MCPConfigJson, MCPServerJsonEntry } from './mcp-config';
+import { isRemoteEntry, DEFAULT_MCP_SERVERS } from './mcp-config';
 
 const kvPairSchema = z.object({ key: z.string(), value: z.string() });
 
@@ -44,7 +45,7 @@ function pairsToRecord(pairs: { key: string; value: string }[]): Record<string, 
 
 export function configToFormRows(config: MCPConfigJson): McpFormRow[] {
     return Object.entries(config.mcpServers).map(([id, entry]) => {
-        if (entry.type === 'sse' || entry.type === 'http') {
+        if (isRemoteEntry(entry)) {
             return {
                 id,
                 type: entry.type,
@@ -53,13 +54,20 @@ export function configToFormRows(config: MCPConfigJson): McpFormRow[] {
                 disabled: entry.disabled === true,
             };
         }
+        // Apply same default-server fallback as the runtime toServerConfig so that
+        // the "Inject AWS credentials" toggle reflects the true runtime state even
+        // when defaultsToJson() omitted the flag (e.g. aws-cost-explorer).
+        const requiresAwsCredentials =
+            entry.requiresAwsCredentials ??
+            DEFAULT_MCP_SERVERS.find(s => s.id === id)?.requiresAwsCredentials ??
+            false;
         return {
             id,
             type: 'stdio',
             command: entry.command,
             args: [...entry.args],
             env: recordToPairs(entry.env),
-            requiresAwsCredentials: entry.requiresAwsCredentials === true,
+            requiresAwsCredentials,
             disabled: entry.disabled === true,
         };
     });
@@ -73,21 +81,30 @@ export function formRowsToConfig(rows: McpFormRow[]): { config: MCPConfigJson; e
         if (mcpServers[id]) return { config: { mcpServers }, error: `Duplicate server ID "${id}"` };
 
         if (row.type === 'sse' || row.type === 'http') {
-            const headers = pairsToRecord(row.headers);
+            // McpRemoteRow — `type` is z.enum(['sse','http']) so TS narrows this arm correctly.
+            const remoteRow = row as McpRemoteRow;
+            const headers = pairsToRecord(remoteRow.headers);
             mcpServers[id] = {
-                type: row.type,
-                url: row.url,
+                type: remoteRow.type,
+                url: remoteRow.url,
                 ...(Object.keys(headers).length ? { headers } : {}),
-                disabled: row.disabled,
+                disabled: remoteRow.disabled,
             };
         } else {
-            const env = pairsToRecord(row.env);
+            // McpStdioRow — TS cannot narrow the else-branch of a union where the remote
+            // arm uses z.enum (multi-literal) rather than two separate z.literal branches,
+            // so we assert the narrowed type explicitly.
+            const stdioRow = row as McpStdioRow;
+            // Trim and drop blank/whitespace-only args at save time.
+            // The textarea onChange keeps raw lines so typing is not disrupted (T7).
+            const args = stdioRow.args.map((a: string) => a.trim()).filter(Boolean);
+            const env = pairsToRecord(stdioRow.env);
             mcpServers[id] = {
-                command: row.command,
-                args: row.args,
+                command: stdioRow.command,
+                args,
                 ...(Object.keys(env).length ? { env } : {}),
-                ...(row.requiresAwsCredentials ? { requiresAwsCredentials: true } : {}),
-                disabled: row.disabled,
+                ...(stdioRow.requiresAwsCredentials ? { requiresAwsCredentials: true } : {}),
+                disabled: stdioRow.disabled,
             };
         }
     }

@@ -212,6 +212,29 @@ These power the form and the Form↔JSON conversion. Pure functions → unit tes
 - Multi-tenant: all reads/writes continue through `TenantConfigService` (tenant-scoped);
   test endpoint guarded by `getSessionTenantId()`.
 
+## Security Notes
+
+### Known/accepted risk: SSRF via remote MCP URL
+
+`isValidHttpUrl` in `mcp-config.ts` validates only the URL protocol (`http:` / `https:`).
+It does **not** restrict loopback (127.0.0.1), link-local (169.254.0.0/16, which includes
+the AWS IMDS endpoint at 169.254.169.254), or RFC-1918 private CIDR ranges.
+
+Consequently, an authenticated tenant user can cause the server to open an outbound HTTP
+connection to internal services through:
+- The **Test Connection** button (POST `/api/mcp-servers/test`)
+- The **runtime MCP manager** when it connects enabled servers on agent startup
+
+**Accepted risk rationale:** The stdio transport already grants the same authenticated user
+arbitrary local command execution on the same ECS task (same trust boundary). Remote MCP
+extends that surface to outbound HTTP rather than local exec, but both operate on a
+tenant-scoped, authenticated boundary. The risk profile is comparable.
+
+**Recommended follow-up (not in scope for this feature):** Before exposing remote MCP URLs
+to lower-trust user tiers, add a deny-list for link-local (169.254.0.0/16), loopback
+(127.0.0.0/8), and RFC-1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+inside `isValidHttpUrl`.
+
 ## Out of Scope (YAGNI)
 
 - No per-server DB table / version history (rejected architecture option).

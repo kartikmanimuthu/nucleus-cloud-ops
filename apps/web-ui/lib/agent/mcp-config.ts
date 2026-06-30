@@ -53,6 +53,18 @@ export interface RemoteJsonEntry {
 
 export type MCPServerJsonEntry = StdioJsonEntry | RemoteJsonEntry;
 
+/**
+ * Type guard for discriminated-union narrowing on MCPServerJsonEntry.
+ * StdioJsonEntry.type is optional (absent ⇒ stdio), so a plain
+ * `entry.type === 'sse' || entry.type === 'http'` check does NOT narrow
+ * the else-branch to StdioJsonEntry in TypeScript — TS still sees the full
+ * union there. Using this guard as the condition narrows the else-branch
+ * correctly to StdioJsonEntry in all branches.
+ */
+export function isRemoteEntry(entry: MCPServerJsonEntry): entry is RemoteJsonEntry {
+    return entry.type === 'sse' || entry.type === 'http';
+}
+
 export interface MCPConfigJson {
     mcpServers: Record<string, MCPServerJsonEntry>;
 }
@@ -276,7 +288,7 @@ function toServerConfig(id: string, entry: MCPServerJsonEntry): MCPServerConfig 
     const description = defaultServer?.description || `MCP server: ${id}`;
     const enabled = entry.disabled !== true;
 
-    if (entry.type === 'sse' || entry.type === 'http') {
+    if (isRemoteEntry(entry)) {
         return {
             id, name, description, enabled,
             transport: entry.type,
@@ -323,6 +335,27 @@ export function mergeConfigs(savedJson: MCPConfigJson | null): MCPServerConfig[]
     return Object.values(merged);
 }
 
+/**
+ * SECURITY NOTE — SSRF surface (accepted risk):
+ *
+ * Only the URL protocol (http: / https:) is validated here. Remote MCP URLs
+ * are NOT restricted from loopback (127.0.0.1), link-local (169.254.0.0/16,
+ * includes AWS IMDS at 169.254.169.254), or RFC-1918 private ranges.
+ *
+ * This means an authenticated tenant user can make the server open a
+ * connection to internal services via the Test-connection action or at
+ * runtime when the MCP manager connects.
+ *
+ * Accepted risk rationale: the stdio transport already grants the same user
+ * arbitrary local command execution (same trust boundary). Remote MCP widens
+ * the surface to outbound HTTP rather than local exec, but both operate on the
+ * same tenant-scoped, authenticated surface. The risk profile is comparable.
+ *
+ * Follow-up (not in scope for this change): deny-list link-local
+ * (169.254.0.0/16), loopback (127.0.0.0/8), and private CIDR ranges
+ * (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) before exposing this to
+ * untrusted or lower-trust user tiers.
+ */
 function isValidHttpUrl(value: unknown): boolean {
     if (typeof value !== 'string') return false;
     try {
