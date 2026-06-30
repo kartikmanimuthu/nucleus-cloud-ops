@@ -26,6 +26,7 @@ import type { ICertificateRepository } from './repositories/certificate/interfac
 import type { IRightSizingRepository } from './repositories/right-sizing/interface';
 import type { IPricingCatalogRepository } from './repositories/pricing/interface';
 import type { IAgentMemoryRepository } from './repositories/agent-memory/interface';
+import type { ISkillRepository } from './repositories/skill/interface';
 
 export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -121,6 +122,12 @@ export function getAgentMemoryRepository(): IAgentMemoryRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { AgentMemoryPostgresRepository } = require('./repositories/agent-memory/postgres');
     return new AgentMemoryPostgresRepository();
+}
+
+export function getSkillRepository(): ISkillRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { SkillPostgresRepository } = require('./repositories/skill/postgres');
+    return new SkillPostgresRepository();
 }
 
 /**
