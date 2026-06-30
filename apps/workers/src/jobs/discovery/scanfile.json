@@ -64,7 +64,7 @@
     "result_key": "clusterArns",
     "enrichments": [
       { "type": "describe", "method": "describe_clusters", "inputKey": "clusters", "resultKey": "clusters", "batchSize": 100 },
-      { "type": "tags", "method": "list_tags_for_resource", "arnKey": "clusterArn" }
+      { "type": "tags", "method": "list_tags_for_resource", "arnKey": "clusterArn", "inputKey": "resourceArn" }
     ]
   },
   {
@@ -157,7 +157,7 @@
     "function": "list_certificates",
     "result_key": "CertificateSummaryList",
     "enrichments": [
-      { "type": "tags", "method": "list_tags_for_certificate", "arnKey": "CertificateArn" }
+      { "type": "tags", "method": "list_tags_for_certificate", "arnKey": "CertificateArn", "inputKey": "CertificateArn" }
     ]
   },
   {

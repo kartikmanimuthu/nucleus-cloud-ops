@@ -8,7 +8,7 @@ import { writeResourcesToPg, saveSyncStatus } from './services/pg-writer.js';
 import { getTenantJobConfig, updateTenantJobLastRun } from '../scheduler/services/pg-service.js';
 import type { DiscoveryFanOutJob, DiscoveryScanJob } from './types.js';
 import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { createLogger } from '../../lib/logger.js';
 import { env } from '../../env.js';
@@ -34,8 +34,17 @@ export function shouldRunTenant(
     return Date.now() - new Date(lastRunAt).getTime() >= periodToMs(period);
 }
 
+// Resolve the scanfile path cwd-independently: an absolute SCANFILE_PATH is used
+// verbatim, a relative one is resolved against the module dir (not process.cwd(),
+// which differs between `tsx` dev, `node dist` prod, and the local runner), and an
+// unset value falls back to the scanfile.json shipped beside this module.
+export function resolveScanfilePath(configured: string | undefined, baseDir: string): string {
+    if (!configured) return join(baseDir, 'scanfile.json');
+    return isAbsolute(configured) ? configured : join(baseDir, configured);
+}
+
 function loadScanConfigs() {
-    const scanfilePath = env.SCANFILE_PATH ?? join(__dirname, 'scanfile.json');
+    const scanfilePath = resolveScanfilePath(env.SCANFILE_PATH, __dirname);
     return JSON.parse(readFileSync(scanfilePath, 'utf-8'));
 }
 

@@ -38,7 +38,28 @@ vi.mock('../../scheduler/services/pg-service.js', () => ({
   updateTenantJobLastRun: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { register } from '../index.js';
+import { register, resolveScanfilePath } from '../index.js';
+import { isAbsolute, join } from 'path';
+
+describe('resolveScanfilePath', () => {
+  const baseDir = '/app/dist/jobs/discovery';
+
+  it('defaults to scanfile.json next to the module when unset', () => {
+    expect(resolveScanfilePath(undefined, baseDir)).toBe(join(baseDir, 'scanfile.json'));
+  });
+
+  it('resolves a relative override against the module dir (cwd-independent)', () => {
+    const resolved = resolveScanfilePath('./scanfile.json', baseDir);
+    expect(resolved).toBe(join(baseDir, 'scanfile.json'));
+    expect(isAbsolute(resolved)).toBe(true);
+  });
+
+  it('passes an absolute override through unchanged', () => {
+    expect(resolveScanfilePath('/etc/nucleus/scanfile.json', baseDir)).toBe(
+      '/etc/nucleus/scanfile.json',
+    );
+  });
+});
 
 describe('discovery register', () => {
   beforeEach(() => vi.clearAllMocks());

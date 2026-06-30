@@ -1,4 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
+
+const { errorSpy } = vi.hoisted(() => ({ errorSpy: vi.fn() }));
+vi.mock('../lib/logger.js', () => ({
+    createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: errorSpy }),
+}));
+
 import { VerticalExecutor } from './vertical.js';
 
 describe('VerticalExecutor', () => {
@@ -23,6 +29,19 @@ describe('VerticalExecutor', () => {
             throw new Error('handler error');
         });
         await expect(executor.execute('failing-job', {})).rejects.toThrow('handler error');
+    });
+
+    it('logs handler errors with jobName before rethrowing', async () => {
+        errorSpy.mockClear();
+        const executor = new VerticalExecutor();
+        executor.registerHandler('failing-job', async () => {
+            throw new Error('boom');
+        });
+        await expect(executor.execute('failing-job', {})).rejects.toThrow('boom');
+        expect(errorSpy).toHaveBeenCalledWith(
+            'Job execution failed',
+            expect.objectContaining({ jobName: 'failing-job', error: 'boom' }),
+        );
     });
 
     it('overwrites handler when registered twice for same jobName', async () => {

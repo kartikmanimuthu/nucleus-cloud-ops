@@ -1,7 +1,8 @@
 // workers/src/jobs/discovery/local-runner.ts
 import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { resolveScanfilePath } from './index.js';
 import { runInventoryScan } from './services/scanner.js';
 import { writeResourcesToPg, saveSyncStatus } from './services/pg-writer.js';
 import { getAllTenants, getTenantAccounts, updateAccountSyncStatus } from './services/account-service.js';
@@ -34,7 +35,7 @@ async function main() {
     process.env.LOG_LEVEL = 'debug';
   }
 
-  const scanfilePath = process.env.SCANFILE_PATH ?? join(__dirname, 'scanfile.json');
+  const scanfilePath = resolveScanfilePath(process.env.SCANFILE_PATH, __dirname);
   const scanConfigs: ScanConfig[] = JSON.parse(readFileSync(scanfilePath, 'utf-8'));
 
   if (opts.listServices) {
