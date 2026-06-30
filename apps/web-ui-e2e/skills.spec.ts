@@ -66,6 +66,7 @@ test.describe('Skills — Create', () => {
         // Monaco editor: click the editor region and type content.
         // The Monaco container is a div with class "monaco-editor"; it is not a textarea.
         const monacoEditor = dialog.locator('.monaco-editor').first();
+        await expect(monacoEditor).toBeVisible({ timeout: 15000 });
         await monacoEditor.click();
         await page.keyboard.type('# E2E Skill\n1. Do the thing.');
 
@@ -97,6 +98,7 @@ test.describe('Skills — AI Ops Integration', () => {
         await page.getByLabel('Description').fill('E2E skill for AI Ops integration test');
 
         const monacoEditor = dialog.locator('.monaco-editor').first();
+        await expect(monacoEditor).toBeVisible({ timeout: 15000 });
         await monacoEditor.click();
         await page.keyboard.type('# Ops Skill\n- Step 1\n- Step 2');
 
@@ -109,6 +111,9 @@ test.describe('Skills — AI Ops Integration', () => {
         const agentRes = await page.goto('/app/agent', { waitUntil: 'domcontentloaded', timeout: 60000 });
         expect(agentRes?.status(), 'agent page should not 404').not.toBe(404);
         expect(page.url(), 'agent page should not redirect to login').not.toContain('/login');
+
+        // Wait for the skills fetch to resolve so the newly created skill is in the dropdown
+        await page.waitForResponse((r) => r.url().includes('/api/skills') && r.status() === 200);
 
         // The skill selector trigger shows "Select Agent Skill" when nothing is chosen.
         // It renders as a Radix Select whose trigger contains that exact text.
