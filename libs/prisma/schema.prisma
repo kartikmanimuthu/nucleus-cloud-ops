@@ -547,6 +547,41 @@ model ChatSession {
   @@map("chat_sessions")
 }
 
+// KbChatSession — saved Knowledge Base "Ask AI" chat sessions (tenant-shared)
+// Isolated from agent ChatSession so the agent sidebar (/api/threads) never mixes in KB chats.
+// knowledgeBaseId: null = "All Knowledge Bases". userId is creator attribution only.
+model KbChatSession {
+  id              String   @id @default(cuid())
+  tenantId        String
+  sessionId       String   @unique // tenantId:userId:timestamp
+  userId          String
+  title           String   @default("New Chat")
+  knowledgeBaseId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, updatedAt])
+  @@map("kb_chat_sessions")
+}
+
+// KbChatMessage — message history for KB "Ask AI" sessions
+// role: user|assistant. metadata stores retrieved sources ({ sources?: KBSource[] }).
+// expiresAt: 30-day TTL (same cleanup pattern as ChatMessage).
+model KbChatMessage {
+  id        String   @id @default(cuid())
+  tenantId  String
+  sessionId String
+  role      String   // user|assistant
+  content   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  expiresAt DateTime // 30-day TTL
+
+  @@index([tenantId, sessionId, createdAt])
+  @@index([expiresAt])
+  @@map("kb_chat_messages")
+}
+
 // CustomRole — preset (global) and tenant-scoped custom roles with per-module permission sets (Phase 13 RBAC)
 // type: 'preset' = global (tenantId=null), 'custom' = tenant-scoped
 // permissions column stores PermissionSet shape: { Accounts: ['read','update'], ... }
