@@ -881,3 +881,24 @@ model PricingCatalogEntry {
 }
 
 // Build trigger: 2026-05-11T11:42:42Z
+
+// Skill — Skills module
+// Tenant-scoped, slug-unique runbooks/playbooks callable by the AI agent.
+model Skill {
+  id          String   @id @default(cuid())
+  tenantId    String
+  slug        String
+  name        String
+  description String
+  tier        String   // 'read-only' | 'mutation' | 'approval-gated'
+  content     String   @db.Text
+  source      String   @default("user") // 'user' | 'system'
+  isEnabled   Boolean  @default(true)
+  createdBy   String?
+  sourceRunId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+}
