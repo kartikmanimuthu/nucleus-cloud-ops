@@ -212,6 +212,7 @@ export class MCPServerManager {
     private transports: Map<string, Transport> = new Map();
     private toolCache: Map<string, MCPToolInfo[]> = new Map();
     private connecting: Map<string, Promise<void>> = new Map();
+    private probeCounter = 0;
 
     /**
      * Connect to a specific MCP server by config.
@@ -378,7 +379,7 @@ export class MCPServerManager {
      * Used by the "Test connection" endpoint — never persists state.
      */
     async probeConnection(config: MCPServerConfig): Promise<{ toolCount: number; tools: string[] }> {
-        const ephemeralId = `__probe__:${config.id}:${Date.now()}`;
+        const ephemeralId = `__probe__:${config.id}:${Date.now()}:${++this.probeCounter}`;
         try {
             await this._doConnect({ ...config, id: ephemeralId });
             const tools = this.toolCache.get(ephemeralId) || [];
