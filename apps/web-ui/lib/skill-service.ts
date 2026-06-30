@@ -18,7 +18,7 @@ export function slugify(name: string): string {
 
 export async function loadSkills(tenantId: string): Promise<SkillMetadata[]> {
     const rows = await getSkillRepository().listByTenant(tenantId);
-    return rows.map((s) => ({ id: s.slug, name: s.name, description: s.description, tier: s.tier }));
+    return rows.filter((s) => s.isEnabled).map((s) => ({ id: s.slug, name: s.name, description: s.description, tier: s.tier }));
 }
 
 export async function getSkillById(tenantId: string, slug: string): Promise<SkillMetadata | null> {
@@ -33,7 +33,7 @@ export async function getSkillContent(tenantId: string, slug: string): Promise<s
 
 export async function loadAllSkillContent(tenantId: string): Promise<Map<string, string>> {
     const rows = await getSkillRepository().listByTenant(tenantId);
-    return new Map(rows.map((s) => [s.slug, s.content]));
+    return new Map(rows.filter((s) => s.isEnabled).map((s) => [s.slug, s.content]));
 }
 
 export async function getSkillSummaries(tenantId: string): Promise<string> {

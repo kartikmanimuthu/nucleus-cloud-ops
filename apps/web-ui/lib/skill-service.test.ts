@@ -19,9 +19,10 @@ describe('skill-service', () => {
     beforeEach(() => { listByTenant.mockReset(); getBySlug.mockReset(); });
 
     it('loadSkills maps records to {id:slug,name,description,tier}', async () => {
-        listByTenant.mockResolvedValue([rec()]);
+        listByTenant.mockResolvedValue([rec(), rec({ slug: 'off', name: 'Off', isEnabled: false })]);
         const skills = await loadSkills('t');
-        expect(skills).toEqual([{ id: 'cost-analyser', name: 'Cost Analyser', description: 'Analyse spend', tier: 'read-only' }]);
+        expect(skills).toHaveLength(1);
+        expect(skills[0]).toEqual({ id: 'cost-analyser', name: 'Cost Analyser', description: 'Analyse spend', tier: 'read-only' });
     });
 
     it('getSkillContent returns the markdown body or null', async () => {
@@ -29,13 +30,16 @@ describe('skill-service', () => {
         expect(await getSkillContent('t', 'cost-analyser')).toBe('# Hello');
         getBySlug.mockResolvedValueOnce(null);
         expect(await getSkillContent('t', 'missing')).toBeNull();
+        getBySlug.mockResolvedValueOnce(rec({ isEnabled: false }));
+        expect(await getSkillContent('t', 'disabled')).toBeNull();
     });
 
     it('loadAllSkillContent returns a slug→content Map', async () => {
-        listByTenant.mockResolvedValue([rec({ slug: 'a', content: 'A' }), rec({ slug: 'b', content: 'B' })]);
+        listByTenant.mockResolvedValue([rec({ slug: 'a', content: 'A' }), rec({ slug: 'b', content: 'B' }), rec({ slug: 'c', content: 'C', isEnabled: false })]);
         const map = await loadAllSkillContent('t');
         expect(map.get('a')).toBe('A');
         expect(map.get('b')).toBe('B');
+        expect(map.has('c')).toBe(false);
     });
 
     it('getSkillSummaries renders a bulleted list', async () => {
