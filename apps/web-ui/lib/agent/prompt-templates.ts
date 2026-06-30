@@ -15,7 +15,6 @@
  *   - buildOperationalWorkflows() — incident triage, rollback, health check, capacity review
  */
 
-import { getSkillContent } from "./skills/skill-loader";
 
 // Matches GraphConfig.accounts shape in agent-shared.ts
 interface AccountEntry {
@@ -66,17 +65,17 @@ export function buildBaseIdentity(selectedSkill?: string | null): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Loads skill content and wraps it in the standard section header.
- * Falls back to a concise base DevOps operating mode if no skill is selected
- * or content fails to load.
+ * Formats the supplied skill content into the standard section header. Falls back to a concise base DevOps operating mode when no skill/content is supplied.
  */
-export function buildEffectiveSkillSection(selectedSkill?: string | null): string {
-    if (selectedSkill) {
-        const content = getSkillContent(selectedSkill);
-        if (content) {
-            return `\n\n=== ACTIVE SKILL: ${selectedSkill.toUpperCase()} ===\n${content}\n\nYou MUST follow the above skill-specific instructions. They define your privileges, safety guidelines, and workflow for this conversation.\n=== END SKILL ===\n`;
-        }
-        console.warn(`[PromptTemplates] Failed to load skill content for: ${selectedSkill}`);
+export function buildEffectiveSkillSection(
+    selectedSkill?: string | null,
+    skillContent?: string | null,
+): string {
+    if (selectedSkill && skillContent) {
+        return `\n\n=== ACTIVE SKILL: ${selectedSkill.toUpperCase()} ===\n${skillContent}\n\nYou MUST follow the above skill-specific instructions. They define your privileges, safety guidelines, and workflow for this conversation.\n=== END SKILL ===\n`;
+    }
+    if (selectedSkill && !skillContent) {
+        console.warn(`[PromptTemplates] No content provided for skill: ${selectedSkill}`);
     }
 
     return `
