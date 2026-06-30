@@ -67,4 +67,11 @@ export const queryKeys = {
         details: () => [...queryKeys.agentMemories.all, 'detail'] as const,
         detail: (id: string) => [...queryKeys.agentMemories.details(), id] as const,
     },
+    skills: {
+        all: ['skills'] as const,
+        lists: () => [...queryKeys.skills.all, 'list'] as const,
+        list: (all?: boolean) => [...queryKeys.skills.lists(), { all: !!all }] as const,
+        details: () => [...queryKeys.skills.all, 'detail'] as const,
+        detail: (id: string) => [...queryKeys.skills.details(), id] as const,
+    },
 } as const;
