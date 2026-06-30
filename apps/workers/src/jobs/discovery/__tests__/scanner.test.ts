@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __testDir = dirname(fileURLToPath(import.meta.url));
 
 // We'll build this test file incrementally across Tasks 6-9.
 // Task 6 covers: toCommandName, SERVICE_REGISTRY, invokeService
@@ -280,6 +285,53 @@ describe('scanner — applyEnrichments', () => {
 
     expect(enriched).toHaveLength(2);
     expect(enriched[0].Name).toBe('bucket1');
+  });
+
+  it('treats a missing tag set as empty tags rather than a failure', async () => {
+    const err = Object.assign(new Error('The TagSet does not exist'), { name: 'NoSuchTagSet' });
+    const mockClient = { send: vi.fn().mockRejectedValue(err) };
+    const resources = [{ Name: 'untagged-bucket' }];
+    const enrichments: EnrichmentStep[] = [
+      { type: 'tags', method: 'get_bucket_tagging', nameKey: 'Name', inputKey: 'Bucket' },
+    ];
+
+    const enriched = await applyEnrichments(mockClient as any, 's3', resources, enrichments);
+
+    expect(enriched[0].Tags).toEqual([]);
+  });
+
+  it('uses inputKey as the per-resource tag-call parameter name (e.g. CertificateArn)', async () => {
+    const mockClient = {
+      send: vi.fn().mockResolvedValue({ Tags: [{ Key: 'env', Value: 'prod' }] }),
+    };
+    const arn = 'arn:aws:acm:ap-south-1:123456789012:certificate/abc';
+    const resources = [{ CertificateArn: arn }];
+    const enrichments: EnrichmentStep[] = [
+      { type: 'tags', method: 'list_tags_for_certificate', arnKey: 'CertificateArn', inputKey: 'CertificateArn' },
+    ];
+
+    const enriched = await applyEnrichments(mockClient as any, 'acm', resources, enrichments);
+
+    expect(enriched[0].Tags).toEqual([{ Key: 'env', Value: 'prod' }]);
+    expect(mockClient.send.mock.calls[0][0].input).toEqual({ CertificateArn: arn });
+  });
+});
+
+describe('scanfile.json — tag enrichment parameter keys', () => {
+  const scanfile = JSON.parse(
+    readFileSync(join(__testDir, '../scanfile.json'), 'utf-8'),
+  ) as Array<any>;
+
+  it('ACM list_certificates tag enrichment sends CertificateArn', () => {
+    const acm = scanfile.find((c) => c.service === 'acm' && c.function === 'list_certificates');
+    const tagStep = acm?.enrichments?.find((e: any) => e.type === 'tags');
+    expect(tagStep?.inputKey).toBe('CertificateArn');
+  });
+
+  it('ECS list_clusters tag enrichment sends resourceArn', () => {
+    const ecs = scanfile.find((c) => c.service === 'ecs' && c.function === 'list_clusters');
+    const tagStep = ecs?.enrichments?.find((e: any) => e.type === 'tags');
+    expect(tagStep?.inputKey).toBe('resourceArn');
   });
 });
 

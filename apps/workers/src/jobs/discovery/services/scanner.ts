@@ -331,7 +331,16 @@ async function applyTagEnrichment(
         ? tags
         : Object.entries(tags).map(([Key, Value]) => ({ Key, Value }));
     } catch (error) {
-      log.warn('Tag fetch failed', { key, error: error instanceof Error ? error.message : String(error) });
+      const name = error instanceof Error ? error.name : '';
+      const message = error instanceof Error ? error.message : String(error);
+      // A missing tag set (S3 NoSuchTagSet) is a normal state — the resource simply
+      // has no tags — not a failure. Record empty tags and log at debug, not warn.
+      if (name === 'NoSuchTagSet' || /NoSuchTagSet|TagSet does not exist/i.test(message)) {
+        resource.Tags = [];
+        log.debug('No tags for resource', { key });
+      } else {
+        log.warn('Tag fetch failed', { key, error: message });
+      }
     }
   }
 

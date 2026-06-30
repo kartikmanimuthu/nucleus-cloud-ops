@@ -23,6 +23,21 @@ function getRequiredEnv(name: string): string {
 
 export class HorizontalExecutor implements JobExecutor {
     async execute(jobName: string, jobData: unknown): Promise<void> {
+        try {
+            return await this.run(jobName, jobData);
+        } catch (err) {
+            // pg-boss records handler rejections to the job table but does not emit
+            // the 'error' event — without this, failures are invisible in the logs.
+            log.error('Job execution failed', {
+                jobName,
+                error: err instanceof Error ? err.message : String(err),
+                stack: err instanceof Error ? err.stack : undefined,
+            });
+            throw err;
+        }
+    }
+
+    private async run(jobName: string, jobData: unknown): Promise<void> {
         // Read and validate config at execute time so missing vars produce clear errors
         const clusterArn = getRequiredEnv('HORIZONTAL_CLUSTER_ARN');
         const taskDefArn = getRequiredEnv('HORIZONTAL_TASK_DEF_ARN');
