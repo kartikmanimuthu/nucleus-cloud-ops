@@ -28,6 +28,21 @@ export function isProviderType(value: unknown): value is ProviderType {
     return typeof value === 'string' && (PROVIDER_TYPES as readonly string[]).includes(value);
 }
 
+/**
+ * Normalizes the base URL for the OpenAI-compatible transport (ChatOpenAI /
+ * OpenAIEmbeddings, which POST to `{baseURL}/chat/completions` and
+ * `{baseURL}/embeddings`). Ollama serves its OpenAI-compatible API under `/v1`,
+ * but discovery stores the bare root (it talks to `/api/tags`), so we append
+ * `/v1` for inference. Other OpenAI-compatible providers already store a `/v1`
+ * base (their `/models` discovery requires it), so they're left as-is.
+ */
+export function normalizeOpenAICompatibleBaseUrl(provider: string, baseUrl?: string): string | undefined {
+    if (!baseUrl) return baseUrl;
+    const trimmed = baseUrl.replace(/\/+$/, '');
+    if (provider === 'ollama' && !/\/v1$/i.test(trimmed)) return `${trimmed}/v1`;
+    return trimmed;
+}
+
 /** A model entry stored on a provider record (discovered or manually entered). */
 export interface ProviderModelEntry {
     id: string;

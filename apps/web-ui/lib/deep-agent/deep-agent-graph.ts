@@ -12,7 +12,6 @@
 // This file is fully isolated from the existing planning-agent.ts / fast-agent.ts.
 // ============================================================================
 
-import { ChatBedrockConverse } from '@langchain/aws';
 import {
     createDeepAgent,
     CompositeBackend,
@@ -22,6 +21,9 @@ import {
 } from 'deepagents';
 import { InMemoryStore, MemorySaver } from '@langchain/langgraph';
 import { env } from '@/env';
+import { resolveModelConfig } from '@/lib/agent/model-resolver';
+import { createAgentModels } from '@/lib/agent/model-factory';
+import { ProviderConfigError } from '@/lib/agent/provider-errors';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -134,14 +136,16 @@ export async function createDeepAgentGraph(config: DeepAgentConfig) {
         tenantId,
     } = config;
 
+    if (!tenantId) {
+        throw new ProviderConfigError('A tenant context is required to resolve the LLM provider.');
+    }
+
     // --- Model ---
-    const model = new ChatBedrockConverse({
-        region: env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
-        model: modelId,
-        maxTokens: 8192,
-        temperature: 0,
-        streaming: true,
-    });
+    // Resolve the configured provider (Bedrock with its keys, Ollama, etc.) from
+    // the composite model id. No implicit Bedrock fallback — createAgentModels /
+    // resolveModelConfig throw a ProviderConfigError if nothing is configured.
+    const resolvedModel = await resolveModelConfig(modelId, tenantId);
+    const { main: model } = createAgentModels({ ...resolvedModel, maxTokens: resolvedModel.maxTokens ?? 8192 });
 
     // --- MongoDB Checkpointer (deep-agent-specific, avoids DynamoDB schema conflicts) ---
     let agentCheckpointer: any;

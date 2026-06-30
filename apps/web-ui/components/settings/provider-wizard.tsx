@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
@@ -20,12 +20,14 @@ import {
     useCreateProvider,
     useUpdateProvider,
     useDiscoverModels,
+    useProbeEmbedding,
     type Provider,
     type ProviderType,
     type DiscoveredModel,
     type ProviderCredentialsInput,
     type CreateProviderInput,
     type ProviderModelEntry,
+    type EmbeddingProbeResult,
 } from "@/lib/queries/providers";
 
 /** Which credential fields a provider type exposes in the wizard. */
@@ -127,6 +129,9 @@ const FIELD_META: Record<CredentialField, { label: string; placeholder: string; 
 
 const NONE_VALUE = "__none__";
 
+/** Platform-wide embedding dimension (pgvector columns are fixed vector(1024)). */
+const PLATFORM_EMBEDDING_DIMS = 1024;
+
 /** A discovered model is chat-capable if it lists 'chat' or lists no capabilities at all. */
 function isChatModel(m: DiscoveredModel): boolean {
     return !m.capabilities || m.capabilities.length === 0 || m.capabilities.includes("chat");
@@ -147,6 +152,7 @@ export function ProviderWizard({
     const createProvider = useCreateProvider();
     const updateProvider = useUpdateProvider();
     const discoverModels = useDiscoverModels();
+    const probeEmbedding = useProbeEmbedding();
 
     const [step, setStep] = useState(0);
 
@@ -185,9 +191,10 @@ export function ProviderWizard({
     // Step 3
     const [chatModel, setChatModel] = useState(provider?.chatModel ?? "");
     const [embeddingModel, setEmbeddingModel] = useState(provider?.embeddingModel ?? "");
-    const [embeddingDimensions, setEmbeddingDimensions] = useState(
-        provider?.embeddingDimensions != null ? String(provider.embeddingDimensions) : "",
-    );
+    // Embedding dimensions are auto-detected by probing the selected model — not
+    // hand-entered — so the stored value always matches what the model emits.
+    const [probe, setProbe] = useState<EmbeddingProbeResult | null>(null);
+    const [probeError, setProbeError] = useState<string | null>(null);
     const [isDefault, setIsDefault] = useState(provider?.isDefault ?? false);
 
     const fieldValue = (f: CredentialField): string => {
@@ -280,10 +287,59 @@ export function ProviderWizard({
     const chatOptions = useMemo(() => discovered.filter(isChatModel), [discovered]);
     const embeddingOptions = useMemo(() => discovered.filter(isEmbeddingModel), [discovered]);
 
+    // Auto-detect the selected embedding model's effective dimension by probing
+    // it (shares the runtime embeddings code path, so what we detect is what gets
+    // stored). Re-runs whenever the embedding model or provider type changes.
+    useEffect(() => {
+        if (!embeddingModel) {
+            setProbe(null);
+            setProbeError(null);
+            return;
+        }
+        let cancelled = false;
+        setProbe(null);
+        setProbeError(null);
+        probeEmbedding
+            .mutateAsync({
+                providerType,
+                embeddingModel,
+                credentials: buildCredentials(),
+                region: meta.hasRegion ? region.trim() || undefined : undefined,
+                providerId: provider?.id,
+            })
+            .then((result) => {
+                if (!cancelled) setProbe(result);
+            })
+            .catch((err) => {
+                if (!cancelled) setProbeError(err instanceof Error ? err.message : "Failed to detect dimensions.");
+            });
+        return () => {
+            cancelled = true;
+        };
+        // buildCredentials/probeEmbedding are stable enough; re-probe only on model/type change.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [embeddingModel, providerType]);
+
+    const embeddingIncompatible = Boolean(embeddingModel) && (probeError != null || (probe != null && !probe.compatible));
+    const embeddingPending = Boolean(embeddingModel) && probeEmbedding.isPending;
+
     const handleSubmit = async () => {
         if (!chatModel) {
             toast.error("Select a chat model.");
             return;
+        }
+
+        if (embeddingModel) {
+            if (embeddingPending) {
+                toast.error("Detecting embedding dimensions — please wait.");
+                return;
+            }
+            if (embeddingIncompatible || !probe) {
+                toast.error(
+                    `Embedding model is incompatible (the platform requires ${PLATFORM_EMBEDDING_DIMS}-dim vectors). Choose a ${PLATFORM_EMBEDDING_DIMS}-dim model or set Embedding Model to None.`,
+                );
+                return;
+            }
         }
 
         // In edit mode with no re-discovery, reuse the provider's existing models.
@@ -292,15 +348,13 @@ export function ProviderWizard({
                 ? provider.models
                 : discovered.map((m) => ({ id: m.id, label: m.name, capabilities: m.capabilities }));
 
-        const dims = embeddingDimensions.trim() ? Number(embeddingDimensions.trim()) : undefined;
-
         const payload: CreateProviderInput = {
             name: name.trim(),
             provider: providerType,
             models,
             chatModel,
             embeddingModel: embeddingModel || undefined,
-            embeddingDimensions: dims != null && !Number.isNaN(dims) ? dims : undefined,
+            embeddingDimensions: embeddingModel && probe ? probe.dimensions ?? undefined : undefined,
             isDefault,
         };
 
@@ -499,25 +553,42 @@ export function ProviderWizard({
                         </Select>
                     </div>
 
-                    <div className="grid gap-1.5">
-                        <Label htmlFor="embedding-dims">
-                            Embedding Dimensions <span className="text-muted-foreground">(optional)</span>
-                        </Label>
-                        <Input
-                            id="embedding-dims"
-                            type="number"
-                            placeholder="1024"
-                            value={embeddingDimensions}
-                            onChange={(e) => setEmbeddingDimensions(e.target.value)}
-                        />
-                    </div>
+                    {embeddingModel && (
+                        <div className="grid gap-1.5">
+                            <Label>Embedding Dimensions</Label>
+                            {embeddingPending ? (
+                                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Spinner size="sm" /> Detecting dimensions…
+                                </p>
+                            ) : probeError ? (
+                                <p className="text-sm text-destructive">
+                                    Could not detect dimensions: {probeError}
+                                </p>
+                            ) : probe ? (
+                                probe.compatible ? (
+                                    <p className="text-sm text-emerald-600 dark:text-emerald-400">
+                                        Detected {probe.dimensions} dimensions — compatible ✓
+                                    </p>
+                                ) : (
+                                    <p className="text-sm text-amber-600 dark:text-amber-500">
+                                        {probe.reason ??
+                                            `Incompatible — the platform stores ${probe.required}-dim vectors.`}{" "}
+                                        Pick another model or set Embedding Model to None to save.
+                                    </p>
+                                )
+                            ) : null}
+                        </div>
+                    )}
 
                     <div className="flex items-center gap-3">
                         <Switch id="set-default" checked={isDefault} onCheckedChange={setIsDefault} />
                         <Label htmlFor="set-default">Set as default provider</Label>
                     </div>
 
-                    <Button onClick={handleSubmit} disabled={submitting || !chatModel}>
+                    <Button
+                        onClick={handleSubmit}
+                        disabled={submitting || !chatModel || embeddingPending || embeddingIncompatible}
+                    >
                         {submitting && <Loader2 className="mr-2 size-4 animate-spin" />}
                         {mode === "create" ? "Create Provider" : "Save Changes"}
                     </Button>

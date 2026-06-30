@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/date-utils';
 import { useTenant } from '@/lib/tenant-context';
+import { useProviderModels } from '@/lib/queries/providers';
 import { ThreadSidebar } from './thread-sidebar';
 import { TodoPanel } from './todo-panel';
 import { ApprovalDialog } from './approval-dialog';
@@ -66,20 +67,6 @@ interface ChatMessage {
   timestamp: Date;
 }
 
-interface ModelOption {
-  id: string;
-  label: string;
-}
-
-const MODELS: ModelOption[] = [
-  { id: 'global.anthropic.claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', label: 'Claude 3.5 Sonnet v2' },
-  { id: 'anthropic.claude-3-7-sonnet-20250219-v1:0', label: 'Claude 3.7 Sonnet' },
-  { id: 'anthropic.claude-3-5-haiku-20241022-v1:0', label: 'Claude 3.5 Haiku' },
-  { id: 'amazon.nova-pro-v1:0', label: 'Nova Pro' },
-  { id: 'amazon.nova-lite-v1:0', label: 'Nova Lite' },
-];
-
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -95,8 +82,19 @@ export function DeepAgentChat() {
   const [isLoading, setIsLoading] = useState(false);
   const [autoApprove, setAutoApprove] = useState(false);
   const [showTodos, setShowTodos] = useState(true);
-  const [selectedModel, setSelectedModel] = useState(MODELS[0].id);
+  const [selectedModel, setSelectedModel] = useState('');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+
+  // Models come ONLY from tenant-configured providers (shared TanStack Query hook,
+  // no hardcoded Bedrock list). The composite id (`{provider}:{modelId}:{recordId}`)
+  // is what the deep-agent API resolves into the provider's credentials at runtime.
+  const { data: models = [] } = useProviderModels();
+
+  useEffect(() => {
+    setSelectedModel((prev) =>
+      prev && models.some((m) => m.id === prev) ? prev : models[0]?.id ?? '',
+    );
+  }, [models]);
   const [selectedMcpServers, setSelectedMcpServers] = useState<string[]>([]);
   const [selectedAccounts, setSelectedAccounts] = useState<Array<{ accountId: string; accountName: string }>>([]);
 
@@ -579,7 +577,8 @@ export function DeepAgentChat() {
                 onChange={e => setSelectedModel(e.target.value)}
                 className="text-xs bg-muted border border-border text-foreground rounded-lg px-2.5 py-1.5 outline-none focus:border-violet-500/50 transition-colors cursor-pointer"
               >
-                {MODELS.map(m => (
+                {models.length === 0 && <option value="">No providers configured</option>}
+                {models.map(m => (
                   <option key={m.id} value={m.id}>{m.label}</option>
                 ))}
               </select>

@@ -1,5 +1,7 @@
 import { createTextToSQLGraph } from "./graph";
 import type { TextToSQLFilters, TextToSQLState } from "./state";
+import { resolveDefaultModelConfig } from "../model-resolver";
+import { isProviderConfigError } from "../provider-errors";
 
 export interface TextToSQLInput {
     question: string;
@@ -21,11 +23,28 @@ export interface TextToSQLEvent {
 export async function* invokeTextToSQL(input: TextToSQLInput): AsyncGenerator<TextToSQLEvent> {
     const graph = createTextToSQLGraph();
 
+    // Resolve the tenant's configured provider up-front so every LLM node uses
+    // it. No implicit Bedrock fallback — surface a clear error if none exists.
+    let modelConfig;
+    try {
+        modelConfig = await resolveDefaultModelConfig(input.tenantId);
+    } catch (err: unknown) {
+        const message = isProviderConfigError(err)
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        yield { type: 'error', message };
+        yield { type: 'done' };
+        return;
+    }
+
     try {
         const stream = await graph.stream(
             {
                 question: input.question,
                 tenantId: input.tenantId,
+                modelConfig,
                 conversationHistory: input.conversationHistory ?? [],
                 filters: input.filters,
                 maxIterations: 3,

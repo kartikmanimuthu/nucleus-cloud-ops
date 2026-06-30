@@ -1,47 +1,28 @@
 /**
  * Knowledge Base Embedder
  *
- * Text chunking, Bedrock embedding (Titan v2), and pgvector store/delete
- * for the kb_document_chunks table.
+ * Text chunking, provider-configured embedding, and pgvector store/delete
+ * for the kb_document_chunks table. Embeddings come from the tenant's
+ * configured default provider (Bedrock/OpenAI-compatible) — there is no
+ * hardcoded Bedrock client. The embedding column is fixed `vector(1024)`, so
+ * the provider's embedding model must produce 1024-dim vectors (enforced by
+ * the embeddings factory).
  */
 
 import { createHash } from 'crypto';
-import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { getPrismaClient } from '@/lib/db/pg-config';
+import { getTenantEmbeddings } from '@/lib/agent/embeddings-factory';
 import type { KBChunk, VectorMetadata } from './types';
-import { env } from '@/env';
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
-
-const EMBEDDING_MODEL_ID =
-  env.BEDROCK_MODEL_ID || 'amazon.titan-embed-text-v2:0';
-const AWS_REGION = env.AWS_REGION || 'ap-south-1';
 
 const CHUNK_SIZE = 1500;
 const CHUNK_OVERLAP = 200;
 const SEPARATORS = ['\n\n', '\n', '. ', ' '];
 const EMBEDDING_CONCURRENCY = 5;
 const VECTOR_BATCH_SIZE = 20;
-
-// ---------------------------------------------------------------------------
-// AWS Clients (lazy-initialised)
-// ---------------------------------------------------------------------------
-
-const credentialProvider = fromNodeProviderChain();
-
-let _bedrockClient: BedrockRuntimeClient | null = null;
-function getBedrockClient(): BedrockRuntimeClient {
-  if (!_bedrockClient) {
-    _bedrockClient = new BedrockRuntimeClient({
-      region: AWS_REGION,
-      credentials: credentialProvider,
-    });
-  }
-  return _bedrockClient;
-}
 
 // ---------------------------------------------------------------------------
 // Text chunking (recursive character splitter)
@@ -132,19 +113,12 @@ function forceChunk(text: string, maxLen: number): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Generate a 1024-dim embedding via Bedrock Titan Embed Text v2.
+ * Generate a 1024-dim embedding using the tenant's configured provider.
+ * Throws ProviderConfigError if no embedding-capable provider is configured.
  */
-export async function getEmbedding(text: string): Promise<number[]> {
-  const response = await getBedrockClient().send(
-    new InvokeModelCommand({
-      modelId: EMBEDDING_MODEL_ID,
-      body: JSON.stringify({ inputText: text.slice(0, 8000) }),
-      contentType: 'application/json',
-      accept: 'application/json',
-    }),
-  );
-  const bodyString = new TextDecoder().decode(response.body);
-  return JSON.parse(bodyString).embedding;
+export async function getEmbedding(text: string, tenantId: string): Promise<number[]> {
+  const embeddings = await getTenantEmbeddings(tenantId);
+  return embeddings.embedQuery(text.slice(0, 8000));
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +156,7 @@ export async function embedAndStoreChunks(params: {
   for (let i = 0; i < chunks.length; i += EMBEDDING_CONCURRENCY) {
     const batch = chunks.slice(i, i + EMBEDDING_CONCURRENCY);
     const batchEmbeddings = await Promise.all(
-      batch.map((chunk) => getEmbedding(chunk.text)),
+      batch.map((chunk) => getEmbedding(chunk.text, tenantId)),
     );
     embeddings.push(...batchEmbeddings);
   }

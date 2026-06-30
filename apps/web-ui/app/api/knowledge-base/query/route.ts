@@ -1,41 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
-import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
-import { streamText } from 'ai';
+import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
 import { getEmbedding } from '@/lib/knowledge-base/embedder';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { getPrismaClient } from '@/lib/db/pg-config';
-import { env } from '@/env';
-
-// ============================================================================
-// AWS Clients
-// ============================================================================
-
-const credentialProvider = fromNodeProviderChain();
-
-function getBedrockClient() {
-  return createAmazonBedrock({
-    region: env.AWS_REGION || 'ap-south-1',
-    credentialProvider: async () => {
-      const creds = await credentialProvider();
-      return {
-        accessKeyId: creds.accessKeyId,
-        secretAccessKey: creds.secretAccessKey,
-        sessionToken: creds.sessionToken,
-      };
-    },
-  });
-}
-
-// ============================================================================
-// Config
-// ============================================================================
-
-const GENERATION_MODEL_ID =
-  env.ASK_AI_GENERATION_MODEL || 'global.anthropic.claude-sonnet-4-6';
+import { resolveDefaultModelConfig } from '@/lib/agent/model-resolver';
+import { createAgentModels } from '@/lib/agent/model-factory';
+import { isProviderConfigError } from '@/lib/agent/provider-errors';
 
 // ============================================================================
 // Types
@@ -98,8 +71,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. Embed the query
-    const embedding = await getEmbedding(query);
+    // 3. Embed the query via the tenant's configured provider
+    const embedding = await getEmbedding(query, tenantId);
     const vectorLiteral = `[${embedding.join(',')}]`;
 
     // 4. Query pgvector for similar chunks
@@ -157,17 +130,19 @@ ${contextString}`;
       .filter((m) => m.content && m.content.trim())
       .map((m) => ({ role: m.role, content: m.content }));
 
-    // 8. Stream response via Bedrock
-    const result = streamText({
-      model: getBedrockClient()(GENERATION_MODEL_ID),
-      system: systemPrompt,
-      messages: [
-        ...conversationHistory,
-        { role: 'user', content: query },
-      ],
+    // 8. Resolve the tenant's configured provider for generation (no Bedrock default)
+    const model = createAgentModels({
+      ...(await resolveDefaultModelConfig(tenantId)),
       maxTokens: 1500,
-      temperature: 0.1,
-    });
+    }).main;
+
+    const lcMessages = [
+      new SystemMessage(systemPrompt),
+      ...conversationHistory.map((m) =>
+        m.role === 'assistant' ? new AIMessage(m.content) : new HumanMessage(m.content),
+      ),
+      new HumanMessage(query),
+    ];
 
     // 9. Build sources for X-AI-Sources header
     const sources: KBSource[] = results.map((r) => ({
@@ -182,16 +157,44 @@ ${contextString}`;
 
     const sourcesJson = JSON.stringify(sources);
 
-    const response = result.toTextStreamResponse({
-      headers: {
-        'X-AI-Sources': encodeURIComponent(sourcesJson),
+    // 10. Stream the answer as plain text (provider-agnostic LangChain stream)
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          const llmStream = await model.stream(lcMessages);
+          for await (const chunk of llmStream) {
+            const content = chunk.content;
+            const text =
+              typeof content === 'string'
+                ? content
+                : Array.isArray(content)
+                  ? content
+                      .filter((c): c is { type: string; text: string } => (c as { type?: string }).type === 'text')
+                      .map((c) => c.text)
+                      .join('')
+                  : '';
+            if (text) controller.enqueue(encoder.encode(text));
+          }
+          controller.close();
+        } catch (err) {
+          controller.error(err);
+        }
       },
     });
 
-    return response;
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'X-AI-Sources': encodeURIComponent(sourcesJson),
+      },
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Internal Server Error';
     console.error('[KB Query] Error:', error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    // No configured provider → 400 with a clear "configure a provider" message.
+    const status = isProviderConfigError(error) ? 400 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

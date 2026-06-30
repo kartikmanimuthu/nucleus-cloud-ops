@@ -1,8 +1,7 @@
-import { ChatBedrockConverse } from "@langchain/aws";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { buildSynthesisPrompt } from '../prompts';
-import type { TextToSQLState } from '../state';
-import { env } from '@/env';
+import { type TextToSQLState, requireModelConfig } from '../state';
+import { createAgentModels } from '@/lib/agent/model-factory';
 
 export async function synthesizeNode(state: TextToSQLState): Promise<Partial<TextToSQLState>> {
     // If no results (all retries failed), return error message
@@ -13,15 +12,7 @@ export async function synthesizeNode(state: TextToSQLState): Promise<Partial<Tex
         return { finalAnswer: errorMsg };
     }
 
-    const region = env.AWS_REGION || 'us-east-1';
-    const modelId = env.ASK_AI_GENERATION_MODEL || 'us.anthropic.claude-sonnet-4-6-20250514';
-
-    const model = new ChatBedrockConverse({
-        region,
-        model: modelId,
-        temperature: 0.1,
-        maxTokens: 4096,
-    });
+    const model = createAgentModels({ ...requireModelConfig(state), maxTokens: 4096 }).main;
 
     const wasRetried = state.iteration > 0;
     const prompt = buildSynthesisPrompt(

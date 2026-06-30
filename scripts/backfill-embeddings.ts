@@ -5,6 +5,17 @@
  * Reads all inventory_resources rows with NULL embedding, generates Bedrock
  * Titan v2 embeddings, and writes them back to the embedding + contentHash columns.
  *
+ * ⚠️  PROVIDER MODEL CAVEAT (2026-06): the app now resolves embeddings from each
+ *     tenant's CONFIGURED provider (see lib/agent/embeddings-factory.ts), not a
+ *     hardcoded Bedrock Titan client. This script still embeds with Titan v2 via
+ *     host/task-role AWS creds. That is currently safe only because nothing
+ *     queries `inventory_resources.embedding` at runtime (the Ask-AI path is
+ *     text-to-SQL, not vector search; live vector search is kb_document_chunks +
+ *     agent_memories). If inventory vector search is ever re-enabled, this script
+ *     MUST be switched to the tenant's configured embedding model, or its vectors
+ *     will live in a different embedding space than query-time vectors and rank
+ *     garbage. Do NOT use this script to populate kb_document_chunks/agent_memories.
+ *
  * Prerequisites:
  *   - docker compose up -d postgres (or DATABASE_URL pointing to your DB)
  *   - AWS credentials with bedrock:InvokeModel permission

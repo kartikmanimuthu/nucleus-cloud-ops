@@ -1,8 +1,7 @@
-import { ChatBedrockConverse } from "@langchain/aws";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { buildReflectionPrompt } from '../prompts';
-import type { TextToSQLState } from '../state';
-import { env } from '@/env';
+import { type TextToSQLState, requireModelConfig } from '../state';
+import { createAgentModels } from '@/lib/agent/model-factory';
 
 export async function reflectNode(state: TextToSQLState): Promise<Partial<TextToSQLState>> {
     const newIteration = state.iteration + 1;
@@ -20,16 +19,7 @@ export async function reflectNode(state: TextToSQLState): Promise<Partial<TextTo
         };
     }
 
-    const region = env.AWS_REGION || 'us-east-1';
-    const modelId = env.ASK_AI_GENERATION_MODEL || 'us.anthropic.claude-sonnet-4-6-20250514';
-
-    const model = new ChatBedrockConverse({
-        region,
-        model: modelId,
-        temperature: 0,
-        maxTokens: 1024,
-        streaming: false,
-    });
+    const model = createAgentModels({ ...requireModelConfig(state), maxTokens: 1024 }).reflector;
 
     const prompt = buildReflectionPrompt(
         state.question,
