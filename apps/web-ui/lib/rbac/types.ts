@@ -31,6 +31,7 @@ export const SUBJECT_TO_MODULE: Record<string, Module> = {
     Tenant: 'Settings',
     AuditLog: 'Accounts',   // audit read maps to Accounts read (D-03)
     Agent: 'AIOps',
+    Skill: 'AIOps',
     Memory: 'AIOps',        // Agent memory module — gated with AI Ops (read=view, delete=prune)
     KnowledgeBase: 'AIOps', // Agent + KnowledgeBase collapsed into AI Ops (D-02)
     Billing: 'Settings',
