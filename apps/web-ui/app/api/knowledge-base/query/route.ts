@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
+import type { MessageContent } from '@langchain/core/messages';
 import { getEmbedding } from '@/lib/knowledge-base/embedder';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
-import { getSessionTenantId } from '@/lib/auth-session';
+import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { getPrismaClient } from '@/lib/db/pg-config';
-import { resolveDefaultModelConfig } from '@/lib/agent/model-resolver';
+import { kbChatStore } from '@/lib/store/kb-chat-store';
+import { resolveDefaultModelConfig, resolveModelConfig } from '@/lib/agent/model-resolver';
 import { createAgentModels } from '@/lib/agent/model-factory';
 import { isProviderConfigError } from '@/lib/agent/provider-errors';
 
@@ -50,11 +52,19 @@ export async function POST(req: NextRequest) {
 
     // 2. Validate request body
     const body = await req.json();
-    const { query, knowledgeBaseId, messages } = body as {
+    const { query, knowledgeBaseId, messages, sessionId, model, attachments } = body as {
       query?: string;
       knowledgeBaseId?: string;
       messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+      sessionId?: string;
+      model?: string;
+      attachments?: Array<{ name: string; contentType: string; url: string }>;
     };
+
+    // Image attachments (data URLs) for multimodal questions — images only.
+    const imageAttachments = (attachments ?? []).filter(
+      (a) => a && typeof a.url === 'string' && a.url.startsWith('data:image/'),
+    );
 
     if (!query || !query.trim()) {
       return NextResponse.json({ error: 'query is required' }, { status: 400 });
@@ -62,6 +72,7 @@ export async function POST(req: NextRequest) {
 
     // Always extract tenantId — needed for ownership check and tenant scoping
     const tenantId = await getSessionTenantId();
+    const userId = await getSessionUserId();
 
     // Validate knowledgeBaseId ownership if provided
     if (knowledgeBaseId) {
@@ -70,6 +81,38 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Knowledge base not found' }, { status: 404 });
       }
     }
+
+    // Resolve (or create) the persisted chat session for this conversation.
+    let sid: string;
+    if (sessionId) {
+      const existing = await kbChatStore.getSession(tenantId, sessionId);
+      if (!existing) {
+        return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+      }
+      sid = existing.id;
+      await kbChatStore.touchSession(tenantId, sid);
+    } else {
+      sid = `${tenantId}:${userId}:${Date.now()}`;
+      await kbChatStore.createSession({
+        sessionId: sid,
+        tenantId,
+        userId,
+        title: query.trim().slice(0, 60),
+        knowledgeBaseId: knowledgeBaseId ?? null,
+      });
+    }
+
+    // Persist the user message immediately (before opening the stream),
+    // including any image attachments so a reloaded session re-shows them.
+    await kbChatStore
+      .addMessages(tenantId, sid, [{
+        role: 'user',
+        content: query.trim(),
+        attachments: imageAttachments.length > 0
+          ? imageAttachments.map((a) => ({ name: a.name, url: a.url }))
+          : undefined,
+      }])
+      .catch((e) => console.error('[KB Query] Failed to persist user message:', e));
 
     // 3. Embed the query via the tenant's configured provider
     const embedding = await getEmbedding(query, tenantId);
@@ -130,18 +173,32 @@ ${contextString}`;
       .filter((m) => m.content && m.content.trim())
       .map((m) => ({ role: m.role, content: m.content }));
 
-    // 8. Resolve the tenant's configured provider for generation (no Bedrock default)
-    const model = createAgentModels({
-      ...(await resolveDefaultModelConfig(tenantId)),
+    // 8. Resolve the model — honor the user-selected model if provided, else the
+    //    tenant default. The resolver validates the model belongs to the tenant's
+    //    enabled provider and decrypts its credentials (no extra authz needed).
+    const resolvedModelConfig = model
+      ? await resolveModelConfig(model, tenantId)
+      : await resolveDefaultModelConfig(tenantId);
+    const llm = createAgentModels({
+      ...resolvedModelConfig,
       maxTokens: 1500,
     }).main;
+
+    // Current-turn user message — multimodal when images are attached.
+    const userContent: MessageContent =
+      imageAttachments.length > 0
+        ? [
+            { type: 'text', text: query },
+            ...imageAttachments.map((a) => ({ type: 'image_url', image_url: { url: a.url } })),
+          ]
+        : query;
 
     const lcMessages = [
       new SystemMessage(systemPrompt),
       ...conversationHistory.map((m) =>
         m.role === 'assistant' ? new AIMessage(m.content) : new HumanMessage(m.content),
       ),
-      new HumanMessage(query),
+      new HumanMessage({ content: userContent }),
     ];
 
     // 9. Build sources for X-AI-Sources header
@@ -161,8 +218,9 @@ ${contextString}`;
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        let full = '';
         try {
-          const llmStream = await model.stream(lcMessages);
+          const llmStream = await llm.stream(lcMessages);
           for await (const chunk of llmStream) {
             const content = chunk.content;
             const text =
@@ -174,11 +232,22 @@ ${contextString}`;
                       .map((c) => c.text)
                       .join('')
                   : '';
-            if (text) controller.enqueue(encoder.encode(text));
+            if (text) {
+              full += text;
+              controller.enqueue(encoder.encode(text));
+            }
           }
           controller.close();
         } catch (err) {
           controller.error(err);
+        } finally {
+          // Persist whatever was produced (handles partial/aborted streams too).
+          // Never awaited inside the read loop; failure must not break streaming.
+          if (full) {
+            kbChatStore
+              .addMessages(tenantId, sid, [{ role: 'assistant', content: full, sources }])
+              .catch((e) => console.error('[KB Query] Failed to persist assistant message:', e));
+          }
         }
       },
     });
@@ -188,6 +257,8 @@ ${contextString}`;
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-cache',
         'X-AI-Sources': encodeURIComponent(sourcesJson),
+        'X-KB-Session-Id': sid,
+        'Access-Control-Expose-Headers': 'X-AI-Sources, X-KB-Session-Id',
       },
     });
   } catch (error: unknown) {
