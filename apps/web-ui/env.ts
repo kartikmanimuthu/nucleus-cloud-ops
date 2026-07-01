@@ -81,6 +81,9 @@ export const env = createEnv({
 
         // Feature flags / misc
         RIGHT_SIZING_ENABLED: z.string().optional(),
+        WORKING_MEMORY_ENABLED: z.string().optional(),
+        WORKING_MEMORY_TOKEN_BUDGET: z.string().optional(),
+        WORKING_MEMORY_KEEP_RECENT: z.string().optional(),
         USE_PG_SCHEDULES: z.string().optional(),
         DUAL_WRITE_SCHEDULES: z.string().optional(),
         INTERNAL_API_KEY: z.string().optional(),
