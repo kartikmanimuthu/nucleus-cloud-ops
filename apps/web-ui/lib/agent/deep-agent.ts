@@ -13,7 +13,7 @@ import {
     createGetAwsCredentialsTool,
     createListAwsAccountsTool,
 } from "./tools";
-import { getSkillContent } from "./skills/skill-loader";
+import { getSkillContent } from "@/lib/skill-service";
 import {
     GraphConfig,
     getCheckpointer,
@@ -29,18 +29,17 @@ export async function createDeepGraph(config: GraphConfig) {
     const checkpointer = await getCheckpointer();
     const store = await getStore();
 
-    // --- Skill loading (same pattern as fast-agent.ts) ---
+    // --- Skill loading (async DB lookup, tenant-scoped) ---
     let skillSection = '';
     let skillContent = '';
-
-    if (selectedSkill) {
-        const content = getSkillContent(selectedSkill);
+    if (selectedSkill && tenantId) {
+        const content = await getSkillContent(tenantId, selectedSkill);
         if (content) {
             skillContent = content;
             skillSection = `\n\n=== ACTIVE SKILL: ${selectedSkill.toUpperCase()} ===\n${skillContent}\n\nYou MUST follow the above skill-specific instructions. They define your privileges, safety guidelines, and workflow for this conversation.\n=== END SKILL ===\n`;
             console.log(`[DeepAgent] Loaded skill: ${selectedSkill}`);
         } else {
-            console.warn(`[DeepAgent] Failed to load skill content for: ${selectedSkill}`);
+            console.warn(`[DeepAgent] No content for skill: ${selectedSkill}`);
         }
     }
 

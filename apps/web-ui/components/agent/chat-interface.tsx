@@ -42,6 +42,9 @@ import {
   exportToMarkdown,
   exportToPDF,
 } from "@/lib/chat-export";
+import { toast } from "sonner";
+import { useDistillSkill } from "@/lib/queries/skills";
+import { SkillFormDialog } from "@/components/skills/skill-form-dialog";
 
 // Available modes
 const AGENT_MODES = [
@@ -502,6 +505,11 @@ export function ChatInterface({
   >([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
 
+  // Save-as-skill state
+  const distillSkill = useDistillSkill();
+  const [skillDialogOpen, setSkillDialogOpen] = useState(false);
+  const [skillDraft, setSkillDraft] = useState<{ name: string; description: string; tier: string; content: string } | null>(null);
+
   // MCP server selection state
   const [mcpServers, setMcpServers] = useState<
     Array<{ id: string; name: string; description: string; enabled: boolean }>
@@ -771,6 +779,24 @@ export function ChatInterface({
     setMessages([]);
     setHasStarted(false);
     setWasStopped(false);
+  };
+
+  const handleSaveAsSkill = async () => {
+    if (messages.length === 0) return;
+    const transcript = messages.map((m: any) => {
+      const text = (m.parts ?? [])
+        .filter((p: { type: string }) => p.type === "text")
+        .map((p: { text?: string }) => p.text ?? "")
+        .join("\n") || (typeof m.content === "string" ? m.content : "");
+      return `${m.role.toUpperCase()}: ${text}`;
+    }).join("\n\n");
+    try {
+      const draft = await distillSkill.mutateAsync({ threadId, transcript });
+      setSkillDraft(draft);
+      setSkillDialogOpen(true);
+    } catch (e) {
+      toast.error("Could not create skill from chat", { description: e instanceof Error ? e.message : "Try again" });
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1221,6 +1247,7 @@ export function ChatInterface({
   ];
 
   return (
+    <>
     <div className="flex flex-col h-full w-full overflow-hidden bg-background max-w-[95%] mx-auto border rounded-xl shadow-lg">
       {/* Header */}
       <div className="px-4 py-3 border-b bg-gradient-to-r from-primary/10 to-primary/5 flex items-center gap-3">
@@ -1828,6 +1855,19 @@ export function ChatInterface({
                 </DropdownMenuContent>
               </DropdownMenu>
 
+              {/* Save as skill */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
+                onClick={handleSaveAsSkill}
+                title="Save chat as a reusable skill"
+                aria-label="Save as skill"
+                disabled={messages.length === 0 || distillSkill.isPending}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+              </Button>
+
               {/* Clear conversation */}
               <Button
                 variant="ghost"
@@ -1969,5 +2009,12 @@ export function ChatInterface({
         </form>
       </div>
     </div>
+    <SkillFormDialog
+      open={skillDialogOpen}
+      onOpenChange={setSkillDialogOpen}
+      initialDraft={skillDraft}
+      sourceRunId={threadId}
+    />
+    </>
   );
 }

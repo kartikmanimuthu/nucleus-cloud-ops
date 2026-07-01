@@ -42,7 +42,7 @@ import {
 } from "@/lib/agent/prompt-templates";
 import { createAgentModels, assembleTools, createMemoryTools } from "@/lib/agent/model-factory";
 import { getCheckpointer, getMemoryStore } from "@/lib/agent/persistence";
-import { getSkillContent, loadSkills } from "@/lib/agent/skills/skill-loader";
+import { loadSkills, loadAllSkillContent } from "@/lib/skill-service";
 
 // ── Agent Ops-specific imports ────────────────────────────────────────────────
 import { GraphConfig } from "@/lib/agent/agent-shared";
@@ -79,6 +79,10 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
     const awsCliStandards = buildAwsCliStandards();
     const operationalWorkflows = buildOperationalWorkflows();
 
+    // Pre-load all enabled tenant skills' content once. The evaluator picks a skill
+    // at runtime, so node closures read content synchronously from this Map.
+    const skillContentMap: Map<string, string> = tenantId ? await loadAllSkillContent(tenantId) : new Map();
+
     // ============================================================================
     // CONTEXT BUILDER — derives per-evaluation prompt fragments
     // ============================================================================
@@ -86,7 +90,7 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
         const skillId = evaluation?.skillId ?? null;
         const targetAccountId = evaluation?.accountId || accountId;
 
-        const skillSection = buildEffectiveSkillSection(skillId);
+        const skillSection = buildEffectiveSkillSection(skillId, skillId ? (skillContentMap.get(skillId) ?? null) : null);
         const accountContext = buildAccountContext({ accounts, accountId: targetAccountId });
 
         let mutationInstruction: string;
@@ -118,7 +122,7 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
 
         console.log(`\n[EVALUATOR] Analyzing task: "${truncateOutput(taskDescription, 100)}"`);
 
-        const availableSkills = await loadSkills();
+        const availableSkills = tenantId ? await loadSkills(tenantId) : [];
         const skillsContext = availableSkills.map(s => `- ${s.id}: ${s.name} - ${s.description}`).join('\n');
 
         const systemPrompt = new SystemMessage(`You are an intelligent request evaluator for an agentic AI system.
@@ -391,7 +395,7 @@ After completing a step, provide a brief factual summary of what was done and th
 
         const isComplex = evaluation?.mode === 'plan';
         const skillId = evaluation?.skillId;
-        const skillContent = skillId ? (getSkillContent(skillId) || '') : '';
+        const skillContent = skillId ? (skillContentMap.get(skillId) ?? '') : '';
 
         const systemPrompt = new SystemMessage(isComplex
             ? `You are a principal-level AWS/DevOps engineer reviewing agent execution output.
