@@ -27,6 +27,7 @@ export interface MemoryRow {
 
 export interface MemoryFilters {
     category?: MemoryCategory;
+    categories?: MemoryCategory[];
     search?: string;
     page?: number;
     limit?: number;
@@ -39,6 +40,7 @@ export function useAgentMemories(filters?: MemoryFilters) {
             const params = new URLSearchParams();
             // The UI passes `undefined` for the All tab, so only real categories arrive here.
             if (filters?.category) params.set('category', filters.category);
+            if (filters?.categories?.length) params.set('category', filters.categories.join(','));
             if (filters?.search?.trim()) params.set('search', filters.search.trim());
             params.set('limit', String(filters?.limit ?? 100));
             params.set('page', String(filters?.page ?? 1));
