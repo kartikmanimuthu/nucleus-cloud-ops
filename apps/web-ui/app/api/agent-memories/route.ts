@@ -13,16 +13,15 @@ export async function GET(request: NextRequest) {
         if (authError) return authError;
 
         const { searchParams } = new URL(request.url);
-        const rawCategory = searchParams.get('category');
-        const category =
-            rawCategory && VALID_CATEGORIES.has(rawCategory as MemoryCategory)
-                ? (rawCategory as MemoryCategory)
-                : undefined;
+        const categories = (searchParams.get('category') ?? '')
+            .split(',')
+            .map((c) => c.trim())
+            .filter((c): c is MemoryCategory => VALID_CATEGORIES.has(c as MemoryCategory));
 
         const repo = getAgentMemoryRepository();
         const result = await repo.listByTenant({
             tenantId,
-            category,
+            categories,
             search: searchParams.get('search') || undefined,
             limit: parseInt(searchParams.get('limit') || '100', 10),
             page: parseInt(searchParams.get('page') || '1', 10),
