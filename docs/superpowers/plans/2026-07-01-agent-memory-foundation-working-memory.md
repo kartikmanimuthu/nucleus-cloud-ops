@@ -958,7 +958,13 @@ describe('prepareContext', () => {
 
     it('disabled → falls back to getRecentMessages(fallbackWindow), no WM section, no LLM call', async () => {
         process.env.WORKING_MEMORY_ENABLED = 'false';
-        const msgs = Array.from({ length: 30 }, (_, i) => new HumanMessage(`m${i}`));
+        // Alternate roles so getRecentMessages passes the window through unchanged
+        // (adjacent same-role messages make it inject synthetic "Acknowledged." AIMessages,
+        // which would push the returned length above the fallbackWindow — a getRecentMessages
+        // concern, not prepareContext's). Same convention as the selectWindow property test.
+        const msgs = Array.from({ length: 30 }, (_, i) =>
+            i % 2 === 0 ? new HumanMessage(`m${i}`) : new AIMessage(`m${i}`),
+        );
         const res = await prepareContext(baseState(msgs), { reflectorModel: fakeReflector }, 20);
         expect(res.workingMemorySection).toBe('');
         expect(res.stateUpdate).toEqual({});
@@ -975,7 +981,9 @@ describe('prepareContext', () => {
 
     it('enabled + over budget → folds evicted turns into summary + scratchpad', async () => {
         process.env.WORKING_MEMORY_TOKEN_BUDGET = '10'; // force compaction
-        const msgs = Array.from({ length: 12 }, (_, i) => new HumanMessage('X'.repeat(80) + i));
+        const msgs = Array.from({ length: 12 }, (_, i) =>
+            i % 2 === 0 ? new HumanMessage('X'.repeat(80) + i) : new AIMessage('X'.repeat(80) + i),
+        );
         const res = await prepareContext(baseState(msgs), { reflectorModel: fakeReflector }, 20);
         expect(res.workingMemorySection).toContain('## Working Memory');
         expect(res.workingMemorySection).toContain('Restarted the stuck ECS task.');
