@@ -255,11 +255,11 @@ Expected: both print `Generated Prisma Client`.
 
 - [ ] **Step 9: Verify the schema changes in the DB**
 
-Run (local `DATABASE_URL` is `postgresql://nucleus:...@localhost:5432/nucleus` → user `nucleus`, db `nucleus`):
+Run (local container is `nucleus-postgres`, user `nucleus`, db `nucleus`):
 ```bash
-docker compose exec -T postgres psql -U nucleus -d nucleus -c "SELECT indexname FROM pg_indexes WHERE tablename='agent_memories' AND indexname='agent_memories_embedding_hnsw';"
-docker compose exec -T postgres psql -U nucleus -d nucleus -c "SELECT count(*) AS null_kind FROM agent_memories WHERE kind IS NULL;"
-docker compose exec -T postgres psql -U nucleus -d nucleus -c "\d agent_working_memory"
+docker exec -i nucleus-postgres psql -U nucleus -d nucleus -c "SELECT indexname FROM pg_indexes WHERE tablename='agent_memories' AND indexname='agent_memories_embedding_hnsw';"
+docker exec -i nucleus-postgres psql -U nucleus -d nucleus -c "SELECT count(*) AS null_kind FROM agent_memories WHERE kind IS NULL;"
+docker exec -i nucleus-postgres psql -U nucleus -d nucleus -c "\d agent_working_memory"
 ```
 Expected: first prints `agent_memories_embedding_hnsw` (1 row); second prints `null_kind = 0`; third shows the `agent_working_memory` table with a unique index on `(tenantId, threadId)`.
 
