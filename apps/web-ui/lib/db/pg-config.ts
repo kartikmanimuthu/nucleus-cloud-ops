@@ -84,6 +84,7 @@ export const TENANT_SCOPED_MODELS = new Set([
     'ProviderModel',
     'RightSizingRecommendation',
     'RightSizingRun',
+    'Skill',
 ]);
 
 /**

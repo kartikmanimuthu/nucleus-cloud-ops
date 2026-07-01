@@ -25,6 +25,7 @@ const {
     mockGetMCPManager,
     mockGetSkillContent,
     mockLoadSkills,
+    mockLoadAllSkillContent,
 } = vi.hoisted(() => ({
     mockUpdateRunStatus: vi.fn().mockResolvedValue(undefined),
     mockRecordEvent: vi.fn().mockResolvedValue(undefined),
@@ -34,6 +35,7 @@ const {
     mockGetMCPManager: vi.fn(),
     mockGetSkillContent: vi.fn().mockReturnValue(null),
     mockLoadSkills: vi.fn().mockResolvedValue([]),
+    mockLoadAllSkillContent: vi.fn().mockResolvedValue(new Map()),
 }));
 
 // ---------------------------------------------------------------------------
@@ -60,9 +62,10 @@ vi.mock('@/lib/agent/mcp-manager', () => ({
     getMCPManager: mockGetMCPManager,
 }));
 
-vi.mock('@/lib/agent/skills/skill-loader', () => ({
+vi.mock('@/lib/skill-service', () => ({
     getSkillContent: mockGetSkillContent,
     loadSkills: mockLoadSkills,
+    loadAllSkillContent: mockLoadAllSkillContent,
 }));
 
 // Import after mocks
