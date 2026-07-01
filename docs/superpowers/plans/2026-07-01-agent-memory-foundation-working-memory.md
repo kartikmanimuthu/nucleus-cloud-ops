@@ -227,7 +227,8 @@ model AgentWorkingMemory {
 
 - [ ] **Step 5: Generate the migration SQL (do NOT apply yet)**
 
-Run: `cd apps/web-ui && bunx prisma migrate dev --create-only --name agent_memory_foundation --schema ../../libs/prisma/schema.prisma`
+Run: `cd apps/web-ui && bun run db:migrate -- --create-only --name agent_memory_foundation`
+(The `db:migrate` script is `cd ../.. && prisma migrate dev --schema=./libs/prisma/schema.prisma`; args after `--` are forwarded.)
 Expected: a new folder `libs/prisma/migrations/<timestamp>_agent_memory_foundation/migration.sql` is created; nothing applied to the DB yet.
 
 - [ ] **Step 6: Append the raw HNSW index to the generated migration**
@@ -244,7 +245,7 @@ CREATE INDEX IF NOT EXISTS "agent_memories_embedding_hnsw"
 
 - [ ] **Step 7: Apply the migration**
 
-Run: `cd apps/web-ui && bunx prisma migrate dev --schema ../../libs/prisma/schema.prisma`
+Run: `cd apps/web-ui && bun run db:migrate`
 Expected: `The following migration(s) have been applied` including `agent_memory_foundation`; ends `Your database is now in sync with your schema.`
 
 - [ ] **Step 8: Regenerate BOTH Prisma clients**
@@ -254,15 +255,15 @@ Expected: both print `Generated Prisma Client`.
 
 - [ ] **Step 9: Verify the schema changes in the DB**
 
-Run:
+Run (local `DATABASE_URL` is `postgresql://nucleus:...@localhost:5432/nucleus` → user `nucleus`, db `nucleus`):
 ```bash
-docker compose exec -T postgres psql -U postgres -d nucleus -c "SELECT indexname FROM pg_indexes WHERE tablename='agent_memories' AND indexname='agent_memories_embedding_hnsw';"
-docker compose exec -T postgres psql -U postgres -d nucleus -c "SELECT count(*) AS null_kind FROM agent_memories WHERE kind IS NULL;"
-docker compose exec -T postgres psql -U postgres -d nucleus -c "\d agent_working_memory"
+docker compose exec -T postgres psql -U nucleus -d nucleus -c "SELECT indexname FROM pg_indexes WHERE tablename='agent_memories' AND indexname='agent_memories_embedding_hnsw';"
+docker compose exec -T postgres psql -U nucleus -d nucleus -c "SELECT count(*) AS null_kind FROM agent_memories WHERE kind IS NULL;"
+docker compose exec -T postgres psql -U nucleus -d nucleus -c "\d agent_working_memory"
 ```
 Expected: first prints `agent_memories_embedding_hnsw` (1 row); second prints `null_kind = 0`; third shows the `agent_working_memory` table with a unique index on `(tenantId, threadId)`.
 
-> If the DB/user/name differs locally, read the credentials from the root `.env` `DATABASE_URL` and substitute `-U`/`-d` accordingly.
+> If the credentials differ, re-read them from the root `.env` `DATABASE_URL` and substitute `-U`/`-d` accordingly.
 
 - [ ] **Step 10: Commit**
 
@@ -722,15 +723,29 @@ describe('selectWindow', () => {
         expect(win.length).toBeGreaterThanOrEqual(5);
     });
 
-    it('property: window token estimate stays near budget for large budgets', () => {
+    it('property: window is a recency-preserving suffix, keeps >= min(keep,n), and stays within budget once the keep-floor fits', () => {
         fc.assert(fc.property(
             fc.array(fc.string({ minLength: 1, maxLength: 400 }), { minLength: 1, maxLength: 60 }),
-            (contents) => {
-                const msgs = contents.map((c) => new HumanMessage(c));
-                const budget = 10000;
-                const win = selectWindow(msgs, budget, 4);
-                // Never returns more messages than input; keeps recency ordering.
-                expect(win.length).toBeLessThanOrEqual(msgs.length);
+            fc.integer({ min: 1, max: 10 }),
+            (contents, keep) => {
+                const msgs = contents.map((c, i) => new HumanMessage(`${i}:${c}`)); // unique, non-empty
+                const budget = 5000;
+                const win = selectWindow(msgs, budget, keep);
+
+                // (1) Floor: never drops below min(keep, n) messages.
+                expect(win.length).toBeGreaterThanOrEqual(Math.min(keep, msgs.length));
+
+                // (2) Suffix: the window is exactly the last win.length messages, in order
+                //     (getRecentMessages preserves order and, for these non-empty human
+                //     messages, does not drop any). This is what "recency-preserving" means.
+                const tail = msgs.slice(msgs.length - win.length);
+                expect(win.map((m) => m.content)).toEqual(tail.map((m) => m.content));
+
+                // (3) Budget: any message ADDED beyond the keep-floor stays within budget.
+                //     (The keep-floor itself may exceed budget by design — that is allowed.)
+                if (win.length > keep) {
+                    expect(estimateMessagesTokens(win)).toBeLessThanOrEqual(budget);
+                }
             },
         ));
     });
