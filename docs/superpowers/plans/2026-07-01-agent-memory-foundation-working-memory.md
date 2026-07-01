@@ -728,7 +728,14 @@ describe('selectWindow', () => {
             fc.array(fc.string({ minLength: 1, maxLength: 400 }), { minLength: 1, maxLength: 60 }),
             fc.integer({ min: 1, max: 10 }),
             (contents, keep) => {
-                const msgs = contents.map((c, i) => new HumanMessage(`${i}:${c}`)); // unique, non-empty
+                // Alternate Human/AI roles + non-empty content so getRecentMessages
+                // passes the slice through UNCHANGED. (Two same-role messages adjacent
+                // make getRecentMessages inject a synthetic "Acknowledged." AIMessage to
+                // satisfy Bedrock adjacency — that repair is getRecentMessages' concern,
+                // not selectWindow's, and would grow the array out from under a suffix check.)
+                const msgs = contents.map((c, i) =>
+                    i % 2 === 0 ? new HumanMessage(`${i}:${c}`) : new AIMessage(`${i}:${c}`),
+                );
                 const budget = 5000;
                 const win = selectWindow(msgs, budget, keep);
 
