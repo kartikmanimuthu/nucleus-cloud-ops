@@ -31,6 +31,7 @@ export const navMenus: NavItem[] = [
     items: [
       { title: "AI Ops", href: "/app/agent" },
       { title: "Agent Ops", href: "/app/agent-ops" },
+      { title: "Memory", href: "/app/memory" },
       { title: "Scheduled Tasks", href: "/app/agent-ops/scheduled-tasks" },
       { title: "Knowledge Base", href: "/app/knowledge-base" },
       { title: "Ask", href: "/app/knowledge-base/ask" },

@@ -1,0 +1,80 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextResponse } from 'next/server';
+
+vi.mock('@/lib/auth-session', () => ({
+    getSessionTenantId: vi.fn(),
+}));
+vi.mock('@/lib/rbac/authorize', () => ({
+    authorize: vi.fn(),
+}));
+vi.mock('@/lib/db/repository-factory', () => ({
+    getAgentMemoryRepository: vi.fn(),
+}));
+vi.mock('@/lib/audit-service', () => ({
+    AuditService: { logUserAction: vi.fn() },
+}));
+vi.mock('next-auth', () => ({ getServerSession: vi.fn().mockResolvedValue({ user: { email: 'x@y.z' } }) }));
+vi.mock('@/lib/auth-options', () => ({ authOptions: {} }));
+
+import { getSessionTenantId } from '@/lib/auth-session';
+import { authorize } from '@/lib/rbac/authorize';
+import { getAgentMemoryRepository } from '@/lib/db/repository-factory';
+import { GET } from '@/app/api/agent-memories/route';
+import { DELETE } from '@/app/api/agent-memories/[id]/route';
+
+const repo = {
+    listByTenant: vi.fn(),
+    getById: vi.fn(),
+    deleteById: vi.fn(),
+};
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getSessionTenantId).mockResolvedValue('tenant-a');
+    vi.mocked(authorize).mockResolvedValue(null); // authorized by default
+    vi.mocked(getAgentMemoryRepository).mockReturnValue(repo as any);
+});
+
+describe('GET /api/agent-memories', () => {
+    it('scopes the list query to the session tenant and returns the envelope', async () => {
+        repo.listByTenant.mockResolvedValue({ memories: [{ id: 'mem-1' }], total: 1 });
+        const req = new Request('http://localhost/api/agent-memories?category=infra&search=ecs');
+        const res = await GET(req as any);
+        const body = await res.json();
+
+        expect(repo.listByTenant).toHaveBeenCalledWith(
+            expect.objectContaining({ tenantId: 'tenant-a', category: 'infra', search: 'ecs' })
+        );
+        expect(body).toEqual({ success: true, data: [{ id: 'mem-1' }], total: 1 });
+    });
+
+    it('returns the 403 from authorize when permission is denied', async () => {
+        vi.mocked(authorize).mockResolvedValue(
+            NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+        );
+        const req = new Request('http://localhost/api/agent-memories');
+        const res = await GET(req as any);
+        expect(res.status).toBe(403);
+        expect(repo.listByTenant).not.toHaveBeenCalled();
+    });
+});
+
+describe('DELETE /api/agent-memories/[id]', () => {
+    it('returns 404 for a missing / cross-tenant memory and never deletes', async () => {
+        repo.getById.mockResolvedValue(null);
+        const req = new Request('http://localhost/api/agent-memories/mem-x', { method: 'DELETE' });
+        const res = await DELETE(req as any, { params: Promise.resolve({ id: 'mem-x' }) });
+        expect(res.status).toBe(404);
+        expect(repo.deleteById).not.toHaveBeenCalled();
+    });
+
+    it('deletes an owned memory and returns success', async () => {
+        repo.getById.mockResolvedValue({ id: 'mem-1', key: 'k', namespace: 'infra/a' });
+        repo.deleteById.mockResolvedValue(undefined);
+        const req = new Request('http://localhost/api/agent-memories/mem-1', { method: 'DELETE' });
+        const res = await DELETE(req as any, { params: Promise.resolve({ id: 'mem-1' }) });
+        const body = await res.json();
+        expect(repo.deleteById).toHaveBeenCalledWith('tenant-a', 'mem-1');
+        expect(body).toEqual({ success: true });
+    });
+});
