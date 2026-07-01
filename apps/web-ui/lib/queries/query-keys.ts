@@ -60,6 +60,10 @@ export const queryKeys = {
         sessions: () => [...queryKeys.kbChat.all, 'sessions'] as const,
         messages: (sessionId: string) => [...queryKeys.kbChat.all, 'messages', sessionId] as const,
     },
+    mcpServers: {
+        all: ['mcp-servers'] as const,
+        config: (apiPath: string) => [...queryKeys.mcpServers.all, apiPath] as const,
+    },
     agentMemories: {
         all: ['agent-memories'] as const,
         lists: () => [...queryKeys.agentMemories.all, 'list'] as const,

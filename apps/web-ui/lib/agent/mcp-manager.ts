@@ -10,6 +10,9 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { execFileSync } from 'child_process';
 import { MCPServerConfig, DEFAULT_MCP_SERVERS } from './mcp-config';
 
@@ -167,6 +170,35 @@ function extractDockerEnvVars(args: string[]): Record<string, string> {
     return env;
 }
 
+/**
+ * Build the MCP client transport for a server config.
+ * Pure + side-effect free (constructs the transport object) — unit tested.
+ */
+export function buildTransport(config: MCPServerConfig): Transport {
+    const transport = config.transport ?? 'stdio';
+
+    if (transport === 'sse' || transport === 'http') {
+        if (!config.url) {
+            throw new Error(`MCP server "${config.name}" (${config.id}) uses ${transport} transport but has no "url"`);
+        }
+        const url = new URL(config.url);
+        const headers = config.headers || {};
+        const opts = Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
+        return transport === 'sse'
+            ? new SSEClientTransport(url, opts)
+            : new StreamableHTTPClientTransport(url, opts);
+    }
+
+    return new StdioClientTransport({
+        command: config.command,
+        args: config.args,
+        env: {
+            ...process.env as Record<string, string>,
+            ...(config.env || {}),
+        },
+    });
+}
+
 export interface MCPToolInfo {
     mcpServerId: string;
     mcpServerName: string;
@@ -177,9 +209,10 @@ export interface MCPToolInfo {
 
 export class MCPServerManager {
     private clients: Map<string, Client> = new Map();
-    private transports: Map<string, StdioClientTransport> = new Map();
+    private transports: Map<string, Transport> = new Map();
     private toolCache: Map<string, MCPToolInfo[]> = new Map();
     private connecting: Map<string, Promise<void>> = new Map();
+    private probeCounter = 0;
 
     /**
      * Connect to a specific MCP server by config.
@@ -210,34 +243,31 @@ export class MCPServerManager {
     }
 
     private async _doConnect(config: MCPServerConfig): Promise<void> {
-        // Adapt config for the current environment (e.g. docker → npx in ECS)
-        const adaptedConfig = adaptConfigForEnvironment(config);
+        const transportType = config.transport ?? 'stdio';
+        let effectiveConfig = config;
 
-        console.log(`[MCPManager] Connecting to MCP server: "${adaptedConfig.name}" (${adaptedConfig.id})`);
-        console.log(`[MCPManager]   Command: ${adaptedConfig.command} ${adaptedConfig.args.join(' ')}`);
-        if (adaptedConfig.command !== config.command) {
-            console.log(`[MCPManager]   (adapted from: ${config.command} ${config.args.join(' ')})`);
+        if (transportType === 'stdio') {
+            // Adapt config for the current environment (e.g. docker → npx in ECS)
+            effectiveConfig = adaptConfigForEnvironment(config);
+            console.log(`[MCPManager] Connecting to stdio MCP server: "${effectiveConfig.name}" (${effectiveConfig.id})`);
+            console.log(`[MCPManager]   Command: ${effectiveConfig.command} ${effectiveConfig.args.join(' ')}`);
+            if (effectiveConfig.command !== config.command) {
+                console.log(`[MCPManager]   (adapted from: ${config.command} ${config.args.join(' ')})`);
+            }
+            if (!isCommandAvailable(effectiveConfig.command)) {
+                const errMsg = `Command "${effectiveConfig.command}" not found on PATH. ` +
+                    `MCP server "${effectiveConfig.name}" requires "${effectiveConfig.command}" to be installed. ` +
+                    `Current PATH: ${process.env.PATH || '(not set)'}`;
+                console.error(`[MCPManager] ❌ ${errMsg}`);
+                throw new Error(errMsg);
+            }
+            console.log(`[MCPManager] ✓ Command "${effectiveConfig.command}" found on PATH`);
+        } else {
+            console.log(`[MCPManager] Connecting to ${transportType} MCP server: "${config.name}" (${config.id}) at ${config.url}`);
         }
-
-        // Pre-flight check: verify the adapted command binary exists on PATH
-        if (!isCommandAvailable(adaptedConfig.command)) {
-            const errMsg = `Command "${adaptedConfig.command}" not found on PATH. ` +
-                `MCP server "${adaptedConfig.name}" requires "${adaptedConfig.command}" to be installed. ` +
-                `Current PATH: ${process.env.PATH || '(not set)'}`;
-            console.error(`[MCPManager] ❌ ${errMsg}`);
-            throw new Error(errMsg);
-        }
-        console.log(`[MCPManager] ✓ Command "${adaptedConfig.command}" found on PATH`);
 
         try {
-            const transport = new StdioClientTransport({
-                command: adaptedConfig.command,
-                args: adaptedConfig.args,
-                env: {
-                    ...process.env as Record<string, string>,
-                    ...(adaptedConfig.env || {}),
-                },
-            });
+            const transport = buildTransport(effectiveConfig);
 
             const client = new Client({
                 name: 'nucleus-cloud-ops-agent',
@@ -255,7 +285,6 @@ export class MCPServerManager {
             console.log(`[MCPManager] ✅ Connected to "${config.name}" (${config.id})`);
         } catch (error: any) {
             console.error(`[MCPManager] ❌ Failed to connect to "${config.name}" (${config.id}):`, error.message);
-            // Clean up partial state
             this.clients.delete(config.id);
             this.transports.delete(config.id);
             this.toolCache.delete(config.id);
@@ -303,6 +332,12 @@ export class MCPServerManager {
         accountId: string,
         credentials: { accessKeyId: string; secretAccessKey: string; sessionToken: string; region: string }
     ): Promise<string> {
+        // Remote transports never use AWS credential injection — connect normally.
+        if ((config.transport ?? 'stdio') !== 'stdio') {
+            await this.connectServer(config);
+            return config.id;
+        }
+
         const scopedId = `${config.id}::${accountId}`;
 
         if (this.clients.has(scopedId)) {
@@ -337,6 +372,21 @@ export class MCPServerManager {
         console.log(`[MCPManager] Connecting account-scoped server "${config.name}" for account ${accountId} (id: ${scopedId}) using profile ${sessionProfile.profileName}`);
         await this._doConnect(scopedConfig);
         return scopedId;
+    }
+
+    /**
+     * Connect a throwaway instance, list its tools, then disconnect.
+     * Used by the "Test connection" endpoint — never persists state.
+     */
+    async probeConnection(config: MCPServerConfig): Promise<{ toolCount: number; tools: string[] }> {
+        const ephemeralId = `__probe__:${config.id}:${Date.now()}:${++this.probeCounter}`;
+        try {
+            await this._doConnect({ ...config, id: ephemeralId });
+            const tools = this.toolCache.get(ephemeralId) || [];
+            return { toolCount: tools.length, tools: tools.map(t => t.name) };
+        } finally {
+            await this.disconnectServer(ephemeralId);
+        }
     }
 
     /**
