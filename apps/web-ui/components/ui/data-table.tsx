@@ -13,6 +13,7 @@ import {
   getSortedRowModel,
   useReactTable,
   PaginationState,
+  OnChangeFn,
 } from '@tanstack/react-table';
 
 import {
@@ -35,6 +36,10 @@ interface DataTableProps<TData, TValue> {
   enableFiltering?: boolean;
   defaultPageSize?: number;
   pageSizeOptions?: number[];
+  manualPagination?: boolean;
+  rowCount?: number;
+  pagination?: PaginationState;
+  onPaginationChange?: OnChangeFn<PaginationState>;
   emptyMessage?: React.ReactNode;
   header?: React.ReactNode;
   footer?: React.ReactNode;
@@ -49,6 +54,10 @@ export function DataTable<TData, TValue>({
   enableFiltering = true,
   defaultPageSize = 10,
   pageSizeOptions,
+  manualPagination = false,
+  rowCount,
+  pagination: controlledPagination,
+  onPaginationChange,
   emptyMessage = 'No results.',
   header,
   footer,
@@ -57,10 +66,12 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
-  const [pagination, setPagination] = React.useState<PaginationState>({
+  const [internalPagination, setInternalPagination] = React.useState<PaginationState>({
     pageIndex: 0,
     pageSize: defaultPageSize,
   });
+  const pagination = controlledPagination ?? internalPagination;
+  const setPagination: OnChangeFn<PaginationState> = onPaginationChange ?? setInternalPagination;
 
   const table = useReactTable({
     data,
@@ -79,8 +90,11 @@ export function DataTable<TData, TValue>({
     onPaginationChange: enablePagination ? setPagination : undefined,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: enableFiltering ? getFilteredRowModel() : undefined,
-    getPaginationRowModel: enablePagination ? getPaginationRowModel() : undefined,
+    getPaginationRowModel:
+      enablePagination && !manualPagination ? getPaginationRowModel() : undefined,
     getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
+    manualPagination,
+    rowCount: manualPagination ? rowCount : undefined,
   });
 
   return (
