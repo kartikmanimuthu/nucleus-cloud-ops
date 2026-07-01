@@ -19,26 +19,50 @@
 export interface MCPServerConfig {
     id: string;
     name: string;
-    command: string;
-    args: string[];
+    /** Transport kind. Absent ⇒ 'stdio' for backward compatibility. */
+    transport?: 'stdio' | 'sse' | 'http';
+    command: string;            // stdio only ('' for remote)
+    args: string[];             // stdio only ([] for remote)
     env?: Record<string, string>;
+    /** Remote (sse/http) only. */
+    url?: string;
+    headers?: Record<string, string>;
     enabled: boolean;
     description: string;
-    /** When true, AWS credentials for the selected account are injected as env vars before spawning. */
+    /** When true, AWS credentials for the selected account are injected as env vars before spawning. stdio only. */
     requiresAwsCredentials?: boolean;
 }
 
-/**
- * JSON format for the MCP config stored in DynamoDB / shown in the editor.
- * Mirrors VS Code / Cursor convention.
- */
-export interface MCPServerJsonEntry {
+/** stdio entry — VS Code / Cursor convention. `type` optional ⇒ defaults to stdio. */
+export interface StdioJsonEntry {
+    type?: 'stdio';
     command: string;
     args: string[];
     env?: Record<string, string>;
     disabled?: boolean;
-    /** When true, AWS credentials for the selected account are injected as env vars before spawning. */
     requiresAwsCredentials?: boolean;
+}
+
+/** Remote entry — SSE or streamable HTTP. */
+export interface RemoteJsonEntry {
+    type: 'sse' | 'http';
+    url: string;
+    headers?: Record<string, string>;
+    disabled?: boolean;
+}
+
+export type MCPServerJsonEntry = StdioJsonEntry | RemoteJsonEntry;
+
+/**
+ * Type guard for discriminated-union narrowing on MCPServerJsonEntry.
+ * StdioJsonEntry.type is optional (absent ⇒ stdio), so a plain
+ * `entry.type === 'sse' || entry.type === 'http'` check does NOT narrow
+ * the else-branch to StdioJsonEntry in TypeScript — TS still sees the full
+ * union there. Using this guard as the condition narrows the else-branch
+ * correctly to StdioJsonEntry in all branches.
+ */
+export function isRemoteEntry(entry: MCPServerJsonEntry): entry is RemoteJsonEntry {
+    return entry.type === 'sse' || entry.type === 'http';
 }
 
 export interface MCPConfigJson {
@@ -57,33 +81,32 @@ export const MCP_CONFIG_JSON_SCHEMA = {
             type: 'object',
             description: 'Map of MCP server configurations keyed by server ID',
             additionalProperties: {
-                type: 'object',
-                required: ['command', 'args'],
-                properties: {
-                    command: {
-                        type: 'string',
-                        description: 'Command to start the MCP server (e.g., "uvx", "npx", "node")',
-                    },
-                    args: {
-                        type: 'array',
-                        items: { type: 'string' },
-                        description: 'Arguments to pass to the command',
-                    },
-                    env: {
+                oneOf: [
+                    {
                         type: 'object',
-                        additionalProperties: { type: 'string' },
-                        description: 'Environment variables for the server process',
+                        required: ['command', 'args'],
+                        properties: {
+                            type: { const: 'stdio' },
+                            command: { type: 'string', description: 'Command to start the MCP server (e.g. "uvx", "npx", "node")' },
+                            args: { type: 'array', items: { type: 'string' } },
+                            env: { type: 'object', additionalProperties: { type: 'string' } },
+                            disabled: { type: 'boolean' },
+                            requiresAwsCredentials: { type: 'boolean' },
+                        },
+                        additionalProperties: false,
                     },
-                    disabled: {
-                        type: 'boolean',
-                        description: 'Set to true to disable this server (default: false)',
+                    {
+                        type: 'object',
+                        required: ['type', 'url'],
+                        properties: {
+                            type: { enum: ['sse', 'http'] },
+                            url: { type: 'string', description: 'Remote MCP endpoint URL' },
+                            headers: { type: 'object', additionalProperties: { type: 'string' } },
+                            disabled: { type: 'boolean' },
+                        },
+                        additionalProperties: false,
                     },
-                    requiresAwsCredentials: {
-                        type: 'boolean',
-                        description: 'When true, AWS credentials for the selected account are injected as env vars (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION)',
-                    },
-                },
-                additionalProperties: false,
+                ],
             },
         },
     },
@@ -259,24 +282,38 @@ export function defaultsToJson(): MCPConfigJson {
     return { mcpServers };
 }
 
+function toServerConfig(id: string, entry: MCPServerJsonEntry): MCPServerConfig {
+    const defaultServer = DEFAULT_MCP_SERVERS.find(s => s.id === id);
+    const name = defaultServer?.name || id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const description = defaultServer?.description || `MCP server: ${id}`;
+    const enabled = entry.disabled !== true;
+
+    if (isRemoteEntry(entry)) {
+        return {
+            id, name, description, enabled,
+            transport: entry.type,
+            command: '',
+            args: [],
+            url: entry.url,
+            headers: entry.headers || {},
+        };
+    }
+
+    return {
+        id, name, description, enabled,
+        transport: 'stdio',
+        command: entry.command,
+        args: entry.args,
+        env: entry.env || {},
+        requiresAwsCredentials: entry.requiresAwsCredentials ?? defaultServer?.requiresAwsCredentials ?? false,
+    };
+}
+
 /**
  * Convert JSON editor format back to MCPServerConfig[].
  */
 export function jsonToServerConfigs(json: MCPConfigJson): MCPServerConfig[] {
-    return Object.entries(json.mcpServers).map(([id, entry]) => {
-        // Find matching default for display name/description, or generate from ID
-        const defaultServer = DEFAULT_MCP_SERVERS.find(s => s.id === id);
-        return {
-            id,
-            name: defaultServer?.name || id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-            command: entry.command,
-            args: entry.args,
-            env: entry.env || {},
-            enabled: entry.disabled !== true,
-            description: defaultServer?.description || `MCP server: ${id}`,
-            requiresAwsCredentials: entry.requiresAwsCredentials ?? defaultServer?.requiresAwsCredentials ?? false,
-        };
-    });
+    return Object.entries(json.mcpServers).map(([id, entry]) => toServerConfig(id, entry));
 }
 
 /**
@@ -284,36 +321,82 @@ export function jsonToServerConfigs(json: MCPConfigJson): MCPServerConfig[] {
  * User config wins — any server in user config overrides the default.
  * Servers in defaults but not in user config are included as-is.
  */
-export function mergeConfigs(
-    savedJson: MCPConfigJson | null
-): MCPServerConfig[] {
+export function mergeConfigs(savedJson: MCPConfigJson | null): MCPServerConfig[] {
     if (!savedJson) {
         return DEFAULT_MCP_SERVERS;
     }
-
     const merged: Record<string, MCPServerConfig> = {};
-
-    // Start with defaults
     for (const server of DEFAULT_MCP_SERVERS) {
         merged[server.id] = { ...server };
     }
-
-    // Overlay user config
     for (const [id, entry] of Object.entries(savedJson.mcpServers)) {
-        const defaultServer = DEFAULT_MCP_SERVERS.find(s => s.id === id);
-        merged[id] = {
-            id,
-            name: defaultServer?.name || id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-            command: entry.command,
-            args: entry.args,
-            env: entry.env || {},
-            enabled: entry.disabled !== true,
-            description: defaultServer?.description || `MCP server: ${id}`,
-            requiresAwsCredentials: entry.requiresAwsCredentials ?? defaultServer?.requiresAwsCredentials ?? false,
-        };
+        merged[id] = toServerConfig(id, entry);
     }
-
     return Object.values(merged);
+}
+
+/**
+ * SECURITY NOTE — SSRF surface (accepted risk):
+ *
+ * Only the URL protocol (http: / https:) is validated here. Remote MCP URLs
+ * are NOT restricted from loopback (127.0.0.1), link-local (169.254.0.0/16,
+ * includes AWS IMDS at 169.254.169.254), or RFC-1918 private ranges.
+ *
+ * This means an authenticated tenant user can make the server open a
+ * connection to internal services via the Test-connection action or at
+ * runtime when the MCP manager connects.
+ *
+ * Accepted risk rationale: the stdio transport already grants the same user
+ * arbitrary local command execution (same trust boundary). Remote MCP widens
+ * the surface to outbound HTTP rather than local exec, but both operate on the
+ * same tenant-scoped, authenticated surface. The risk profile is comparable.
+ *
+ * Follow-up (not in scope for this change): deny-list link-local
+ * (169.254.0.0/16), loopback (127.0.0.0/8), and private CIDR ranges
+ * (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) before exposing this to
+ * untrusted or lower-trust user tiers.
+ */
+function isValidHttpUrl(value: unknown): boolean {
+    if (typeof value !== 'string') return false;
+    try {
+        const u = new URL(value);
+        return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Single source of truth for MCP config validation (used by both API routes).
+ * stdio entries require command + args; remote (sse/http) require a valid url.
+ */
+export function validateMcpConfig(config: unknown): { ok: true } | { ok: false; error: string } {
+    const cfg = config as { mcpServers?: unknown };
+    if (!cfg || typeof cfg !== 'object' || typeof cfg.mcpServers !== 'object' || cfg.mcpServers === null) {
+        return { ok: false, error: 'Invalid config: must contain "mcpServers" object' };
+    }
+    for (const [id, raw] of Object.entries(cfg.mcpServers as Record<string, unknown>)) {
+        if (!raw || typeof raw !== 'object') {
+            return { ok: false, error: `Invalid server "${id}": entry must be an object` };
+        }
+        const entry = raw as Record<string, unknown>;
+        const type = (entry.type as string) ?? 'stdio';
+        if (type === 'stdio') {
+            if (typeof entry.command !== 'string' || !entry.command.trim()) {
+                return { ok: false, error: `Invalid server "${id}": stdio servers require a non-empty "command"` };
+            }
+            if (!Array.isArray(entry.args)) {
+                return { ok: false, error: `Invalid server "${id}": stdio servers require an "args" array` };
+            }
+        } else if (type === 'sse' || type === 'http') {
+            if (!isValidHttpUrl(entry.url)) {
+                return { ok: false, error: `Invalid server "${id}": ${type} servers require a valid http(s) "url"` };
+            }
+        } else {
+            return { ok: false, error: `Invalid server "${id}": unknown transport type "${type}"` };
+        }
+    }
+    return { ok: true };
 }
 
 /**

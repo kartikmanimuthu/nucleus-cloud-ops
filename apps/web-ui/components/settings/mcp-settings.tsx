@@ -3,453 +3,250 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/utils';
-import {
-    Plug, Save, RotateCcw, Check, AlertCircle, Loader2, Info, Plus, Copy
-} from 'lucide-react';
+import { Plug, Save, RotateCcw, Check, AlertCircle, Loader2, Info, Copy, Code2, ListChecks } from 'lucide-react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import { useTheme } from 'next-themes';
+import { toast } from 'sonner';
+import {
+  MCP_CONFIG_JSON_SCHEMA,
+  validateMcpConfig,
+  defaultsToJson,
+  type MCPConfigJson,
+} from '@/lib/agent/mcp-config';
+import { configToFormRows, formRowsToConfig, mcpFormSchema, type McpFormValues } from '@/lib/agent/mcp-form-schema';
+import { McpServerForm } from './mcp-server-form';
+import { useMcpConfig, useSaveMcpConfig, useResetMcpConfig } from '@/lib/queries/mcp-servers';
 
-// Default config for quick-add templates
-const TEMPLATE_SERVERS: Record<string, { command: string; args: string[]; env?: Record<string, string>; description: string }> = {
-    'aws-documentation': {
-        command: 'uvx',
-        args: ['awslabs.aws-documentation-mcp-server@latest'],
-        description: 'AWS Documentation & best practices',
-    },
-    'aws-cdk': {
-        command: 'uvx',
-        args: ['awslabs.cdk-mcp-server@latest'],
-        description: 'AWS CDK guidance & constructs',
-    },
-    'grafana': {
-        command: 'npx',
-        args: ['-y', '@leval/mcp-grafana'],
-        env: { GRAFANA_URL: 'https://your-grafana-instance.example.com', GRAFANA_TOKEN: 'glsa_xxxxxxxxxxxx' },
-        description: 'Grafana dashboards & metrics',
-    },
-    'kubernetes': {
-        command: 'npx',
-        args: ['-y', 'mcp-server-kubernetes'],
-        description: 'Kubernetes cluster management',
-    },
-};
-
-// JSON Schema for Monaco auto-validation
-const MCP_SCHEMA = {
-    uri: 'https://nucleus-platform/mcp-config.schema.json',
-    fileMatch: ['*'],
-    schema: {
-        $schema: 'http://json-schema.org/draft-07/schema#',
-        type: 'object',
-        required: ['mcpServers'],
-        properties: {
-            mcpServers: {
-                type: 'object',
-                description: 'Map of MCP server configurations keyed by server ID',
-                additionalProperties: {
-                    type: 'object',
-                    required: ['command', 'args'],
-                    properties: {
-                        command: {
-                            type: 'string',
-                            description: 'Command to start the MCP server (e.g., "uvx", "npx", "node")',
-                        },
-                        args: {
-                            type: 'array',
-                            items: { type: 'string' },
-                            description: 'Arguments to pass to the command',
-                        },
-                        env: {
-                            type: 'object',
-                            additionalProperties: { type: 'string' },
-                            description: 'Environment variables for the server process',
-                        },
-                        disabled: {
-                            type: 'boolean',
-                            description: 'Set to true to disable this server (default: false)',
-                        },
-                    },
-                    additionalProperties: false,
-                },
-            },
-        },
-        additionalProperties: false,
-    },
+const MONACO_SCHEMA = {
+  uri: 'https://nucleus-platform/mcp-config.schema.json',
+  fileMatch: ['*'],
+  schema: MCP_CONFIG_JSON_SCHEMA,
 };
 
 interface MCPSettingsProps {
-    apiPath?: string;
+  apiPath?: string;
 }
 
+type Mode = 'form' | 'json';
+
 export function MCPSettings({ apiPath = '/api/mcp-servers' }: MCPSettingsProps) {
-    const { resolvedTheme } = useTheme();
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [editorValue, setEditorValue] = useState('');
-    const [originalValue, setOriginalValue] = useState('');
-    const [isCustom, setIsCustom] = useState(false);
-    const [hasChanges, setHasChanges] = useState(false);
-    const [isValidJson, setIsValidJson] = useState(true);
-    const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
-    const [errorMessage, setErrorMessage] = useState('');
-    const [serverSummary, setServerSummary] = useState({ total: 0, enabled: 0 });
-    const editorRef = useRef<any>(null);
+  const { resolvedTheme } = useTheme();
+  const { data, isLoading } = useMcpConfig(apiPath);
+  const saveMutation = useSaveMcpConfig(apiPath);
+  const resetMutation = useResetMcpConfig(apiPath);
 
-    // Fetch config on mount
-    useEffect(() => {
-        fetchConfig();
-    }, []);
+  const [mode, setMode] = useState<Mode>('form');
+  const [formValues, setFormValues] = useState<McpFormValues>({ servers: [] });
+  const [editorValue, setEditorValue] = useState('');
+  const [isCustom, setIsCustom] = useState(false);
+  const [isValidJson, setIsValidJson] = useState(true);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const editorRef = useRef<unknown>(null);
 
-    const fetchConfig = async () => {
-        try {
-            setLoading(true);
-            const res = await fetch(apiPath);
-            if (res.ok) {
-                const data = await res.json();
-                const json = JSON.stringify(data.config, null, 2);
-                setEditorValue(json);
-                setOriginalValue(json);
-                setIsCustom(data.isCustom);
-                updateSummary(data.config);
-            }
-        } catch (error) {
-            console.error('[MCPSettings] Failed to load config:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
+  // Hydrate from server
+  useEffect(() => {
+    if (!data) return;
+    const config = data.config ?? defaultsToJson();
+    setFormValues({ servers: configToFormRows(config) });
+    setEditorValue(JSON.stringify(config, null, 2));
+    setIsCustom(data.isCustom);
+  }, [data]);
 
-    const updateSummary = (config: any) => {
-        if (!config?.mcpServers) return;
-        const entries = Object.entries(config.mcpServers);
-        const enabled = entries.filter(([, v]: any) => v.disabled !== true).length;
-        setServerSummary({ total: entries.length, enabled });
-    };
+  const summary = (() => {
+    const rows = formValues.servers;
+    return { total: rows.length, enabled: rows.filter((r) => !r.disabled).length };
+  })();
 
-    const handleEditorChange = useCallback((value: string | undefined) => {
-        const val = value || '';
-        setEditorValue(val);
-        setHasChanges(val !== originalValue);
-        setSaveStatus('idle');
+  const handleEditorChange = useCallback((value: string | undefined) => {
+    const val = value || '';
+    setEditorValue(val);
+    try {
+      const parsed = JSON.parse(val);
+      setIsValidJson(validateMcpConfig(parsed).ok);
+    } catch {
+      setIsValidJson(false);
+    }
+  }, []);
 
-        // Validate JSON
-        try {
-            const parsed = JSON.parse(val);
-            setIsValidJson(parsed && typeof parsed.mcpServers === 'object');
-            if (parsed?.mcpServers) {
-                updateSummary(parsed);
-            }
-        } catch {
-            setIsValidJson(false);
-        }
-    }, [originalValue]);
+  const handleEditorMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+      validate: true,
+      schemas: [MONACO_SCHEMA],
+      allowComments: false,
+      trailingCommas: 'error',
+    });
+    setTimeout(() => editor.getAction('editor.action.formatDocument')?.run(), 200);
+  };
 
-    const handleEditorMount: OnMount = (editor, monaco) => {
-        editorRef.current = editor;
+  // Build the canonical MCPConfigJson from the active view; returns null on error (after toasting).
+  const buildConfig = (): MCPConfigJson | null => {
+    if (mode === 'json') {
+      try {
+        const parsed = JSON.parse(editorValue);
+        const v = validateMcpConfig(parsed);
+        if (!v.ok) { toast.error(v.error); return null; }
+        return parsed as MCPConfigJson;
+      } catch {
+        toast.error('Invalid JSON'); return null;
+      }
+    }
+    const schemaCheck = mcpFormSchema.safeParse(formValues);
+    if (!schemaCheck.success) {
+      toast.error(schemaCheck.error.issues[0]?.message || 'Fix form errors before saving');
+      return null;
+    }
+    const { config, error } = formRowsToConfig(formValues.servers);
+    if (error) { toast.error(error); return null; }
+    const v = validateMcpConfig(config);
+    if (!v.ok) { toast.error(v.error); return null; }
+    return config;
+  };
 
-        // Register JSON schema for validation
-        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
-            validate: true,
-            schemas: [MCP_SCHEMA],
-            allowComments: false,
-            trailingCommas: 'error',
-        });
+  const switchMode = (next: Mode) => {
+    if (!next || next === mode) return;
+    if (next === 'json') {
+      // form -> json: serialize current form rows
+      const { config, error } = formRowsToConfig(formValues.servers);
+      if (error) { toast.error(error); return; }
+      setEditorValue(JSON.stringify(config, null, 2));
+      setIsValidJson(true);
+      setMode('json');
+    } else {
+      // json -> form: parse + validate, block on error
+      try {
+        const parsed = JSON.parse(editorValue);
+        const v = validateMcpConfig(parsed);
+        if (!v.ok) { toast.error(`Fix JSON before switching to Form: ${v.error}`); return; }
+        setFormValues({ servers: configToFormRows(parsed as MCPConfigJson) });
+        setMode('form');
+      } catch {
+        toast.error('Fix JSON before switching to Form');
+      }
+    }
+  };
 
-        // Auto-format on load
-        setTimeout(() => {
-            editor.getAction('editor.action.formatDocument')?.run();
-        }, 200);
-    };
+  const handleSave = async () => {
+    const config = buildConfig();
+    if (!config) return;
+    try {
+      const res = await saveMutation.mutateAsync(config);
+      setFormValues({ servers: configToFormRows(res.config) });
+      setEditorValue(JSON.stringify(res.config, null, 2));
+      setIsCustom(true);
+      setSavedFlash(true);
+      toast.success('MCP configuration saved');
+      setTimeout(() => setSavedFlash(false), 3000);
+    } catch (e) {
+      toast.error((e as Error)?.message || 'Failed to save');
+    }
+  };
 
-    const handleSave = async () => {
-        if (!isValidJson || saving) return;
+  const handleReset = async () => {
+    try {
+      const res = await resetMutation.mutateAsync();
+      setFormValues({ servers: configToFormRows(res.config) });
+      setEditorValue(JSON.stringify(res.config, null, 2));
+      setIsCustom(false);
+      toast.success('Reset to defaults');
+    } catch (e) {
+      toast.error((e as Error)?.message || 'Failed to reset');
+    }
+  };
 
-        try {
-            setSaving(true);
-            setErrorMessage('');
+  const saving = saveMutation.isPending || resetMutation.isPending;
 
-            const config = JSON.parse(editorValue);
-            const res = await fetch(apiPath, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ config }),
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                const json = JSON.stringify(data.config, null, 2);
-                setOriginalValue(json);
-                setEditorValue(json);
-                setHasChanges(false);
-                setIsCustom(true);
-                setSaveStatus('saved');
-                updateSummary(data.config);
-
-                // Clear save status after 3s
-                setTimeout(() => setSaveStatus('idle'), 3000);
-            } else {
-                const err = await res.json();
-                setErrorMessage(err.error || 'Failed to save');
-                setSaveStatus('error');
-            }
-        } catch (error: any) {
-            setErrorMessage(error.message || 'Failed to save');
-            setSaveStatus('error');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const handleReset = async () => {
-        try {
-            setSaving(true);
-            const res = await fetch(apiPath, { method: 'DELETE' });
-
-            if (res.ok) {
-                const data = await res.json();
-                const json = JSON.stringify(data.config, null, 2);
-                setEditorValue(json);
-                setOriginalValue(json);
-                setHasChanges(false);
-                setIsCustom(false);
-                setSaveStatus('saved');
-                updateSummary(data.config);
-                setTimeout(() => setSaveStatus('idle'), 3000);
-            }
-        } catch (error) {
-            console.error('[MCPSettings] Failed to reset:', error);
-            setSaveStatus('error');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const handleFormat = () => {
-        editorRef.current?.getAction('editor.action.formatDocument')?.run();
-    };
-
-    const handleCopyConfig = () => {
-        navigator.clipboard.writeText(editorValue);
-    };
-
-    const handleAddServer = (id: string) => {
-        try {
-            const config = JSON.parse(editorValue);
-            if (config.mcpServers[id]) return; // Already exists
-
-            const template = TEMPLATE_SERVERS[id];
-            if (!template) return;
-
-            config.mcpServers[id] = {
-                command: template.command,
-                args: [...template.args],
-                ...(template.env && Object.keys(template.env).length > 0 ? { env: template.env } : {}),
-                disabled: false,
-            };
-
-            const json = JSON.stringify(config, null, 2);
-            setEditorValue(json);
-            setHasChanges(json !== originalValue);
-            updateSummary(config);
-
-            // Update the editor content
-            if (editorRef.current) {
-                editorRef.current.setValue(json);
-            }
-        } catch {
-            // Invalid JSON, can't add
-        }
-    };
-
-    // Determine which templates are available (not already in config)
-    const getAvailableTemplates = () => {
-        try {
-            const config = JSON.parse(editorValue);
-            return Object.entries(TEMPLATE_SERVERS).filter(([id]) => !config.mcpServers?.[id]);
-        } catch {
-            return Object.entries(TEMPLATE_SERVERS);
-        }
-    };
-
-    return (
-        <div className="space-y-4">
-            {/* Main Editor Card */}
-            <Card>
-                <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center">
-                                <Plug className="h-5 w-5 text-green-600 dark:text-green-400" />
-                            </div>
-                            <div>
-                                <CardTitle className="text-lg">MCP Servers Configuration</CardTitle>
-                                <CardDescription>
-                                    Configure Model Context Protocol servers for the AI agent.
-                                    Format follows the VS Code / Cursor MCP convention.
-                                </CardDescription>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {isCustom && (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-medium">
-                                    CUSTOMIZED
-                                </span>
-                            )}
-                        </div>
-                    </div>
-                </CardHeader>
-
-                <CardContent className="space-y-3">
-                    {/* Toolbar */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            {/* Save */}
-                            <Button
-                                size="sm"
-                                onClick={handleSave}
-                                disabled={!hasChanges || !isValidJson || saving}
-                                className={cn(
-                                    "h-8 text-xs gap-1.5",
-                                    saveStatus === 'saved' && "bg-green-600 hover:bg-green-700"
-                                )}
-                            >
-                                {saving ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : saveStatus === 'saved' ? (
-                                    <Check className="h-3.5 w-3.5" />
-                                ) : (
-                                    <Save className="h-3.5 w-3.5" />
-                                )}
-                                {saveStatus === 'saved' ? 'Saved' : 'Save'}
-                            </Button>
-
-                            {/* Reset */}
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={handleReset}
-                                disabled={!isCustom || saving}
-                                className="h-8 text-xs gap-1.5"
-                                title="Reset to defaults"
-                            >
-                                <RotateCcw className="h-3.5 w-3.5" />
-                                Reset to Defaults
-                            </Button>
-
-                            {/* Copy */}
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={handleCopyConfig}
-                                className="h-8 text-xs gap-1.5"
-                                title="Copy to clipboard"
-                            >
-                                <Copy className="h-3.5 w-3.5" />
-                            </Button>
-                        </div>
-
-                        {/* Status */}
-                        <div className="flex items-center gap-3">
-                            {!isValidJson && (
-                                <span className="text-xs text-destructive flex items-center gap-1">
-                                    <AlertCircle className="h-3.5 w-3.5" />
-                                    Invalid JSON
-                                </span>
-                            )}
-                            {errorMessage && (
-                                <span className="text-xs text-destructive max-w-[200px] truncate">{errorMessage}</span>
-                            )}
-                            <span className="text-xs text-muted-foreground">
-                                {serverSummary.total} server{serverSummary.total !== 1 ? 's' : ''} configured,{' '}
-                                <span className={cn(serverSummary.enabled > 0 ? "text-green-600 dark:text-green-400 font-medium" : "")}>
-                                    {serverSummary.enabled} enabled
-                                </span>
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* Monaco Editor */}
-                    <div className="border rounded-lg overflow-hidden">
-                        {loading ? (
-                            <div className="h-[420px] flex items-center justify-center bg-muted/20">
-                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                            </div>
-                        ) : (
-                            <Editor
-                                height="420px"
-                                defaultLanguage="json"
-                                value={editorValue}
-                                onChange={handleEditorChange}
-                                onMount={handleEditorMount}
-                                theme={resolvedTheme === 'dark' ? 'vs-dark' : 'light'}
-                                options={{
-                                    minimap: { enabled: false },
-                                    fontSize: 13,
-                                    lineNumbers: 'on',
-                                    folding: true,
-                                    bracketPairColorization: { enabled: true },
-                                    formatOnPaste: true,
-                                    automaticLayout: true,
-                                    scrollBeyondLastLine: false,
-                                    tabSize: 2,
-                                    wordWrap: 'on',
-                                    renderLineHighlight: 'line',
-                                    padding: { top: 12, bottom: 12 },
-                                    scrollbar: {
-                                        verticalScrollbarSize: 8,
-                                        horizontalScrollbarSize: 8,
-                                    },
-                                }}
-                            />
-                        )}
-                    </div>
-
-                    {/* Info bar */}
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
-                        <Info className="h-3.5 w-3.5 flex-shrink-0" />
-                        <span>
-                            Set <code className="px-1 py-0.5 rounded bg-muted text-[11px] font-mono">&quot;disabled&quot;: true</code> to
-                            keep a server configured but inactive. Keyboard shortcut: <kbd className="px-1.5 py-0.5 rounded border bg-muted text-[11px]">⌘S</kbd> to save.
-                        </span>
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* Quick Add Card */}
-            {getAvailableTemplates().length > 0 && (
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium flex items-center gap-2">
-                            <Plus className="h-4 w-4" />
-                            Add MCP Server
-                        </CardTitle>
-                        <CardDescription className="text-xs">
-                            Quick-add preconfigured server templates to your configuration.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {getAvailableTemplates().map(([id, template]) => (
-                                <button
-                                    key={id}
-                                    onClick={() => handleAddServer(id)}
-                                    className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors text-left group"
-                                >
-                                    <div className="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-colors">
-                                        <Plug className="h-4 w-4 text-primary" />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-medium truncate">{id}</p>
-                                        <p className="text-xs text-muted-foreground truncate">{template.description}</p>
-                                    </div>
-                                    <Plus className="h-4 w-4 text-muted-foreground ml-auto flex-shrink-0 group-hover:text-primary transition-colors" />
-                                </button>
-                            ))}
-                        </div>
-                    </CardContent>
-                </Card>
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center">
+                <Plug className="h-5 w-5 text-green-600 dark:text-green-400" />
+              </div>
+              <div>
+                <CardTitle className="text-lg">MCP Servers Configuration</CardTitle>
+                <CardDescription>
+                  Configure Model Context Protocol servers for the AI agent. Local (stdio) and remote (SSE / HTTP) transports are supported.
+                </CardDescription>
+              </div>
+            </div>
+            {isCustom && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-medium">
+                CUSTOMIZED
+              </span>
             )}
-        </div>
-    );
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={handleSave} disabled={saving || (mode === 'json' && !isValidJson)} className={cn('h-8 text-xs gap-1.5', savedFlash && 'bg-green-600 hover:bg-green-700')}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : savedFlash ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+                {savedFlash ? 'Saved' : 'Save'}
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleReset} disabled={!isCustom || saving} className="h-8 text-xs gap-1.5" title="Reset to defaults">
+                <RotateCcw className="h-3.5 w-3.5" /> Reset to Defaults
+              </Button>
+              {mode === 'json' && (
+                <Button size="sm" variant="ghost" onClick={() => navigator.clipboard.writeText(editorValue)} className="h-8 text-xs gap-1.5" title="Copy">
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              {mode === 'json' && !isValidJson && (
+                <span className="text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-3.5 w-3.5" /> Invalid JSON
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">
+                {summary.total} server{summary.total !== 1 ? 's' : ''},{' '}
+                <span className={cn(summary.enabled > 0 && 'text-green-600 dark:text-green-400 font-medium')}>{summary.enabled} enabled</span>
+              </span>
+              <ToggleGroup type="single" value={mode} onValueChange={(v) => switchMode(v as Mode)} size="sm">
+                <ToggleGroupItem value="form" className="h-8 px-2 text-xs gap-1.5" aria-label="Form view"><ListChecks className="h-3.5 w-3.5" /> Form</ToggleGroupItem>
+                <ToggleGroupItem value="json" className="h-8 px-2 text-xs gap-1.5" aria-label="JSON view"><Code2 className="h-3.5 w-3.5" /> JSON</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+          </div>
+
+          {isLoading ? (
+            <div className="h-[420px] flex items-center justify-center bg-muted/20 rounded-lg border">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : mode === 'form' ? (
+            <McpServerForm value={formValues} onChange={setFormValues} apiPath={apiPath} />
+          ) : (
+            <div className="border rounded-lg overflow-hidden">
+              <Editor
+                height="420px"
+                defaultLanguage="json"
+                value={editorValue}
+                onChange={handleEditorChange}
+                onMount={handleEditorMount}
+                theme={resolvedTheme === 'dark' ? 'vs-dark' : 'light'}
+                options={{
+                  minimap: { enabled: false }, fontSize: 13, lineNumbers: 'on', folding: true,
+                  bracketPairColorization: { enabled: true }, formatOnPaste: true, automaticLayout: true,
+                  scrollBeyondLastLine: false, tabSize: 2, wordWrap: 'on', renderLineHighlight: 'line',
+                  padding: { top: 12, bottom: 12 }, scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+                }}
+              />
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+            <Info className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>Toggle <strong>Form</strong>/<strong>JSON</strong> to edit the same configuration either way. Remote servers use <code className="px-1 py-0.5 rounded bg-muted text-[11px] font-mono">type: &quot;sse&quot;</code> or <code className="px-1 py-0.5 rounded bg-muted text-[11px] font-mono">&quot;http&quot;</code> with a URL.</span>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }

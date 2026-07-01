@@ -16,6 +16,7 @@ import {
     mergeConfigs,
     defaultsToJson,
     jsonToServerConfigs,
+    validateMcpConfig,
 } from '@/lib/agent/mcp-config';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
@@ -56,20 +57,9 @@ export async function PUT(req: Request) {
         const body = await req.json();
         const config: MCPConfigJson = body.config;
 
-        if (!config || !config.mcpServers || typeof config.mcpServers !== 'object') {
-            return NextResponse.json(
-                { error: 'Invalid config: must contain "mcpServers" object' },
-                { status: 400 }
-            );
-        }
-
-        for (const [id, entry] of Object.entries(config.mcpServers)) {
-            if (!entry.command || !Array.isArray(entry.args)) {
-                return NextResponse.json(
-                    { error: `Invalid server "${id}": must have "command" (string) and "args" (array)` },
-                    { status: 400 }
-                );
-            }
+        const validation = validateMcpConfig(config);
+        if (!validation.ok) {
+            return NextResponse.json({ error: validation.error }, { status: 400 });
         }
 
         await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);
