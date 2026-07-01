@@ -491,26 +491,59 @@ model ScheduledTaskLock {
   @@map("scheduled_task_locks")
 }
 
+enum MemoryKind {
+  SEMANTIC
+  EPISODIC
+  PROCEDURAL
+}
+
 // AgentMemory — long-term semantic memory for AI agents (LANG-03)
 // Uses pgvector for similarity search with Bedrock Titan v2 embeddings (1024-dim)
 // embedding column uses Unsupported() — raw SQL for vector queries (Prisma has no native pgvector support)
 // expiresAt: 90-day TTL (same cleanup pattern as other tables)
 model AgentMemory {
-  id            String                    @id @default(cuid())
-  tenantId      String
-  userId        String
-  namespace     String
-  key           String
-  value         Json
-  embedding     Unsupported("vector(1024)")?
-  createdAt     DateTime                  @default(now())
-  updatedAt     DateTime                  @updatedAt
-  expiresAt     DateTime                  // 90-day TTL
+  id             String                       @id @default(cuid())
+  tenantId       String
+  userId         String
+  namespace      String
+  key            String
+  value          Json
+  kind           MemoryKind                   @default(SEMANTIC)
+  embedding      Unsupported("vector(1024)")?
+  sourceThreadId String?
+  supersededById String?
+  supersededAt   DateTime?
+  lastAccessedAt DateTime?
+  accessCount    Int                          @default(0)
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  expiresAt      DateTime // 90-day TTL
 
   @@unique([tenantId, namespace, key])
   @@index([tenantId, userId])
+  @@index([tenantId, kind])
   @@index([expiresAt])
   @@map("agent_memories")
+}
+
+// AgentWorkingMemory — per-thread in-session scratchpad + rolling summary (Phase 1).
+// Live source of truth is the LangGraph checkpoint; this table is a durable mirror
+// written on each compaction. No embedding (this is live context, not searched).
+model AgentWorkingMemory {
+  id             String   @id @default(cuid())
+  tenantId       String
+  threadId       String
+  runningSummary String   @db.Text
+  scratchpad     Json
+  tokenCount     Int      @default(0)
+  turnCount      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  expiresAt      DateTime
+
+  @@unique([tenantId, threadId])
+  @@index([expiresAt])
+  @@map("agent_working_memory")
 }
 
 // ChatMessage — chat session history for AI agent threads (LANG-02)
