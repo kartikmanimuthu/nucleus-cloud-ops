@@ -43,7 +43,7 @@ describe('GET /api/agent-memories', () => {
         const body = await res.json();
 
         expect(repo.listByTenant).toHaveBeenCalledWith(
-            expect.objectContaining({ tenantId: 'tenant-a', category: 'infra', search: 'ecs' })
+            expect.objectContaining({ tenantId: 'tenant-a', categories: ['infra'], search: 'ecs' })
         );
         expect(body).toEqual({ success: true, data: [{ id: 'mem-1' }], total: 1 });
     });
@@ -56,6 +56,51 @@ describe('GET /api/agent-memories', () => {
         const res = await GET(req as any);
         expect(res.status).toBe(403);
         expect(repo.listByTenant).not.toHaveBeenCalled();
+    });
+
+    it('parses a comma-separated category param into a validated categories array', async () => {
+        repo.listByTenant.mockResolvedValue({ memories: [], total: 0 });
+        const req = new Request('http://localhost/api/agent-memories?category=infra,user,bogus');
+        await GET(req as any);
+        expect(repo.listByTenant).toHaveBeenCalledWith(
+            expect.objectContaining({ categories: ['infra', 'user'] })
+        );
+    });
+
+    it('passes an empty categories array when no category param is present', async () => {
+        repo.listByTenant.mockResolvedValue({ memories: [], total: 0 });
+        const req = new Request('http://localhost/api/agent-memories');
+        await GET(req as any);
+        expect(repo.listByTenant).toHaveBeenCalledWith(
+            expect.objectContaining({ categories: [] })
+        );
+    });
+
+    it('parses a valid sort field + direction', async () => {
+        repo.listByTenant.mockResolvedValue({ memories: [], total: 0 });
+        const req = new Request('http://localhost/api/agent-memories?sort=createdAt&dir=desc');
+        await GET(req as any);
+        expect(repo.listByTenant).toHaveBeenCalledWith(
+            expect.objectContaining({ sortBy: 'createdAt', sortDir: 'desc' })
+        );
+    });
+
+    it('ignores an invalid sort field and leaves sort undefined', async () => {
+        repo.listByTenant.mockResolvedValue({ memories: [], total: 0 });
+        const req = new Request('http://localhost/api/agent-memories?sort=bogus&dir=asc');
+        await GET(req as any);
+        expect(repo.listByTenant).toHaveBeenCalledWith(
+            expect.objectContaining({ sortBy: undefined, sortDir: undefined })
+        );
+    });
+
+    it('defaults sort direction to asc for a valid field', async () => {
+        repo.listByTenant.mockResolvedValue({ memories: [], total: 0 });
+        const req = new Request('http://localhost/api/agent-memories?sort=key');
+        await GET(req as any);
+        expect(repo.listByTenant).toHaveBeenCalledWith(
+            expect.objectContaining({ sortBy: 'key', sortDir: 'asc' })
+        );
     });
 });
 

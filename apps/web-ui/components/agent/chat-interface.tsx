@@ -4,7 +4,9 @@ import { useChat } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SpinnerOverlay } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { buildChatTranscript } from "@/lib/agent/build-chat-transcript";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -783,13 +785,7 @@ export function ChatInterface({
 
   const handleSaveAsSkill = async () => {
     if (messages.length === 0) return;
-    const transcript = messages.map((m: any) => {
-      const text = (m.parts ?? [])
-        .filter((p: { type: string }) => p.type === "text")
-        .map((p: { text?: string }) => p.text ?? "")
-        .join("\n") || (typeof m.content === "string" ? m.content : "");
-      return `${m.role.toUpperCase()}: ${text}`;
-    }).join("\n\n");
+    const transcript = buildChatTranscript(messages as any);
     try {
       const draft = await distillSkill.mutateAsync({ threadId, transcript });
       setSkillDraft(draft);
@@ -841,7 +837,7 @@ export function ChatInterface({
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputValue.trim() || isLoading) return;
+    if (!inputValue.trim() || isLoading || distillSkill.isPending) return;
 
     const value = inputValue;
     const files = attachments;
@@ -1248,7 +1244,12 @@ export function ChatInterface({
 
   return (
     <>
-    <div className="flex flex-col h-full w-full overflow-hidden bg-background max-w-[95%] mx-auto border rounded-xl shadow-lg">
+    <div className="relative flex flex-col h-full w-full overflow-hidden bg-background max-w-[95%] mx-auto border rounded-xl shadow-lg">
+      {distillSkill.isPending && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl">
+          <SpinnerOverlay label="Generating skill..." />
+        </div>
+      )}
       {/* Header */}
       <div className="px-4 py-3 border-b bg-gradient-to-r from-primary/10 to-primary/5 flex items-center gap-3">
         <Avatar className="h-9 w-9 border shadow-sm shrink-0">
@@ -1441,7 +1442,7 @@ export function ChatInterface({
                   variant="ghost"
                   size="sm"
                   type="button"
-                  disabled={isLoading}
+                  disabled={isLoading || distillSkill.isPending}
                   className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[150px] justify-start"
                   onClick={() => !isLoading && setAccountDropdownOpen(!accountDropdownOpen)}
                 >
@@ -1579,7 +1580,7 @@ export function ChatInterface({
               </div>
 
               {/* Model Selector */}
-              <Select value={selectedModel} onValueChange={setSelectedModel} disabled={isLoading}>
+              <Select value={selectedModel} onValueChange={setSelectedModel} disabled={isLoading || distillSkill.isPending}>
                 <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px]">
                   <div className="flex items-center gap-1.5">
                     <Sparkles className="w-3 h-3 text-primary" />
@@ -1646,7 +1647,7 @@ export function ChatInterface({
                 onValueChange={(value) =>
                   setSelectedSkill(value === "none" ? null : value)
                 }
-                disabled={hasStarted || isLoading}
+                disabled={hasStarted || isLoading || distillSkill.isPending}
               >
                 <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px]">
                   <div className="flex items-center gap-1.5">
@@ -1700,7 +1701,7 @@ export function ChatInterface({
                         variant="ghost"
                         size="sm"
                         type="button"
-                        disabled={isLoading}
+                        disabled={isLoading || distillSkill.isPending}
                         className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[140px] justify-start"
                       >
                         <div className="flex items-center gap-1.5">
@@ -1874,7 +1875,7 @@ export function ChatInterface({
                 size="icon"
                 className="h-7 w-7 rounded-md text-muted-foreground hover:text-destructive"
                 onClick={handleClear}
-                disabled={isLoading}
+                disabled={isLoading || distillSkill.isPending}
                 title="Clear conversation"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -1889,7 +1890,7 @@ export function ChatInterface({
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder="Ask the agent to plan, execute, reflect, and revise..."
-              disabled={isLoading}
+              disabled={isLoading || distillSkill.isPending}
               data-testid="chat-input"
               className="min-h-[80px] max-h-[500px] w-full border-0 focus-visible:ring-0 resize-y overflow-y-auto p-3 text-xs bg-transparent"
             />
@@ -1900,7 +1901,7 @@ export function ChatInterface({
             <FileUpload
               files={attachments}
               onFilesChange={setAttachments}
-              disabled={isLoading}
+              disabled={isLoading || distillSkill.isPending}
             />
           </div>
 
@@ -1908,7 +1909,7 @@ export function ChatInterface({
           <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/10">
             <div className="flex items-center gap-4">
               <div className="flex items-center space-x-2">
-                <Select value={agentMode} onValueChange={setAgentMode} disabled={isLoading}>
+                <Select value={agentMode} onValueChange={setAgentMode} disabled={isLoading || distillSkill.isPending}>
                   <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[100px]">
                     <SelectValue placeholder="Mode" />
                   </SelectTrigger>
@@ -1933,7 +1934,7 @@ export function ChatInterface({
                   onCheckedChange={(checked) =>
                     setAutoApprove(checked === true)
                   }
-                  disabled={isLoading}
+                  disabled={isLoading || distillSkill.isPending}
                   className="data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600 h-4 w-4"
                 />
                 <Label
@@ -1949,7 +1950,7 @@ export function ChatInterface({
                   id="show-tools"
                   checked={showTools}
                   onCheckedChange={(checked) => setShowTools(checked === true)}
-                  disabled={isLoading}
+                  disabled={isLoading || distillSkill.isPending}
                   className="h-4 w-4 rounded-sm"
                 />
                 <Label
@@ -1971,7 +1972,7 @@ export function ChatInterface({
                 size="icon"
                 onClick={handleEnhancePrompt}
                 disabled={
-                  !inputValue.trim() || isLoading || isEnhancing
+                  !inputValue.trim() || isLoading || isEnhancing || distillSkill.isPending
                 }
                 className={cn(
                   "h-8 w-8 rounded-full shrink-0 transition-all text-muted-foreground hover:text-primary",
@@ -1988,7 +1989,7 @@ export function ChatInterface({
               <Button
                 type={isLoading ? "button" : "submit"}
                 onClick={isLoading ? handleStop : undefined}
-                disabled={!isLoading && !inputValue.trim()}
+                disabled={(!isLoading && !inputValue.trim()) || distillSkill.isPending}
                 size="icon"
                 data-testid="chat-send-button"
                 className={cn(

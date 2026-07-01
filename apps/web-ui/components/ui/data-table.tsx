@@ -13,6 +13,7 @@ import {
   getSortedRowModel,
   useReactTable,
   PaginationState,
+  OnChangeFn,
 } from '@tanstack/react-table';
 
 import {
@@ -35,6 +36,14 @@ interface DataTableProps<TData, TValue> {
   enableFiltering?: boolean;
   defaultPageSize?: number;
   pageSizeOptions?: number[];
+  manualPagination?: boolean;
+  rowCount?: number;
+  pagination?: PaginationState;
+  onPaginationChange?: OnChangeFn<PaginationState>;
+  /** Server-side sorting: the table won't sort rows locally; emit sort state to the caller instead. */
+  manualSorting?: boolean;
+  sorting?: SortingState;
+  onSortingChange?: OnChangeFn<SortingState>;
   emptyMessage?: React.ReactNode;
   header?: React.ReactNode;
   footer?: React.ReactNode;
@@ -49,18 +58,29 @@ export function DataTable<TData, TValue>({
   enableFiltering = true,
   defaultPageSize = 10,
   pageSizeOptions,
+  manualPagination = false,
+  rowCount,
+  pagination: controlledPagination,
+  onPaginationChange,
+  manualSorting = false,
+  sorting: controlledSorting,
+  onSortingChange,
   emptyMessage = 'No results.',
   header,
   footer,
 }: DataTableProps<TData, TValue>) {
-  const [sorting, setSorting] = React.useState<SortingState>([]);
+  const [internalSorting, setInternalSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
-  const [pagination, setPagination] = React.useState<PaginationState>({
+  const [internalPagination, setInternalPagination] = React.useState<PaginationState>({
     pageIndex: 0,
     pageSize: defaultPageSize,
   });
+  const pagination = controlledPagination ?? internalPagination;
+  const setPagination: OnChangeFn<PaginationState> = onPaginationChange ?? setInternalPagination;
+  const sorting = controlledSorting ?? internalSorting;
+  const setSorting: OnChangeFn<SortingState> = onSortingChange ?? setInternalSorting;
 
   const table = useReactTable({
     data,
@@ -79,8 +99,13 @@ export function DataTable<TData, TValue>({
     onPaginationChange: enablePagination ? setPagination : undefined,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: enableFiltering ? getFilteredRowModel() : undefined,
-    getPaginationRowModel: enablePagination ? getPaginationRowModel() : undefined,
-    getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
+    getPaginationRowModel:
+      enablePagination && !manualPagination ? getPaginationRowModel() : undefined,
+    getSortedRowModel:
+      enableSorting && !manualSorting ? getSortedRowModel() : undefined,
+    manualPagination,
+    manualSorting,
+    rowCount: manualPagination ? rowCount : undefined,
   });
 
   return (

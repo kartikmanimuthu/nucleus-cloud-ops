@@ -36,6 +36,7 @@ export const navMenus: NavItem[] = [
       { title: "Knowledge Base", href: "/app/knowledge-base" },
       { title: "Ask", href: "/app/knowledge-base/ask" },
       { title: "Skills", href: "/app/skills" },
+      { title: "MCP Servers", href: "/app/agent-ops/mcp-settings" },
       // LLM providers power the agents — grouped with Agentic Ops, not Settings.
       { title: "Providers", href: "/app/settings/providers" },
     ],
@@ -67,7 +68,6 @@ export const navMenus: NavItem[] = [
       { title: "Channels", href: "/app/channels" },
       { title: "Jira", href: "/app/agent-ops/jira-settings" },
       { title: "Slack", href: "/app/agent-ops/slack-settings" },
-      { title: "MCP Servers", href: "/app/agent-ops/mcp-settings" },
     ],
   },
   {

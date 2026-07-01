@@ -30,17 +30,18 @@ interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   skill?: SkillDTO | null;
+  cloneFrom?: SkillDTO | null;
   initialDraft?: { name: string; description: string; tier: string; content: string } | null;
   sourceRunId?: string | null;
 }
 
-export function SkillFormDialog({ open, onOpenChange, skill, initialDraft, sourceRunId }: Props) {
+export function SkillFormDialog({ open, onOpenChange, skill, cloneFrom, initialDraft, sourceRunId }: Props) {
   const { resolvedTheme } = useTheme();
   const createSkill = useCreateSkill();
   const updateSkill = useUpdateSkill();
   const isEdit = !!skill;
-  // List DTOs omit `content`; fetch the full skill (incl. content) when editing.
-  const { data: fullSkill } = useSkill(skill?.id ?? null);
+  // List DTOs omit `content`; fetch the full skill (incl. content) when editing or cloning.
+  const { data: fullSkill } = useSkill(skill?.id ?? cloneFrom?.id ?? null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -52,12 +53,15 @@ export function SkillFormDialog({ open, onOpenChange, skill, initialDraft, sourc
     if (skill) {
       const src = fullSkill ?? skill;
       form.reset({ name: src.name, description: src.description, tier: src.tier as FormValues["tier"], content: src.content ?? "", isEnabled: src.isEnabled });
+    } else if (cloneFrom) {
+      const src = fullSkill ?? cloneFrom;
+      form.reset({ name: `Copy of ${src.name}`, description: src.description, tier: src.tier as FormValues["tier"], content: src.content ?? "", isEnabled: src.isEnabled });
     } else if (initialDraft) {
       form.reset({ name: initialDraft.name, description: initialDraft.description, tier: (["read-only", "mutation", "approval-gated"].includes(initialDraft.tier) ? initialDraft.tier : "read-only") as FormValues["tier"], content: initialDraft.content, isEnabled: true });
     } else {
       form.reset({ name: "", description: "", tier: "read-only", content: "", isEnabled: true });
     }
-  }, [open, skill, fullSkill, initialDraft, form]);
+  }, [open, skill, cloneFrom, fullSkill, initialDraft, form]);
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -80,7 +84,7 @@ export function SkillFormDialog({ open, onOpenChange, skill, initialDraft, sourc
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit Skill" : "Create Skill"}</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit Skill" : cloneFrom ? "Clone Skill" : "Create Skill"}</DialogTitle>
           <DialogDescription>Skills are available to everyone in your organization in AI Ops and Agent Ops.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -115,14 +119,17 @@ export function SkillFormDialog({ open, onOpenChange, skill, initialDraft, sourc
               </FormItem>
             )} />
             <FormField control={form.control} name="isEnabled" render={({ field }) => (
-              <FormItem className="flex items-center justify-between rounded-md border p-3">
-                <FormLabel className="mb-0">Enabled (visible in AI Ops / Agent Ops)</FormLabel>
-                <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+              <FormItem className="flex items-center justify-between rounded-md border p-3 gap-4">
+                <div className="space-y-0.5">
+                  <FormLabel className="mb-0">{field.value ? "Enabled" : "Disabled"}</FormLabel>
+                  <p className="text-xs text-muted-foreground">When enabled, this skill applies across all AI implementations in the project — not limited to any single module or use case.</p>
+                </div>
+                <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} aria-label="Enable or disable skill" /></FormControl>
               </FormItem>
             )} />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-              <Button type="submit" disabled={submitting}>{submitting ? "Saving…" : isEdit ? "Save changes" : "Create skill"}</Button>
+              <Button type="submit" disabled={submitting}>{submitting ? "Saving…" : isEdit ? "Save changes" : cloneFrom ? "Create clone" : "Create skill"}</Button>
             </DialogFooter>
           </form>
         </Form>

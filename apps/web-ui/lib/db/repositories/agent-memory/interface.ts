@@ -17,12 +17,21 @@ export interface AgentMemoryRecord {
     expiresAt: string;
 }
 
+/** Columns the list view can be sorted by (server-side). */
+export type AgentMemorySortField = 'category' | 'key' | 'createdAt' | 'expiresAt';
+export type SortDirection = 'asc' | 'desc';
+
 export interface AgentMemoryFilters {
     tenantId: string;
     category?: MemoryCategory;
+    /** Multi-select category filter; takes precedence over `category` when non-empty. */
+    categories?: MemoryCategory[];
     search?: string;
     page?: number;
     limit?: number;
+    /** Sort column; defaults to most-recently-updated first when omitted. */
+    sortBy?: AgentMemorySortField;
+    sortDir?: SortDirection;
 }
 
 export interface AgentMemoryPage {

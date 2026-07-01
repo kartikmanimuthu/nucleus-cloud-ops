@@ -1,10 +1,12 @@
 import { getTenantClient } from '@/lib/db/pg-config';
 import { categoryFromNamespace, KNOWN_CATEGORIES } from '@/lib/agent-memory/category';
+import type { MemoryCategory } from '@/lib/agent-memory/category';
 import type {
     IAgentMemoryRepository,
     AgentMemoryRecord,
     AgentMemoryFilters,
     AgentMemoryPage,
+    AgentMemorySortField,
 } from './interface';
 
 type MemoryRow = {
@@ -45,6 +47,36 @@ function toRecord(row: MemoryRow): AgentMemoryRecord {
     };
 }
 
+/** Prisma `where` predicate matching a single derived category via its namespace prefix. */
+function categoryClause(c: MemoryCategory): Record<string, unknown> {
+    if (c === 'other') {
+        return {
+            NOT: {
+                OR: KNOWN_CATEGORIES.flatMap((k) => [
+                    { namespace: { startsWith: `${k}/` } },
+                    { namespace: k },
+                ]),
+            },
+        };
+    }
+    return { OR: [{ namespace: { startsWith: `${c}/` } }, { namespace: c }] };
+}
+
+/**
+ * Maps a sort field to a Prisma `orderBy`. `category` is derived from the
+ * namespace prefix, so it sorts on `namespace` (close enough to alphabetical
+ * category order). Defaults to newest-updated first when no sort is requested.
+ */
+function orderByClause(
+    sortBy: AgentMemorySortField | undefined,
+    sortDir: 'asc' | 'desc' | undefined
+): Record<string, 'asc' | 'desc'> {
+    if (!sortBy) return { updatedAt: 'desc' };
+    const dir = sortDir ?? 'asc';
+    const column = sortBy === 'category' ? 'namespace' : sortBy;
+    return { [column]: dir };
+}
+
 export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
     async listByTenant(filters: AgentMemoryFilters): Promise<AgentMemoryPage> {
         const db = getTenantClient(filters.tenantId);
@@ -55,18 +87,12 @@ export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
         const where: Record<string, unknown> = { tenantId: filters.tenantId };
         const and: unknown[] = [];
 
-        if (filters.category && filters.category !== 'other') {
-            const c = filters.category;
-            and.push({ OR: [{ namespace: { startsWith: `${c}/` } }, { namespace: c }] });
-        } else if (filters.category === 'other') {
-            and.push({
-                NOT: {
-                    OR: KNOWN_CATEGORIES.flatMap((c) => [
-                        { namespace: { startsWith: `${c}/` } },
-                        { namespace: c },
-                    ]),
-                },
-            });
+        const categories =
+            filters.categories?.length ? filters.categories : filters.category ? [filters.category] : [];
+        if (categories.length === 1) {
+            and.push(categoryClause(categories[0]));
+        } else if (categories.length > 1) {
+            and.push({ OR: categories.map(categoryClause) });
         }
 
         if (filters.search) {
@@ -85,7 +111,7 @@ export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
         const [rows, total] = await Promise.all([
             db.agentMemory.findMany({
                 where,
-                orderBy: { updatedAt: 'desc' },
+                orderBy: orderByClause(filters.sortBy, filters.sortDir),
                 skip,
                 take: limit,
             }),
