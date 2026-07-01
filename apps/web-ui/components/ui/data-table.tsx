@@ -40,6 +40,10 @@ interface DataTableProps<TData, TValue> {
   rowCount?: number;
   pagination?: PaginationState;
   onPaginationChange?: OnChangeFn<PaginationState>;
+  /** Server-side sorting: the table won't sort rows locally; emit sort state to the caller instead. */
+  manualSorting?: boolean;
+  sorting?: SortingState;
+  onSortingChange?: OnChangeFn<SortingState>;
   emptyMessage?: React.ReactNode;
   header?: React.ReactNode;
   footer?: React.ReactNode;
@@ -58,11 +62,14 @@ export function DataTable<TData, TValue>({
   rowCount,
   pagination: controlledPagination,
   onPaginationChange,
+  manualSorting = false,
+  sorting: controlledSorting,
+  onSortingChange,
   emptyMessage = 'No results.',
   header,
   footer,
 }: DataTableProps<TData, TValue>) {
-  const [sorting, setSorting] = React.useState<SortingState>([]);
+  const [internalSorting, setInternalSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
@@ -72,6 +79,8 @@ export function DataTable<TData, TValue>({
   });
   const pagination = controlledPagination ?? internalPagination;
   const setPagination: OnChangeFn<PaginationState> = onPaginationChange ?? setInternalPagination;
+  const sorting = controlledSorting ?? internalSorting;
+  const setSorting: OnChangeFn<SortingState> = onSortingChange ?? setInternalSorting;
 
   const table = useReactTable({
     data,
@@ -92,8 +101,10 @@ export function DataTable<TData, TValue>({
     getFilteredRowModel: enableFiltering ? getFilteredRowModel() : undefined,
     getPaginationRowModel:
       enablePagination && !manualPagination ? getPaginationRowModel() : undefined,
-    getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
+    getSortedRowModel:
+      enableSorting && !manualSorting ? getSortedRowModel() : undefined,
     manualPagination,
+    manualSorting,
     rowCount: manualPagination ? rowCount : undefined,
   });
 

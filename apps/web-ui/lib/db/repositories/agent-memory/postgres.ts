@@ -6,6 +6,7 @@ import type {
     AgentMemoryRecord,
     AgentMemoryFilters,
     AgentMemoryPage,
+    AgentMemorySortField,
 } from './interface';
 
 type MemoryRow = {
@@ -61,6 +62,21 @@ function categoryClause(c: MemoryCategory): Record<string, unknown> {
     return { OR: [{ namespace: { startsWith: `${c}/` } }, { namespace: c }] };
 }
 
+/**
+ * Maps a sort field to a Prisma `orderBy`. `category` is derived from the
+ * namespace prefix, so it sorts on `namespace` (close enough to alphabetical
+ * category order). Defaults to newest-updated first when no sort is requested.
+ */
+function orderByClause(
+    sortBy: AgentMemorySortField | undefined,
+    sortDir: 'asc' | 'desc' | undefined
+): Record<string, 'asc' | 'desc'> {
+    if (!sortBy) return { updatedAt: 'desc' };
+    const dir = sortDir ?? 'asc';
+    const column = sortBy === 'category' ? 'namespace' : sortBy;
+    return { [column]: dir };
+}
+
 export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
     async listByTenant(filters: AgentMemoryFilters): Promise<AgentMemoryPage> {
         const db = getTenantClient(filters.tenantId);
@@ -95,7 +111,7 @@ export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
         const [rows, total] = await Promise.all([
             db.agentMemory.findMany({
                 where,
-                orderBy: { updatedAt: 'desc' },
+                orderBy: orderByClause(filters.sortBy, filters.sortDir),
                 skip,
                 take: limit,
             }),

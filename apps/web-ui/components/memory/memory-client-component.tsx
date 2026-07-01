@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ColumnDef, PaginationState } from "@tanstack/react-table";
+import type { ColumnDef, PaginationState, SortingState } from "@tanstack/react-table";
 import { Brain, MoreHorizontal, Eye, Trash2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
+import { DataTableColumnHeader } from "@/components/ui/data-table-column-header";
 import { DataTableFacetedFilter } from "@/components/ui/data-table-faceted-filter";
 import {
     DropdownMenu,
@@ -21,6 +22,7 @@ import {
     useAgentMemories,
     useDeleteAgentMemory,
     type MemoryRow,
+    type MemorySortField,
 } from "@/lib/queries/agent-memories";
 import { useDebounce } from "@/hooks/use-debounce";
 import { MemoryDetailDialog } from "./memory-detail-dialog";
@@ -39,17 +41,21 @@ function confidenceVariant(c: string | null): "default" | "secondary" | "outline
 
 export function MemoryClientComponent() {
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
+    const [sorting, setSorting] = useState<SortingState>([]);
     const [searchInput, setSearchInput] = useState("");
     const search = useDebounce(searchInput, 300);
     const [categories, setCategories] = useState<MemoryCategory[]>([]);
     const [detail, setDetail] = useState<MemoryRow | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<MemoryRow | null>(null);
 
+    const sort = sorting[0];
     const { data, isLoading } = useAgentMemories({
         page: pagination.pageIndex + 1,
         limit: pagination.pageSize,
         categories: categories.length ? categories : undefined,
         search: search || undefined,
+        sortBy: sort ? (sort.id as MemorySortField) : undefined,
+        sortDir: sort ? (sort.desc ? "desc" : "asc") : undefined,
     });
     const memories = data?.data ?? [];
     const total = data?.total ?? 0;
@@ -57,6 +63,11 @@ export function MemoryClientComponent() {
 
     // Any server-side filter change must return to the first page.
     const resetToFirstPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
+    // Sorting is server-side too, so a new sort must also reset to page 1.
+    const handleSortingChange: typeof setSorting = (updater) => {
+        setSorting(updater);
+        resetToFirstPage();
+    };
     const handleSearchChange = (v: string) => {
         setSearchInput(v);
         resetToFirstPage();
@@ -91,14 +102,12 @@ export function MemoryClientComponent() {
         () => [
             {
                 accessorKey: "category",
-                header: "Category",
-                enableSorting: false,
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
                 cell: ({ row }) => <Badge variant="outline">{row.original.category}</Badge>,
             },
             {
                 accessorKey: "key",
-                header: "Key",
-                enableSorting: false,
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Key" />,
                 cell: ({ row }) => (
                     <button
                         type="button"
@@ -132,8 +141,7 @@ export function MemoryClientComponent() {
             },
             {
                 accessorKey: "createdAt",
-                header: "Created",
-                enableSorting: false,
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap text-sm text-muted-foreground">
                         {new Date(row.original.createdAt).toLocaleDateString()}
@@ -142,8 +150,7 @@ export function MemoryClientComponent() {
             },
             {
                 accessorKey: "expiresAt",
-                header: "Expires",
-                enableSorting: false,
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Expires" />,
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap text-sm text-muted-foreground">
                         {new Date(row.original.expiresAt).toLocaleDateString()}
@@ -201,9 +208,11 @@ export function MemoryClientComponent() {
                 columns={columns}
                 data={memories}
                 loading={isLoading}
-                enableSorting={false}
                 enableFiltering={false}
                 manualPagination
+                manualSorting
+                sorting={sorting}
+                onSortingChange={handleSortingChange}
                 rowCount={total}
                 pagination={pagination}
                 onPaginationChange={setPagination}

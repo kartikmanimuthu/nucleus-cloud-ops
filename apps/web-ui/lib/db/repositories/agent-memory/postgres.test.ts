@@ -142,6 +142,30 @@ describe('AgentMemoryPostgresRepository', () => {
         ]);
     });
 
+    it('listByTenant defaults to updatedAt desc when no sort is requested', async () => {
+        const repo = new AgentMemoryPostgresRepository();
+        await repo.listByTenant({ tenantId: 't1' });
+
+        const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
+        expect(arg.orderBy).toEqual({ updatedAt: 'desc' });
+    });
+
+    it('listByTenant maps a sort field + direction to orderBy', async () => {
+        const repo = new AgentMemoryPostgresRepository();
+        await repo.listByTenant({ tenantId: 't1', sortBy: 'createdAt', sortDir: 'asc' });
+
+        const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
+        expect(arg.orderBy).toEqual({ createdAt: 'asc' });
+    });
+
+    it('listByTenant sorts category by the derived namespace column', async () => {
+        const repo = new AgentMemoryPostgresRepository();
+        await repo.listByTenant({ tenantId: 't1', sortBy: 'category', sortDir: 'desc' });
+
+        const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
+        expect(arg.orderBy).toEqual({ namespace: 'desc' });
+    });
+
     it('listByTenant paginates via skip/take and returns count as total', async () => {
         mockPrisma.agentMemory.count.mockResolvedValue(42);
         const repo = new AgentMemoryPostgresRepository();

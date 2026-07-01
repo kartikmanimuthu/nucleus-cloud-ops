@@ -25,12 +25,16 @@ export interface MemoryRow {
     expiresAt: string;
 }
 
+export type MemorySortField = 'category' | 'key' | 'createdAt' | 'expiresAt';
+
 export interface MemoryFilters {
     category?: MemoryCategory;
     categories?: MemoryCategory[];
     search?: string;
     page?: number;
     limit?: number;
+    sortBy?: MemorySortField;
+    sortDir?: 'asc' | 'desc';
 }
 
 export function useAgentMemories(filters?: MemoryFilters) {
@@ -42,6 +46,10 @@ export function useAgentMemories(filters?: MemoryFilters) {
             if (filters?.category) params.set('category', filters.category);
             if (filters?.categories?.length) params.set('category', filters.categories.join(','));
             if (filters?.search?.trim()) params.set('search', filters.search.trim());
+            if (filters?.sortBy) {
+                params.set('sort', filters.sortBy);
+                params.set('dir', filters.sortDir ?? 'asc');
+            }
             params.set('limit', String(filters?.limit ?? 100));
             params.set('page', String(filters?.page ?? 1));
 

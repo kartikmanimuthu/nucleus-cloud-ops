@@ -75,6 +75,33 @@ describe('GET /api/agent-memories', () => {
             expect.objectContaining({ categories: [] })
         );
     });
+
+    it('parses a valid sort field + direction', async () => {
+        repo.listByTenant.mockResolvedValue({ memories: [], total: 0 });
+        const req = new Request('http://localhost/api/agent-memories?sort=createdAt&dir=desc');
+        await GET(req as any);
+        expect(repo.listByTenant).toHaveBeenCalledWith(
+            expect.objectContaining({ sortBy: 'createdAt', sortDir: 'desc' })
+        );
+    });
+
+    it('ignores an invalid sort field and leaves sort undefined', async () => {
+        repo.listByTenant.mockResolvedValue({ memories: [], total: 0 });
+        const req = new Request('http://localhost/api/agent-memories?sort=bogus&dir=asc');
+        await GET(req as any);
+        expect(repo.listByTenant).toHaveBeenCalledWith(
+            expect.objectContaining({ sortBy: undefined, sortDir: undefined })
+        );
+    });
+
+    it('defaults sort direction to asc for a valid field', async () => {
+        repo.listByTenant.mockResolvedValue({ memories: [], total: 0 });
+        const req = new Request('http://localhost/api/agent-memories?sort=key');
+        await GET(req as any);
+        expect(repo.listByTenant).toHaveBeenCalledWith(
+            expect.objectContaining({ sortBy: 'key', sortDir: 'asc' })
+        );
+    });
 });
 
 describe('DELETE /api/agent-memories/[id]', () => {
