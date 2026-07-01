@@ -1,6 +1,6 @@
 export interface SkillDTO {
     id: string; name: string; description: string; tier: string;
-    source: string; isEnabled: boolean; createdBy: string | null; updatedAt: string; content?: string;
+    source: string; isEnabled: boolean; createdBy: string | null; createdAt: string; updatedAt: string; content?: string;
 }
 export interface SkillInput {
     name: string; description: string; tier: string; content: string;

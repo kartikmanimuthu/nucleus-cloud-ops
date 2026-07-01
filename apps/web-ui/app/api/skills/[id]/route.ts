@@ -22,6 +22,7 @@ function toDTO(s: SkillRecord) {
         isEnabled: s.isEnabled,
         createdBy: s.createdBy,
         content: s.content,
+        createdAt: s.createdAt,
         updatedAt: s.updatedAt,
     };
 }
