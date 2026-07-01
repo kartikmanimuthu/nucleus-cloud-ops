@@ -1,5 +1,6 @@
 import { getTenantClient } from '@/lib/db/pg-config';
 import { categoryFromNamespace, KNOWN_CATEGORIES } from '@/lib/agent-memory/category';
+import type { MemoryCategory } from '@/lib/agent-memory/category';
 import type {
     IAgentMemoryRepository,
     AgentMemoryRecord,
@@ -45,6 +46,21 @@ function toRecord(row: MemoryRow): AgentMemoryRecord {
     };
 }
 
+/** Prisma `where` predicate matching a single derived category via its namespace prefix. */
+function categoryClause(c: MemoryCategory): Record<string, unknown> {
+    if (c === 'other') {
+        return {
+            NOT: {
+                OR: KNOWN_CATEGORIES.flatMap((k) => [
+                    { namespace: { startsWith: `${k}/` } },
+                    { namespace: k },
+                ]),
+            },
+        };
+    }
+    return { OR: [{ namespace: { startsWith: `${c}/` } }, { namespace: c }] };
+}
+
 export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
     async listByTenant(filters: AgentMemoryFilters): Promise<AgentMemoryPage> {
         const db = getTenantClient(filters.tenantId);
@@ -55,18 +71,12 @@ export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
         const where: Record<string, unknown> = { tenantId: filters.tenantId };
         const and: unknown[] = [];
 
-        if (filters.category && filters.category !== 'other') {
-            const c = filters.category;
-            and.push({ OR: [{ namespace: { startsWith: `${c}/` } }, { namespace: c }] });
-        } else if (filters.category === 'other') {
-            and.push({
-                NOT: {
-                    OR: KNOWN_CATEGORIES.flatMap((c) => [
-                        { namespace: { startsWith: `${c}/` } },
-                        { namespace: c },
-                    ]),
-                },
-            });
+        const categories =
+            filters.categories?.length ? filters.categories : filters.category ? [filters.category] : [];
+        if (categories.length === 1) {
+            and.push(categoryClause(categories[0]));
+        } else if (categories.length > 1) {
+            and.push({ OR: categories.map(categoryClause) });
         }
 
         if (filters.search) {

@@ -116,4 +116,40 @@ describe('AgentMemoryPostgresRepository', () => {
             where: { id: 'mem-1', tenantId: 't1' },
         });
     });
+
+    it('listByTenant builds an OR of per-category predicates for multiple categories', async () => {
+        const repo = new AgentMemoryPostgresRepository();
+        await repo.listByTenant({ tenantId: 't1', categories: ['infra', 'user'] });
+
+        const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
+        expect(arg.where.AND).toEqual([
+            {
+                OR: [
+                    { OR: [{ namespace: { startsWith: 'infra/' } }, { namespace: 'infra' }] },
+                    { OR: [{ namespace: { startsWith: 'user/' } }, { namespace: 'user' }] },
+                ],
+            },
+        ]);
+    });
+
+    it('listByTenant with a single-element categories array keeps the bare per-category shape', async () => {
+        const repo = new AgentMemoryPostgresRepository();
+        await repo.listByTenant({ tenantId: 't1', categories: ['patterns'] });
+
+        const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
+        expect(arg.where.AND).toEqual([
+            { OR: [{ namespace: { startsWith: 'patterns/' } }, { namespace: 'patterns' }] },
+        ]);
+    });
+
+    it('listByTenant paginates via skip/take and returns count as total', async () => {
+        mockPrisma.agentMemory.count.mockResolvedValue(42);
+        const repo = new AgentMemoryPostgresRepository();
+        const result = await repo.listByTenant({ tenantId: 't1', page: 3, limit: 10 });
+
+        const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
+        expect(arg.skip).toBe(20);
+        expect(arg.take).toBe(10);
+        expect(result.total).toBe(42);
+    });
 });

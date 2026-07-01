@@ -20,6 +20,8 @@ export interface AgentMemoryRecord {
 export interface AgentMemoryFilters {
     tenantId: string;
     category?: MemoryCategory;
+    /** Multi-select category filter; takes precedence over `category` when non-empty. */
+    categories?: MemoryCategory[];
     search?: string;
     page?: number;
     limit?: number;
