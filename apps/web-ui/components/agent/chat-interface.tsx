@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { buildChatTranscript } from "@/lib/agent/build-chat-transcript";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -783,13 +784,7 @@ export function ChatInterface({
 
   const handleSaveAsSkill = async () => {
     if (messages.length === 0) return;
-    const transcript = messages.map((m: any) => {
-      const text = (m.parts ?? [])
-        .filter((p: { type: string }) => p.type === "text")
-        .map((p: { text?: string }) => p.text ?? "")
-        .join("\n") || (typeof m.content === "string" ? m.content : "");
-      return `${m.role.toUpperCase()}: ${text}`;
-    }).join("\n\n");
+    const transcript = buildChatTranscript(messages as any);
     try {
       const draft = await distillSkill.mutateAsync({ threadId, transcript });
       setSkillDraft(draft);
