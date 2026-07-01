@@ -64,4 +64,11 @@ export const queryKeys = {
         all: ['mcp-servers'] as const,
         config: (apiPath: string) => [...queryKeys.mcpServers.all, apiPath] as const,
     },
+    agentMemories: {
+        all: ['agent-memories'] as const,
+        lists: () => [...queryKeys.agentMemories.all, 'list'] as const,
+        list: (filters?: unknown) => [...queryKeys.agentMemories.lists(), filters ?? {}] as const,
+        details: () => [...queryKeys.agentMemories.all, 'detail'] as const,
+        detail: (id: string) => [...queryKeys.agentMemories.details(), id] as const,
+    },
 } as const;
