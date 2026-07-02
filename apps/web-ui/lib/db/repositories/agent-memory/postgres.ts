@@ -1,6 +1,7 @@
 import { getTenantClient } from '@/lib/db/pg-config';
 import { categoryFromNamespace, KNOWN_CATEGORIES } from '@/lib/agent-memory/category';
 import type { MemoryCategory } from '@/lib/agent-memory/category';
+import type { MemoryKind } from '@/lib/agent/memory/types';
 import type {
     IAgentMemoryRepository,
     AgentMemoryRecord,
@@ -16,6 +17,7 @@ type MemoryRow = {
     namespace: string;
     key: string;
     value: unknown;
+    kind: MemoryKind;
     createdAt: Date;
     updatedAt: Date;
     expiresAt: Date;
@@ -36,6 +38,7 @@ function toRecord(row: MemoryRow): AgentMemoryRecord {
         userId: row.userId,
         namespace: row.namespace,
         category: categoryFromNamespace(row.namespace),
+        kind: row.kind,
         key: row.key,
         fact: asString(value.fact) ?? '',
         source: asString(value.source),

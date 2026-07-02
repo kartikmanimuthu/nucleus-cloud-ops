@@ -1,4 +1,5 @@
 import type { MemoryCategory } from '@/lib/agent-memory/category';
+import type { MemoryKind } from '@/lib/agent/memory/types';
 
 export interface AgentMemoryRecord {
     id: string;
@@ -6,6 +7,7 @@ export interface AgentMemoryRecord {
     userId: string;
     namespace: string;
     category: MemoryCategory;
+    kind: MemoryKind;
     key: string;
     fact: string;
     source: string | null;

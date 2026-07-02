@@ -16,6 +16,7 @@ const makeRow = (overrides: Record<string, unknown> = {}) => ({
     namespace: 'infra/acct-123',
     key: 'prod-ecs-region',
     value: { fact: 'prod ECS runs in us-east-1', source: 'discovery scan', confidence: 'high' },
+    kind: 'SEMANTIC' as const,
     createdAt: new Date('2026-06-01T00:00:00Z'),
     updatedAt: new Date('2026-06-02T00:00:00Z'),
     expiresAt: new Date('2026-09-01T00:00:00Z'),
