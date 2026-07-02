@@ -186,6 +186,7 @@ Key shared modules:
 | `memory/memory-service.ts` | Typed long-term memory: `recall`/`remember` (kind-discriminated `AgentMemory` + pgvector HNSW) + working-memory get/put. `saveMemory`/`searchMemory` in `persistence.ts` delegate here. |
 | `memory/working-memory.ts` | In-session compaction for long runs: `prepareContext` (budget-aware window + reflector-model summary folding) + `AgentWorkingMemory` snapshot. Gated by `WORKING_MEMORY_ENABLED`. |
 | `memory/reconcile.ts` | Save-time conflict resolution: batched LLM judge (ADD/UPDATE/SUPERSEDE/REINFORCE/NOOP) applied via MemoryService with an auditable supersede trail. Gated by `MEMORY_RECONCILE_ENABLED`. |
+| `memory/episode.ts` | Episodic memory: one distilled episode (context/reasoning/action/outcome) per tool-using run, replayed as few-shot experience via memoryContext. Gated by `EPISODIC_MEMORY_ENABLED`. |
 
 Tool definition pattern:
 
