@@ -42,6 +42,7 @@ export function createMemoryRecallNode(deps: MemoryNodeDeps) {
 
         let rawResults: Array<{ key: string; value: unknown; namespace: string }>;
         try {
+            // Recall spans all memory kinds (SEMANTIC today; EPISODIC/PROCEDURAL in later phases).
             const results = await searchMemory(tenantId, userId, [], query, 10);
             rawResults = (results as Array<{ key: string; value: unknown; namespace: string }>) ?? [];
         } catch (err: any) {

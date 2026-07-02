@@ -14,6 +14,7 @@ import type { Embeddings } from "@langchain/core/embeddings";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { getPrismaClient } from "@/lib/db/pg-config";
 import { getTenantEmbeddings } from "./embeddings-factory";
+import { getMemoryService } from "./memory/memory-service";
 import { env } from "@/env";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -264,11 +265,7 @@ export async function saveMemory(
     key: string,
     value: Record<string, unknown>
 ): Promise<void> {
-    const store = await getMemoryStore();
-    await store.batch(
-        [{ namespace, key, value }],
-        { configurable: { tenant_id: tenantId, user_id: userId } }
-    );
+    await getMemoryService().remember({ tenantId, userId, kind: 'SEMANTIC', namespace, key, value });
 }
 
 export async function searchMemory(
@@ -278,10 +275,6 @@ export async function searchMemory(
     query: string,
     limit = 5
 ): Promise<unknown[]> {
-    const store = await getMemoryStore();
-    const [results] = await store.batch(
-        [{ namespacePrefix, query, limit }],
-        { configurable: { tenant_id: tenantId, user_id: userId } }
-    );
-    return (results as unknown[]) ?? [];
+    const hits = await getMemoryService().recall({ tenantId, userId, query, namespacePrefix, limit });
+    return hits.map((h) => ({ key: h.key, value: h.value, namespace: h.namespace }));
 }
