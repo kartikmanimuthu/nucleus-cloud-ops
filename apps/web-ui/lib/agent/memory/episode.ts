@@ -120,15 +120,17 @@ export function formatEpisodesSection(episodes: EpisodicValue[]): string {
 }
 
 /**
- * Compose memoryContext from facts + episodes. Facts-only returns the bare
- * facts string (byte-identical to pre-Phase-3 behavior); the "Known facts"
- * header appears only when episodes are also present.
+ * Compose memoryContext from facts + episodes + learned rules. Facts-only returns
+ * the bare facts string (byte-identical to pre-Phase-3 behavior); the "Known facts"
+ * header appears only when facts coexist with another section. Output order:
+ * facts → operating rules → past experience (imperatives before illustrations).
  */
-export function composeMemoryContext(factsSection: string, episodesSection: string): string {
+export function composeMemoryContext(factsSection: string, episodesSection: string, proceduresSection = ''): string {
     const facts = factsSection.trim();
     const episodes = episodesSection.trim();
-    if (facts && episodes) return `### Known facts\n${facts}\n\n${episodes}`;
+    const procedures = proceduresSection.trim();
+    const others = [procedures, episodes].filter(Boolean);
+    if (facts && others.length) return [`### Known facts\n${facts}`, ...others].join('\n\n');
     if (facts) return facts;
-    if (episodes) return episodes;
-    return '';
+    return others.join('\n\n');
 }

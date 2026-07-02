@@ -2,7 +2,7 @@ export type MemoryKind = 'SEMANTIC' | 'EPISODIC' | 'PROCEDURAL';
 
 export interface SemanticValue { fact: string; source: string; confidence: 'high' | 'medium'; }
 export interface EpisodicValue { context: string; reasoning: string; action: string; outcome: string; }
-export interface ProceduralValue { instruction: string; trigger: string; evidence: string; }
+export interface ProceduralValue { instruction: string; trigger: string; evidence: string; confidence?: 'high' | 'medium'; }
 
 export interface MemoryHit {
     id: string;
@@ -29,9 +29,11 @@ export interface WorkingMemory {
 }
 
 export interface ExtractedFact {
+    /** Memory layer this item belongs to; absent = 'SEMANTIC'. */
+    kind?: MemoryKind;
     namespace: string[];
     key: string;
-    value: SemanticValue;
+    value: SemanticValue | ProceduralValue;
 }
 
 export type ReconcileAction = 'ADD' | 'UPDATE' | 'SUPERSEDE' | 'REINFORCE' | 'NOOP';

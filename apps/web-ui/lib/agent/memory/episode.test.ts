@@ -127,3 +127,24 @@ describe('composeMemoryContext', () => {
         expect(composeMemoryContext('', '')).toBe('');
     });
 });
+
+describe('composeMemoryContext with procedures (third arg)', () => {
+    it('third arg defaults empty — two-arg behavior unchanged', () => {
+        expect(composeMemoryContext('- [a/b] fact', '')).toBe('- [a/b] fact');
+    });
+    it('all three → facts header, procedures, episodes in order', () => {
+        const s = composeMemoryContext('- [a/b] fact', '### Past experience\nE', '### Operating rules (learned)\nR');
+        expect(s).toBe('### Known facts\n- [a/b] fact\n\n### Operating rules (learned)\nR\n\n### Past experience\nE');
+    });
+    it('procedures only → section as-is', () => {
+        expect(composeMemoryContext('', '', '### Operating rules (learned)\nR')).toBe('### Operating rules (learned)\nR');
+    });
+    it('procedures + episodes (no facts) → joined, no facts header', () => {
+        expect(composeMemoryContext('', '### Past experience\nE', '### Operating rules (learned)\nR'))
+            .toBe('### Operating rules (learned)\nR\n\n### Past experience\nE');
+    });
+    it('facts + procedures (no episodes) → facts header + procedures', () => {
+        expect(composeMemoryContext('- f', '', '### Operating rules (learned)\nR'))
+            .toBe('### Known facts\n- f\n\n### Operating rules (learned)\nR');
+    });
+});
