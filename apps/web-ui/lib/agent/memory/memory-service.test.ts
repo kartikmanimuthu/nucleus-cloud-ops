@@ -44,14 +44,16 @@ describe('MemoryService.recall', () => {
 });
 
 describe('MemoryService.remember', () => {
-    it('upserts with an embedding vector', async () => {
-        mockExecuteRaw.mockClear();
+    it('upserts with an embedding vector and returns the row id', async () => {
+        mockQueryRaw.mockClear();
+        mockQueryRaw.mockResolvedValueOnce([{ id: 'row-1' }]);
         const svc = getMemoryService();
-        await svc.remember({
+        const id = await svc.remember({
             tenantId: 't1', userId: 'u1', kind: 'SEMANTIC',
             namespace: ['infra', '123'], key: 'region',
             value: { fact: 'us-east-1', source: 'cli', confidence: 'high' },
         });
-        expect(mockExecuteRaw).toHaveBeenCalledTimes(1);
+        expect(id).toBe('row-1');
+        expect(mockQueryRaw).toHaveBeenCalledTimes(1);
     });
 });

@@ -42,7 +42,7 @@ export class MemoryService {
         return cached;
     }
 
-    async remember(m: RememberParams): Promise<void> {
+    async remember(m: RememberParams): Promise<string> {
         const prisma = getPrismaClient();
         const namespace = m.namespace.join('/');
         const expiresAt = new Date(Date.now() + TTL_MS);
@@ -57,19 +57,54 @@ export class MemoryService {
 
         if (vec) {
             const vecStr = `[${vec.join(',')}]`;
-            // $executeRaw is NOT tenant-intercepted — tenantId is bound explicitly.
-            await prisma.$executeRaw`
+            // $queryRaw is NOT tenant-intercepted — tenantId is bound explicitly.
+            // The conflict target names the PARTIAL unique index (live rows only), so a
+            // superseded row with the same key never blocks inserting its successor.
+            const rows = await prisma.$queryRaw<Array<{ id: string }>>`
                 INSERT INTO agent_memories ("id","tenantId","userId","namespace","key","value","kind","embedding","sourceThreadId","createdAt","updatedAt","expiresAt")
                 VALUES (gen_random_uuid()::text, ${m.tenantId}, ${m.userId}, ${namespace}, ${m.key}, ${JSON.stringify(m.value)}::jsonb, ${m.kind}::"MemoryKind", ${vecStr}::vector, ${m.sourceThreadId ?? null}, NOW(), NOW(), ${expiresAt})
-                ON CONFLICT ("tenantId","namespace","key") DO UPDATE
+                ON CONFLICT ("tenantId","namespace","key") WHERE "supersededById" IS NULL DO UPDATE
                 SET "value" = EXCLUDED."value", "kind" = EXCLUDED."kind", "embedding" = EXCLUDED."embedding", "updatedAt" = NOW(), "expiresAt" = EXCLUDED."expiresAt"
+                RETURNING "id"
             `;
-        } else {
-            await prisma.agentMemory.upsert({
-                where: { tenantId_namespace_key: { tenantId: m.tenantId, namespace, key: m.key } },
-                create: { tenantId: m.tenantId, userId: m.userId, namespace, key: m.key, value: m.value as Prisma.InputJsonValue, kind: m.kind, sourceThreadId: m.sourceThreadId ?? null, expiresAt },
-                update: { value: m.value as Prisma.InputJsonValue, kind: m.kind, expiresAt, updatedAt: new Date() },
+            return rows[0].id;
+        }
+
+        // No embedding — ORM fallback. The compound unique no longer exists in the Prisma
+        // schema (the partial unique index is SQL-only), so upsert is replaced by
+        // find-live-then-update/create, with a one-shot retry if a concurrent create wins
+        // the race (the partial unique index is the backstop; Prisma maps 23505 → P2002).
+        const live = await prisma.agentMemory.findFirst({
+            where: { tenantId: m.tenantId, namespace, key: m.key, supersededById: null },
+            select: { id: true },
+        });
+        if (live) {
+            await prisma.agentMemory.updateMany({
+                where: { id: live.id, tenantId: m.tenantId },
+                data: { value: m.value as Prisma.InputJsonValue, kind: m.kind, expiresAt, updatedAt: new Date() },
             });
+            return live.id;
+        }
+        try {
+            const created = await prisma.agentMemory.create({
+                data: { tenantId: m.tenantId, userId: m.userId, namespace, key: m.key, value: m.value as Prisma.InputJsonValue, kind: m.kind, sourceThreadId: m.sourceThreadId ?? null, expiresAt },
+            });
+            return created.id;
+        } catch (err) {
+            if ((err as { code?: string })?.code === 'P2002') {
+                const winner = await prisma.agentMemory.findFirst({
+                    where: { tenantId: m.tenantId, namespace, key: m.key, supersededById: null },
+                    select: { id: true },
+                });
+                if (winner) {
+                    await prisma.agentMemory.updateMany({
+                        where: { id: winner.id, tenantId: m.tenantId },
+                        data: { value: m.value as Prisma.InputJsonValue, kind: m.kind, expiresAt, updatedAt: new Date() },
+                    });
+                    return winner.id;
+                }
+            }
+            throw err;
         }
     }
 

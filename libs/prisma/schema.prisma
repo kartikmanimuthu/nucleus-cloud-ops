@@ -519,7 +519,7 @@ model AgentMemory {
   updatedAt      DateTime                     @updatedAt
   expiresAt      DateTime // 90-day TTL
 
-  @@unique([tenantId, namespace, key])
+  @@index([tenantId, namespace, key])
   @@index([tenantId, userId])
   @@index([tenantId, kind])
   @@index([expiresAt])

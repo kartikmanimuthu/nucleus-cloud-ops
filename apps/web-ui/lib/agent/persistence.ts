@@ -137,7 +137,7 @@ class PostgresMemoryStore implements MemoryStoreInterface {
                     await prisma.$executeRaw`
                         INSERT INTO agent_memories ("id", "tenantId", "userId", "namespace", "key", "value", "embedding", "createdAt", "updatedAt", "expiresAt")
                         VALUES (gen_random_uuid()::text, ${tenantId}, ${userId}, ${namespace}, ${key}, ${JSON.stringify(value)}::jsonb, ${embeddingStr}::vector, NOW(), NOW(), ${expiresAt})
-                        ON CONFLICT ("tenantId", "namespace", "key") DO UPDATE
+                        ON CONFLICT ("tenantId", "namespace", "key") WHERE "supersededById" IS NULL DO UPDATE
                         SET "value" = EXCLUDED."value", "embedding" = EXCLUDED."embedding", "updatedAt" = NOW(), "expiresAt" = EXCLUDED."expiresAt"
                     `;
                 } else {
