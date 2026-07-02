@@ -9,9 +9,14 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { ReflectionState, truncateOutput } from "./agent-shared";
-import { searchMemory, saveMemory } from "./persistence";
+import { saveMemory } from "./persistence";
+import { getMemoryService } from "./memory/memory-service";
+import {
+    captureEpisode, episodicMemoryEnabled, formatEpisodesSection, composeMemoryContext,
+    EPISODE_RECALL_LIMIT, EPISODE_DISTANCE_THRESHOLD,
+} from "./memory/episode";
 import { reconcileMemories, reconcileEnabled } from "./memory/reconcile";
-import type { ExtractedFact } from "./memory/types";
+import type { ExtractedFact, EpisodicValue } from "./memory/types";
 
 interface MemoryNodeDeps {
     reflectorModel: BaseChatModel;
@@ -42,68 +47,74 @@ export function createMemoryRecallNode(deps: MemoryNodeDeps) {
 
         console.log(`\n🧠 [MEMORY RECALL] Searching memories for: "${truncateOutput(query, 100)}"`);
 
-        let rawResults: Array<{ key: string; value: unknown; namespace: string }>;
+        // ── Semantic facts → existing LLM relevance filter ──────────────────
+        let factsSection = "";
         try {
-            // Recall spans all memory kinds (SEMANTIC today; EPISODIC/PROCEDURAL in later phases).
-            const results = await searchMemory(tenantId, userId, [], query, 10);
-            rawResults = (results as Array<{ key: string; value: unknown; namespace: string }>) ?? [];
-        } catch (err: any) {
-            console.warn(`[MemoryRecall] Search failed: ${err?.message ?? err}`);
-            return { memoryContext: "" };
-        }
-
-        if (rawResults.length === 0) {
-            console.log("[MemoryRecall] No memories found");
-            return { memoryContext: "" };
-        }
-
-        console.log(`[MemoryRecall] Found ${rawResults.length} raw memories, filtering for relevance...`);
-
-        const memorySummary = rawResults.map((m, i) =>
-            `${i + 1}. [${m.namespace}/${m.key}] ${JSON.stringify(m.value)}`
-        ).join("\n");
-
-        let relevantMemories: string;
-        try {
-            const filterPrompt = new SystemMessage(
-                `You are a relevance filter. Given a user task and a list of memories from previous sessions, return ONLY the memories that are directly relevant to the current task.
+            const hits = await getMemoryService().recall({
+                tenantId, userId, query, kinds: ["SEMANTIC"], limit: 10,
+            });
+            if (hits.length > 0) {
+                console.log(`[MemoryRecall] Found ${hits.length} raw facts, filtering for relevance...`);
+                const memorySummary = hits.map((m, i) =>
+                    `${i + 1}. [${m.namespace}/${m.key}] ${JSON.stringify(m.value)}`
+                ).join("\n");
+                try {
+                    const filterPrompt = new SystemMessage(
+                        `You are a relevance filter. Given a user task and a list of memories from previous sessions, return ONLY the memories that are directly relevant to the current task.
 
 Return a markdown list of relevant memories, each on its own line with the format:
 - [namespace/key] One-line summary of the relevant fact
 
 If no memories are relevant, return exactly: NONE`
-            );
-
-            const filterInput = new HumanMessage({
-                content: `**User Task:** ${truncateOutput(query, 2000)}
+                    );
+                    const filterInput = new HumanMessage({
+                        content: `**User Task:** ${truncateOutput(query, 2000)}
 
 **Available Memories:**
 ${memorySummary}
 
 Return only the relevant memories.`
-            });
-
-            const response = await reflectorModel.invoke([filterPrompt, filterInput]);
-            const content = typeof response.content === "string"
-                ? response.content
-                : JSON.stringify(response.content);
-
-            if (content.trim() === "NONE" || !content.trim()) {
-                console.log("[MemoryRecall] No relevant memories after filtering");
-                return { memoryContext: "" };
+                    });
+                    const response = await reflectorModel.invoke([filterPrompt, filterInput]);
+                    const content = typeof response.content === "string"
+                        ? response.content
+                        : JSON.stringify(response.content);
+                    factsSection = (content.trim() === "NONE") ? "" : content.trim();
+                } catch (err: any) {
+                    console.warn(`[MemoryRecall] Relevance filter failed: ${err?.message ?? err}`);
+                    factsSection = hits.slice(0, 5).map(m =>
+                        `- [${m.namespace}/${m.key}] ${JSON.stringify(m.value)}`
+                    ).join("\n");
+                }
             }
-
-            relevantMemories = content.trim();
         } catch (err: any) {
-            console.warn(`[MemoryRecall] Relevance filter failed: ${err?.message ?? err}`);
-            relevantMemories = rawResults.slice(0, 5).map(m =>
-                `- [${m.namespace}/${m.key}] ${JSON.stringify(m.value)}`
-            ).join("\n");
+            console.warn(`[MemoryRecall] Semantic search failed: ${err?.message ?? err}`);
         }
 
-        console.log(`🧠 [MEMORY RECALL] Injecting relevant memories into context`);
+        // ── Episodic few-shot replay — distance-gated, no LLM filter ────────
+        let episodesSection = "";
+        if (episodicMemoryEnabled()) {
+            try {
+                const eps = await getMemoryService().recall({
+                    tenantId, userId, query, kinds: ["EPISODIC"], limit: EPISODE_RECALL_LIMIT,
+                });
+                const near = eps.filter(e => e.distance !== undefined && e.distance <= EPISODE_DISTANCE_THRESHOLD);
+                if (near.length > 0) {
+                    console.log(`🧠 [MEMORY RECALL] Replaying ${near.length} past episode(s)`);
+                    episodesSection = formatEpisodesSection(near.map(e => e.value as unknown as EpisodicValue));
+                }
+            } catch (err: any) {
+                console.warn(`[MemoryRecall] Episodic search failed: ${err?.message ?? err}`);
+            }
+        }
 
-        return { memoryContext: relevantMemories };
+        const memoryContext = composeMemoryContext(factsSection, episodesSection);
+        if (memoryContext) {
+            console.log(`🧠 [MEMORY RECALL] Injecting relevant memories into context`);
+        } else {
+            console.log("[MemoryRecall] Nothing relevant found");
+        }
+        return { memoryContext };
     };
 }
 
@@ -222,6 +233,17 @@ Extract memories to save.`
             }
         } catch (err: any) {
             console.warn(`[MemorySave] Extraction failed: ${err?.message ?? err}`);
+        }
+
+        // ── Episodic capture — independent of fact extraction; never blocks END ──
+        const { plan, toolResults, errors, reflection, isComplete, iterationCount } = state;
+        const threadIdForEpisode = runtimeConfig?.configurable?.thread_id as string | undefined;
+        if (episodicMemoryEnabled() && threadIdForEpisode && toolResults.length > 0) {
+            await captureEpisode({
+                tenantId, userId, threadId: threadIdForEpisode,
+                distillerModel: reflectorModel,
+                taskDescription, plan, toolResults, errors, reflection, isComplete, iterationCount,
+            });
         }
 
         return {};
