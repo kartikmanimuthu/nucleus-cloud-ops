@@ -23,6 +23,8 @@ export interface MemoryRow {
     createdAt: string;
     updatedAt: string;
     expiresAt: string;
+    supersededById: string | null;
+    supersededAt: string | null;
 }
 
 export type MemorySortField = 'category' | 'key' | 'createdAt' | 'expiresAt';

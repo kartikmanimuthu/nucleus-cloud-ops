@@ -21,6 +21,8 @@ type MemoryRow = {
     createdAt: Date;
     updatedAt: Date;
     expiresAt: Date;
+    supersededById: string | null;
+    supersededAt: Date | null;
 };
 
 function asString(v: unknown): string | null {
@@ -47,6 +49,8 @@ function toRecord(row: MemoryRow): AgentMemoryRecord {
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
         expiresAt: row.expiresAt.toISOString(),
+        supersededById: row.supersededById,
+        supersededAt: row.supersededAt ? row.supersededAt.toISOString() : null,
     };
 }
 
@@ -87,7 +91,7 @@ export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
         const limit = filters.limit ?? 50;
         const skip = (page - 1) * limit;
 
-        const where: Record<string, unknown> = { tenantId: filters.tenantId };
+        const where: Record<string, unknown> = { tenantId: filters.tenantId, supersededById: null };
         const and: unknown[] = [];
 
         const categories =

@@ -20,6 +20,8 @@ const makeRow = (overrides: Record<string, unknown> = {}) => ({
     createdAt: new Date('2026-06-01T00:00:00Z'),
     updatedAt: new Date('2026-06-02T00:00:00Z'),
     expiresAt: new Date('2026-09-01T00:00:00Z'),
+    supersededById: null,
+    supersededAt: null,
     ...overrides,
 });
 
@@ -176,5 +178,22 @@ describe('AgentMemoryPostgresRepository', () => {
         expect(arg.skip).toBe(20);
         expect(arg.take).toBe(10);
         expect(result.total).toBe(42);
+    });
+
+    it('listByTenant excludes superseded rows', async () => {
+        const repo = new AgentMemoryPostgresRepository();
+        await repo.listByTenant({ tenantId: 't1' });
+        const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
+        expect(arg.where.supersededById).toBeNull();
+    });
+
+    it('getById still returns superseded rows with provenance fields', async () => {
+        mockPrisma.agentMemory.findFirst.mockResolvedValueOnce(
+            makeRow({ supersededById: 'mem-2', supersededAt: new Date('2026-07-01T00:00:00Z') }),
+        );
+        const repo = new AgentMemoryPostgresRepository();
+        const rec = await repo.getById('t1', 'mem-1');
+        expect(rec?.supersededById).toBe('mem-2');
+        expect(rec?.supersededAt).toBe('2026-07-01T00:00:00.000Z');
     });
 });
