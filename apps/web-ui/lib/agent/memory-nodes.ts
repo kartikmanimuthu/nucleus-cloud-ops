@@ -10,6 +10,8 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { ReflectionState, truncateOutput } from "./agent-shared";
 import { searchMemory, saveMemory } from "./persistence";
+import { reconcileMemories, reconcileEnabled } from "./memory/reconcile";
+import type { ExtractedFact } from "./memory/types";
 
 interface MemoryNodeDeps {
     reflectorModel: BaseChatModel;
@@ -108,7 +110,7 @@ Return only the relevant memories.`
 export function createMemorySaveNode(deps: MemoryNodeDeps) {
     const { reflectorModel, tenantId, userId, store } = deps;
 
-    return async function memorySaveNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    return async function memorySaveNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         if (!store || !tenantId || !userId) {
             console.log("[MemorySave] Skipped — store, tenantId, or userId not available");
             return {};
@@ -197,14 +199,25 @@ Extract memories to save.`
                 return {};
             }
 
-            console.log(`🧠 [MEMORY SAVE] Saving ${toSave.length} memories...`);
-
-            for (const mem of toSave) {
-                try {
-                    await saveMemory(tenantId, userId, mem.namespace, mem.key, mem.value as Record<string, unknown>);
-                    console.log(`   ✅ Saved: ${mem.namespace.join("/")}/${mem.key}`);
-                } catch (err: any) {
-                    console.warn(`   ⚠️ Failed to save ${mem.key}: ${err?.message ?? err}`);
+            if (reconcileEnabled()) {
+                console.log(`🧠 [MEMORY SAVE] Reconciling ${toSave.length} extracted facts...`);
+                const threadId = runtimeConfig?.configurable?.thread_id as string | undefined;
+                const summary = await reconcileMemories({
+                    tenantId, userId,
+                    facts: toSave.map(m => ({ namespace: m.namespace, key: m.key, value: m.value })) as ExtractedFact[],
+                    judgeModel: reflectorModel,
+                    sourceThreadId: threadId,
+                });
+                console.log(`🧠 [MEMORY SAVE] Reconcile: ${summary.added} added, ${summary.updated} updated, ${summary.superseded} superseded, ${summary.reinforced} reinforced, ${summary.noop} noop, ${summary.failed} failed`);
+            } else {
+                console.log(`🧠 [MEMORY SAVE] Saving ${toSave.length} memories (reconcile disabled)...`);
+                for (const mem of toSave) {
+                    try {
+                        await saveMemory(tenantId, userId, mem.namespace, mem.key, mem.value as Record<string, unknown>);
+                        console.log(`   ✅ Saved: ${mem.namespace.join("/")}/${mem.key}`);
+                    } catch (err: any) {
+                        console.warn(`   ⚠️ Failed to save ${mem.key}: ${err?.message ?? err}`);
+                    }
                 }
             }
         } catch (err: any) {
