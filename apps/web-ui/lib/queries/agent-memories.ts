@@ -9,6 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queries/query-keys';
 import type { MemoryCategory } from '@/lib/agent-memory/category';
+import type { MemoryKind } from '@/lib/agent/memory/types';
 
 export interface MemoryRow {
     id: string;
@@ -20,6 +21,8 @@ export interface MemoryRow {
     source: string | null;
     confidence: string | null;
     value: Record<string, unknown>;
+    kind: MemoryKind;
+    sourceThreadId: string | null;
     createdAt: string;
     updatedAt: string;
     expiresAt: string;

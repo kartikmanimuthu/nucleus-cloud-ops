@@ -19,6 +19,7 @@ export interface AgentMemoryRecord {
     expiresAt: string;
     supersededById: string | null;
     supersededAt: string | null;
+    sourceThreadId: string | null;
 }
 
 /** Columns the list view can be sorted by (server-side). */

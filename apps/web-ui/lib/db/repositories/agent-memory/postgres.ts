@@ -23,6 +23,7 @@ type MemoryRow = {
     expiresAt: Date;
     supersededById: string | null;
     supersededAt: Date | null;
+    sourceThreadId: string | null;
 };
 
 function asString(v: unknown): string | null {
@@ -51,6 +52,7 @@ function toRecord(row: MemoryRow): AgentMemoryRecord {
         expiresAt: row.expiresAt.toISOString(),
         supersededById: row.supersededById,
         supersededAt: row.supersededAt ? row.supersededAt.toISOString() : null,
+        sourceThreadId: row.sourceThreadId,
     };
 }
 

@@ -22,6 +22,7 @@ const makeRow = (overrides: Record<string, unknown> = {}) => ({
     expiresAt: new Date('2026-09-01T00:00:00Z'),
     supersededById: null,
     supersededAt: null,
+    sourceThreadId: null,
     ...overrides,
 });
 
@@ -208,5 +209,12 @@ describe('AgentMemoryPostgresRepository', () => {
         const rec = await repo.getById('t1', 'mem-1');
         expect(rec?.category).toBe('episodes');
         expect(rec?.fact).toBe('SUCCEEDED — cycled tasks');
+    });
+
+    it('maps sourceThreadId through', async () => {
+        mockPrisma.agentMemory.findFirst.mockResolvedValueOnce(makeRow({ sourceThreadId: 'th-42' }));
+        const repo = new AgentMemoryPostgresRepository();
+        const rec = await repo.getById('t1', 'mem-1');
+        expect(rec?.sourceThreadId).toBe('th-42');
     });
 });
