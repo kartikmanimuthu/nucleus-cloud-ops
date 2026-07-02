@@ -27,3 +27,27 @@ export interface WorkingMemory {
     tokenCount: number;
     turnCount: number;
 }
+
+export interface ExtractedFact {
+    namespace: string[];
+    key: string;
+    value: SemanticValue;
+}
+
+export type ReconcileAction = 'ADD' | 'UPDATE' | 'SUPERSEDE' | 'REINFORCE' | 'NOOP';
+
+export interface ReconcileDecision {
+    factIndex: number;
+    action: ReconcileAction;
+    targetId?: string;                     // UPDATE / SUPERSEDE / REINFORCE
+    mergedValue?: Record<string, unknown>; // UPDATE only
+}
+
+export interface ReconcileSummary {
+    added: number;
+    updated: number;
+    superseded: number;
+    reinforced: number;
+    noop: number;
+    failed: number;
+}
