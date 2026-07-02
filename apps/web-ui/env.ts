@@ -86,6 +86,7 @@ export const env = createEnv({
         WORKING_MEMORY_KEEP_RECENT: z.string().optional(),
         MEMORY_RECONCILE_ENABLED: z.string().optional(),
         EPISODIC_MEMORY_ENABLED: z.string().optional(),
+        PROCEDURAL_MEMORY_ENABLED: z.string().optional(),
         USE_PG_SCHEDULES: z.string().optional(),
         DUAL_WRITE_SCHEDULES: z.string().optional(),
         INTERNAL_API_KEY: z.string().optional(),
