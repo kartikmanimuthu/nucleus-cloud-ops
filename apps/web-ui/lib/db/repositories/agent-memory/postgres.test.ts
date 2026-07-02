@@ -217,4 +217,17 @@ describe('AgentMemoryPostgresRepository', () => {
         const rec = await repo.getById('t1', 'mem-1');
         expect(rec?.sourceThreadId).toBe('th-42');
     });
+
+    it('maps procedural rows: category from namespace, fact falls back to instruction', async () => {
+        mockPrisma.agentMemory.findFirst.mockResolvedValueOnce(makeRow({
+            namespace: 'procedures/aws-cli',
+            key: 'paginate-list-calls',
+            kind: 'PROCEDURAL',
+            value: { instruction: 'Always paginate list calls', trigger: 'any list op', evidence: 'missed items', confidence: 'high' },
+        }));
+        const repo = new AgentMemoryPostgresRepository();
+        const rec = await repo.getById('t1', 'mem-1');
+        expect(rec?.category).toBe('procedures');
+        expect(rec?.fact).toBe('Always paginate list calls');
+    });
 });

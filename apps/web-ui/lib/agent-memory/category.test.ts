@@ -8,6 +8,7 @@ describe('categoryFromNamespace', () => {
         expect(categoryFromNamespace('patterns/ecs')).toBe('patterns');
         expect(categoryFromNamespace('errors/rds')).toBe('errors');
         expect(categoryFromNamespace('episodes')).toBe('episodes');
+        expect(categoryFromNamespace('procedures/aws-cli')).toBe('procedures');
     });
 
     it('is case-insensitive on the first segment', () => {
@@ -24,6 +25,6 @@ describe('categoryFromNamespace', () => {
     });
 
     it('exposes the known categories in display order', () => {
-        expect(KNOWN_CATEGORIES).toEqual(['infra', 'user', 'patterns', 'errors', 'episodes']);
+        expect(KNOWN_CATEGORIES).toEqual(['infra', 'user', 'patterns', 'errors', 'episodes', 'procedures']);
     });
 });
