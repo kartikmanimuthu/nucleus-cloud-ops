@@ -196,4 +196,17 @@ describe('AgentMemoryPostgresRepository', () => {
         expect(rec?.supersededById).toBe('mem-2');
         expect(rec?.supersededAt).toBe('2026-07-01T00:00:00.000Z');
     });
+
+    it('maps episodic rows: category from namespace, fact falls back to outcome', async () => {
+        mockPrisma.agentMemory.findFirst.mockResolvedValueOnce(makeRow({
+            namespace: 'episodes',
+            key: 'thread-th-9',
+            kind: 'EPISODIC',
+            value: { context: 'c', reasoning: 'r', action: 'a', outcome: 'SUCCEEDED — cycled tasks' },
+        }));
+        const repo = new AgentMemoryPostgresRepository();
+        const rec = await repo.getById('t1', 'mem-1');
+        expect(rec?.category).toBe('episodes');
+        expect(rec?.fact).toBe('SUCCEEDED — cycled tasks');
+    });
 });

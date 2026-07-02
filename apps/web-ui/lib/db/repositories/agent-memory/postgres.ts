@@ -42,7 +42,7 @@ function toRecord(row: MemoryRow): AgentMemoryRecord {
         category: categoryFromNamespace(row.namespace),
         kind: row.kind,
         key: row.key,
-        fact: asString(value.fact) ?? '',
+        fact: asString(value.fact) ?? asString(value.outcome) ?? '',
         source: asString(value.source),
         confidence: asString(value.confidence),
         value,
