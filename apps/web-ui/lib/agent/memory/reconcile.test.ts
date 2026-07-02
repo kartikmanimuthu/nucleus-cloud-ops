@@ -117,4 +117,40 @@ describe('reconcileMemories', () => {
         expect(summary.failed).toBe(1);
         expect(summary.noop).toBe(1);
     });
+
+    it('recall throwing → fact treated as no-neighbors → ADD, judge not called', async () => {
+        mockSvc.recall.mockRejectedValue(new Error('pgvector down'));
+        const judge = judgeReturning([]);
+        const summary = await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
+        expect(judge.invoke).not.toHaveBeenCalled();
+        expect(mockSvc.remember).toHaveBeenCalledTimes(1);
+        expect(summary.added).toBe(1);
+    });
+
+    it('judge returning decisions for only some facts → missing ones fall back to ADD', async () => {
+        mockSvc.recall.mockResolvedValue([neighbor('old-1')]);
+        const judge = judgeReturning([{ factIndex: 0, action: 'NOOP' }]); // nothing for factIndex 1
+        const summary = await reconcileMemories({ ...base, facts: [fact('k1'), fact('k2')], judgeModel: judge });
+        expect(summary.noop).toBe(1);
+        expect(summary.added).toBe(1);
+        expect(mockSvc.remember).toHaveBeenCalledTimes(1);
+    });
+
+    it('judge invoked exactly once for multiple neighbor-bearing facts', async () => {
+        mockSvc.recall.mockResolvedValue([neighbor('old-1')]);
+        const judge = judgeReturning([
+            { factIndex: 0, action: 'NOOP' },
+            { factIndex: 1, action: 'NOOP' },
+        ]);
+        await reconcileMemories({ ...base, facts: [fact('k1'), fact('k2')], judgeModel: judge });
+        expect(judge.invoke).toHaveBeenCalledTimes(1);
+    });
+
+    it('UPDATE with array mergedValue is rejected → ADD fallback', async () => {
+        mockSvc.recall.mockResolvedValue([neighbor('old-1')]);
+        const judge = judgeReturning([{ factIndex: 0, action: 'UPDATE', targetId: 'old-1', mergedValue: ['not-an-object'] }]);
+        const summary = await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
+        expect(mockSvc.update).not.toHaveBeenCalled();
+        expect(summary.added).toBe(1);
+    });
 });

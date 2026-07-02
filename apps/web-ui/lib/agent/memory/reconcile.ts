@@ -67,7 +67,7 @@ function isValidDecision(d: ReconcileDecision, item: FactWithNeighbors): boolean
             return !!d.targetId && neighborIds.has(d.targetId);
         case 'UPDATE':
             return !!d.targetId && neighborIds.has(d.targetId)
-                && !!d.mergedValue && typeof d.mergedValue === 'object';
+                && !!d.mergedValue && typeof d.mergedValue === 'object' && !Array.isArray(d.mergedValue);
         default:
             return false;
     }
