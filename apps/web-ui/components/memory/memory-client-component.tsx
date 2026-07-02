@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ColumnDef, PaginationState, SortingState } from "@tanstack/react-table";
-import { Brain, MoreHorizontal, Eye, Trash2, Search, X } from "lucide-react";
+import { Brain, MoreHorizontal, Eye, Trash2, Search, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,8 @@ import {
 import { useDebounce } from "@/hooks/use-debounce";
 import { MemoryDetailDialog } from "./memory-detail-dialog";
 import { DeleteMemoryDialog } from "./delete-memory-dialog";
+import { SkillFormDialog } from "@/components/skills/skill-form-dialog";
+import { buildSkillDraftFromMemory, type SkillDraft } from "@/lib/agent-memory/promote";
 
 const CATEGORY_OPTIONS: { label: string; value: MemoryCategory }[] = [
     ...KNOWN_CATEGORIES,
@@ -47,6 +49,7 @@ export function MemoryClientComponent() {
     const [categories, setCategories] = useState<MemoryCategory[]>([]);
     const [detail, setDetail] = useState<MemoryRow | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<MemoryRow | null>(null);
+    const [promote, setPromote] = useState<{ draft: SkillDraft; sourceRunId: string | null } | null>(null);
 
     const sort = sorting[0];
     const { data, isLoading } = useAgentMemories({
@@ -177,6 +180,21 @@ export function MemoryClientComponent() {
                                         <Eye className="mr-2 h-4 w-4" />
                                         View details
                                     </DropdownMenuItem>
+                                    {m.kind === "PROCEDURAL" ? (
+                                        <DropdownMenuItem
+                                            onClick={() => {
+                                                const draft = buildSkillDraftFromMemory(m);
+                                                if (draft) {
+                                                    setPromote({ draft, sourceRunId: m.sourceThreadId ?? null });
+                                                } else {
+                                                    toast.error("This memory is missing rule fields and can't be promoted");
+                                                }
+                                            }}
+                                        >
+                                            <Sparkles className="mr-2 h-4 w-4" />
+                                            Promote to skill
+                                        </DropdownMenuItem>
+                                    ) : null}
                                     <DropdownMenuItem
                                         onClick={() => setDeleteTarget(m)}
                                         className="text-destructive"
@@ -259,6 +277,12 @@ export function MemoryClientComponent() {
                 pending={del.isPending}
                 onCancel={() => setDeleteTarget(null)}
                 onConfirm={handleDelete}
+            />
+            <SkillFormDialog
+                open={!!promote}
+                onOpenChange={(v) => { if (!v) setPromote(null); }}
+                initialDraft={promote?.draft ?? null}
+                sourceRunId={promote?.sourceRunId ?? null}
             />
         </div>
     );
