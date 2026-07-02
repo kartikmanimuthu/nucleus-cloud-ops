@@ -125,11 +125,11 @@ export class MemoryService {
         // Build the kind filter as a parameter list; empty => all kinds.
         const kindList = kinds.length ? kinds : null;
 
-        let rows: Array<{ namespace: string; key: string; value: unknown; kind: MemoryKind }>;
+        let rows: Array<{ id: string; namespace: string; key: string; value: unknown; kind: MemoryKind; distance: number | null }>;
         if (queryVec) {
             const vecStr = `[${queryVec.join(',')}]`;
-            rows = await prisma.$queryRaw<Array<{ namespace: string; key: string; value: unknown; kind: MemoryKind }>>`
-                SELECT "namespace","key","value","kind"
+            rows = await prisma.$queryRaw<Array<{ id: string; namespace: string; key: string; value: unknown; kind: MemoryKind; distance: number | null }>>`
+                SELECT "id","namespace","key","value","kind", (embedding <=> ${vecStr}::vector) AS distance
                 FROM agent_memories
                 WHERE "tenantId" = ${p.tenantId}
                   AND "supersededById" IS NULL
@@ -139,8 +139,8 @@ export class MemoryService {
                 LIMIT ${limit}
             `;
         } else {
-            rows = await prisma.$queryRaw<Array<{ namespace: string; key: string; value: unknown; kind: MemoryKind }>>`
-                SELECT "namespace","key","value","kind"
+            rows = await prisma.$queryRaw<Array<{ id: string; namespace: string; key: string; value: unknown; kind: MemoryKind; distance: number | null }>>`
+                SELECT "id","namespace","key","value","kind", NULL::float8 AS distance
                 FROM agent_memories
                 WHERE "tenantId" = ${p.tenantId}
                   AND "supersededById" IS NULL
@@ -161,11 +161,57 @@ export class MemoryService {
         }
 
         return rows.map((r) => ({
+            id: r.id,
             namespace: r.namespace,
             key: r.key,
             value: (r.value ?? {}) as Record<string, unknown>,
             kind: r.kind,
+            ...(r.distance !== null && r.distance !== undefined ? { distance: Number(r.distance) } : {}),
         }));
+    }
+
+    /** Replace a memory's value in place (judge UPDATE). Re-embeds; embed failure keeps the old vector. */
+    async update(tenantId: string, id: string, value: Record<string, unknown>): Promise<void> {
+        const prisma = getPrismaClient();
+        const expiresAt = new Date(Date.now() + TTL_MS);
+        let vec: number[] | null = null;
+        try {
+            const emb = await this.getEmbeddings(tenantId);
+            vec = await emb.embedQuery(JSON.stringify(value));
+        } catch {
+            // keep the old embedding
+        }
+        if (vec) {
+            const vecStr = `[${vec.join(',')}]`;
+            await prisma.$executeRaw`
+                UPDATE agent_memories
+                SET "value" = ${JSON.stringify(value)}::jsonb, "embedding" = ${vecStr}::vector, "updatedAt" = NOW(), "expiresAt" = ${expiresAt}
+                WHERE "id" = ${id} AND "tenantId" = ${tenantId}
+            `;
+        } else {
+            await prisma.agentMemory.updateMany({
+                where: { id, tenantId },
+                data: { value: value as Prisma.InputJsonValue, expiresAt, updatedAt: new Date() },
+            });
+        }
+    }
+
+    /** Mark `oldId` as displaced by `newId` (judge SUPERSEDE). Old row is never deleted. */
+    async supersede(tenantId: string, oldId: string, newId: string): Promise<void> {
+        const prisma = getPrismaClient();
+        await prisma.agentMemory.updateMany({
+            where: { id: oldId, tenantId },
+            data: { supersededById: newId, supersededAt: new Date(), updatedAt: new Date() },
+        });
+    }
+
+    /** A duplicate re-confirmed this memory (judge REINFORCE): refresh TTL, bump the signal. */
+    async reinforce(tenantId: string, id: string): Promise<void> {
+        const prisma = getPrismaClient();
+        await prisma.agentMemory.updateMany({
+            where: { id, tenantId },
+            data: { expiresAt: new Date(Date.now() + TTL_MS), accessCount: { increment: 1 }, lastAccessedAt: new Date(), updatedAt: new Date() },
+        });
     }
 
     async getWorkingMemory(tenantId: string, threadId: string): Promise<WorkingMemory | null> {

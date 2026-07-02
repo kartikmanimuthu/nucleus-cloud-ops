@@ -5,10 +5,13 @@ export interface EpisodicValue { context: string; reasoning: string; action: str
 export interface ProceduralValue { instruction: string; trigger: string; evidence: string; }
 
 export interface MemoryHit {
+    id: string;
     namespace: string;
     key: string;
     value: Record<string, unknown>;
     kind: MemoryKind;
+    /** Cosine distance to the query (0 = identical); present only on vector-search hits. */
+    distance?: number;
 }
 
 export interface Scratchpad {
