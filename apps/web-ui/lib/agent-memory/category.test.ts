@@ -7,6 +7,7 @@ describe('categoryFromNamespace', () => {
         expect(categoryFromNamespace('user/preferences')).toBe('user');
         expect(categoryFromNamespace('patterns/ecs')).toBe('patterns');
         expect(categoryFromNamespace('errors/rds')).toBe('errors');
+        expect(categoryFromNamespace('episodes')).toBe('episodes');
     });
 
     it('is case-insensitive on the first segment', () => {
@@ -22,7 +23,7 @@ describe('categoryFromNamespace', () => {
         expect(categoryFromNamespace('')).toBe('other');
     });
 
-    it('exposes the four known categories in display order', () => {
-        expect(KNOWN_CATEGORIES).toEqual(['infra', 'user', 'patterns', 'errors']);
+    it('exposes the known categories in display order', () => {
+        expect(KNOWN_CATEGORIES).toEqual(['infra', 'user', 'patterns', 'errors', 'episodes']);
     });
 });
