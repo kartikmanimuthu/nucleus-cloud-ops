@@ -82,6 +82,20 @@ describe('captureEpisode', () => {
         expect(saved).toBe(false);
         expect(distiller.invoke).not.toHaveBeenCalled();
     });
+
+    it('distiller returns prose with no JSON object → no save, false', async () => {
+        const saved = await captureEpisode(baseParams({
+            distillerModel: distillerReturning('I could not distill this run into an episode.'),
+        }) as any);
+        expect(saved).toBe(false);
+        expect(mockSvc.remember).not.toHaveBeenCalled();
+    });
+
+    it('remember/save throwing → false, does not throw', async () => {
+        mockSvc.remember.mockRejectedValue(new Error('db down'));
+        const saved = await captureEpisode(baseParams() as any);
+        expect(saved).toBe(false);
+    });
 });
 
 describe('formatEpisodesSection', () => {
