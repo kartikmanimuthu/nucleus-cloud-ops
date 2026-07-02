@@ -36,6 +36,7 @@ For each new fact, choose exactly one action:
 - "SUPERSEDE": the new fact EXPLICITLY CONTRADICTS one neighbor — both cannot be true (e.g. a resource moved region). The new fact wins. Provide "targetId".
 - "REINFORCE": semantically the same fact as one neighbor; nothing new. Provide "targetId".
 - "NOOP": ephemeral or not worth remembering.
+Items may be facts or operating rules; the same actions apply (a rule that changed = SUPERSEDE; the same rule re-learned = REINFORCE).
 Rules:
 - SUPERSEDE only on mutual exclusivity, NEVER on similarity or partial overlap.
 - Uncertain between UPDATE and REINFORCE → choose REINFORCE.
@@ -86,7 +87,7 @@ export async function reconcileMemories(params: {
 
     const add = async (fact: ExtractedFact): Promise<void> => {
         await svc.remember({
-            tenantId, userId, kind: 'SEMANTIC',
+            tenantId, userId, kind: fact.kind ?? 'SEMANTIC',
             namespace: fact.namespace, key: fact.key,
             value: fact.value as unknown as Record<string, unknown>,
             sourceThreadId,
@@ -102,7 +103,7 @@ export async function reconcileMemories(params: {
             // Query by the value JSON — the same text remember() embeds, so distances are comparable.
             const hits = await svc.recall({
                 tenantId, userId, query: JSON.stringify(fact.value),
-                kinds: ['SEMANTIC'], limit: RECONCILE_TOP_K,
+                kinds: [fact.kind ?? 'SEMANTIC'], limit: RECONCILE_TOP_K,
             });
             neighbors = hits.filter((h) => h.distance !== undefined && h.distance <= RECONCILE_DISTANCE_THRESHOLD);
         } catch {
@@ -157,7 +158,7 @@ export async function reconcileMemories(params: {
                     break;
                 case 'SUPERSEDE': {
                     const newId = await svc.remember({
-                        tenantId, userId, kind: 'SEMANTIC',
+                        tenantId, userId, kind: item.fact.kind ?? 'SEMANTIC',
                         namespace: item.fact.namespace, key: item.fact.key,
                         value: item.fact.value as unknown as Record<string, unknown>,
                         sourceThreadId,

@@ -153,4 +153,33 @@ describe('reconcileMemories', () => {
         expect(mockSvc.update).not.toHaveBeenCalled();
         expect(summary.added).toBe(1);
     });
+
+    const proceduralFact = (key: string): ExtractedFact => ({
+        kind: 'PROCEDURAL', namespace: ['procedures', 'aws-cli'], key,
+        value: { instruction: 'always paginate', trigger: 'list ops', evidence: 'missed items', confidence: 'high' } as any,
+    });
+
+    it('procedural fact → neighbors fetched with kinds PROCEDURAL and ADD saves kind PROCEDURAL', async () => {
+        mockSvc.recall.mockResolvedValue([]); // no neighbors → fast-path ADD
+        const judge = judgeReturning([]);
+        await reconcileMemories({ ...base, facts: [proceduralFact('paginate')], judgeModel: judge });
+        expect(mockSvc.recall).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['PROCEDURAL'] }));
+        expect(mockSvc.remember).toHaveBeenCalledWith(expect.objectContaining({ kind: 'PROCEDURAL' }));
+    });
+
+    it('procedural SUPERSEDE → new row saved with kind PROCEDURAL', async () => {
+        mockSvc.recall.mockResolvedValue([neighbor('old-rule')]);
+        const judge = judgeReturning([{ factIndex: 0, action: 'SUPERSEDE', targetId: 'old-rule' }]);
+        await reconcileMemories({ ...base, facts: [proceduralFact('paginate')], judgeModel: judge });
+        expect(mockSvc.remember).toHaveBeenCalledWith(expect.objectContaining({ kind: 'PROCEDURAL' }));
+        expect(mockSvc.supersede).toHaveBeenCalledWith('t1', 'old-rule', 'new-id');
+    });
+
+    it('kind absent → SEMANTIC everywhere (legacy default)', async () => {
+        mockSvc.recall.mockResolvedValue([]);
+        const judge = judgeReturning([]);
+        await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
+        expect(mockSvc.recall).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['SEMANTIC'] }));
+        expect(mockSvc.remember).toHaveBeenCalledWith(expect.objectContaining({ kind: 'SEMANTIC' }));
+    });
 });
