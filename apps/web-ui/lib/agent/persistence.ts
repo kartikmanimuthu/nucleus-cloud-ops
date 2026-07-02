@@ -11,6 +11,7 @@
  */
 
 import type { Embeddings } from "@langchain/core/embeddings";
+import { Prisma } from "@prisma/client";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { getPrismaClient } from "@/lib/db/pg-config";
 import { getTenantEmbeddings } from "./embeddings-factory";
@@ -141,11 +142,45 @@ class PostgresMemoryStore implements MemoryStoreInterface {
                         SET "value" = EXCLUDED."value", "embedding" = EXCLUDED."embedding", "updatedAt" = NOW(), "expiresAt" = EXCLUDED."expiresAt"
                     `;
                 } else {
-                    await prisma.agentMemory.upsert({
-                        where: { tenantId_namespace_key: { tenantId: tenantId, namespace, key } },
-                        create: { tenantId: tenantId, userId, namespace, key, value, expiresAt },
-                        update: { value, expiresAt, updatedAt: new Date() },
+                    // The compound unique no longer exists in the Prisma schema (Phase 2:
+                    // uniqueness moved to a partial index on live rows, SQL-only), so upsert
+                    // is replaced by find-live-then-update/create. Same blind-upsert
+                    // semantics as before for the deep-agent path.
+                    const live = await prisma.agentMemory.findFirst({
+                        where: { tenantId, namespace, key, supersededById: null },
+                        select: { id: true },
                     });
+                    if (live) {
+                        await prisma.agentMemory.updateMany({
+                            where: { id: live.id, tenantId },
+                            data: { value: value as Prisma.InputJsonValue, expiresAt, updatedAt: new Date() },
+                        });
+                    } else {
+                        try {
+                            await prisma.agentMemory.create({
+                                data: { tenantId, userId, namespace, key, value: value as Prisma.InputJsonValue, expiresAt },
+                            });
+                        } catch (err) {
+                            // Concurrent create of the same live key — partial unique index is
+                            // the backstop; retry once as an update of the winner.
+                            if ((err as { code?: string })?.code === 'P2002') {
+                                const winner = await prisma.agentMemory.findFirst({
+                                    where: { tenantId, namespace, key, supersededById: null },
+                                    select: { id: true },
+                                });
+                                if (winner) {
+                                    await prisma.agentMemory.updateMany({
+                                        where: { id: winner.id, tenantId },
+                                        data: { value: value as Prisma.InputJsonValue, expiresAt, updatedAt: new Date() },
+                                    });
+                                } else {
+                                    throw err;
+                                }
+                            } else {
+                                throw err;
+                            }
+                        }
+                    }
                 }
                 results.push(null);
             } else if (op.namespacePrefix !== undefined && op.query !== undefined) {
