@@ -114,3 +114,80 @@ describe('buildWorkingMemorySection', () => {
         expect(sec).toContain('cluster-1');
     });
 });
+
+import { prepareContext, foldWorkingMemory } from './working-memory';
+import { getRecentMessages } from '../agent-shared';
+import type { ReflectionState } from '../agent-shared';
+
+function baseState(messages: any[]): ReflectionState {
+    return {
+        messages, taskDescription: 't', plan: [], code: '', executionOutput: '',
+        errors: [], reflection: '', iterationCount: 0, nextAction: 'plan',
+        isComplete: false, toolResults: [], memoryContext: '',
+        runningSummary: '', scratchpad: { openGoals: [], keyFindings: [], resourceIds: [], pendingSteps: [] },
+    };
+}
+
+const fakeReflector = {
+    invoke: async () => ({
+        content: JSON.stringify({
+            summary: 'Restarted the stuck ECS task.',
+            scratchpad: { openGoals: ['verify health'], keyFindings: ['task was OOM'], resourceIds: ['svc-1'], pendingSteps: [] },
+        }),
+    }),
+} as any;
+
+describe('prepareContext', () => {
+    afterEach(() => { delete process.env.WORKING_MEMORY_ENABLED; delete process.env.WORKING_MEMORY_TOKEN_BUDGET; });
+
+    it('disabled → falls back to getRecentMessages(fallbackWindow), no WM section, no LLM call', async () => {
+        process.env.WORKING_MEMORY_ENABLED = 'false';
+        // Alternate roles so getRecentMessages passes the window through unchanged
+        // (adjacent same-role messages make it inject synthetic "Acknowledged." AIMessages,
+        // which would push the returned length above the fallbackWindow — a getRecentMessages
+        // concern, not prepareContext's). Same convention as the selectWindow property test.
+        const msgs = Array.from({ length: 30 }, (_, i) =>
+            i % 2 === 0 ? new HumanMessage(`m${i}`) : new AIMessage(`m${i}`),
+        );
+        const res = await prepareContext(baseState(msgs), { reflectorModel: fakeReflector }, 20);
+        expect(res.workingMemorySection).toBe('');
+        expect(res.stateUpdate).toEqual({});
+        // Disabled path returns EXACTLY the legacy getRecentMessages(fallbackWindow) window
+        // (identical to today's behavior). Asserting a length bound is wrong: getRecentMessages
+        // does not hard-cap at maxMessages — it can add leading/adjacency fixups — so compare to it directly.
+        expect(res.windowMessages).toEqual(getRecentMessages(msgs, 20));
+    });
+
+    it('enabled + under budget → no compaction, no LLM call, empty stateUpdate', async () => {
+        process.env.WORKING_MEMORY_TOKEN_BUDGET = '100000';
+        const msgs = [new HumanMessage('hi'), new AIMessage('hello')];
+        const res = await prepareContext(baseState(msgs), { reflectorModel: fakeReflector }, 20);
+        expect(res.stateUpdate).toEqual({});
+        expect(res.windowMessages.length).toBe(2);
+    });
+
+    it('enabled + over budget → folds evicted turns into summary + scratchpad', async () => {
+        process.env.WORKING_MEMORY_TOKEN_BUDGET = '10'; // force compaction
+        const msgs = Array.from({ length: 12 }, (_, i) =>
+            i % 2 === 0 ? new HumanMessage('X'.repeat(80) + i) : new AIMessage('X'.repeat(80) + i),
+        );
+        const res = await prepareContext(baseState(msgs), { reflectorModel: fakeReflector }, 20);
+        expect(res.workingMemorySection).toContain('## Working Memory');
+        expect(res.workingMemorySection).toContain('Restarted the stuck ECS task.');
+        expect(res.stateUpdate.runningSummary).toContain('Restarted');
+        expect(res.stateUpdate.scratchpad?.openGoals).toContain('verify health');
+    });
+});
+
+describe('foldWorkingMemory monotonicity', () => {
+    it('never drops a pre-existing open goal', async () => {
+        const prev = {
+            runningSummary: 'prior', tokenCount: 0, turnCount: 1,
+            scratchpad: { openGoals: ['KEEP ME'], keyFindings: [], resourceIds: [], pendingSteps: [] },
+        };
+        const next = await foldWorkingMemory(prev, [new HumanMessage('did stuff')], fakeReflector);
+        expect(next.scratchpad.openGoals).toContain('KEEP ME');   // merged, not replaced
+        expect(next.scratchpad.openGoals).toContain('verify health'); // plus the new one
+        expect(next.turnCount).toBe(2);
+    });
+});

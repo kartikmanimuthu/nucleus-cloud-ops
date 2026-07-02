@@ -968,7 +968,11 @@ describe('prepareContext', () => {
         const res = await prepareContext(baseState(msgs), { reflectorModel: fakeReflector }, 20);
         expect(res.workingMemorySection).toBe('');
         expect(res.stateUpdate).toEqual({});
-        expect(res.windowMessages.length).toBeLessThanOrEqual(20);
+        // Disabled path returns EXACTLY the legacy getRecentMessages(fallbackWindow) window
+        // (identical to today's behavior). getRecentMessages does NOT hard-cap at maxMessages
+        // (it can add leading/adjacency fixups), so compare to it directly rather than a length bound.
+        // Requires `import { getRecentMessages } from '../agent-shared';` in the test.
+        expect(res.windowMessages).toEqual(getRecentMessages(msgs, 20));
     });
 
     it('enabled + under budget → no compaction, no LLM call, empty stateUpdate', async () => {
