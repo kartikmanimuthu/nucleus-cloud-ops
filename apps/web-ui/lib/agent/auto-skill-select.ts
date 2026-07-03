@@ -41,6 +41,12 @@ export async function autoSelectSkill(params: {
             console.log('🎯 [SKILL AUTO-SELECT] No skill matched — agent runs with the skill catalog only');
             return null;
         }
+        // The catalog lists ENABLED skills only — membership rejects disabled or
+        // hallucinated slugs before the per-tenant existence check.
+        if (!catalog.includes(`- ${parsed.skillId}:`)) {
+            console.warn(`🎯 [SKILL AUTO-SELECT] Model returned skill '${parsed.skillId}' not in the enabled catalog — ignoring`);
+            return null;
+        }
         const skill = await getSkillById(params.tenantId, parsed.skillId);
         if (!skill) {
             console.warn(`🎯 [SKILL AUTO-SELECT] Model returned unknown skill '${parsed.skillId}' — ignoring`);
