@@ -8,7 +8,7 @@
 
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { ReflectionState, truncateOutput } from "./agent-shared";
+import { truncateOutput } from "./agent-shared";
 import { saveMemory } from "./persistence";
 import { getMemoryService } from "./memory/memory-service";
 import { memoryLogVerbose } from "./memory/log";
@@ -21,7 +21,7 @@ import {
     proceduralMemoryEnabled, formatProceduresSection, isValidExtractedItem,
     PROCEDURE_RECALL_LIMIT, PROCEDURE_DISTANCE_THRESHOLD,
 } from "./memory/procedural";
-import type { ExtractedFact, EpisodicValue, ProceduralValue } from "./memory/types";
+import type { ExtractedFact, EpisodicValue, ProceduralValue, MemoryNodeState } from "./memory/types";
 
 interface MemoryNodeDeps {
     reflectorModel: BaseChatModel;
@@ -33,7 +33,7 @@ interface MemoryNodeDeps {
 export function createMemoryRecallNode(deps: MemoryNodeDeps) {
     const { reflectorModel, tenantId, userId, store } = deps;
 
-    return async function memoryRecallNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    return async function memoryRecallNode(state: MemoryNodeState): Promise<{ memoryContext: string }> {
         if (!store || !tenantId || !userId) {
             console.log("[MemoryRecall] Skipped — store, tenantId, or userId not available");
             return { memoryContext: "" };
@@ -158,7 +158,7 @@ Return only the relevant memories.`
 export function createMemorySaveNode(deps: MemoryNodeDeps) {
     const { reflectorModel, tenantId, userId, store } = deps;
 
-    return async function memorySaveNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
+    return async function memorySaveNode(state: MemoryNodeState, runtimeConfig?: any): Promise<Record<string, never>> {
         if (!store || !tenantId || !userId) {
             console.log("[MemorySave] Skipped — store, tenantId, or userId not available");
             return {};

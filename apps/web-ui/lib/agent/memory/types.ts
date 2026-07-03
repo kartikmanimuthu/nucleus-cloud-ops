@@ -1,3 +1,5 @@
+import type { BaseMessage } from '@langchain/core/messages';
+
 export type MemoryKind = 'SEMANTIC' | 'EPISODIC' | 'PROCEDURAL';
 
 export interface SemanticValue { fact: string; source: string; confidence: 'high' | 'medium'; }
@@ -52,4 +54,21 @@ export interface ReconcileSummary {
     reinforced: number;
     noop: number;
     failed: number;
+}
+
+/**
+ * Minimal structural state the shared memory nodes need. Both the chat agents'
+ * ReflectionState (agent-shared.ts) and Agent Ops' ReflectionState
+ * (agent-ops/executor-state.ts, once it carries memoryContext) satisfy this.
+ */
+export interface MemoryNodeState {
+    messages: BaseMessage[];
+    taskDescription: string;
+    plan: Array<{ step: string; status: string }>;
+    toolResults: Array<{ toolName: string; output: string; isError: boolean; iterationIndex: number }>;
+    errors: string[];
+    reflection: string;
+    iterationCount: number;
+    isComplete: boolean;
+    memoryContext: string;
 }
