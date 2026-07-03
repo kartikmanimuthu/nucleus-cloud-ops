@@ -10,7 +10,6 @@ import {
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
-    getRecentMessages,
     sanitizeMessagesForBedrock,
     tagMessagePhase,
     llmAuditLog,
@@ -29,6 +28,7 @@ import {
 } from "./prompt-templates";
 import { createAgentModels, assembleTools } from "./model-factory";
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
+import { prepareContext, buildWorkingMemorySection } from "./memory/working-memory";
 
 // Factory function to create a configured reflection graph
 export async function createReflectionGraph(config: GraphConfig) {
@@ -66,11 +66,19 @@ export async function createReflectionGraph(config: GraphConfig) {
     const memoryRecallNode = createMemoryRecallNode(memoryDeps);
     const memorySaveNode = createMemorySaveNode(memoryDeps);
 
+    // Working-memory deps — threadId is read per-node from the runtime config.
+    const wmDeps = { reflectorModel, tenantId, userId: config.userId };
+
     // ---------------------------------------------------------------------------
     // PLANNER NODE
     // ---------------------------------------------------------------------------
     async function planNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         const { messages, memoryContext } = state;
+        const workingMemorySection = buildWorkingMemorySection(
+            state.runningSummary || (state.scratchpad?.openGoals?.length ?? 0) > 0
+                ? { runningSummary: state.runningSummary ?? '', scratchpad: state.scratchpad ?? { openGoals: [], keyFindings: [], resourceIds: [], pendingSteps: [] }, tokenCount: 0, turnCount: 0 }
+                : null,
+        );
         const lastMessage = messages[messages.length - 1];
         const taskDescription = typeof lastMessage.content === 'string'
             ? lastMessage.content
@@ -87,6 +95,7 @@ Your role is to decompose the user's task into a precise, dependency-ordered exe
 ${effectiveSkillSection}
 ${CORE_PRINCIPLES}
 ${memoryContext ? `\n## Relevant Context from Memory\n${memoryContext}\n` : ''}
+${workingMemorySection}
 ## Planning Methodology
 
 Work through three phases when building the plan:
@@ -162,7 +171,7 @@ Only return the JSON array, nothing else.`);
     // ---------------------------------------------------------------------------
     // GENERATOR (EXECUTOR) NODE
     // ---------------------------------------------------------------------------
-    async function generateNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    async function generateNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         const { messages, plan, iterationCount, memoryContext } = state;
 
         console.log(`\n================================================================================`);
@@ -174,11 +183,16 @@ Only return the JSON array, nothing else.`);
         const pendingSteps = plan.filter(s => s.status === 'pending' || s.status === 'in_progress');
         const currentStep = pendingSteps[0]?.step || "Complete the task";
 
+        const threadId = runtimeConfig?.configurable?.thread_id as string | undefined;
+        const { windowMessages, workingMemorySection, stateUpdate } =
+            await prepareContext(state, { ...wmDeps, threadId }, 15);
+
         const executorSystemPrompt = new SystemMessage(`${baseIdentity}
 Your role is to execute the current plan step precisely and completely using available tools.
 ${effectiveSkillSection}
 ${CORE_PRINCIPLES}
 ${memoryContext ? `\n## Relevant Context from Memory\n${memoryContext}\n` : ''}
+${workingMemorySection}
 ## Current Execution Context
 
 Current Step: ${currentStep}
@@ -202,7 +216,7 @@ ${accountContext}
 
 ⚠️ **Tool Parameter Validation**: Always ensure tool calls include all required parameters. If a tool call fails with a parameter validation error, check that you provided all required fields.`);
 
-        const recentMessages = getRecentMessages(messages, 15);
+        const recentMessages = windowMessages;
         if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
             recentMessages.push(new HumanMessage({ content: "Please execute the next step of the plan based on the tools available." }));
         }
@@ -232,7 +246,8 @@ ${accountContext}
         return {
             messages: [tagMessagePhase(response, 'execution')],
             iterationCount: iterationCount + 1,
-            plan: updatedPlan
+            plan: updatedPlan,
+            ...stateUpdate,
         };
     }
 
@@ -460,8 +475,12 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
     // ---------------------------------------------------------------------------
     // REVISER NODE
     // ---------------------------------------------------------------------------
-    async function reviseNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    async function reviseNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         const { messages, reflection, errors } = state;
+
+        const threadId = runtimeConfig?.configurable?.thread_id as string | undefined;
+        const { windowMessages, workingMemorySection, stateUpdate } =
+            await prepareContext(state, { ...wmDeps, threadId }, 10);
 
         console.log(`\n================================================================================`);
         console.log(`📝 [REVISER] Applying fixes and improvements`);
@@ -472,6 +491,7 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
 Your role is to address the specific issues identified by the reviewer and advance the plan toward completion.
 ${effectiveSkillSection}
 ${CORE_PRINCIPLES}
+${workingMemorySection}
 ## Reviewer Feedback
 
 Analysis: ${reflection}
@@ -490,7 +510,7 @@ Issues to Address: ${errors.join(', ') || 'None'}
 8. After fixing all issues, provide a brief summary of what was corrected and what the result now shows.
 ${accountContext}`);
 
-        const recentMessages = getRecentMessages(messages, 10);
+        const recentMessages = windowMessages;
         if (recentMessages.length > 0 && recentMessages[recentMessages.length - 1]._getType() === 'ai') {
             recentMessages.push(new HumanMessage({ content: "Please fix the issues mentioned in the reflection." }));
         }
@@ -509,7 +529,8 @@ ${accountContext}`);
 
         return {
             messages: [tagMessagePhase(response, 'revision')],
-            nextAction: "generate"
+            nextAction: "generate",
+            ...stateUpdate,
         };
     }
 

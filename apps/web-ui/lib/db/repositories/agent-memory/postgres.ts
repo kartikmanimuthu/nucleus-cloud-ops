@@ -1,6 +1,7 @@
 import { getTenantClient } from '@/lib/db/pg-config';
 import { categoryFromNamespace, KNOWN_CATEGORIES } from '@/lib/agent-memory/category';
 import type { MemoryCategory } from '@/lib/agent-memory/category';
+import type { MemoryKind } from '@/lib/agent/memory/types';
 import type {
     IAgentMemoryRepository,
     AgentMemoryRecord,
@@ -16,9 +17,13 @@ type MemoryRow = {
     namespace: string;
     key: string;
     value: unknown;
+    kind: MemoryKind;
     createdAt: Date;
     updatedAt: Date;
     expiresAt: Date;
+    supersededById: string | null;
+    supersededAt: Date | null;
+    sourceThreadId: string | null;
 };
 
 function asString(v: unknown): string | null {
@@ -36,14 +41,18 @@ function toRecord(row: MemoryRow): AgentMemoryRecord {
         userId: row.userId,
         namespace: row.namespace,
         category: categoryFromNamespace(row.namespace),
+        kind: row.kind,
         key: row.key,
-        fact: asString(value.fact) ?? '',
+        fact: asString(value.fact) ?? asString(value.outcome) ?? asString(value.instruction) ?? '',
         source: asString(value.source),
         confidence: asString(value.confidence),
         value,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
         expiresAt: row.expiresAt.toISOString(),
+        supersededById: row.supersededById,
+        supersededAt: row.supersededAt ? row.supersededAt.toISOString() : null,
+        sourceThreadId: row.sourceThreadId,
     };
 }
 
@@ -84,7 +93,7 @@ export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
         const limit = filters.limit ?? 50;
         const skip = (page - 1) * limit;
 
-        const where: Record<string, unknown> = { tenantId: filters.tenantId };
+        const where: Record<string, unknown> = { tenantId: filters.tenantId, supersededById: null };
         const and: unknown[] = [];
 
         const categories =

@@ -9,7 +9,6 @@ import {
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
-    getRecentMessages,
     sanitizeMessagesForBedrock,
     tagMessagePhase,
     getCheckpointer,
@@ -30,6 +29,7 @@ import {
 } from "./prompt-templates";
 import { createAgentModels, assembleTools } from "./model-factory";
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
+import { prepareContext, buildWorkingMemorySection } from "./memory/working-memory";
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
 export async function createFastGraph(config: GraphConfig) {
@@ -66,10 +66,13 @@ export async function createFastGraph(config: GraphConfig) {
     const memoryRecallNode = createMemoryRecallNode(memoryDeps);
     const memorySaveNode = createMemorySaveNode(memoryDeps);
 
+    // Working-memory deps — threadId is read per-node from the runtime config.
+    const wmDeps = { reflectorModel, tenantId, userId: config.userId };
+
     // ---------------------------------------------------------------------------
     // AGENT NODE
     // ---------------------------------------------------------------------------
-    async function agentNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    async function agentNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         const { messages, iterationCount, memoryContext } = state;
 
         console.log(`\n================================================================================`);
@@ -83,6 +86,10 @@ export async function createFastGraph(config: GraphConfig) {
             ? `\n## Relevant Context from Memory\n${memoryContext}\n`
             : '';
 
+        const threadId = runtimeConfig?.configurable?.thread_id as string | undefined;
+        const { windowMessages, workingMemorySection, stateUpdate } =
+            await prepareContext(state, { ...wmDeps, threadId }, 20);
+
         const systemPrompt = new SystemMessage(`${baseIdentity}
 ${effectiveSkillSection}
 ${CORE_PRINCIPLES}
@@ -91,6 +98,7 @@ ${autoApproveGuidance}
 ${operationalWorkflows}
 ${accountContext}
 ${memorySection}
+${workingMemorySection}
 ## Conversation Continuity
 
 Review the full conversation history before responding:
@@ -105,8 +113,7 @@ Review the full conversation history before responding:
 - If you receive a critique from the Reflector, address each identified issue specifically — do not restate the original answer unchanged.
 - Be precise: include resource IDs, command flags, numeric values, and account names in your responses where available.`);
 
-        const recentMessages = getRecentMessages(messages, 20);
-        const safeMessages = sanitizeMessagesForBedrock(recentMessages);
+        const safeMessages = sanitizeMessagesForBedrock(windowMessages);
         const response = await modelWithTools.invoke([systemPrompt, ...safeMessages]);
 
         if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
@@ -121,7 +128,8 @@ Review the full conversation history before responding:
 
         return {
             messages: [tagMessagePhase(response, 'execution')],
-            iterationCount: iterationCount + 1
+            iterationCount: iterationCount + 1,
+            ...stateUpdate,
         };
     }
 
@@ -291,6 +299,11 @@ Please provide your critique.`
     // user would receive an empty ("placeholder") response.
     async function finalizeNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         const { messages, memoryContext, toolResults } = state;
+        const workingMemorySection = buildWorkingMemorySection(
+            state.runningSummary || (state.scratchpad?.openGoals?.length ?? 0) > 0
+                ? { runningSummary: state.runningSummary ?? '', scratchpad: state.scratchpad ?? { openGoals: [], keyFindings: [], resourceIds: [], pendingSteps: [] }, tokenCount: 0, turnCount: 0 }
+                : null,
+        );
 
         console.log(`\n================================================================================`);
         console.log(`🏁 [FAST AGENT] Iteration cap reached — synthesizing final answer (no tools)`);
@@ -323,6 +336,7 @@ Please provide your critique.`
 ${effectiveSkillSection}
 ${accountContext}
 ${memorySection}
+${workingMemorySection}
 ## Final Answer (iteration cap reached)
 
 You have reached the maximum number of tool-call iterations, so you can NOT run any more tools.

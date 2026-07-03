@@ -45,6 +45,16 @@ export function MemoryDetailDialog({
                         <Row label="Created" value={new Date(memory.createdAt).toLocaleString()} />
                         <Row label="Updated" value={new Date(memory.updatedAt).toLocaleString()} />
                         <Row label="Expires" value={new Date(memory.expiresAt).toLocaleString()} />
+                        {memory.supersededAt ? (
+                          <Row
+                            label="Superseded"
+                            value={
+                              <span className="text-destructive">
+                                {new Date(memory.supersededAt).toLocaleString()} — replaced by a newer memory
+                              </span>
+                            }
+                          />
+                        ) : null}
                         <div className="space-y-1">
                             <span className="text-sm text-muted-foreground">Raw value</span>
                             <pre className="max-h-64 min-w-0 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs">

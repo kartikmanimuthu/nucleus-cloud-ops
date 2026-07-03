@@ -2,6 +2,7 @@ import { BaseMessage, AIMessage, HumanMessage, ToolMessage } from "@langchain/co
 import { StateGraphArgs } from "@langchain/langgraph";
 import { getCheckpointer as getPersistenceCheckpointer, getMemoryStore as getPersistenceMemoryStore } from "./persistence";
 import { env } from "@/env";
+import type { Scratchpad } from "./memory/types";
 
 /** Resolved model configuration — provider-agnostic. */
 export interface ResolvedModelConfig {
@@ -73,6 +74,8 @@ export interface ReflectionState {
     isComplete: boolean;
     toolResults: ToolResultEntry[]; // Structured tool results for reflection/summary
     memoryContext: string; // Formatted relevant memories from recall node
+    runningSummary: string; // Phase 1: rolling summary of compacted turns
+    scratchpad: Scratchpad; // Phase 1: structured working-memory scratchpad
 }
 
 // --- Schema for StateGraph ---
@@ -129,6 +132,14 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     memoryContext: {
         reducer: (x: string, y: string) => y || x,
         default: () => "",
+    },
+    runningSummary: {
+        reducer: (x: string, y: string) => y || x,
+        default: () => "",
+    },
+    scratchpad: {
+        reducer: (x: Scratchpad, y: Scratchpad) => y || x,
+        default: () => ({ openGoals: [], keyFindings: [], resourceIds: [], pendingSteps: [] }),
     },
 };
 

@@ -1,8 +1,8 @@
 /** UI bucket derived from an AgentMemory namespace's first path segment. */
-export type MemoryCategory = 'infra' | 'user' | 'patterns' | 'errors' | 'other';
+export type MemoryCategory = 'infra' | 'user' | 'patterns' | 'errors' | 'episodes' | 'procedures' | 'other';
 
-/** The four agent-written namespace prefixes, in the order the UI shows them. */
-export const KNOWN_CATEGORIES: MemoryCategory[] = ['infra', 'user', 'patterns', 'errors'];
+/** The agent-written namespace prefixes, in the order the UI shows them. */
+export const KNOWN_CATEGORIES: MemoryCategory[] = ['infra', 'user', 'patterns', 'errors', 'episodes', 'procedures'];
 
 /**
  * Memories store `namespace` as a slash-joined string (e.g. "infra/<account-id>",

@@ -183,6 +183,11 @@ Key shared modules:
 | `prompt-templates.ts` | Reusable prompt fragments (`CORE_PRINCIPLES`, `buildBaseIdentity`, etc.) |
 | `mcp-manager.ts`    | MCP server lifecycle (connect/disconnect, credential injection)            |
 | `persistence.ts`    | LangGraph checkpointer + chat history (PostgreSQL-backed)                  |
+| `memory/memory-service.ts` | Typed long-term memory: `recall`/`remember` (kind-discriminated `AgentMemory` + pgvector HNSW) + working-memory get/put. `saveMemory`/`searchMemory` in `persistence.ts` delegate here. |
+| `memory/working-memory.ts` | In-session compaction for long runs: `prepareContext` (budget-aware window + reflector-model summary folding) + `AgentWorkingMemory` snapshot. Gated by `WORKING_MEMORY_ENABLED`. |
+| `memory/reconcile.ts` | Save-time conflict resolution: batched LLM judge (ADD/UPDATE/SUPERSEDE/REINFORCE/NOOP) applied via MemoryService with an auditable supersede trail. Gated by `MEMORY_RECONCILE_ENABLED`. |
+| `memory/episode.ts` | Episodic memory: one distilled episode (context/reasoning/action/outcome) per tool-using run, replayed as few-shot experience via memoryContext. Gated by `EPISODIC_MEMORY_ENABLED`. |
+| `memory/procedural.ts` | Procedural memory: operating rules learned from corrections/failures, injected as "Operating rules (learned)"; matured rules promote to Skills via SkillFormDialog (human-approved). Gated by `PROCEDURAL_MEMORY_ENABLED`. |
 
 Tool definition pattern:
 

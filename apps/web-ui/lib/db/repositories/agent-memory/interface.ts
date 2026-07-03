@@ -1,4 +1,5 @@
 import type { MemoryCategory } from '@/lib/agent-memory/category';
+import type { MemoryKind } from '@/lib/agent/memory/types';
 
 export interface AgentMemoryRecord {
     id: string;
@@ -6,6 +7,7 @@ export interface AgentMemoryRecord {
     userId: string;
     namespace: string;
     category: MemoryCategory;
+    kind: MemoryKind;
     key: string;
     fact: string;
     source: string | null;
@@ -15,6 +17,9 @@ export interface AgentMemoryRecord {
     createdAt: string;
     updatedAt: string;
     expiresAt: string;
+    supersededById: string | null;
+    supersededAt: string | null;
+    sourceThreadId: string | null;
 }
 
 /** Columns the list view can be sorted by (server-side). */
