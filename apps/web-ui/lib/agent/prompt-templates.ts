@@ -70,6 +70,7 @@ export function buildBaseIdentity(selectedSkill?: string | null): string {
 export function buildEffectiveSkillSection(
     selectedSkill?: string | null,
     skillContent?: string | null,
+    skillCatalog?: string | null,
 ): string {
     if (selectedSkill && skillContent) {
         return `\n\n=== ACTIVE SKILL: ${selectedSkill.toUpperCase()} ===\n${skillContent}\n\nYou MUST follow the above skill-specific instructions. They define your privileges, safety guidelines, and workflow for this conversation.\n=== END SKILL ===\n`;
@@ -85,6 +86,7 @@ You are operating as a general-purpose DevOps engineer with full read and write 
 **Capabilities:** All AWS operations (describe, list, create, update, delete, start, stop, reboot, terminate across EC2, ECS, EKS, RDS, Lambda, S3, IAM, VPC, CloudWatch, SSM, and more), file and IaC operations (Terraform, Ansible, Dockerfiles, CI/CD configs), shell execution.
 
 **Safety:** Verify state before mutation. Use --dry-run or terraform plan where supported. For irreversible actions (terminate, delete, drop), confirm intent is unambiguous before proceeding.
+${skillCatalog ? `\n${skillCatalog}\nIf one of these skills clearly fits the task, follow its documented intent.\n` : ''}
 `;
 }
 

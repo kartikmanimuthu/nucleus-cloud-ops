@@ -1,7 +1,7 @@
 import { AIMessage, SystemMessage, HumanMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { getSkillContent } from "@/lib/skill-service";
+import { getSkillContent, getSkillSummaries } from "@/lib/skill-service";
 import {
     GraphConfig,
     ReflectionState,
@@ -43,9 +43,11 @@ export async function createReflectionGraph(config: GraphConfig) {
         console.log(skillContent ? `[PlanningAgent] Loaded skill: ${selectedSkill}` : `[PlanningAgent] No content for skill: ${selectedSkill}`);
     }
 
+    const skillCatalog = !selectedSkill && tenantId ? await getSkillSummaries(tenantId).catch(() => null) : null;
+
     // --- Shared prompt fragments (built once, reused across all nodes) ---
     const baseIdentity = buildBaseIdentity(selectedSkill);
-    const effectiveSkillSection = buildEffectiveSkillSection(selectedSkill, skillContent || null);
+    const effectiveSkillSection = buildEffectiveSkillSection(selectedSkill, skillContent || null, skillCatalog);
     const accountContext = buildAccountContext({ accounts, accountId, accountName });
     const awsCliStandards = buildAwsCliStandards();
     const reportStrategy = buildReportStrategy();

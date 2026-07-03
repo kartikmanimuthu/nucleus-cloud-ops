@@ -5,6 +5,7 @@ import { createReflectionGraph, createFastGraph, createDeepGraph } from '@/lib/a
 import { resolveModelConfig, resolveDefaultModelConfig } from '@/lib/agent/model-resolver';
 import { isProviderConfigError } from '@/lib/agent/provider-errors';
 import { buildClientErrorText } from '@/lib/agent/stream-error';
+import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -138,6 +139,16 @@ export async function POST(req: Request) {
             throw e;
         }
 
+        // Hermes-style disclosure: when no skill is picked, one cheap reflector call
+        // matches the message against the skill catalog. Manual selection always wins.
+        let effectiveSkill: string | null = selectedSkill || null;
+        if (!effectiveSkill && mode !== 'deep') {
+            const lastMsg = messages[messages.length - 1];
+            const lastUserText = typeof lastMsg?.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg?.content ?? '');
+            const auto = await autoSelectSkill({ tenantId: resolvedTenantId, message: lastUserText, model: resolvedModel });
+            if (auto) effectiveSkill = auto.slug;
+        }
+
         // Create graph with configuration - supports multi-account
         const graphConfig = {
             model: resolvedModel,
@@ -145,7 +156,7 @@ export async function POST(req: Request) {
             accounts: accounts,         // Pass accounts array for multi-account querying
             accountId: accountId,       // Backwards compatibility
             accountName: accountName,
-            selectedSkill: selectedSkill || null,  // Pass selectedSkill for dynamic loading
+            selectedSkill: effectiveSkill,  // user pick, or auto-selected (Hermes disclosure), or null
             mcpServerIds: mcpServerIds || [],       // Pass MCP server IDs for dynamic tool loading
             userId: resolvedUserId,                 // For memory store scoping
             tenantId: resolvedTenantId,             // For tenant-scoped memory operations
