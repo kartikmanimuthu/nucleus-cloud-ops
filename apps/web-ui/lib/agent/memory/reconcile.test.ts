@@ -183,3 +183,30 @@ describe('reconcileMemories', () => {
         expect(mockSvc.remember).toHaveBeenCalledWith(expect.objectContaining({ kind: 'SEMANTIC' }));
     });
 });
+
+describe('judge verdict logging', () => {
+    it('logs a SUPERSEDE verdict line with the displaced id', async () => {
+        const spy = vi.spyOn(console, 'log');
+        mockSvc.recall.mockResolvedValue([neighbor('old-1')]);
+        const judge = judgeReturning([{ factIndex: 0, action: 'SUPERSEDE', targetId: 'old-1' }]);
+        await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
+        expect(spy.mock.calls.some(c => String(c[0]).includes('[JUDGE]') && String(c[0]).includes('SUPERSEDE') && String(c[0]).includes('old-1'))).toBe(true);
+        spy.mockRestore();
+    });
+
+    it('logs fast-path ADD when no near neighbors', async () => {
+        const spy = vi.spyOn(console, 'log');
+        mockSvc.recall.mockResolvedValue([]);
+        await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judgeReturning([]) });
+        expect(spy.mock.calls.some(c => String(c[0]).includes('[JUDGE]') && String(c[0]).includes('ADD (no near neighbors)'))).toBe(true);
+        spy.mockRestore();
+    });
+
+    it('logs fallback ADD when the judge returns no decision for a fact', async () => {
+        const spy = vi.spyOn(console, 'log');
+        mockSvc.recall.mockResolvedValue([neighbor('old-1')]);
+        await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judgeReturning([]) });
+        expect(spy.mock.calls.some(c => String(c[0]).includes('[JUDGE]') && String(c[0]).includes('ADD (fallback'))).toBe(true);
+        spy.mockRestore();
+    });
+});

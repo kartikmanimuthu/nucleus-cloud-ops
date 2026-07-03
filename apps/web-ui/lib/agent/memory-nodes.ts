@@ -11,6 +11,7 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { ReflectionState, truncateOutput } from "./agent-shared";
 import { saveMemory } from "./persistence";
 import { getMemoryService } from "./memory/memory-service";
+import { memoryLogVerbose } from "./memory/log";
 import {
     captureEpisode, episodicMemoryEnabled, formatEpisodesSection, composeMemoryContext,
     EPISODE_RECALL_LIMIT, EPISODE_DISTANCE_THRESHOLD,
@@ -57,8 +58,8 @@ export function createMemoryRecallNode(deps: MemoryNodeDeps) {
             const hits = await getMemoryService().recall({
                 tenantId, userId, query, kinds: ["SEMANTIC"], limit: 10,
             });
+            console.log(`🧠 [RECALL:facts] ${hits.length} hit(s): ${hits.map(h => `${h.key}${h.distance !== undefined ? `(d=${h.distance.toFixed(2)})` : ''}`).join(', ') || '(none)'}`);
             if (hits.length > 0) {
-                console.log(`[MemoryRecall] Found ${hits.length} raw facts, filtering for relevance...`);
                 const memorySummary = hits.map((m, i) =>
                     `${i + 1}. [${m.namespace}/${m.key}] ${JSON.stringify(m.value)}`
                 ).join("\n");
@@ -84,6 +85,7 @@ Return only the relevant memories.`
                         ? response.content
                         : JSON.stringify(response.content);
                     factsSection = (content.trim() === "NONE") ? "" : content.trim();
+                    console.log(`🧠 [RECALL:facts] LLM filter ${factsSection ? `kept:\n${factsSection}` : 'kept none (NONE)'}`);
                 } catch (err: any) {
                     console.warn(`[MemoryRecall] Relevance filter failed: ${err?.message ?? err}`);
                     factsSection = hits.slice(0, 5).map(m =>
@@ -102,12 +104,16 @@ Return only the relevant memories.`
                 const rules = await getMemoryService().recall({
                     tenantId, userId, query, kinds: ["PROCEDURAL"], limit: PROCEDURE_RECALL_LIMIT,
                 });
+                rules.forEach(r => {
+                    const d = r.distance;
+                    const kept = d !== undefined && d <= PROCEDURE_DISTANCE_THRESHOLD;
+                    console.log(`🧠 [RECALL:rules] ${r.key} d=${d?.toFixed(2) ?? 'n/a'} ${kept ? 'kept' : `dropped (> ${PROCEDURE_DISTANCE_THRESHOLD} gate)`}`);
+                });
                 const near = rules
                     .filter(r => r.distance !== undefined && r.distance <= PROCEDURE_DISTANCE_THRESHOLD)
                     .map(r => r.value as unknown as ProceduralValue)
                     .filter(v => !!v?.instruction && !!v?.trigger);
                 if (near.length > 0) {
-                    console.log(`🧠 [MEMORY RECALL] Applying ${near.length} learned operating rule(s)`);
                     proceduresSection = formatProceduresSection(near);
                 }
             } catch (err: any) {
@@ -122,9 +128,13 @@ Return only the relevant memories.`
                 const eps = await getMemoryService().recall({
                     tenantId, userId, query, kinds: ["EPISODIC"], limit: EPISODE_RECALL_LIMIT,
                 });
+                eps.forEach(e => {
+                    const d = e.distance;
+                    const kept = d !== undefined && d <= EPISODE_DISTANCE_THRESHOLD;
+                    console.log(`🧠 [RECALL:episodes] ${e.key} d=${d?.toFixed(2) ?? 'n/a'} ${kept ? 'replayed' : `dropped (> ${EPISODE_DISTANCE_THRESHOLD} gate)`}`);
+                });
                 const near = eps.filter(e => e.distance !== undefined && e.distance <= EPISODE_DISTANCE_THRESHOLD);
                 if (near.length > 0) {
-                    console.log(`🧠 [MEMORY RECALL] Replaying ${near.length} past episode(s)`);
                     episodesSection = formatEpisodesSection(near.map(e => e.value as unknown as EpisodicValue));
                 }
             } catch (err: any) {
@@ -134,7 +144,10 @@ Return only the relevant memories.`
 
         const memoryContext = composeMemoryContext(factsSection, episodesSection, proceduresSection);
         if (memoryContext) {
-            console.log(`🧠 [MEMORY RECALL] Injecting relevant memories into context`);
+            console.log(`🧠 [RECALL] memoryContext assembled: facts(${factsSection ? 'yes' : 'no'}) rules(${proceduresSection ? 'yes' : 'no'}) episodes(${episodesSection ? 'yes' : 'no'}), ${memoryContext.length} chars`);
+            if (memoryLogVerbose()) {
+                console.log(`🧠 [RECALL] Injected into system prompt:\n────────\n${memoryContext}\n────────`);
+            }
         } else {
             console.log("[MemoryRecall] Nothing relevant found");
         }
@@ -231,6 +244,8 @@ Extract memories to save.`
             }> = JSON.parse(jsonMatch[0]);
 
             const toSave = memories.filter(isValidExtractedItem);
+            const kinds = toSave.map(m => `${m.key}[${m.kind === 'PROCEDURAL' ? 'PROCEDURAL' : 'SEMANTIC'}]`).join(', ');
+            console.log(`🧠 [SAVE] Extracted ${toSave.length} item(s): ${kinds || '(none)'}`);
             if (toSave.length < memories.length) {
                 console.log(`[MemorySave] Dropped ${memories.length - toSave.length} invalid/low-confidence item(s)`);
             }

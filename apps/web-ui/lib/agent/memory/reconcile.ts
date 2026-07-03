@@ -110,11 +110,15 @@ export async function reconcileMemories(params: {
             // recall failure → treat as no neighbors
         }
         if (neighbors.length === 0) {
-            try { await add(fact); } catch (err: any) {
+            try {
+                console.log(`🧠 [JUDGE] ${fact.key}: ADD (no near neighbors)`);
+                await add(fact);
+            } catch (err: any) {
                 console.warn(`[Reconcile] ADD failed for ${fact.key}: ${err?.message ?? err}`);
                 summary.failed++;
             }
         } else {
+            console.log(`🧠 [JUDGE] ${fact.key}: ${neighbors.length} neighbor(s) — ${neighbors.map(n => `${n.key}(d=${n.distance?.toFixed(2)})`).join(', ')}`);
             withNeighbors.push({ factIndex, fact, neighbors });
         }
     }
@@ -145,18 +149,22 @@ export async function reconcileMemories(params: {
         const d = decisions.get(item.factIndex);
         try {
             if (!d || !isValidDecision(d, item)) {
+                console.log(`🧠 [JUDGE] ${item.fact.key}: ADD (fallback — ${!d ? 'no decision returned' : 'invalid decision'})`);
                 await add(item.fact);
                 continue;
             }
             switch (d.action) {
                 case 'ADD':
+                    console.log(`🧠 [JUDGE] ${item.fact.key}: ADD (novel despite neighbors)`);
                     await add(item.fact);
                     break;
                 case 'UPDATE':
+                    console.log(`🧠 [JUDGE] ${item.fact.key}: UPDATE → ${d.targetId}`);
                     await svc.update(tenantId, d.targetId!, d.mergedValue!);
                     summary.updated++;
                     break;
                 case 'SUPERSEDE': {
+                    console.log(`🧠 [JUDGE] ${item.fact.key}: SUPERSEDE → displacing ${d.targetId}`);
                     const newId = await svc.remember({
                         tenantId, userId, kind: item.fact.kind ?? 'SEMANTIC',
                         namespace: item.fact.namespace, key: item.fact.key,
@@ -169,10 +177,12 @@ export async function reconcileMemories(params: {
                     break;
                 }
                 case 'REINFORCE':
+                    console.log(`🧠 [JUDGE] ${item.fact.key}: REINFORCE → ${d.targetId} (TTL refreshed)`);
                     await svc.reinforce(tenantId, d.targetId!);
                     summary.reinforced++;
                     break;
                 case 'NOOP':
+                    console.log(`🧠 [JUDGE] ${item.fact.key}: NOOP (dropped)`);
                     summary.noop++;
                     break;
             }
