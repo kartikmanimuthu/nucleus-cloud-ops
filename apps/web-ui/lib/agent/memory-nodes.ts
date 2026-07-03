@@ -21,6 +21,7 @@ import {
     proceduralMemoryEnabled, formatProceduresSection, isValidExtractedItem,
     PROCEDURE_RECALL_LIMIT, PROCEDURE_DISTANCE_THRESHOLD,
 } from "./memory/procedural";
+import { autoCreateSkillsFromMaturedRules } from "./memory/skill-autogen";
 import type { ExtractedFact, EpisodicValue, ProceduralValue, MemoryNodeState } from "./memory/types";
 
 interface MemoryNodeDeps {
@@ -296,6 +297,11 @@ Extract memories to save.`
                 distillerModel: reflectorModel,
                 taskDescription, plan, toolResults, errors, reflection, isComplete, iterationCount,
             });
+        }
+
+        // Autonomous skill creation — matured rules become enabled system skills (full Hermes).
+        if (proceduralMemoryEnabled()) {
+            await autoCreateSkillsFromMaturedRules({ tenantId, threadId: threadIdForEpisode });
         }
 
         return {};
