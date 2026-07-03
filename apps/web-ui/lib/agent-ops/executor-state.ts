@@ -34,6 +34,7 @@ export interface ReflectionState {
     nextAction: string;
     isComplete: boolean;
     toolResults: ToolResultEntry[];
+    memoryContext: string; // Formatted memories injected by the shared memory_recall node
     evaluation: RequestEvaluation | null;
     clarificationQuestion: string | null;
     approvalStatus: 'pending' | 'approved' | 'rejected' | null;
@@ -79,6 +80,10 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     toolResults: {
         reducer: (x: ToolResultEntry[], y: ToolResultEntry[]) => x.concat(y),
         default: () => [],
+    },
+    memoryContext: {
+        reducer: (x: string, y: string) => y || x,
+        default: () => "",
     },
     evaluation: {
         reducer: (x: RequestEvaluation | null, y: RequestEvaluation | null) => y || x,
