@@ -188,7 +188,7 @@ Key shared modules:
 | `memory/reconcile.ts` | Save-time conflict resolution: batched LLM judge (ADD/UPDATE/SUPERSEDE/REINFORCE/NOOP) applied via MemoryService with an auditable supersede trail. Gated by `MEMORY_RECONCILE_ENABLED`. |
 | `memory/episode.ts` | Episodic memory: one distilled episode (context/reasoning/action/outcome) per tool-using run, replayed as few-shot experience via memoryContext. Gated by `EPISODIC_MEMORY_ENABLED`. |
 | `memory/procedural.ts` | Procedural memory: operating rules learned from corrections/failures, injected as "Operating rules (learned)"; matured rules promote to Skills via SkillFormDialog (human-approved). Gated by `PROCEDURAL_MEMORY_ENABLED`. |
-| `memory/skill-autogen.ts` | Full-Hermes autonomy: matured procedural rules (accessCount ≥ `AUTO_SKILL_MATURITY_THRESHOLD`) auto-become enabled `source:'system'` skills, tier locked read-only. Gated by `AUTO_SKILL_CREATION_ENABLED`. |
+| `memory/skill-synthesis.ts` | Domain-level autonomous skill synthesis: when a procedural domain has ≥ `SKILL_SYNTHESIS_MIN_RULES` matured rules, a distiller authors `sys-<domain>` (system, enabled, read-only) with a code-guaranteed rule ledger, re-synthesized as rules mature. Disabled skill = veto. Gated by `AUTO_SKILL_CREATION_ENABLED`. |
 | `auto-skill-select.ts` | Chat auto-picks a skill via a reflector catalog match when none selected (`AUTO_SKILL_SELECTION_ENABLED`); no-skill runs see the skill catalog. Agent Ops executor graphs also wire the shared memory recall/save nodes. Memory-lifecycle logs gated by `MEMORY_LOG_VERBOSE`. |
 
 Tool definition pattern:
