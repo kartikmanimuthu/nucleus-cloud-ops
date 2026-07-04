@@ -91,6 +91,7 @@ export const env = createEnv({
         AUTO_SKILL_SELECTION_ENABLED: z.string().optional(),
         AUTO_SKILL_CREATION_ENABLED: z.string().optional(),
         AUTO_SKILL_MATURITY_THRESHOLD: z.string().optional(),
+        SKILL_SYNTHESIS_MIN_RULES: z.string().optional(),
         USE_PG_SCHEDULES: z.string().optional(),
         DUAL_WRITE_SCHEDULES: z.string().optional(),
         INTERNAL_API_KEY: z.string().optional(),

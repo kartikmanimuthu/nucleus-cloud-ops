@@ -21,7 +21,7 @@ import {
     proceduralMemoryEnabled, formatProceduresSection, isValidExtractedItem,
     PROCEDURE_RECALL_LIMIT, PROCEDURE_DISTANCE_THRESHOLD,
 } from "./memory/procedural";
-import { autoCreateSkillsFromMaturedRules } from "./memory/skill-autogen";
+import { synthesizeDomainSkills } from "./memory/skill-synthesis";
 import type { ExtractedFact, EpisodicValue, ProceduralValue, MemoryNodeState } from "./memory/types";
 
 interface MemoryNodeDeps {
@@ -299,9 +299,9 @@ Extract memories to save.`
             });
         }
 
-        // Autonomous skill creation — matured rules become enabled system skills (full Hermes).
+        // Autonomous skill synthesis — matured domains become/refresh enabled system skills (full Hermes).
         if (proceduralMemoryEnabled()) {
-            await autoCreateSkillsFromMaturedRules({ tenantId, threadId: threadIdForEpisode });
+            await synthesizeDomainSkills({ tenantId, threadId: threadIdForEpisode, distillerModel: reflectorModel });
         }
 
         return {};
