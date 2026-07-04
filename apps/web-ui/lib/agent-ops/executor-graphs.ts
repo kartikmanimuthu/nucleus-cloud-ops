@@ -42,6 +42,7 @@ import {
 } from "@/lib/agent/prompt-templates";
 import { createAgentModels, assembleTools, createMemoryTools } from "@/lib/agent/model-factory";
 import { getCheckpointer, getMemoryStore } from "@/lib/agent/persistence";
+import { createMemoryRecallNode, createMemorySaveNode } from "@/lib/agent/memory-nodes";
 import { loadSkills, loadAllSkillContent } from "@/lib/skill-service";
 
 // ── Agent Ops-specific imports ────────────────────────────────────────────────
@@ -62,6 +63,11 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
 
     // ── Models (separate main + reflector to save tokens on reflection) ───────
     const { main: model, reflector: reflectorModel } = createAgentModels(modelId);
+
+    // ── Shared long-term memory nodes (recall before evaluation, save after final) ──
+    const memoryDeps = { reflectorModel, tenantId, userId, store: store ?? null };
+    const memoryRecallNode = createMemoryRecallNode(memoryDeps);
+    const memorySaveNode = createMemorySaveNode(memoryDeps);
 
     // ── Tools (shared factory keeps tool sets in sync) ────────────────────────
     const memoryTools = (store && tenantId && userId) ? createMemoryTools(tenantId, userId) : [];
@@ -86,7 +92,7 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
     // ============================================================================
     // CONTEXT BUILDER — derives per-evaluation prompt fragments
     // ============================================================================
-    function getDynamicContext(evaluation: RequestEvaluation | null) {
+    function getDynamicContext(evaluation: RequestEvaluation | null, memoryContext = '') {
         const skillId = evaluation?.skillId ?? null;
         const targetAccountId = evaluation?.accountId || accountId;
 
@@ -106,7 +112,9 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
             ? `${mcpContext}\n\nPrefer MCP tools over raw bash/curl for external APIs (Bitbucket, Jira, Confluence, etc.).`
             : '';
 
-        return { skillSection, accountContext, mutationInstruction, mcpInstructions };
+        const memorySection = memoryContext ? `\n## Relevant Context from Memory\n${memoryContext}\n` : '';
+
+        return { skillSection, accountContext, mutationInstruction, mcpInstructions, memorySection };
     }
 
     // ============================================================================
@@ -214,11 +222,12 @@ Return only the JSON object.`);
 
         console.log(`\n[PLANNER] Creating plan for: "${truncateOutput(taskDescription, 100)}"`);
 
-        const { skillSection, accountContext, mutationInstruction } = getDynamicContext(state.evaluation);
+        const { skillSection, accountContext, mutationInstruction, memorySection } = getDynamicContext(state.evaluation, state.memoryContext);
         const baseIdentity = buildBaseIdentity(state.evaluation?.skillId);
 
         const systemPrompt = new SystemMessage(`${baseIdentity}
 ${skillSection}
+${memorySection}
 ${CORE_PRINCIPLES}
 ${mutationInstruction}
 
@@ -274,7 +283,7 @@ Return ONLY a JSON array of step strings. Example:
         const { messages, plan, iterationCount, evaluation } = state;
         console.log(`\n[EXECUTOR] Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
 
-        const { skillSection, accountContext, mutationInstruction, mcpInstructions } = getDynamicContext(evaluation);
+        const { skillSection, accountContext, mutationInstruction, mcpInstructions, memorySection } = getDynamicContext(evaluation, state.memoryContext);
         const baseIdentity = buildBaseIdentity(evaluation?.skillId);
 
         let stepContext = '';
@@ -286,6 +295,7 @@ Return ONLY a JSON array of step strings. Example:
 
         const systemPrompt = new SystemMessage(`${baseIdentity}
 ${skillSection}
+${memorySection}
 ${CORE_PRINCIPLES}
 ${mutationInstruction}
 ${mcpInstructions}
@@ -478,11 +488,12 @@ Otherwise list specific issues to fix. Do not generate the fixed answer.`);
         const { messages, reflection, errors, plan, evaluation } = state;
         console.log(`\n[REVISER] Applying targeted fixes`);
 
-        const { skillSection, accountContext, mutationInstruction } = getDynamicContext(evaluation);
+        const { skillSection, accountContext, mutationInstruction, memorySection } = getDynamicContext(evaluation, state.memoryContext);
         const baseIdentity = buildBaseIdentity(evaluation?.skillId);
 
         const systemPrompt = new SystemMessage(`${baseIdentity}
 ${skillSection}
+${memorySection}
 ${CORE_PRINCIPLES}
 ${mutationInstruction}
 
@@ -624,8 +635,11 @@ Be specific — include resource IDs, account names, and numeric values where av
         .addNode("reflect", reflectNode)
         .addNode("revise", reviseNode)
         .addNode("final", finalNode)
+        .addNode("memory_recall", memoryRecallNode)
+        .addNode("memory_save", memorySaveNode)
 
-        .addEdge(START, "evaluator")
+        .addEdge(START, "memory_recall")
+        .addEdge("memory_recall", "evaluator")
 
         .addConditionalEdges("evaluator", routeFromEvaluator, {
             planner: "planner",
@@ -670,7 +684,8 @@ Be specific — include resource IDs, account names, and numeric values where av
             reflect: "reflect",
         })
 
-        .addEdge("final", END);
+        .addEdge("final", "memory_save")
+        .addEdge("memory_save", END);
 
     // autoApprove=false: interrupt before plan-level approval_gate and mutative_approval_gate.
     // Read-only tools always run without interruption (yolo mode).

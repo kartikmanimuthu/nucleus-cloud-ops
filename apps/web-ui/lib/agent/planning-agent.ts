@@ -1,7 +1,7 @@
 import { AIMessage, SystemMessage, HumanMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { getSkillContent } from "@/lib/skill-service";
+import { getSkillContent, getSkillSummaries } from "@/lib/skill-service";
 import {
     GraphConfig,
     ReflectionState,
@@ -28,6 +28,7 @@ import {
 } from "./prompt-templates";
 import { createAgentModels, assembleTools } from "./model-factory";
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
+import { autoSkillSelectionEnabled } from "./auto-skill-select";
 import { prepareContext, buildWorkingMemorySection } from "./memory/working-memory";
 
 // Factory function to create a configured reflection graph
@@ -43,9 +44,17 @@ export async function createReflectionGraph(config: GraphConfig) {
         console.log(skillContent ? `[PlanningAgent] Loaded skill: ${selectedSkill}` : `[PlanningAgent] No content for skill: ${selectedSkill}`);
     }
 
+    // Catalog rides the auto-selection feature flag (true kill-switch) and the
+    // zero-skill sentinel string must not leak into the prompt.
+    const skillCatalog = !selectedSkill && tenantId && autoSkillSelectionEnabled()
+        ? await getSkillSummaries(tenantId)
+            .then(s => (s.startsWith('No specialized skills') ? null : s))
+            .catch(() => null)
+        : null;
+
     // --- Shared prompt fragments (built once, reused across all nodes) ---
     const baseIdentity = buildBaseIdentity(selectedSkill);
-    const effectiveSkillSection = buildEffectiveSkillSection(selectedSkill, skillContent || null);
+    const effectiveSkillSection = buildEffectiveSkillSection(selectedSkill, skillContent || null, skillCatalog);
     const accountContext = buildAccountContext({ accounts, accountId, accountName });
     const awsCliStandards = buildAwsCliStandards();
     const reportStrategy = buildReportStrategy();

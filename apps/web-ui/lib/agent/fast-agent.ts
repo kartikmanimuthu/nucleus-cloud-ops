@@ -1,7 +1,7 @@
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { getSkillContent } from "@/lib/skill-service";
+import { getSkillContent, getSkillSummaries } from "@/lib/skill-service";
 import {
     GraphConfig,
     ReflectionState,
@@ -29,6 +29,7 @@ import {
 } from "./prompt-templates";
 import { createAgentModels, assembleTools } from "./model-factory";
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
+import { autoSkillSelectionEnabled } from "./auto-skill-select";
 import { prepareContext, buildWorkingMemorySection } from "./memory/working-memory";
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
@@ -44,7 +45,14 @@ export async function createFastGraph(config: GraphConfig) {
     if (selectedSkill) {
         console.log(skillContent ? `[FastAgent] Loaded skill: ${selectedSkill}` : `[FastAgent] No content for skill: ${selectedSkill}`);
     }
-    const effectiveSkillSection = buildEffectiveSkillSection(selectedSkill, skillContent || null);
+    // Catalog rides the auto-selection feature flag (true kill-switch) and the
+    // zero-skill sentinel string must not leak into the prompt.
+    const skillCatalog = !selectedSkill && tenantId && autoSkillSelectionEnabled()
+        ? await getSkillSummaries(tenantId)
+            .then(s => (s.startsWith('No specialized skills') ? null : s))
+            .catch(() => null)
+        : null;
+    const effectiveSkillSection = buildEffectiveSkillSection(selectedSkill, skillContent || null, skillCatalog);
 
     // --- Shared prompt fragments (built once, reused across all nodes) ---
     const accountContext = buildAccountContext({ accounts, accountId, accountName });
