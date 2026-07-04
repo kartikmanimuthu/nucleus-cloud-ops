@@ -149,8 +149,18 @@ export async function synthesizeDomainSkills(params: {
             }
         }
 
-        // 5. Distill the narrative.
-        const rulesText = rules.map((r) => {
+        // 5. Distill the narrative. Rules missing trigger/instruction (only possible on
+        // manually-mutated/legacy rows — the save-time validator forbids them) are excluded
+        // from all rendered content so 'undefined' never reaches a prompt or skill body.
+        const renderableRules = rules.filter((r) => {
+            const v = r.value as { instruction?: string; trigger?: string };
+            return !!v?.instruction && !!v?.trigger;
+        });
+        if (!renderableRules.length) {
+            console.warn(`🎯 [SKILL-SYNTH] Domain '${domain}' has no renderable rules — skipping`);
+            return 0;
+        }
+        const rulesText = renderableRules.map((r) => {
             const v = r.value as { instruction?: string; trigger?: string; evidence?: string };
             return `- [${r.key}] When ${v.trigger}: ${v.instruction} (evidence: ${v.evidence || 'n/a'}; reinforced ${r.accessCount}x)`;
         }).join('\n');
@@ -179,14 +189,14 @@ export async function synthesizeDomainSkills(params: {
         }
 
         // 6. Assemble: narrative + code-guaranteed rule ledger.
-        const ledger = rules.map((r) => {
+        const ledger = renderableRules.map((r) => {
             const v = r.value as { instruction?: string; trigger?: string; evidence?: string };
             return `- When ${v.trigger}: ${v.instruction} — evidence: ${v.evidence || '(not recorded)'}`;
         }).join('\n');
         const skillContent =
             `${parsed.narrative.trim()}\n\n` +
             `## Learned rules & gotchas\n${ledger}\n\n` +
-            `_Synthesized by the agent from ${rules.length} matured procedural rules. ` +
+            `_Synthesized by the agent from ${renderableRules.length} matured procedural rules. ` +
             `Managed automatically — content refreshes as new rules mature; disable this skill to stop updates._`;
 
         // 7. Create or update.

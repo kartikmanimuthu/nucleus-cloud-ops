@@ -170,4 +170,29 @@ describe('synthesizeDomainSkills', () => {
         expect(mockRepo.update).toHaveBeenCalledWith('t1', 's-race', expect.objectContaining({ content: expect.any(String) }));
         expect(mockSvc.update).toHaveBeenCalledTimes(2);
     });
+
+    it('P2002 race with a USER-owned winner → no update, no stamps', async () => {
+        mockRepo.create.mockRejectedValue(Object.assign(new Error('dup'), { code: 'P2002' }));
+        mockRepo.getBySlug
+            .mockResolvedValueOnce(null) // ownership check: absent
+            .mockResolvedValueOnce({ id: 's-user', source: 'user', isEnabled: true, content: 'mine' }); // user won the race
+        const n = await synthesizeDomainSkills({ ...base, distillerModel: distillerReturning(goodDistill) });
+        expect(n).toBe(0);
+        expect(mockRepo.update).not.toHaveBeenCalled();
+        expect(mockSvc.update).not.toHaveBeenCalled();
+    });
+
+    it('rules missing trigger/instruction are excluded from the ledger (no literal undefined)', async () => {
+        primeQueries({
+            rules: [
+                rule('r1', 'paginate-list-calls'),
+                { id: 'r-bad', key: 'legacy-broken', value: { evidence: 'e', confidence: 'high' }, sourceThreadId: null, accessCount: 5 },
+            ],
+        });
+        const n = await synthesizeDomainSkills({ ...base, distillerModel: distillerReturning(goodDistill) });
+        expect(n).toBe(1);
+        const content = mockRepo.create.mock.calls[0][1].content as string;
+        expect(content).toContain('instruction for paginate-list-calls');
+        expect(content).not.toContain('undefined');
+    });
 });
