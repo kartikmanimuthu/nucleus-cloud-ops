@@ -54,3 +54,41 @@ export function useDeleteKnowledgeBase() {
         onSuccess: () => qc.invalidateQueries({ queryKey: knowledgeBasesKey }),
     });
 }
+
+export function useCreateDocument(kbId: string) {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async (body: { name: string; content: string }) => {
+            const res = await fetch(`/api/knowledge-base/${kbId}/documents`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error ?? 'Failed to create document');
+            }
+            return res.json();
+        },
+        onSuccess: () => qc.invalidateQueries({ queryKey: knowledgeBasesKey }),
+    });
+}
+
+export function useUpdateDocument(kbId: string) {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ dsId, ...body }: { dsId: string; name?: string; content: string }) => {
+            const res = await fetch(`/api/knowledge-base/${kbId}/sources/${dsId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error ?? 'Failed to update document');
+            }
+            return res.json();
+        },
+        onSuccess: () => qc.invalidateQueries({ queryKey: knowledgeBasesKey }),
+    });
+}
