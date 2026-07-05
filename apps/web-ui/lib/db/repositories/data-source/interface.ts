@@ -13,4 +13,5 @@ export interface IDataSourceRepository {
     createDataSource(kbId: string, data: CreateDataSourceInput, tenantId: string): Promise<DataSource>;
     updateDataSource(kbId: string, dsId: string, updates: Partial<DataSource>, tenantId: string): Promise<void>;
     deleteDataSource(kbId: string, dsId: string, tenantId: string): Promise<void>;
+    getDataSourceContent(kbId: string, dsId: string, tenantId: string): Promise<string | null>;
 }
