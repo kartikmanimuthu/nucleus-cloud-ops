@@ -59,12 +59,15 @@ export async function PUT(
     const valid = validateDocumentInput({ name: body.name ?? ds.name, content: body.content });
     if (!valid.ok) return NextResponse.json({ error: valid.error }, { status: 400 });
     try {
-      if (ds.vectorKeys.length > 0) await deleteVectors(ds.vectorKeys);
       const chunks = chunkText(valid.content, valid.name);
       const vectorKeys = await embedAndStoreChunks({
         chunks, knowledgeBaseId: kbId, dataSourceId: dsId,
         sourceType: 'document', documentName: valid.name, tenantId,
       });
+      // Embed succeeded — only now remove the stale keys no longer present in
+      // the new set, so a failed embed never leaves the document un-searchable.
+      const staleKeys = ds.vectorKeys.filter((k) => !vectorKeys.includes(k));
+      if (staleKeys.length > 0) await deleteVectors(staleKeys);
       updates.content = valid.content;
       updates.vectorKeys = vectorKeys;
       updates.vectorCount = vectorKeys.length;

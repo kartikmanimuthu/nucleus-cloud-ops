@@ -52,4 +52,19 @@ describe('PUT sources/[dsId] — document re-embed', () => {
         expect(deleteVectors).not.toHaveBeenCalled();
         expect(embedAndStoreChunks).not.toHaveBeenCalled();
     });
+
+    it('leaves old vectors intact and does not touch vector count when embedding fails (embed-before-delete)', async () => {
+        vi.mocked(embedAndStoreChunks).mockRejectedValueOnce(new Error('provider blip'));
+
+        const res = await PUT(req({ content: '# New body' }), { params });
+
+        expect(deleteVectors).not.toHaveBeenCalled();
+        expect(KnowledgeBaseService.updateDataSource).toHaveBeenCalledWith(
+            'kb-1', 'ds-1',
+            expect.objectContaining({ content: '# New body', status: 'error' }),
+            'tenant-a',
+        );
+        expect(KnowledgeBaseService.updateVectorCount).not.toHaveBeenCalled();
+        expect(res.status).toBe(500);
+    });
 });
