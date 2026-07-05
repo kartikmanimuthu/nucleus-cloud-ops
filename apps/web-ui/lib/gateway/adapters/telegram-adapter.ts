@@ -9,7 +9,7 @@
 import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { env } from '@/env';
-import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
+import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
 import { ChannelRateLimiter } from '@/lib/gateway/utils/rate-limiter';
 import type {
     ChannelAdapter,
@@ -18,11 +18,13 @@ import type {
     HilCapabilities,
     GatewayMessage,
     ReplyContext,
+    ScheduledOutcome,
 } from '@/lib/gateway/types';
 import type {
     AgentOpsRun,
     AgentOpsEvent,
     TelegramTriggerMeta,
+    ScheduledTask,
 } from '@/lib/agent-ops/types';
 
 // ─── Constants ────────────────────────────────────────────────────────
@@ -275,6 +277,48 @@ export class TelegramAdapter implements ChannelAdapter {
         if (ackMsgId) {
             await this.editMessage(run, trigger.chatId, ackMsgId, escapeMarkdownV2(content));
         }
+    }
+
+    async sendScheduledNotification(
+        task: ScheduledTask,
+        run: AgentOpsRun,
+        outcome: ScheduledOutcome,
+    ): Promise<void> {
+        const chatIdRaw = task.notification?.chatId;
+        if (!chatIdRaw) {
+            console.warn('[TelegramAdapter] sendScheduledNotification: no chatId on task notification');
+            return;
+        }
+        const chatId = Number(chatIdRaw);
+        const dashboardUrl = buildDashboardRunUrl(run.runId);
+        const durationSec = Math.round((run.durationMs ?? 0) / 1000);
+
+        let lines: string[];
+        if (outcome === 'result') {
+            lines = [
+                `*Scheduled task complete* — ${escapeMarkdownV2(task.name)}`,
+                '',
+                escapeMarkdownV2(run.result?.summary ?? '(no summary)'),
+                '',
+                `*Tools:* ${escapeMarkdownV2(run.result?.toolsUsed?.join(', ') || 'None')}`,
+                `*Duration:* ${durationSec}s`,
+            ];
+        } else if (outcome === 'failure') {
+            lines = [
+                `*Scheduled task ${run.status === 'cancelled' ? 'cancelled' : 'failed'}* — ${escapeMarkdownV2(task.name)}`,
+                '',
+                escapeMarkdownV2(run.error ?? 'Run did not complete.'),
+            ];
+        } else {
+            lines = [
+                `*Scheduled task needs attention* — ${escapeMarkdownV2(task.name)}`,
+                '',
+                escapeMarkdownV2(run.clarification?.question ?? `Run is ${run.status.replace('_', ' ')}.`),
+            ];
+        }
+        lines.push('', `Run ${escapeMarkdownV2(run.runId)}`, `[Open dashboard](${escapeMarkdownV2(dashboardUrl)})`);
+
+        await this.sendMessage(run, chatId, lines.join('\n'));
     }
 
     // ─── Config ───────────────────────────────────────────────────────
