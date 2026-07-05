@@ -93,6 +93,7 @@ function StatusBadge({ status, error }: { status: DataSource['status']; error?: 
 // ---------------------------------------------------------------------------
 
 function ViewDialog({ ds, open, onClose }: { ds: DataSource; open: boolean; onClose: () => void }) {
+  const { timezone } = useTenant();
   const config = ds.config as Record<string, unknown>;
   const rows = Object.entries(config).filter(([k]) => k !== 'apiToken');
 
