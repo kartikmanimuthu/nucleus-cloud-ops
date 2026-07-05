@@ -1,6 +1,6 @@
 // web-ui/lib/gateway/types.ts
 import type { NextRequest } from 'next/server';
-import type { AgentOpsRun, AgentOpsEvent } from '@/lib/agent-ops/types';
+import type { AgentOpsRun, AgentOpsEvent, ScheduledTask } from '@/lib/agent-ops/types';
 
 export type ChannelType = 'slack' | 'jira' | 'discord' | 'telegram' | 'webhook' | 'api';
 
@@ -60,6 +60,9 @@ export interface GatewayEvent {
     };
 }
 
+/** Outcome category for a finished (or parked) scheduled run digest. */
+export type ScheduledOutcome = 'result' | 'failure' | 'attention';
+
 export interface ChannelAdapter {
     readonly channelType: ChannelType;
     readonly deliveryMode: DeliveryMode;
@@ -76,6 +79,13 @@ export interface ChannelAdapter {
     sendApprovalRequest(run: AgentOpsRun, planSteps?: string[], pendingTools?: string[]): Promise<void>;
 
     sendStreamChunk?(run: AgentOpsRun, event: AgentOpsEvent): Promise<void>;
+
+    /**
+     * Proactive one-shot digest for a scheduled run (server → channel,
+     * unidirectional). Destination comes from task.notification; credentials
+     * from TenantConfig via run.tenantId. Implementations must never throw.
+     */
+    sendScheduledNotification?(task: ScheduledTask, run: AgentOpsRun, outcome: ScheduledOutcome): Promise<void>;
 
     getConfig(tenantId: string): Promise<Record<string, unknown>>;
 }

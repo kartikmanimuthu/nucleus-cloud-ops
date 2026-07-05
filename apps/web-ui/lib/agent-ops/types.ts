@@ -151,11 +151,12 @@ export interface AgentOpsEvent {
 export type ScheduledTaskStatus = 'active' | 'paused' | 'deleted';
 
 export interface ScheduledTaskNotification {
-    type: 'none' | 'slack' | 'jira';
-    channelId?: string;
-    channelName?: string;
-    projectKey?: string;
-    issueKey?: string;
+    type: 'none' | 'slack' | 'jira' | 'telegram';
+    channelId?: string;      // slack
+    channelName?: string;    // slack (display only)
+    chatId?: string;         // telegram
+    projectKey?: string;     // jira
+    issueKey?: string;       // jira
 }
 
 export interface ScheduledTask {

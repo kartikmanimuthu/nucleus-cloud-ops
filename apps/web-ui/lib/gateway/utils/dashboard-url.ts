@@ -6,3 +6,7 @@ const APP_BASE_URL = env.NEXTAUTH_URL || env.NEXT_PUBLIC_APP_URL || 'http://loca
 export function buildDashboardRespondUrl(runId: string): string {
     return `${APP_BASE_URL}/app/agent-ops/${runId}/respond`;
 }
+
+export function buildDashboardRunUrl(runId: string): string {
+    return `${APP_BASE_URL}/app/agent-ops/${runId}`;
+}
