@@ -6,6 +6,7 @@ import { resolveModelConfig, resolveDefaultModelConfig } from '@/lib/agent/model
 import { isProviderConfigError } from '@/lib/agent/provider-errors';
 import { buildClientErrorText } from '@/lib/agent/stream-error';
 import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
+import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -48,7 +49,8 @@ export async function POST(req: Request) {
             accountId,      // Deprecated: single AWS account ID for backwards compatibility
             accountName,    // Deprecated: single AWS account name
             selectedSkill,  // Skill ID for dynamic skill loading
-            mcpServerIds    // MCP server IDs to activate for this session
+            mcpServerIds,   // MCP server IDs to activate for this session
+            knowledgeBaseIds // Knowledge Base IDs manually selected in the console
         } = await req.json();
         // Resolve userId and tenantId from session
         let resolvedUserId: string;
@@ -149,6 +151,15 @@ export async function POST(req: Request) {
             if (auto) effectiveSkill = auto.slug;
         }
 
+        // KB progressive disclosure: manual selection always wins. When none is picked,
+        // one cheap reflector call matches the message against the tenant's KB catalog.
+        let effectiveKbIds: string[] = Array.isArray(knowledgeBaseIds) ? knowledgeBaseIds : [];
+        if (effectiveKbIds.length === 0 && mode !== 'deep') {
+            const lastMsg = messages[messages.length - 1];
+            const lastUserText = typeof lastMsg?.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg?.content ?? '');
+            effectiveKbIds = await resolveKnowledgeBaseIds({ tenantId: resolvedTenantId, selectedIds: null, message: lastUserText, model: resolvedModel });
+        }
+
         // Create graph with configuration - supports multi-account
         const graphConfig = {
             model: resolvedModel,
@@ -158,6 +169,7 @@ export async function POST(req: Request) {
             accountName: accountName,
             selectedSkill: effectiveSkill,  // user pick, or auto-selected (Hermes disclosure), or null
             mcpServerIds: mcpServerIds || [],       // Pass MCP server IDs for dynamic tool loading
+            knowledgeBaseIds: effectiveKbIds,       // user pick, or auto-selected KB ids, or []
             userId: resolvedUserId,                 // For memory store scoping
             tenantId: resolvedTenantId,             // For tenant-scoped memory operations
         };

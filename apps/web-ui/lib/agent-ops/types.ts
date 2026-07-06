@@ -110,6 +110,7 @@ export interface AgentOpsRun {
     model?: string;         // Bedrock model ID override
     threadId: string;       // LangGraph thread ID
     mcpServerIds?: string[];
+    knowledgeBaseIds?: string[];
     trigger: TriggerMetadata;
     result?: AgentOpsResult;
     clarification?: AgentOpsClarification;   // Set when status is awaiting_input
@@ -176,6 +177,7 @@ export interface ScheduledTask {
     accountId?: string;
     accountName?: string;
     mcpServerIds?: string[];
+    knowledgeBaseIds?: string[];
     notification: ScheduledTaskNotification;
     lastRunId?: string;
     lastRunAt?: string;

@@ -65,7 +65,7 @@ export async function createFastGraph(config: GraphConfig) {
 
     // --- Tool Assembly (fast-agent does not use S3 tools) ---
     // Memory tools excluded — memory_recall and memory_save graph nodes handle memory deterministically
-    const tools = await assembleTools({ includeS3Tools: false, includeMemoryTools: false, userId: config.userId, mcpServerIds, tenantId, accounts });
+    const tools = await assembleTools({ includeS3Tools: false, includeMemoryTools: false, userId: config.userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds: config.knowledgeBaseIds });
     const modelWithTools = model.bindTools!(tools);
     const toolNode = new ToolNode(tools);
 

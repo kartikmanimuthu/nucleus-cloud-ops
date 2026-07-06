@@ -37,6 +37,7 @@ function toAgentOpsRun(r: {
     model: string | null;
     threadId: string;
     mcpServerIds: string[];
+    knowledgeBaseIds: string[];
     trigger: unknown;
     result: unknown;
     clarification: unknown;
@@ -66,6 +67,7 @@ function toAgentOpsRun(r: {
         model: r.model ?? undefined,
         threadId: r.threadId,
         mcpServerIds: r.mcpServerIds,
+        knowledgeBaseIds: r.knowledgeBaseIds,
         trigger: r.trigger as AgentOpsRun['trigger'],
         result: r.result as AgentOpsRun['result'],
         clarification: r.clarification as AgentOpsRun['clarification'],
@@ -100,6 +102,7 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
                 model: params.model ?? null,
                 threadId,
                 mcpServerIds: params.mcpServerIds ?? [],
+                knowledgeBaseIds: params.knowledgeBaseIds ?? [],
                 trigger: (params.trigger as object) ?? {},
                 expiresAt,
             },

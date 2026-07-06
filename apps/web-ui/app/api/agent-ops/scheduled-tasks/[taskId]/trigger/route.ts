@@ -42,6 +42,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ taskId:
             accountId: task.accountId,
             accountName: task.accountName,
             mcpServerIds: task.mcpServerIds,
+            knowledgeBaseIds: task.knowledgeBaseIds,
             trigger: { taskId: task.taskId, taskName: task.name, scheduledAt },
         });
 

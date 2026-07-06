@@ -99,6 +99,7 @@ export class DataSourcePostgresRepository implements IDataSourceRepository {
                 'name',
                 'status',
                 'config',
+                'content',
                 'vectorCount',
                 'vectorKeys',
                 'lastSyncAt',
@@ -136,6 +137,19 @@ export class DataSourcePostgresRepository implements IDataSourceRepository {
         } catch (error: unknown) {
             console.error('[DataSourcePostgresRepository] Error deleting data source:', error);
             throw new Error(`Failed to delete data source: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    async getDataSourceContent(kbId: string, dsId: string, tenantId: string): Promise<string | null> {
+        try {
+            const row = await getTenantClient(tenantId).dataSource.findFirst({
+                where: { id: dsId, knowledgeBaseId: kbId, tenantId },
+                select: { content: true },
+            });
+            return row?.content ?? null;
+        } catch (error: unknown) {
+            console.error('[DataSourcePostgresRepository] Error getting data source content:', error);
+            throw new Error(`Failed to get data source content: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 }

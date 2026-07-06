@@ -19,6 +19,7 @@ export interface CreateScheduledTaskParams {
     accountId?: string;
     accountName?: string;
     mcpServerIds?: string[];
+    knowledgeBaseIds?: string[];
     notification: ScheduledTask['notification'];
     createdBy: string;
 }
@@ -34,6 +35,7 @@ export interface UpdateScheduledTaskParams {
     accountId?: string;
     accountName?: string;
     mcpServerIds?: string[];
+    knowledgeBaseIds?: string[];
     notification?: ScheduledTask['notification'];
 }
 

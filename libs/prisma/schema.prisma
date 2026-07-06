@@ -289,6 +289,7 @@ model DataSource {
   sourceType      String    // file-upload|s3-bucket|confluence|bitbucket — CHECK in migration SQL
   status          String    @default("pending") // pending|syncing|synced|error — CHECK in migration SQL
   config          Json      @default("{}")
+  content         String?   @db.Text  // markdown body for sourceType='document'; null otherwise
   vectorCount     Int       @default(0)
   vectorKeys      String[]  @default([])
   lastSyncAt          DateTime?
@@ -395,6 +396,7 @@ model AgentOpsRun {
   model           String?
   threadId        String
   mcpServerIds    String[]  @default([])
+  knowledgeBaseIds String[] @default([])
   trigger         Json      @default("{}")
   result          Json?
   clarification   Json?
@@ -460,6 +462,7 @@ model ScheduledTask {
   accountId      String?
   accountName    String?
   mcpServerIds   String[]  @default([])
+  knowledgeBaseIds String[] @default([])
   notification   Json      @default("{}")
   lastRunId      String?
   lastRunAt      DateTime?

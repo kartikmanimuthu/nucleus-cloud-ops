@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  ArrowLeft, CheckCircle2, Database, File, Loader2, MessageSquare,
+  ArrowLeft, CheckCircle2, Database, File, FileText, Loader2, MessageSquare,
   Plus, RefreshCw, Trash2, Upload, X, Eye, Pencil, AlertCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import type { DataSource, DataSourceType, KnowledgeBase } from '@/lib/knowledge-base/types';
 import { formatDateTime, formatDate } from '@/lib/date-utils';
 import { useTenant } from '@/lib/tenant-context';
+import { KBDocumentEditor } from '@/components/knowledge-base/kb-document-editor';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -33,6 +34,7 @@ const SOURCE_TYPE_LABELS: Record<DataSourceType, string> = {
   's3-bucket': 'S3 Bucket',
   'confluence': 'Confluence',
   'bitbucket': 'Bitbucket',
+  'document': 'Document',
 };
 
 // ---------------------------------------------------------------------------
@@ -44,6 +46,7 @@ function DataSourceIcon({ sourceType, className }: { sourceType: DataSourceType;
     case 'confluence': return <span className={className} title="Confluence">🌐</span>;
     case 'bitbucket': return <span className={className} title="Bitbucket">🪣</span>;
     case 's3-bucket': return <span className={className} title="S3 Bucket">☁️</span>;
+    case 'document': return <FileText className={className} />;
     default: return <File className={className} />;
   }
 }
@@ -90,6 +93,7 @@ function StatusBadge({ status, error }: { status: DataSource['status']; error?: 
 // ---------------------------------------------------------------------------
 
 function ViewDialog({ ds, open, onClose }: { ds: DataSource; open: boolean; onClose: () => void }) {
+  const { timezone } = useTenant();
   const config = ds.config as Record<string, unknown>;
   const rows = Object.entries(config).filter(([k]) => k !== 'apiToken');
 
@@ -255,6 +259,7 @@ export default function KnowledgeBaseDetailPage() {
 
   const [viewDs, setViewDs] = useState<DataSource | null>(null);
   const [editDs, setEditDs] = useState<DataSource | null>(null);
+  const [docEditor, setDocEditor] = useState<{ mode: 'new' } | { mode: 'edit'; doc: { id: string; name: string } } | null>(null);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [deletingKb, setDeletingKb] = useState(false);
 
@@ -476,9 +481,14 @@ export default function KnowledgeBaseDetailPage() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Data Sources</CardTitle>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => router.push(`/app/knowledge-base/${kbId}/sources/new`)}>
-                <Plus className="h-3.5 w-3.5" /> Add Data Source
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setDocEditor({ mode: 'new' })}>
+                  <FileText className="h-3.5 w-3.5" /> New Document
+                </Button>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => router.push(`/app/knowledge-base/${kbId}/sources/new`)}>
+                  <Plus className="h-3.5 w-3.5" /> Add Data Source
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -517,7 +527,11 @@ export default function KnowledgeBaseDetailPage() {
                       </Button>
 
                       {/* Edit */}
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setEditDs(ds)} title="Edit">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => ds.sourceType === 'document'
+                          ? setDocEditor({ mode: 'edit', doc: { id: ds.id, name: ds.name } })
+                          : setEditDs(ds)}
+                        title="Edit">
                         <Pencil className="h-4 w-4" />
                       </Button>
 
@@ -576,6 +590,17 @@ export default function KnowledgeBaseDetailPage() {
             setDataSources((prev) => prev.map((d) => d.id === updated.id ? updated : d));
             setEditDs(null);
           }}
+        />
+      )}
+
+      {/* Document editor */}
+      {docEditor && (
+        <KBDocumentEditor
+          kbId={kbId}
+          doc={docEditor.mode === 'edit' ? docEditor.doc : undefined}
+          open={!!docEditor}
+          onClose={() => setDocEditor(null)}
+          onSaved={() => { setDocEditor(null); fetchKB(); }}
         />
       )}
     </div>

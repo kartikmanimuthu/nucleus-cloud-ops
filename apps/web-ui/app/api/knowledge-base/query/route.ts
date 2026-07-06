@@ -3,10 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
 import type { MessageContent } from '@langchain/core/messages';
-import { getEmbedding } from '@/lib/knowledge-base/embedder';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
+import { searchKbChunks, type KbChunkHit } from '@/lib/knowledge-base/retrieval';
 import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
-import { getPrismaClient } from '@/lib/db/pg-config';
 import { kbChatStore } from '@/lib/store/kb-chat-store';
 import { resolveDefaultModelConfig, resolveModelConfig } from '@/lib/agent/model-resolver';
 import { createAgentModels } from '@/lib/agent/model-factory';
@@ -26,17 +25,7 @@ export type KBSource = {
   score: number;
 };
 
-interface ChunkRow {
-  vectorKey: string;
-  documentName: string;
-  sourceType: string;
-  chunkIndex: number;
-  totalChunks: number;
-  knowledgeBaseId: string;
-  dataSourceId: string;
-  textContent: string;
-  score: number;
-}
+type ChunkRow = KbChunkHit;
 
 // ============================================================================
 // POST /api/knowledge-base/query
@@ -114,39 +103,12 @@ export async function POST(req: NextRequest) {
       }])
       .catch((e) => console.error('[KB Query] Failed to persist user message:', e));
 
-    // 3. Embed the query via the tenant's configured provider
-    const embedding = await getEmbedding(query, tenantId);
-    const vectorLiteral = `[${embedding.join(',')}]`;
-
-    // 4. Query pgvector for similar chunks
-    const prisma = getPrismaClient();
-    let results: ChunkRow[];
-
-    if (knowledgeBaseId) {
-      results = await prisma.$queryRawUnsafe<ChunkRow[]>(
-        `SELECT "vectorKey", "documentName", "sourceType", "chunkIndex", "totalChunks",
-                "knowledgeBaseId", "dataSourceId", "textContent",
-                1 - (embedding <=> $1::vector) as score
-         FROM kb_document_chunks
-         WHERE "tenantId" = $2
-           AND "knowledgeBaseId" = $3
-         ORDER BY embedding <=> $1::vector
-         LIMIT 10`,
-        vectorLiteral, tenantId, knowledgeBaseId,
-      );
-    } else {
-      // No specific KB — scope to all tenant chunks via tenantId
-      results = await prisma.$queryRawUnsafe<ChunkRow[]>(
-        `SELECT "vectorKey", "documentName", "sourceType", "chunkIndex", "totalChunks",
-                "knowledgeBaseId", "dataSourceId", "textContent",
-                1 - (embedding <=> $1::vector) as score
-         FROM kb_document_chunks
-         WHERE "tenantId" = $2
-         ORDER BY embedding <=> $1::vector
-         LIMIT 10`,
-        vectorLiteral, tenantId,
-      );
-    }
+    // 3-4. Embed the query and search pgvector for similar chunks
+    const results: ChunkRow[] = await searchKbChunks({
+      tenantId,
+      query,
+      knowledgeBaseIds: knowledgeBaseId ? [knowledgeBaseId] : undefined,
+    });
 
     console.log(
       `[KB Query] Found ${results.length} results for: "${query.slice(0, 80)}"`,
