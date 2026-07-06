@@ -71,6 +71,7 @@ const SYNC_INTERVAL_MS = 60_000;
 
 const registeredSchedules = new Map<string, RegisteredEntry>();
 const startedConsumers = new Set<string>();
+let syncInFlight = false;
 
 let _prisma: import('@prisma/client').PrismaClient | null = null;
 async function getPrisma(): Promise<import('@prisma/client').PrismaClient> {
@@ -189,24 +190,33 @@ async function ensureTaskRegistered(boss: PgBoss, executor: JobExecutor, task: A
 }
 
 export async function syncSchedules(boss: PgBoss, executor: JobExecutor): Promise<void> {
-    const active = await loadActiveTasks();
-    const diff = diffScheduleSync(active, registeredSchedules);
-
-    for (const task of [...diff.toAdd, ...diff.toUpdate]) {
-        try {
-            await ensureTaskRegistered(boss, executor, task);
-            log.info(`Registered schedule for task ${task.taskId} (${task.cronExpression} ${task.timezone})`);
-        } catch (err) {
-            log.error(`Failed to register task ${task.taskId}`, { error: String(err) });
-        }
+    if (syncInFlight) {
+        log.info('Schedule re-sync skipped — previous sync still in flight');
+        return;
     }
+    syncInFlight = true;
+    try {
+        const active = await loadActiveTasks();
+        const diff = diffScheduleSync(active, registeredSchedules);
 
-    for (const taskId of diff.toRemove) {
-        try {
-            await boss.unschedule(queueName(taskId));
-        } catch { /* schedule may not exist — safe to ignore */ }
-        registeredSchedules.delete(taskId);
-        log.info(`Unscheduled task ${taskId}`);
+        for (const task of [...diff.toAdd, ...diff.toUpdate]) {
+            try {
+                await ensureTaskRegistered(boss, executor, task);
+                log.info(`Registered schedule for task ${task.taskId} (${task.cronExpression} ${task.timezone})`);
+            } catch (err) {
+                log.error(`Failed to register task ${task.taskId}`, { error: String(err) });
+            }
+        }
+
+        for (const taskId of diff.toRemove) {
+            try {
+                await boss.unschedule(queueName(taskId));
+            } catch { /* schedule may not exist — safe to ignore */ }
+            registeredSchedules.delete(taskId);
+            log.info(`Unscheduled task ${taskId}`);
+        }
+    } finally {
+        syncInFlight = false;
     }
 }
 
