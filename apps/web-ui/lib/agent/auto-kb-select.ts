@@ -24,10 +24,9 @@ export async function autoSelectKb(params: {
     if (!autoKbSelectionEnabled()) return empty;
     try {
         const kbs = await KnowledgeBaseService.listKnowledgeBases(params.tenantId);
-        // vectorCount is a required field in production (defaults to 0 for a KB with
-        // no synced documents yet); only exclude KBs explicitly known to have zero
-        // vectors, treating an absent value (e.g. lightweight test doubles) as active.
-        const active = kbs.filter((k) => k.vectorCount === undefined || k.vectorCount > 0);
+        // Only KBs with at least one embedded vector are worth searching — an empty
+        // KB would return nothing useful, so it must not be auto-selectable.
+        const active = kbs.filter((k) => (k.vectorCount ?? 0) > 0);
         if (active.length === 0) return empty;
 
         const catalog = active.map((k) => `- ${k.id}: ${k.name}${k.description ? ` — ${k.description}` : ''}`).join('\n');

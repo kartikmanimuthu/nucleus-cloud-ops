@@ -18,8 +18,8 @@ describe('autoSelectKb', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockResolvedValue([
-            { id: 'kb-runbooks', name: 'Runbooks', description: 'ops runbooks' },
-            { id: 'kb-hr', name: 'HR', description: 'people policies' },
+            { id: 'kb-runbooks', name: 'Runbooks', description: 'ops runbooks', vectorCount: 5 },
+            { id: 'kb-hr', name: 'HR', description: 'people policies', vectorCount: 3 },
         ] as any);
     });
 
@@ -45,5 +45,15 @@ describe('autoSelectKb', () => {
         vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockResolvedValue([]);
         const r = await autoSelectKb({ tenantId: 't1', message: 'q', model });
         expect(r.kbIds).toEqual([]);
+    });
+
+    it('excludes empty KBs (vectorCount 0) from the catalog even if the reflector picks them', async () => {
+        vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockResolvedValue([
+            { id: 'kb-runbooks', name: 'Runbooks', description: 'ops runbooks', vectorCount: 5 },
+            { id: 'kb-empty', name: 'Empty', description: 'no synced docs yet', vectorCount: 0 },
+        ] as any);
+        mockReflector('{"kbIds":["kb-runbooks","kb-empty"],"reasoning":"x"}');
+        const r = await autoSelectKb({ tenantId: 't1', message: 'q', model });
+        expect(r.kbIds).toEqual(['kb-runbooks']);
     });
 });
