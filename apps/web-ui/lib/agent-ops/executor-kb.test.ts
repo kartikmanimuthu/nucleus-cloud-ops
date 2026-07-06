@@ -12,6 +12,15 @@ vi.mock('@/lib/skill-service', () => ({
     loadAllSkillContent: vi.fn().mockResolvedValue(new Map()),
 }));
 
+// Persistence touches a live Postgres (checkpointer setup + memory store), which
+// would require a running DB + DATABASE_URL. Mock it so this test is hermetic.
+vi.mock('@/lib/agent/persistence', () => ({
+    getCheckpointer: vi.fn().mockResolvedValue({}),
+    getMemoryStore: vi.fn().mockResolvedValue(undefined),
+    saveMemory: vi.fn(),
+    searchMemory: vi.fn().mockResolvedValue([]),
+}));
+
 import { assembleTools } from '@/lib/agent/model-factory';
 import { createDynamicExecutorGraph } from './executor-graphs';
 

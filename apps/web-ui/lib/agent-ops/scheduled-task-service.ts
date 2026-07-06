@@ -22,6 +22,7 @@ export async function createScheduledTask(params: {
     accountId?: string;
     accountName?: string;
     mcpServerIds?: string[];
+    knowledgeBaseIds?: string[];
     notification: ScheduledTask['notification'];
     createdBy: string;
 }): Promise<ScheduledTask> {
@@ -45,7 +46,7 @@ export async function listAllActiveTasks(): Promise<ScheduledTask[]> {
 export async function updateScheduledTask(
     tenantId: string,
     taskId: string,
-    updates: Partial<Pick<ScheduledTask, 'name' | 'description' | 'cronExpression' | 'timezone' | 'mode' | 'autoApprove' | 'model' | 'accountId' | 'accountName' | 'mcpServerIds' | 'notification'>>
+    updates: Partial<Pick<ScheduledTask, 'name' | 'description' | 'cronExpression' | 'timezone' | 'mode' | 'autoApprove' | 'model' | 'accountId' | 'accountName' | 'mcpServerIds' | 'knowledgeBaseIds' | 'notification'>>
 ): Promise<ScheduledTask | null> {
     return getScheduledTaskRepository().updateScheduledTask(tenantId, taskId, updates);
 }

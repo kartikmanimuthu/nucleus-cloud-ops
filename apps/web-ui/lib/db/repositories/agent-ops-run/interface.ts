@@ -29,6 +29,7 @@ export interface CreateRunParams {
     accountName?: string;
     selectedSkill?: string;
     mcpServerIds?: string[];
+    knowledgeBaseIds?: string[];
     autoApprove?: boolean;
     model?: string;
 }

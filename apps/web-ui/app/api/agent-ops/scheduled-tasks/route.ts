@@ -35,6 +35,7 @@ export async function POST(req: Request) {
             accountId: body.accountId,
             accountName: body.accountName,
             mcpServerIds: body.mcpServerIds,
+            knowledgeBaseIds: body.knowledgeBaseIds,
             notification: body.notification || { type: 'none' },
             createdBy: body.createdBy || 'api',
         });

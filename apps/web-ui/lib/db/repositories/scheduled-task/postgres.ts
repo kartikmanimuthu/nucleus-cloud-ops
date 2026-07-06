@@ -44,6 +44,7 @@ function toScheduledTask(r: {
     accountId: string | null;
     accountName: string | null;
     mcpServerIds: string[];
+    knowledgeBaseIds: string[];
     notification: unknown;
     lastRunId: string | null;
     lastRunAt: Date | null;
@@ -72,6 +73,7 @@ function toScheduledTask(r: {
         accountId: r.accountId ?? undefined,
         accountName: r.accountName ?? undefined,
         mcpServerIds: r.mcpServerIds,
+        knowledgeBaseIds: r.knowledgeBaseIds,
         notification: r.notification as ScheduledTask['notification'],
         lastRunId: r.lastRunId ?? undefined,
         lastRunAt: r.lastRunAt?.toISOString(),
@@ -104,6 +106,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
                 accountId: params.accountId ?? null,
                 accountName: params.accountName ?? null,
                 mcpServerIds: params.mcpServerIds ?? [],
+                knowledgeBaseIds: params.knowledgeBaseIds ?? [],
                 notification: (params.notification as object) ?? {},
                 nextRunAt: nextRunAt ?? null,
                 runCount: 0,

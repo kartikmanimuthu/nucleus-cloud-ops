@@ -172,7 +172,7 @@ Return only the JSON object.`);
         let evalResult: RequestEvaluation = {
             mode: 'fast', skillId: null, accountId: null,
             requiresApproval: false, reasoning: 'Fallback to fast mode.',
-            clarificationQuestion: null, missingInfo: null, knowledgeBaseIds: [],
+            clarificationQuestion: null, missingInfo: null,
         };
 
         try {
@@ -188,7 +188,6 @@ Return only the JSON object.`);
                     reasoning: parsed.reasoning || '',
                     clarificationQuestion: parsed.clarificationQuestion || null,
                     missingInfo: parsed.missingInfo || null,
-                    knowledgeBaseIds: [],
                 };
             }
         } catch (e) {

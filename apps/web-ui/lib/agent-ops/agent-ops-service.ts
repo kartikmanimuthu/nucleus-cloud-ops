@@ -35,16 +35,13 @@ export async function createRun(params: {
     accountName?: string;
     selectedSkill?: string;
     mcpServerIds?: string[];
-    // In-memory only — no DB column for this yet (unlike mcpServerIds). Threaded onto the
-    // returned run object below so the fire-and-forget executeAgentRun(run) call in the
-    // trigger route sees it; a later reload via getRun()/listRuns() will NOT have it.
     knowledgeBaseIds?: string[];
     autoApprove?: boolean;
     model?: string;
 }): Promise<AgentOpsRun> {
     const run = await getAgentOpsRunRepository().createRun(params);
     console.log(`[AgentOpsService] Created run: ${run.runId} (source: ${params.source})`);
-    return { ...run, knowledgeBaseIds: params.knowledgeBaseIds };
+    return run;
 }
 
 /**

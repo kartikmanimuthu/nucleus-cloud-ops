@@ -396,6 +396,7 @@ model AgentOpsRun {
   model           String?
   threadId        String
   mcpServerIds    String[]  @default([])
+  knowledgeBaseIds String[] @default([])
   trigger         Json      @default("{}")
   result          Json?
   clarification   Json?
@@ -461,6 +462,7 @@ model ScheduledTask {
   accountId      String?
   accountName    String?
   mcpServerIds   String[]  @default([])
+  knowledgeBaseIds String[] @default([])
   notification   Json      @default("{}")
   lastRunId      String?
   lastRunAt      DateTime?
