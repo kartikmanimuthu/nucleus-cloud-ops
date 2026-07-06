@@ -66,7 +66,7 @@ export async function createReflectionGraph(config: GraphConfig) {
 
     // --- Tool Assembly ---
     // Memory tools excluded — memory_recall and memory_save graph nodes handle memory deterministically
-    const tools = await assembleTools({ includeS3Tools: true, includeMemoryTools: false, userId: config.userId, mcpServerIds, tenantId, accounts });
+    const tools = await assembleTools({ includeS3Tools: true, includeMemoryTools: false, userId: config.userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds: config.knowledgeBaseIds });
     const modelWithTools = model.bindTools!(tools);
     const toolNode = new ToolNode(tools);
 

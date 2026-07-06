@@ -7,7 +7,7 @@ vi.mock('./model-factory', () => ({ createAgentModels: vi.fn() }));
 
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { createAgentModels } from './model-factory';
-import { autoSelectKb } from './auto-kb-select';
+import { autoSelectKb, resolveKnowledgeBaseIds } from './auto-kb-select';
 
 const model = { provider: 'x', modelId: 'm' } as any;
 function mockReflector(content: string) {
@@ -55,5 +55,27 @@ describe('autoSelectKb', () => {
         mockReflector('{"kbIds":["kb-runbooks","kb-empty"],"reasoning":"x"}');
         const r = await autoSelectKb({ tenantId: 't1', message: 'q', model });
         expect(r.kbIds).toEqual(['kb-runbooks']);
+    });
+});
+
+describe('resolveKnowledgeBaseIds', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockResolvedValue([
+            { id: 'kb-runbooks', name: 'R', description: 'ops', vectorCount: 5 },
+        ] as any);
+    });
+
+    it('returns the manual selection without calling the reflector', async () => {
+        const spy = vi.mocked(createAgentModels);
+        const ids = await resolveKnowledgeBaseIds({ tenantId: 't1', selectedIds: ['kb-x'], message: 'q', model });
+        expect(ids).toEqual(['kb-x']);
+        expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('auto-selects when no manual selection', async () => {
+        mockReflector('{"kbIds":["kb-runbooks"],"reasoning":"x"}');
+        const ids = await resolveKnowledgeBaseIds({ tenantId: 't1', selectedIds: null, message: 'restart pipeline', model });
+        expect(ids).toEqual(['kb-runbooks']);
     });
 });

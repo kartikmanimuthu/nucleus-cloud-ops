@@ -56,3 +56,12 @@ export async function autoSelectKb(params: {
         return empty;
     }
 }
+
+/** Manual selection wins; otherwise auto-select. Returns the effective KB ids. */
+export async function resolveKnowledgeBaseIds(params: {
+    tenantId: string; selectedIds?: string[] | null; message: string; model: ResolvedModelConfig;
+}): Promise<string[]> {
+    if (params.selectedIds && params.selectedIds.length > 0) return params.selectedIds;
+    const { kbIds } = await autoSelectKb({ tenantId: params.tenantId, message: params.message, model: params.model });
+    return kbIds;
+}
