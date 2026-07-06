@@ -53,7 +53,7 @@ function deriveUserId(run: AgentOpsRun): string {
 // ─── Main Executor ────────────────────────────────────────────────────────────
 
 export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventBus): Promise<void> {
-    const { runId, tenantId, taskDescription, accountId, accountName, threadId, mcpServerIds } = run as any;
+    const { runId, tenantId, taskDescription, accountId, accountName, threadId, mcpServerIds, knowledgeBaseIds } = run as any;
     const autoApprove = (run as any).autoApprove ?? false;
     const startTime = Date.now();
 
@@ -105,6 +105,7 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
             accountId,
             accountName,
             mcpServerIds: activeMcpServerIds,
+            knowledgeBaseIds,
             tenantId,
             userId: deriveUserId(run),
         };
@@ -487,7 +488,7 @@ async function processLangGraphEvent(
  * routes to 'generate' instead of 'approval_gate'.
  */
 export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEventBus): Promise<void> {
-    const { runId, tenantId, threadId, mcpServerIds, accountId, accountName } = run as any;
+    const { runId, tenantId, threadId, mcpServerIds, accountId, accountName, knowledgeBaseIds } = run as any;
     const startTime = Date.now();
 
     const abortController = registerRun(runId);
@@ -532,6 +533,7 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
             accountId,
             accountName,
             mcpServerIds: activeMcpServerIds,
+            knowledgeBaseIds,
             tenantId,
             userId: deriveUserId(run),
         };

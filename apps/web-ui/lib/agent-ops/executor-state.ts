@@ -9,6 +9,9 @@ export interface RequestEvaluation {
     reasoning: string;
     clarificationQuestion: string | null;
     missingInfo: string | null;
+    /** Effective knowledge base ids for this run: the run's configured ids, or — when
+     *  none were configured — the ids autonomously picked by resolveKnowledgeBaseIds(). */
+    knowledgeBaseIds: string[];
 }
 
 export interface PlanStep {

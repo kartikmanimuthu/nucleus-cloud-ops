@@ -44,6 +44,7 @@ import { createAgentModels, assembleTools, createMemoryTools } from "@/lib/agent
 import { getCheckpointer, getMemoryStore } from "@/lib/agent/persistence";
 import { createMemoryRecallNode, createMemorySaveNode } from "@/lib/agent/memory-nodes";
 import { loadSkills, loadAllSkillContent } from "@/lib/skill-service";
+import { resolveKnowledgeBaseIds } from "@/lib/agent/auto-kb-select";
 
 // ── Agent Ops-specific imports ────────────────────────────────────────────────
 import { GraphConfig } from "@/lib/agent/agent-shared";
@@ -55,7 +56,7 @@ import { filterMutativeToolCalls } from "./tool-classifier";
 // ============================================================================
 
 export async function createDynamicExecutorGraph(config: GraphConfig) {
-    const { model: modelId, autoApprove, accounts, accountId, mcpServerIds, tenantId, userId } = config as any;
+    const { model: modelId, autoApprove, accounts, accountId, mcpServerIds, tenantId, userId, knowledgeBaseIds } = config as any;
 
     // ── Persistence (PostgreSQL checkpointer + long-term memory store) ────────
     const checkpointer = await getCheckpointer();
@@ -71,7 +72,7 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
 
     // ── Tools (shared factory keeps tool sets in sync) ────────────────────────
     const memoryTools = (store && tenantId && userId) ? createMemoryTools(tenantId, userId) : [];
-    const baseTools = await assembleTools({ includeS3Tools: false, mcpServerIds, tenantId });
+    const baseTools = await assembleTools({ includeS3Tools: false, mcpServerIds, tenantId, knowledgeBaseIds });
     const tools = [...baseTools, ...memoryTools];
     const modelWithTools = model.bindTools(tools);
     const toolNode = new ToolNode(tools);
@@ -114,7 +115,12 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
 
         const memorySection = memoryContext ? `\n## Relevant Context from Memory\n${memoryContext}\n` : '';
 
-        return { skillSection, accountContext, mutationInstruction, mcpInstructions, memorySection };
+        const kbIds = evaluation?.knowledgeBaseIds ?? [];
+        const kbSection = kbIds.length > 0
+            ? `\n## Knowledge Base Context\nRelevant knowledge base(s) for this task: ${kbIds.join(', ')}. When calling search_knowledge_base, pass these ids as the knowledgeBaseIds argument to scope your search; omit it to search all knowledge bases.\n`
+            : '';
+
+        return { skillSection, accountContext, mutationInstruction, mcpInstructions, memorySection, kbSection };
     }
 
     // ============================================================================
@@ -166,7 +172,7 @@ Return only the JSON object.`);
         let evalResult: RequestEvaluation = {
             mode: 'fast', skillId: null, accountId: null,
             requiresApproval: false, reasoning: 'Fallback to fast mode.',
-            clarificationQuestion: null, missingInfo: null,
+            clarificationQuestion: null, missingInfo: null, knowledgeBaseIds: [],
         };
 
         try {
@@ -182,13 +188,21 @@ Return only the JSON object.`);
                     reasoning: parsed.reasoning || '',
                     clarificationQuestion: parsed.clarificationQuestion || null,
                     missingInfo: parsed.missingInfo || null,
+                    knowledgeBaseIds: [],
                 };
             }
         } catch (e) {
             console.error('[EVALUATOR] Parse failed:', e);
         }
 
-        console.log(`[EVALUATOR] Mode: ${evalResult.mode} | Skill: ${evalResult.skillId} | Approval: ${evalResult.requiresApproval}`);
+        // KB autonomy: manual run-level selection (config.knowledgeBaseIds) always wins;
+        // otherwise a cheap reflector call (resolveKnowledgeBaseIds → autoSelectKb) matches
+        // the task against the tenant's KB catalog (vectorCount > 0). Never throws.
+        evalResult.knowledgeBaseIds = tenantId
+            ? await resolveKnowledgeBaseIds({ tenantId, selectedIds: knowledgeBaseIds, message: taskDescription, model: modelId }).catch(() => [])
+            : [];
+
+        console.log(`[EVALUATOR] Mode: ${evalResult.mode} | Skill: ${evalResult.skillId} | Approval: ${evalResult.requiresApproval} | KBs: ${evalResult.knowledgeBaseIds.join(', ') || 'none'}`);
         return { evaluation: evalResult };
     }
 
@@ -222,12 +236,13 @@ Return only the JSON object.`);
 
         console.log(`\n[PLANNER] Creating plan for: "${truncateOutput(taskDescription, 100)}"`);
 
-        const { skillSection, accountContext, mutationInstruction, memorySection } = getDynamicContext(state.evaluation, state.memoryContext);
+        const { skillSection, accountContext, mutationInstruction, memorySection, kbSection } = getDynamicContext(state.evaluation, state.memoryContext);
         const baseIdentity = buildBaseIdentity(state.evaluation?.skillId);
 
         const systemPrompt = new SystemMessage(`${baseIdentity}
 ${skillSection}
 ${memorySection}
+${kbSection}
 ${CORE_PRINCIPLES}
 ${mutationInstruction}
 
@@ -283,7 +298,7 @@ Return ONLY a JSON array of step strings. Example:
         const { messages, plan, iterationCount, evaluation } = state;
         console.log(`\n[EXECUTOR] Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
 
-        const { skillSection, accountContext, mutationInstruction, mcpInstructions, memorySection } = getDynamicContext(evaluation, state.memoryContext);
+        const { skillSection, accountContext, mutationInstruction, mcpInstructions, memorySection, kbSection } = getDynamicContext(evaluation, state.memoryContext);
         const baseIdentity = buildBaseIdentity(evaluation?.skillId);
 
         let stepContext = '';
@@ -296,6 +311,7 @@ Return ONLY a JSON array of step strings. Example:
         const systemPrompt = new SystemMessage(`${baseIdentity}
 ${skillSection}
 ${memorySection}
+${kbSection}
 ${CORE_PRINCIPLES}
 ${mutationInstruction}
 ${mcpInstructions}
@@ -488,12 +504,13 @@ Otherwise list specific issues to fix. Do not generate the fixed answer.`);
         const { messages, reflection, errors, plan, evaluation } = state;
         console.log(`\n[REVISER] Applying targeted fixes`);
 
-        const { skillSection, accountContext, mutationInstruction, memorySection } = getDynamicContext(evaluation, state.memoryContext);
+        const { skillSection, accountContext, mutationInstruction, memorySection, kbSection } = getDynamicContext(evaluation, state.memoryContext);
         const baseIdentity = buildBaseIdentity(evaluation?.skillId);
 
         const systemPrompt = new SystemMessage(`${baseIdentity}
 ${skillSection}
 ${memorySection}
+${kbSection}
 ${CORE_PRINCIPLES}
 ${mutationInstruction}
 

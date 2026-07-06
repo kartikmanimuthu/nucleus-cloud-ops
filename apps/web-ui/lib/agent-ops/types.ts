@@ -110,6 +110,10 @@ export interface AgentOpsRun {
     model?: string;         // Bedrock model ID override
     threadId: string;       // LangGraph thread ID
     mcpServerIds?: string[];
+    // In-memory only — no DB column (unlike mcpServerIds). Set by agent-ops-service.createRun
+    // on the returned object so the immediate fire-and-forget executeAgentRun() call sees it;
+    // does NOT survive a reload via getRun()/listRuns().
+    knowledgeBaseIds?: string[];
     trigger: TriggerMetadata;
     result?: AgentOpsResult;
     clarification?: AgentOpsClarification;   // Set when status is awaiting_input
