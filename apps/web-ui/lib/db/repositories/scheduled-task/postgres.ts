@@ -194,11 +194,13 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
         tenantId: string,
         taskId: string,
         runId: string,
-        status: AgentOpsStatus
+        status: AgentOpsStatus,
+        opts?: { incrementRunCount?: boolean }
     ): Promise<void> {
         const task = await this.getScheduledTask(tenantId, taskId);
         if (!task) return;
         const nextRunAt = computeNextRunAt(task.cronExpression, task.timezone);
+        const incrementRunCount = opts?.incrementRunCount ?? true;
         await getTenantClient(tenantId).scheduledTask.updateMany({
             where: { tenantId, taskId },
             data: {
@@ -206,7 +208,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
                 lastRunAt: new Date(),
                 lastRunStatus: status,
                 nextRunAt: nextRunAt ?? null,
-                runCount: { increment: 1 },
+                ...(incrementRunCount ? { runCount: { increment: 1 } } : {}),
             },
         });
     }
@@ -215,18 +217,17 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
     async tryAcquireExecutionLock(taskId: string, scheduledAt: string): Promise<boolean> {
         const expiresAt = new Date(Date.now() + 3600 * 1000);
         try {
-            await getPrismaClient().$executeRaw`
+            // $executeRaw returns the number of rows affected by the INSERT.
+            // ON CONFLICT DO NOTHING means exactly one racer gets `1`, the rest get `0` —
+            // this is the atomic acquisition signal, not a follow-up read (which can't
+            // distinguish "I just inserted it" from "someone else did, moments ago").
+            const inserted = await getPrismaClient().$executeRaw`
                 INSERT INTO "scheduled_task_locks" ("id", "taskId", "scheduledAt", "acquiredAt", "expiresAt")
                 VALUES (gen_random_uuid(), ${taskId}, ${scheduledAt}, NOW(), ${expiresAt})
                 ON CONFLICT ("taskId", "scheduledAt") DO NOTHING
             `;
 
-            // Check if the lock row exists and was acquired recently (within 2 seconds)
-            const lock = await getPrismaClient().scheduledTaskLock.findUnique({
-                where: { taskId_scheduledAt: { taskId, scheduledAt } },
-            });
-
-            return lock !== null && (Date.now() - lock.acquiredAt.getTime()) < 2000;
+            return inserted === 1;
         } catch {
             return false;
         }

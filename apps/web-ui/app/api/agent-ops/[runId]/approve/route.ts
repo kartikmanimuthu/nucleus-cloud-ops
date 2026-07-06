@@ -61,8 +61,9 @@ export async function POST(
             // Emit cancelled event so the NotificationRouter notifies the source channel
             eventBus.emit({ type: 'run:cancelled', runId, tenantId, timestamp: new Date(), data: {} });
 
-            // Scheduled runs: refresh lastRunStatus and deliver the cancellation digest
-            await finalizeScheduledRun({ ...run, status: 'cancelled' });
+            // Scheduled runs: refresh lastRunStatus and deliver the cancellation digest.
+            // countRun: false — the trigger route already counted this run at first settle.
+            await finalizeScheduledRun({ ...run, status: 'cancelled' }, { countRun: false });
 
             const session = await getAuthSession();
             AuditService.logUserAction({
@@ -112,9 +113,10 @@ export async function POST(
         // originating channel adapter.
         resumeApprovedRun(run, eventBus)
             .then(async () => {
-                // Scheduled runs: deliver the final digest to the task's channel
+                // Scheduled runs: deliver the final digest to the task's channel.
+                // countRun: false — the trigger route already counted this run at first settle.
                 const freshRun = await agentOpsService.getRun(tenantId, runId);
-                if (freshRun) await finalizeScheduledRun(freshRun);
+                if (freshRun) await finalizeScheduledRun(freshRun, { countRun: false });
             })
             .catch((err) => {
                 console.error(`[Agent Ops API] Resume failed for run ${runId}:`, err);

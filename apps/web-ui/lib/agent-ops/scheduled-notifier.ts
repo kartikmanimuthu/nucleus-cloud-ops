@@ -59,7 +59,7 @@ export async function notifyScheduledRunResult(task: ScheduledTask, run: AgentOp
  * deliver the outcome digest. Safe to call with any run — no-ops unless
  * run.source === 'scheduled' with a taskId on the trigger. Never throws.
  */
-export async function finalizeScheduledRun(run: AgentOpsRun): Promise<void> {
+export async function finalizeScheduledRun(run: AgentOpsRun, opts?: { countRun?: boolean }): Promise<void> {
     try {
         if (run.source !== 'scheduled') return;
         const taskId = (run.trigger as { taskId?: string } | null)?.taskId;
@@ -71,7 +71,9 @@ export async function finalizeScheduledRun(run: AgentOpsRun): Promise<void> {
             return;
         }
 
-        await updateLastRun(run.tenantId, taskId, run.runId, run.status);
+        await updateLastRun(run.tenantId, taskId, run.runId, run.status, {
+            incrementRunCount: opts?.countRun ?? true,
+        });
         await notifyScheduledRunResult(task, run);
     } catch (err) {
         console.error('[ScheduledNotifier] finalizeScheduledRun failed (non-fatal):', err);

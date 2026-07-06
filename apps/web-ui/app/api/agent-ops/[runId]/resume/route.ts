@@ -62,9 +62,10 @@ export async function POST(
         // Fire-and-forget re-execution
         executeAgentRun(resumedRun)
             .then(async () => {
-                // Scheduled runs: deliver the final digest to the task's channel
+                // Scheduled runs: deliver the final digest to the task's channel.
+                // countRun: false — the trigger route already counted this run at first settle.
                 const freshRun = await agentOpsService.getRun(tenantId, runId);
-                if (freshRun) await finalizeScheduledRun(freshRun);
+                if (freshRun) await finalizeScheduledRun(freshRun, { countRun: false });
             })
             .catch((err) => {
                 console.error(`[ResumeEndpoint] Execution error for run ${runId}:`, err);

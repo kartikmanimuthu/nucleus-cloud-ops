@@ -133,8 +133,17 @@ describe('finalizeScheduledRun', () => {
     it('updates lastRun and delivers the digest for a scheduled run', async () => {
         await finalizeScheduledRun(makeRun());
         expect(mockGetScheduledTask).toHaveBeenCalledWith('tenant-1', 'task-1');
-        expect(mockUpdateLastRun).toHaveBeenCalledWith('tenant-1', 'task-1', 'run-1', 'completed');
+        expect(mockUpdateLastRun).toHaveBeenCalledWith('tenant-1', 'task-1', 'run-1', 'completed', {
+            incrementRunCount: true,
+        });
         expect(sendScheduledNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes incrementRunCount: false through to updateLastRun when countRun: false is requested', async () => {
+        await finalizeScheduledRun(makeRun(), { countRun: false });
+        expect(mockUpdateLastRun).toHaveBeenCalledWith('tenant-1', 'task-1', 'run-1', 'completed', {
+            incrementRunCount: false,
+        });
     });
 
     it('no-ops delivery when the task no longer exists', async () => {

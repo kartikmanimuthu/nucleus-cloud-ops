@@ -66,9 +66,10 @@ export async function updateLastRun(
     tenantId: string,
     taskId: string,
     runId: string,
-    status: AgentOpsStatus
+    status: AgentOpsStatus,
+    opts?: { incrementRunCount?: boolean }
 ): Promise<void> {
-    return getScheduledTaskRepository().updateLastRun(tenantId, taskId, runId, status);
+    return getScheduledTaskRepository().updateLastRun(tenantId, taskId, runId, status, opts);
 }
 
 // ─── Execution Lock ────────────────────────────────────────────────────

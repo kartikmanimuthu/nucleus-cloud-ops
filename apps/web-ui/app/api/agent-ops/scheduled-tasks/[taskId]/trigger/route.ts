@@ -31,6 +31,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ taskId:
         const task = await getScheduledTask(tenantId, taskId);
         if (!task) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 
+        // A stale cron tick (or a race with pause/delete) must not execute an
+        // autonomous AWS-mutating run for a task that is no longer active.
+        if (task.taskStatus !== 'active') {
+            return NextResponse.json(
+                { success: false, skipped: true, error: `Task is ${task.taskStatus} — trigger suppressed` },
+                { status: 409 },
+            );
+        }
+
         // Suppress duplicate triggers in the same minute window — a cron tick
         // racing a manual trigger across ECS containers (AOPS-04).
         const lockWindow = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString();

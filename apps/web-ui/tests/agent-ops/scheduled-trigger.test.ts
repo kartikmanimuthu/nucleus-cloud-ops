@@ -48,6 +48,7 @@ const task = {
     autoApprove: true,
     mcpServerIds: [],
     notification: { type: 'slack', channelId: 'C1' },
+    taskStatus: 'active',
 };
 
 function makeRequest(): Request {
@@ -82,6 +83,16 @@ describe('POST /scheduled-tasks/[taskId]/trigger', () => {
         expect(body.runId).toBe('run-1');
         expect(mockCreateRun).toHaveBeenCalledTimes(1);
         expect(mockExecuteAgentRun).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns 409 skipped without acquiring the lock or creating a run when the task is paused', async () => {
+        mockGetScheduledTask.mockResolvedValue({ ...task, taskStatus: 'paused' });
+        const res = await POST(makeRequest(), routeParams);
+        expect(res.status).toBe(409);
+        const body = await res.json();
+        expect(body.skipped).toBe(true);
+        expect(mockTryAcquireLock).not.toHaveBeenCalled();
+        expect(mockCreateRun).not.toHaveBeenCalled();
     });
 
     it('acquires the lock on a minute-rounded window key', async () => {

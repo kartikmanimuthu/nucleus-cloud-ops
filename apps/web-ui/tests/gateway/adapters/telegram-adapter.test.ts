@@ -168,6 +168,13 @@ describe('TelegramAdapter.sendScheduledNotification', () => {
         expect(body.text).toContain('run\\-1');
     });
 
+    it('caps the sent text at 4096 chars for an oversized summary', async () => {
+        const huge = { ...run, result: { ...run.result, summary: 'x'.repeat(10_000) } } as unknown as AgentOpsRun;
+        await adapter.sendScheduledNotification!(task, huge, 'result');
+        const body = JSON.parse(vi.mocked(global.fetch).mock.calls[0][1]!.body as string);
+        expect(body.text.length).toBeLessThanOrEqual(4096);
+    });
+
     it('no-ops without a chatId', async () => {
         const noDest = { ...task, notification: { type: 'telegram' } } as unknown as ScheduledTask;
         await adapter.sendScheduledNotification!(noDest, run, 'result');
