@@ -23,6 +23,7 @@ import {
     getFileFromS3Tool,
 } from "./tools";
 import { createGetRightSizingRecommendationsTool } from "./right-sizing-tool";
+import { createSearchKnowledgeBaseTool } from "./kb-tool";
 import { getActiveMCPTools, isOpenAICompatibleProvider, type AccountContext, type ResolvedModelConfig } from "./agent-shared";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
@@ -145,6 +146,8 @@ export interface AssembleToolsOptions {
     tenantId?: string;
     /** AWS accounts for injecting STS credentials into credential-sensitive MCP servers. */
     accounts?: AccountContext[];
+    /** Knowledge base ids to default-scope the search_knowledge_base tool to. Omit/null to search tenant-wide. */
+    knowledgeBaseIds?: string[] | null;
 }
 
 /**
@@ -192,7 +195,7 @@ export function createMemoryTools(tenantId: string, userId: string) {
  * Logs MCP tool count when any are loaded.
  */
 export async function assembleTools(options: AssembleToolsOptions = {}) {
-    const { includeS3Tools = false, includeMemoryTools = false, userId, mcpServerIds, tenantId, accounts } = options;
+    const { includeS3Tools = false, includeMemoryTools = false, userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds } = options;
 
     const effectiveTenantId = tenantId || 'default';
     if (!tenantId) {
@@ -200,6 +203,7 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
     }
 
     const memoryTools = (includeMemoryTools && tenantId && userId) ? createMemoryTools(tenantId, userId) : [];
+    const kbTools = tenantId ? [createSearchKnowledgeBaseTool(tenantId, knowledgeBaseIds ?? undefined)] : [];
 
     const customTools = [
         executeCommandTool,
@@ -214,6 +218,7 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
         createGetRightSizingRecommendationsTool(effectiveTenantId),
         ...(includeS3Tools ? [writeFileToS3Tool, getFileFromS3Tool] : []),
         ...memoryTools,
+        ...kbTools,
     ];
 
     const mcpTools = await getActiveMCPTools(mcpServerIds, tenantId, accounts);

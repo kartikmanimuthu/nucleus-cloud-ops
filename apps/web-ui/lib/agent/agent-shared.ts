@@ -501,6 +501,7 @@ export interface GraphConfig {
     mcpServerIds?: string[];
     tenantId?: string;
     userId?: string;  // For long-term memory store scoping
+    knowledgeBaseIds?: string[] | null;
 }
 
 // --- MCP Integration ---
