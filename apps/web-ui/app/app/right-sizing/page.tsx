@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,15 +23,16 @@ import {
 const PAGE_SIZE = 25;
 const ALL = "all";
 
-export default function RightSizingPage() {
+function RightSizingPageInner() {
     const queryClient = useQueryClient();
+    const searchParams = useSearchParams();
 
     const [page, setPage] = useState(1);
-    const [search, setSearch] = useState("");
-    const [resourceType, setResourceType] = useState(ALL);
-    const [finding, setFinding] = useState(ALL);
-    const [status, setStatus] = useState(ALL);
-    const [sort, setSort] = useState("savings");
+    const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
+    const [resourceType, setResourceType] = useState(() => searchParams.get("resourceType") ?? ALL);
+    const [finding, setFinding] = useState(() => searchParams.get("finding") ?? ALL);
+    const [status, setStatus] = useState(() => searchParams.get("status") ?? ALL);
+    const [sort, setSort] = useState(() => searchParams.get("sort") ?? "savings");
 
     // Effective filters — also the query key.
     const filters = {
@@ -176,5 +178,13 @@ function FilterSelect({
                 ))}
             </SelectContent>
         </Select>
+    );
+}
+
+export default function RightSizingPage() {
+    return (
+        <Suspense fallback={null}>
+            <RightSizingPageInner />
+        </Suspense>
     );
 }
