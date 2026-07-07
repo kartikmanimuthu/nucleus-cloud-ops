@@ -4,6 +4,28 @@ import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { RightSizingService } from '@/lib/right-sizing-service';
 import type { RecommendationStatus } from '@/lib/db/repositories/right-sizing/interface';
 
+// GET /api/right-sizing/recommendations/[id] — full detail for the recommendation detail page
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const authError = await authorize('read', 'RightSizing');
+    if (authError) return authError;
+
+    try {
+        const { id } = await params;
+        const tenantId = await getSessionTenantId();
+        const detail = await RightSizingService.getRecommendationDetail(id, tenantId);
+        if (!detail) {
+            return NextResponse.json({ success: false, error: 'Recommendation not found' }, { status: 404 });
+        }
+        return NextResponse.json({ success: true, data: detail });
+    } catch (error: unknown) {
+        console.error('API - Error fetching right-sizing recommendation detail:', error);
+        return NextResponse.json(
+            { success: false, error: error instanceof Error ? error.message : 'Failed to fetch recommendation' },
+            { status: 500 }
+        );
+    }
+}
+
 // PATCH /api/right-sizing/recommendations/[id] — approve | dismiss | snooze | open
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     const authError = await authorize('update', 'RightSizing');
