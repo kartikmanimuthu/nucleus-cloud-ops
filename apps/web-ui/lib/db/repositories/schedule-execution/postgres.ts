@@ -13,7 +13,7 @@
  */
 import { getTenantClient } from '@/lib/db/pg-config';
 import type { ScheduleExecution, UIScheduleExecution } from '@/lib/schedule-execution-service';
-import type { IScheduleExecutionRepository } from './interface';
+import type { IScheduleExecutionRepository, PagedExecutions } from './interface';
 
 // 90 days in milliseconds
 const EXECUTION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -85,6 +85,35 @@ export class ScheduleExecutionPostgresRepository implements IScheduleExecutionRe
                 error
             );
             throw new Error(`Failed to get execution history: ${msg}`);
+        }
+    }
+
+    async getExecutionHistoryPaged(
+        scheduleId: string,
+        tenantId: string,
+        opts: { offset: number; limit: number }
+    ): Promise<PagedExecutions> {
+        try {
+            const db = getTenantClient(tenantId);
+            const where = { tenantId, scheduleId };
+            // count + page in parallel — both scoped by tenantId (multi-tenant safe).
+            const [total, rows] = await Promise.all([
+                db.scheduleExecution.count({ where }),
+                db.scheduleExecution.findMany({
+                    where,
+                    orderBy: { executionTime: 'desc' },
+                    skip: Math.max(0, opts.offset),
+                    take: opts.limit,
+                }),
+            ]);
+            return { executions: rows.map((r) => this.transformToUIExecution(r)), total };
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.error(
+                '[ScheduleExecutionPostgresRepository] Error getting paged execution history:',
+                error
+            );
+            throw new Error(`Failed to get paged execution history: ${msg}`);
         }
     }
 

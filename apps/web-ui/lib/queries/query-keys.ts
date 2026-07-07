@@ -28,6 +28,8 @@ export const queryKeys = {
         list: (filters?: unknown) => [...queryKeys.schedules.lists(), filters ?? {}] as const,
         details: () => [...queryKeys.schedules.all, 'detail'] as const,
         detail: (id: string) => [...queryKeys.schedules.details(), id] as const,
+        executions: (id: string, filters?: unknown) =>
+            [...queryKeys.schedules.detail(id), 'executions', filters ?? {}] as const,
     },
     audit: {
         all: ['audit'] as const,

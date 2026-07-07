@@ -98,6 +98,16 @@ export async function processDocDBResource(
         }
 
         if (action === 'start' && needsStart) {
+            if (metadata.dryRun) {
+                log.info(`[DRY RUN] Would START DocDB cluster ${resource.id} (${resource.name || 'unnamed'}); current status=${currentStatus}`);
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    action: 'start',
+                    status: 'success',
+                    last_state: { dbInstanceStatus: currentStatus },
+                };
+            }
             // Start the cluster
             try {
                 log.debug(`DocDB ${resource.id}: Sending StartDBClusterCommand`);
@@ -147,6 +157,16 @@ export async function processDocDBResource(
             }
 
         } else if (action === 'stop' && currentStatus === 'available') {
+            if (metadata.dryRun) {
+                log.info(`[DRY RUN] Would STOP DocDB cluster ${resource.id} (${resource.name || 'unnamed'}); current status=${currentStatus}`);
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    action: 'stop',
+                    status: 'success',
+                    last_state: { dbInstanceStatus: currentStatus },
+                };
+            }
             // Stop the cluster
             log.debug(`DocDB ${resource.id}: Sending StopDBClusterCommand`);
             await rdsClient.send(new StopDBClusterCommand({ DBClusterIdentifier: resource.id }));

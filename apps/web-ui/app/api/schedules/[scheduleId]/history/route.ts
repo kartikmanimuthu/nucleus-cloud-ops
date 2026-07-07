@@ -28,17 +28,17 @@ export async function GET(
             );
         }
 
-        // Parse query parameters
+        // Parse query parameters — server-side pagination.
         const searchParams = request.nextUrl.searchParams;
-        const limit = parseInt(searchParams.get("limit") || "50", 10);
+        const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+        const rawLimit = parseInt(searchParams.get("limit") || "10", 10) || 10;
+        const limit = Math.min(100, Math.max(1, rawLimit));
 
-
-        // Fetch execution history
-        const executions = await ScheduleExecutionService.getExecutionsForSchedule(
+        // Fetch a page of execution history + the total count for this schedule.
+        const { executions, total } = await ScheduleExecutionService.getExecutionsPageForSchedule(
             scheduleId,
-            (schedule.accounts && schedule.accounts[0]) || "unknown",
-            { limit },
-            tenantId,
+            tenantId ?? "",
+            { page, limit },
         );
 
         return NextResponse.json({
@@ -46,7 +46,9 @@ export async function GET(
             scheduleId,
             scheduleName: schedule.name,
             executions,
-            total: executions.length
+            total,
+            page,
+            limit,
         });
 
     } catch (error: any) {

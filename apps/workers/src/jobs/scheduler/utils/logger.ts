@@ -93,8 +93,16 @@ class Logger {
     }
 }
 
-// Singleton logger instance
-const logLevel = (env.LOG_LEVEL as LogLevel) || 'info';
+// Singleton logger instance.
+// Normalize to lower-case: LOG_LEVEL is often set as 'DEBUG'/'INFO' (e.g. in .env),
+// and an unnormalized 'DEBUG' is not a key in the level map — shouldLog() would then
+// compare against `undefined` and silently suppress EVERY log line. Guard against an
+// unrecognized value by falling back to 'info'.
+const rawLevel = env.LOG_LEVEL?.toLowerCase();
+const logLevel: LogLevel =
+    rawLevel === 'debug' || rawLevel === 'info' || rawLevel === 'warn' || rawLevel === 'error'
+        ? rawLevel
+        : 'info';
 export const logger = new Logger(logLevel);
 
 export default logger;

@@ -8,7 +8,7 @@ export interface ScheduleExecution {
     accountId: string;
     scheduleId: string;
     executionTime: string;
-    status: 'pending' | 'running' | 'success' | 'failed' | 'partial';
+    status: 'pending' | 'running' | 'success' | 'failed' | 'partial' | 'no_action';
     resourcesStarted?: number;
     resourcesStopped?: number;
     resourcesFailed?: number;
@@ -60,6 +60,29 @@ export class ScheduleExecutionService {
         } catch (error: unknown) {
             console.error('ScheduleExecutionService - Error fetching executions:', error);
             return [];
+        }
+    }
+
+    /**
+     * Get a page of executions for a schedule, plus the total row count.
+     * Server-side pagination — schedules can accumulate thousands of runs.
+     */
+    static async getExecutionsPageForSchedule(
+        scheduleId: string,
+        tenantId: string,
+        options: { page: number; limit: number }
+    ): Promise<{ executions: UIScheduleExecution[]; total: number }> {
+        try {
+            const page = Math.max(1, options.page);
+            const limit = Math.max(1, options.limit);
+            const repo = getScheduleExecutionRepository();
+            return await repo.getExecutionHistoryPaged(scheduleId, tenantId, {
+                offset: (page - 1) * limit,
+                limit,
+            });
+        } catch (error: unknown) {
+            console.error('ScheduleExecutionService - Error fetching execution page:', error);
+            return { executions: [], total: 0 };
         }
     }
 

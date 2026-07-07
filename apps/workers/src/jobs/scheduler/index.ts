@@ -17,6 +17,7 @@ export async function handleSchedulerJob(jobData: unknown) {
     log.info('Processing scheduler job', {
         mode: isPartialScan ? 'partial' : 'full',
         triggeredBy,
+        tenantId: event?.tenantId,
     });
 
     if (isPartialScan) {
@@ -24,7 +25,9 @@ export async function handleSchedulerJob(jobData: unknown) {
         log.info('Partial scan complete', { result });
         return result;
     } else {
-        const result = await runFullScan(triggeredBy);
+        // Full scan: when a tenantId is supplied (manual dashboard trigger or a
+        // per-tenant cron tick) scope the scan to that tenant; otherwise scan all.
+        const result = await runFullScan(triggeredBy, event?.tenantId);
         log.info('Full scan complete', { result });
         return result;
     }
@@ -34,61 +37,90 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
     executor.registerHandler?.(JOB_NAME, handleSchedulerJob);
 
     await boss.createQueue(JOB_NAME);
+    // A scan MUTATES live AWS resources (start/stop). If the worker is killed
+    // mid-scan the job is orphaned in 'active'; under the global defaults
+    // (expireInHours: 4, retryLimit: 3) pg-boss would resurrect and re-run it up
+    // to 4 hours later — firing stale start/stop commands at an unexpected time.
+    // For this queue that is unsafe, so:
+    //   retryLimit: 0     → an interrupted/failed scan is DISCARDED, never re-run
+    //                       (the next cron tick or manual trigger re-evaluates state).
+    //   expireInSeconds   → bounds how long an orphaned 'active' job lingers before
+    //                       pg-boss fails it. This value also caps the handler runtime
+    //                       (pg-boss derives the handler timeout from it), so it must
+    //                       comfortably exceed the longest legitimate scan.
+    // createQueue uses ON CONFLICT DO NOTHING, so updateQueue enforces it on the
+    // pre-existing queue too (matches the discovery/right-sizing pattern).
+    await boss.updateQueue(JOB_NAME, { name: JOB_NAME, retryLimit: 0, expireInSeconds: 900 });
 
     // Global tick — every 5 min (matches minimum supported tenant interval)
     await boss.schedule(JOB_NAME, '*/5 * * * *', {}, { tz: 'UTC' });
 
-    // batchSize: 1 prevents concurrent full scans
+    // batchSize: 1 prevents concurrent scans
     await boss.work<SchedulerEvent>(
         JOB_NAME,
         { batchSize: 1 },
         async (jobs) => {
-            const tenants = await getActiveTenants();
-            const now = Date.now();
-
-            // Determine which tenants are due for a scan
-            const dueTenants: Array<{ id: string; name: string }> = [];
-            for (const tenant of tenants) {
-                const config = await getTenantJobConfig(tenant.id, 'scheduler-cron');
-                const thresholdMs = config.intervalMinutes * 60 * 1000;
-                const lastRun = config.lastRunAt ? new Date(config.lastRunAt).getTime() : 0;
-                if (now - lastRun >= thresholdMs) {
-                    dueTenants.push(tenant);
-                } else {
-                    log.info('Skipping tenant — interval not elapsed', {
-                        tenantId: tenant.id,
-                        intervalMinutes: config.intervalMinutes,
-                        lastRunAt: config.lastRunAt,
-                    });
-                }
-            }
-
-            if (dueTenants.length === 0) {
-                log.info('No tenants due for scan this tick');
-                return;
-            }
-
-            // Run the full scan once (runFullScan iterates all tenants internally)
-            let processedTenantIds: string[] = [];
             for (const job of jobs) {
-                const scanResult = (await executor.execute(JOB_NAME, job.data)) as SchedulerResult | undefined;
-                if (scanResult?.processedTenantIds) {
-                    processedTenantIds = scanResult.processedTenantIds;
-                }
-            }
+                const data = (job.data || {}) as SchedulerEvent;
 
-            // Only update lastRunAt for tenants that had actual work
-            // (schedules > 0 AND accounts > 0). Tenants with no work are
-            // skipped so they retry on the next tick.
-            const runAt = new Date().toISOString();
-            const processedSet = new Set(processedTenantIds);
-            for (const tenant of dueTenants) {
-                if (processedSet.has(tenant.id)) {
-                    await updateTenantJobLastRun(tenant.id, 'scheduler-cron', runAt);
+                // Manual trigger — a partial scan (scheduleId/scheduleName) or a
+                // dashboard full-scan (triggeredBy 'web-ui'). Run immediately and
+                // bypass per-tenant interval gating.
+                if (data.triggeredBy === 'web-ui' || data.scheduleId || data.scheduleName) {
+                    log.info('Manual scheduler trigger — running immediately', {
+                        triggeredBy: data.triggeredBy,
+                        scheduleId: data.scheduleId,
+                        tenantId: data.tenantId,
+                    });
+                    await executor.execute(JOB_NAME, data);
+                    continue;
+                }
+
+                // System cron tick ({} payload) — interval-gate EACH tenant and
+                // scan only those due, scoped per tenant (respects per-tenant intervals).
+                const tenants = await getActiveTenants();
+                const now = Date.now();
+                const runAt = new Date().toISOString();
+
+                for (const tenant of tenants) {
+                    const config = await getTenantJobConfig(tenant.id, 'scheduler-cron');
+                    const thresholdMs = config.intervalMinutes * 60 * 1000;
+                    const lastRun = config.lastRunAt ? new Date(config.lastRunAt).getTime() : 0;
+                    if (now - lastRun < thresholdMs) {
+                        log.info('Skipping tenant — interval not elapsed', {
+                            tenantId: tenant.id,
+                            intervalMinutes: config.intervalMinutes,
+                            lastRunAt: config.lastRunAt,
+                        });
+                        continue;
+                    }
+
+                    const scanResult = (await executor.execute(JOB_NAME, {
+                        triggeredBy: 'system',
+                        tenantId: tenant.id,
+                    })) as SchedulerResult | undefined;
+
+                    // Only advance lastRunAt when the tenant actually had work
+                    // (schedules > 0 AND accounts > 0); otherwise retry next tick.
+                    if (scanResult?.processedTenantIds?.includes(tenant.id)) {
+                        await updateTenantJobLastRun(tenant.id, 'scheduler-cron', runAt);
+                    }
                 }
             }
         },
     );
 
-    log.info('Registered scheduler-scan job + cron');
+    // Drain the 'scheduler-reschedule' queue produced by the web-ui settings PUT.
+    // The interval is read from tenant_configs on every cron tick, so this message
+    // is informational only — consume it so it does not pile up unconsumed.
+    await boss.createQueue('scheduler-reschedule');
+    await boss.work('scheduler-reschedule', { batchSize: 1 }, async (jobs) => {
+        for (const job of jobs) {
+            log.info('scheduler-reschedule received (interval read from tenant_configs each tick; no-op drain)', {
+                data: job.data,
+            });
+        }
+    });
+
+    log.info('Registered scheduler-scan job + cron + reschedule drain');
 }

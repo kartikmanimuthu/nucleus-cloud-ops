@@ -370,7 +370,9 @@ export class ScheduleService {
                 tenantId,
             };
             const boss = await getBoss();
-            await boss.send('scheduler-scan', payload);
+            // priority > 0 so this user-initiated "run now" is dequeued ahead of a
+            // pending system cron tick (pg-boss fetch orders by priority desc).
+            await boss.send('scheduler-scan', payload, { priority: 10 });
         } catch (enqueueError) {
             const errorMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
             await AuditService.logResourceAction({
