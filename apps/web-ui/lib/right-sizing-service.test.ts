@@ -6,9 +6,13 @@ const repoMock = {
     getActiveRun: vi.fn(),
     createRun: vi.fn(),
 };
+const inventoryRepoMock = { getResource: vi.fn() };
+const accountRepoMock = { getAccount: vi.fn() };
 const bossSend = vi.fn();
 vi.mock('@/lib/db/repository-factory', () => ({
     getRightSizingRepository: () => repoMock,
+    getInventoryRepository: () => inventoryRepoMock,
+    getAccountRepository: () => accountRepoMock,
 }));
 vi.mock('@/lib/audit-service', () => ({
     AuditService: { logUserAction: vi.fn().mockResolvedValue(undefined) },
@@ -84,5 +88,57 @@ describe('RightSizingService.triggerScan', () => {
             expect.objectContaining({ singletonKey: 'tenant:tenant-a' })
         );
         expect(repoMock.createRun).not.toHaveBeenCalled();
+    });
+});
+
+describe('RightSizingService.getRecommendationDetail', () => {
+    beforeEach(() => {
+        repoMock.getRecommendation.mockReset();
+        inventoryRepoMock.getResource.mockReset();
+        accountRepoMock.getAccount.mockReset();
+    });
+
+    it('returns null when the recommendation is not found (no cross-tenant leak)', async () => {
+        repoMock.getRecommendation.mockResolvedValue(null);
+        const result = await RightSizingService.getRecommendationDetail('rec-x', 'tenant-a');
+        expect(result).toBeNull();
+        expect(inventoryRepoMock.getResource).not.toHaveBeenCalled();
+        expect(accountRepoMock.getAccount).not.toHaveBeenCalled();
+    });
+
+    it('composes recommendation + resource + account when all three exist', async () => {
+        repoMock.getRecommendation.mockResolvedValue({
+            id: 'rec-1',
+            accountId: '123456789012',
+            resourceType: 'ec2_instances',
+            resourceId: 'i-1',
+        });
+        inventoryRepoMock.getResource.mockResolvedValue({ id: 'inv-1', metadata: { vpcId: 'vpc-1' } });
+        accountRepoMock.getAccount.mockResolvedValue({ id: 'acc-1', name: 'Prod' });
+
+        const result = await RightSizingService.getRecommendationDetail('rec-1', 'tenant-a');
+
+        expect(result?.recommendation.id).toBe('rec-1');
+        expect(result?.resource?.metadata).toEqual({ vpcId: 'vpc-1' });
+        expect(result?.account?.name).toBe('Prod');
+        expect(inventoryRepoMock.getResource).toHaveBeenCalledWith('tenant-a', '123456789012', 'ec2_instances', 'i-1');
+        expect(accountRepoMock.getAccount).toHaveBeenCalledWith('123456789012', 'tenant-a');
+    });
+
+    it('degrades gracefully when the inventory/account lookups fail or return null', async () => {
+        repoMock.getRecommendation.mockResolvedValue({
+            id: 'rec-1',
+            accountId: '123456789012',
+            resourceType: 'ec2_instances',
+            resourceId: 'i-1',
+        });
+        inventoryRepoMock.getResource.mockRejectedValue(new Error('boom'));
+        accountRepoMock.getAccount.mockResolvedValue(null);
+
+        const result = await RightSizingService.getRecommendationDetail('rec-1', 'tenant-a');
+
+        expect(result?.recommendation.id).toBe('rec-1');
+        expect(result?.resource).toBeNull();
+        expect(result?.account).toBeNull();
     });
 });

@@ -4,7 +4,7 @@
  * Business logic for right-sizing recommendations + runs. Delegates persistence to the
  * repository factory and audit-logs reviewer status changes + on-demand scan triggers.
  */
-import { getRightSizingRepository } from '@/lib/db/repository-factory';
+import { getRightSizingRepository, getInventoryRepository, getAccountRepository } from '@/lib/db/repository-factory';
 import { AuditService } from '@/lib/audit-service';
 import { getBoss } from '@/lib/boss-client';
 import type {
@@ -15,6 +15,14 @@ import type {
     RightSizingSummary,
     RightSizingRun,
 } from '@/lib/db/repositories/right-sizing/interface';
+import type { InventoryResource } from '@/lib/db/repositories/inventory/interface';
+import type { UIAccount } from '@/lib/types';
+
+export interface RecommendationDetail {
+    recommendation: RightSizingRecommendation;
+    resource: InventoryResource | null;
+    account: UIAccount | null;
+}
 
 const SCAN_QUEUE = 'right-sizing-scan';
 const VALID_REVIEW_STATUSES: RecommendationStatus[] = ['approved', 'dismissed', 'snoozed', 'open'];
@@ -26,6 +34,28 @@ export class RightSizingService {
 
     static async getRecommendation(id: string, tenantId: string): Promise<RightSizingRecommendation | null> {
         return getRightSizingRepository().getRecommendation(id, tenantId);
+    }
+
+    /**
+     * Full detail for the recommendation detail page: the recommendation plus best-effort
+     * context from inventory (resource metadata) and accounts (display name). The recommendation
+     * itself is the only thing that 404s the page — a missing/failed join degrades to a null
+     * field rather than failing the whole request.
+     */
+    static async getRecommendationDetail(id: string, tenantId: string): Promise<RecommendationDetail | null> {
+        const recommendation = await getRightSizingRepository().getRecommendation(id, tenantId);
+        if (!recommendation) return null;
+
+        const [resource, account] = await Promise.all([
+            getInventoryRepository()
+                .getResource(tenantId, recommendation.accountId, recommendation.resourceType, recommendation.resourceId)
+                .catch(() => null),
+            getAccountRepository()
+                .getAccount(recommendation.accountId, tenantId)
+                .catch(() => null),
+        ]);
+
+        return { recommendation, resource, account };
     }
 
     static async getSummary(tenantId: string): Promise<RightSizingSummary> {
