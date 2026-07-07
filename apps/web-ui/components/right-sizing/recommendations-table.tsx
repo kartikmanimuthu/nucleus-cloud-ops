@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowRight } from "lucide-react";
@@ -20,12 +21,14 @@ function configLabel(config: Record<string, unknown> | null | undefined): string
 export function RecommendationsTable({
     recommendations,
     loading,
-    onRowClick,
+    getHref,
 }: {
     recommendations: RightSizingRecommendation[];
     loading: boolean;
-    onRowClick: (r: RightSizingRecommendation) => void;
+    getHref: (r: RightSizingRecommendation) => string;
 }) {
+    const router = useRouter();
+
     if (loading) {
         return <Skeleton className="h-72 w-full" />;
     }
@@ -54,7 +57,7 @@ export function RecommendationsTable({
                 </TableHeader>
                 <TableBody>
                     {recommendations.map((r) => (
-                        <TableRow key={r.id} className="cursor-pointer" onClick={() => onRowClick(r)}>
+                        <TableRow key={r.id} className="cursor-pointer" onClick={() => router.push(getHref(r))}>
                             <TableCell>
                                 <div className="font-medium">{r.name || r.resourceId}</div>
                                 <div className="text-xs text-muted-foreground">

@@ -10,7 +10,6 @@ import { RefreshCw, Play, Search, TrendingDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { SummaryCards } from "@/components/right-sizing/summary-cards";
 import { RecommendationsTable } from "@/components/right-sizing/recommendations-table";
-import { RecommendationDetailDialog } from "@/components/right-sizing/recommendation-detail-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import type { RightSizingRecommendation } from "@/lib/db/repositories/right-sizing/interface";
 import { queryKeys } from "@/lib/queries/query-keys";
@@ -33,9 +32,6 @@ export default function RightSizingPage() {
     const [status, setStatus] = useState(ALL);
     const [sort, setSort] = useState("savings");
 
-    const [selected, setSelected] = useState<RightSizingRecommendation | null>(null);
-    const [dialogOpen, setDialogOpen] = useState(false);
-
     // Effective filters — also the query key.
     const filters = {
         page,
@@ -46,6 +42,16 @@ export default function RightSizingPage() {
         finding: finding !== ALL ? finding : undefined,
         status: status !== ALL ? status : undefined,
     };
+
+    function buildDetailHref(r: RightSizingRecommendation): string {
+        const params = new URLSearchParams();
+        params.set("sort", sort);
+        if (search.trim()) params.set("search", search.trim());
+        if (resourceType !== ALL) params.set("resourceType", resourceType);
+        if (finding !== ALL) params.set("finding", finding);
+        if (status !== ALL) params.set("status", status);
+        return `/app/right-sizing/${r.id}?${params.toString()}`;
+    }
 
     const recsQuery = useRightSizingRecommendations(filters);
     const summaryQuery = useRightSizingSummary();
@@ -128,10 +134,7 @@ export default function RightSizingPage() {
             <RecommendationsTable
                 recommendations={recommendations}
                 loading={loading}
-                onRowClick={(r) => {
-                    setSelected(r);
-                    setDialogOpen(true);
-                }}
+                getHref={buildDetailHref}
             />
 
             {total > PAGE_SIZE && (
@@ -144,14 +147,6 @@ export default function RightSizingPage() {
                     itemLabel="recommendations"
                 />
             )}
-
-            <RecommendationDetailDialog
-                recommendation={selected}
-                open={dialogOpen}
-                onOpenChange={setDialogOpen}
-                onUpdated={refresh}
-                canReview={true}
-            />
         </div>
     );
 }
