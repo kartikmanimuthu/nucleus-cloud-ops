@@ -12,8 +12,9 @@ const mockBoss = {
 } as any;
 
 const mockRegisterHandler = vi.fn();
-// Cron path scopes each scan to a tenant and only advances lastRunAt when the
-// scan reports that tenant had work (processedTenantIds includes it).
+// Cron path scopes each scan to a tenant and advances lastRunAt whenever the
+// scan actually evaluated that tenant (checkedTenantIds includes it) — even if
+// the tenant had no schedules/accounts, so it isn't re-dispatched every tick.
 const mockExecute = vi.fn().mockResolvedValue({
   success: true,
   executionId: 'test-exec',
@@ -24,6 +25,7 @@ const mockExecute = vi.fn().mockResolvedValue({
   resourcesFailed: 0,
   duration: 100,
   processedTenantIds: ['tenant-1'],
+  checkedTenantIds: ['tenant-1'],
 });
 const mockExecutor = {
   registerHandler: mockRegisterHandler,
@@ -172,5 +174,44 @@ describe('scheduler job registration', () => {
     await workCallback([{ id: 'job-1', data: {} }]);
 
     expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
+  });
+
+  it('should still advance lastRunAt for a tenant with no schedules/accounts (checked but not processed)', async () => {
+    const pgService = await import('./services/pg-service.js');
+    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
+    // Empty tenant: evaluated by the scan (checkedTenantIds) but had no work (processedTenantIds excludes it).
+    mockExecute.mockResolvedValueOnce({
+      success: true,
+      executionId: 'test-exec',
+      mode: 'full',
+      schedulesProcessed: 0,
+      resourcesStarted: 0,
+      resourcesStopped: 0,
+      resourcesFailed: 0,
+      duration: 100,
+      processedTenantIds: [],
+      checkedTenantIds: ['tenant-1'],
+    });
+
+    await register(mockBoss, mockExecutor);
+    const workCallback = mockWork.mock.calls[0][2];
+    await workCallback([{ id: 'job-1', data: {} }]);
+
+    // Regression guard: without this, an empty tenant's lastRunAt never advances and it
+    // gets re-dispatched (a real ECS RunTask under the horizontal executor) every single tick.
+    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
+  });
+
+  it('should not advance lastRunAt or abort the loop when executor.execute throws for a tenant', async () => {
+    const pgService = await import('./services/pg-service.js');
+    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
+    mockExecute.mockRejectedValueOnce(new Error('AccessDeniedException: not authorized to perform ecs:RunTask'));
+
+    await register(mockBoss, mockExecutor);
+    const workCallback = mockWork.mock.calls[0][2];
+    // Must not throw — an unhandled rejection here previously crashed the whole worker process.
+    await expect(workCallback([{ id: 'job-1', data: {} }])).resolves.not.toThrow();
+
+    expect(pgService.updateTenantJobLastRun).not.toHaveBeenCalled();
   });
 });

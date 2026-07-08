@@ -134,6 +134,7 @@ export async function runFullScan(
     }> = [];
 
     let processedTenantIds: string[] = [];
+    let checkedTenantIds: string[] = [];
 
     {
         // Iterate all active tenants (optionally scoped to one tenant)
@@ -143,7 +144,7 @@ export async function runFullScan(
 
         if (tenants.length === 0) {
             logger.info('No active tenants to process');
-            return createResult(executionId, 'full', startTime, 0, 0, 0, 0, []);
+            return createResult(executionId, 'full', startTime, 0, 0, 0, 0, [], [], []);
         }
 
         // D-09: Process tenants sequentially
@@ -152,6 +153,11 @@ export async function runFullScan(
             const schedules = (await getSchedulesPg(tenant.id)).filter(s => s.type === 'schedule');
             const accounts = await getAccountsPg(tenant.id);
             logger.info(`Tenant ${tenant.name}: ${schedules.length} active schedules, ${accounts.length} accounts`);
+
+            // Evaluated regardless of outcome — the caller uses this to advance
+            // lastRunAt so a tenant with no schedules/accounts is only re-checked
+            // once per configured interval, not on every cron tick forever.
+            checkedTenantIds.push(tenant.id);
 
             if (schedules.length === 0 || accounts.length === 0) {
                 continue;
@@ -221,6 +227,7 @@ export async function runFullScan(
         totalStopped,
         totalFailed,
         processedTenantIds,
+        checkedTenantIds,
         aggregatedErrors
     );
 }
@@ -322,6 +329,7 @@ export async function runPartialScan(
             result.started,
             result.stopped,
             result.failed,
+            [event.tenantId],
             [event.tenantId],
             result.errors
         );
@@ -878,6 +886,7 @@ function createResult(
     resourcesStopped: number,
     resourcesFailed: number,
     processedTenantIds?: string[],
+    checkedTenantIds?: string[],
     errors?: string[]
 ): SchedulerResult {
     return {
@@ -890,6 +899,7 @@ function createResult(
         resourcesFailed,
         duration: Date.now() - startTime,
         processedTenantIds,
+        checkedTenantIds,
         errors: errors && errors.length > 0 ? errors : undefined,
     };
 }
