@@ -118,6 +118,8 @@ Three interruption points, all resumable from the LangGraph checkpoint:
 
 ## Scheduling (cron)
 
+> Full walkthrough (flow diagram, HIL branch, re-sync loop, testing): [`scheduled-cron-delivery.md`](./scheduled-cron-delivery.md).
+
 - **Web-UI side** (`scheduler-engine.ts`) is producer-only: `registerTask()` calls `boss.createQueue` + `boss.schedule`.
 - **Worker side** (`agent-ops-scheduler/index.ts`) syncs active `ScheduledTask`s to pg-boss cron schedules
   (`agent-ops-task:<taskId>`) at startup **and re-syncs every 60s** (`sync.ts` diff), so tasks created,
