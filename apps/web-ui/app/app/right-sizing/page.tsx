@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PaginationBar } from "@/components/ui/pagination-bar";
-import { RefreshCw, Play, Search, TrendingDown, Loader2 } from "lucide-react";
+import { RefreshCw, Play, Search, TrendingDown, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { SummaryCards } from "@/components/right-sizing/summary-cards";
 import { RecommendationsTable } from "@/components/right-sizing/recommendations-table";
@@ -19,6 +19,7 @@ import {
     useRightSizingSummary,
     useRunRightSizingScan,
 } from "@/lib/queries/right-sizing";
+import { useAccounts } from "@/lib/queries/accounts";
 
 const PAGE_SIZE = 25;
 const ALL = "all";
@@ -31,6 +32,7 @@ export default function RightSizingPage() {
     const [resourceType, setResourceType] = useState(ALL);
     const [finding, setFinding] = useState(ALL);
     const [status, setStatus] = useState(ALL);
+    const [account, setAccount] = useState(ALL);
     const [sort, setSort] = useState("savings");
 
     const [selected, setSelected] = useState<RightSizingRecommendation | null>(null);
@@ -45,17 +47,49 @@ export default function RightSizingPage() {
         resourceType: resourceType !== ALL ? resourceType : undefined,
         finding: finding !== ALL ? finding : undefined,
         status: status !== ALL ? status : undefined,
+        accountId: account !== ALL ? account : undefined,
     };
 
     const recsQuery = useRightSizingRecommendations(filters);
     const summaryQuery = useRightSizingSummary();
     const scanMutation = useRunRightSizingScan();
 
+    // Account filter options are the DISTINCT accounts that actually appear in the
+    // recommendations (from the summary's server-side groupBy — not the current page,
+    // and not the full connected-accounts list). The accounts list is used only to
+    // enrich each ID with its friendly name when one exists.
+    // High limit so the name lookup covers every account (the accounts API
+    // defaults to a page size of 10, which would leave most IDs unnamed).
+    const accountsQuery = useAccounts({ limit: 1000 });
+    const accountNameById = new Map(
+        (accountsQuery.data?.accounts ?? []).map((a) => [a.accountId, a.name]),
+    );
+    const accountOptions: [string, string][] = (summaryQuery.data?.accountIds ?? []).map((id) => {
+        const name = accountNameById.get(id);
+        return [id, name ? `${name} {${id}}` : id];
+    });
+
     const recommendations = recsQuery.data?.data ?? [];
     const total = recsQuery.data?.total ?? 0;
     const summary = summaryQuery.data ?? null;
     const loading = recsQuery.isFetching || summaryQuery.isFetching;
     const scanning = scanMutation.isPending;
+
+    const hasActiveFilters =
+        search.trim() !== "" ||
+        account !== ALL ||
+        resourceType !== ALL ||
+        finding !== ALL ||
+        status !== ALL;
+
+    const resetFilters = () => {
+        setPage(1);
+        setSearch("");
+        setAccount(ALL);
+        setResourceType(ALL);
+        setFinding(ALL);
+        setStatus(ALL);
+    };
 
     const refresh = () => {
         queryClient.invalidateQueries({ queryKey: queryKeys.rightSizing.all });
@@ -109,6 +143,8 @@ export default function RightSizingPage() {
                         className="w-56 pl-8"
                     />
                 </div>
+                <FilterSelect value={account} onChange={(v) => { setPage(1); setAccount(v); }} placeholder="Account"
+                    options={accountOptions} />
                 <FilterSelect value={resourceType} onChange={(v) => { setPage(1); setResourceType(v); }} placeholder="Resource type"
                     options={[["ec2_instances", "EC2"], ["rds_db_instances", "RDS"], ["ec2_volumes", "EBS"], ["autoscaling_auto_scaling_groups", "ASG"]]} />
                 <FilterSelect value={finding} onChange={(v) => { setPage(1); setFinding(v); }} placeholder="Finding"
@@ -123,6 +159,12 @@ export default function RightSizingPage() {
                         <SelectItem value="resource">Sort: Resource</SelectItem>
                     </SelectContent>
                 </Select>
+                {hasActiveFilters && (
+                    <Button variant="ghost" size="sm" onClick={resetFilters}>
+                        <X className="h-4 w-4" />
+                        <span className="ml-1">Reset</span>
+                    </Button>
+                )}
             </div>
 
             <RecommendationsTable
