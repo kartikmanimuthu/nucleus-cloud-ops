@@ -387,10 +387,11 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
+      - npm install -g bun
       - curl -fsSL https://get.pulumi.com | sh
       - export PATH=$PATH:$HOME/.pulumi/bin
-      - cd infra/networking && npm install && pulumi install && cd ../..
-      - cd infra/compute && npm install && pulumi install && cd ../..
+      - cd infra/networking && bun install && pulumi install && cd ../..
+      - cd infra/compute && bun install && pulumi install && cd ../..
   build:
     commands:
       - cd infra/networking && pulumi preview --stack prod --non-interactive --diff
@@ -407,10 +408,11 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
+      - npm install -g bun
       - curl -fsSL https://get.pulumi.com | sh
       - export PATH=$PATH:$HOME/.pulumi/bin
-      - cd infra/networking && npm install && pulumi install && cd ../..
-      - cd infra/compute && npm install && pulumi install && cd ../..
+      - cd infra/networking && bun install && pulumi install && cd ../..
+      - cd infra/compute && bun install && pulumi install && cd ../..
   pre_build:
     commands:
       - (cd infra/networking && pulumi cancel --stack prod --yes) || true
