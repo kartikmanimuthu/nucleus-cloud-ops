@@ -19,6 +19,11 @@ RUN bun install --frozen-lockfile
 COPY apps/workers/ .
 COPY libs/prisma/ ./libs/prisma/
 
+# tsconfig.json extends "../../tsconfig.base.json" (correct 2-level-up path in the real
+# monorepo layout apps/workers/tsconfig.json -> tsconfig.base.json). Flattened into /app here,
+# that same relative path resolves to /tsconfig.base.json, so place it there too.
+COPY tsconfig.base.json /tsconfig.base.json
+
 # Remove libs/prisma/.env to avoid conflict with root .env during generate
 RUN rm -f libs/prisma/.env
 
