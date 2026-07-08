@@ -95,14 +95,29 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
                         continue;
                     }
 
-                    const scanResult = (await executor.execute(JOB_NAME, {
-                        triggeredBy: 'system',
-                        tenantId: tenant.id,
-                    })) as SchedulerResult | undefined;
+                    // A single tenant's dispatch failing (e.g. a transient ECS/IAM error)
+                    // must not abort the rest of the tenant loop or crash the worker
+                    // process — pg-boss's handler callback has no outer catch, so an
+                    // unhandled rejection here previously took the whole service down.
+                    let scanResult: SchedulerResult | undefined;
+                    try {
+                        scanResult = (await executor.execute(JOB_NAME, {
+                            triggeredBy: 'system',
+                            tenantId: tenant.id,
+                        })) as SchedulerResult | undefined;
+                    } catch (err) {
+                        log.error('Tenant scan dispatch failed — will retry next tick', {
+                            tenantId: tenant.id,
+                            error: err instanceof Error ? err.message : String(err),
+                        });
+                        continue;
+                    }
 
-                    // Only advance lastRunAt when the tenant actually had work
-                    // (schedules > 0 AND accounts > 0); otherwise retry next tick.
-                    if (scanResult?.processedTenantIds?.includes(tenant.id)) {
+                    // Advance lastRunAt whenever the tenant was actually checked, even if
+                    // it had no schedules/accounts — otherwise an empty tenant's lastRunAt
+                    // never gets set and it gets re-dispatched (a real ECS RunTask) on
+                    // every single cron tick forever instead of once per interval.
+                    if (scanResult?.checkedTenantIds?.includes(tenant.id)) {
                         await updateTenantJobLastRun(tenant.id, 'scheduler-cron', runAt);
                     }
                 }

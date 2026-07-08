@@ -26,8 +26,10 @@ export interface SchedulerResult {
     resourcesFailed: number;
     duration: number;
     errors?: string[];
-    /** Tenant IDs that had actual work (schedules > 0 and accounts > 0). Caller uses this to update lastRunAt. */
+    /** Tenant IDs that had actual work (schedules > 0 and accounts > 0). Used for per-tenant audit logging. */
     processedTenantIds?: string[];
+    /** Tenant IDs the scan evaluated, whether or not they had work. Caller uses this to update lastRunAt so empty tenants aren't re-checked every tick. */
+    checkedTenantIds?: string[];
 }
 
 // DynamoDB Entity Types
