@@ -5,8 +5,12 @@
  * PUT    /api/agent-ops/mcp-settings — Save AgentOps MCP config to tenant-scoped config store
  * DELETE /api/agent-ops/mcp-settings — Reset to defaults
  *
- * Uses a separate config key ('agent-ops-mcp-servers') so AgentOps MCP servers
- * are independent from the main AI Ops MCP config ('mcp-servers').
+ * Shares the SAME tenant-config key ('mcp-servers') as the main AI Ops MCP
+ * config, so AI Ops and Agent Ops manage one unified server set. The Agent Ops
+ * executor already reads 'mcp-servers' at run time (see agent-executor.ts), so
+ * a separate 'agent-ops-mcp-servers' store was never consumed by runs — anything
+ * saved there had no effect. This route is kept as a thin alias for the existing
+ * Agent Ops / Channels settings pages that call it.
  */
 
 import { NextResponse } from 'next/server';
@@ -22,7 +26,9 @@ import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 
-const CONFIG_KEY = 'agent-ops-mcp-servers';
+// Unified with the main AI Ops MCP config store. This is the key the Agent Ops
+// executor reads at run time, so both settings surfaces now edit the same servers.
+const CONFIG_KEY = 'mcp-servers';
 
 export async function GET() {
     try {

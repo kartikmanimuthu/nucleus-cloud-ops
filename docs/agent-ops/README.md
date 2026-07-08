@@ -36,7 +36,7 @@ Three layers, cleanly decoupled:
 |---|---|---|
 | `AgentOpsRun` | 383–418 | One run: `source`, `status`, `mode` (`plan`\|`fast`), `autoApprove`, `model`, `threadId` (LangGraph checkpoint), `trigger` (polymorphic JSON), `result`/`clarification`/`approvalRequest`, `durationMs`. 30-day TTL. |
 | `AgentOpsEvent` | 423–443 | Per-run event stream: `eventType` (`planning`\|`execution`\|`tool_call`\|`tool_result`\|`reflection`\|`revision`\|`final`\|`error`), `node`, `content`, `toolName`/`toolArgs`/`toolOutput`. 30-day TTL. |
-| `ScheduledTask` | 448–477 | Cron + timezone, mode/model/MCP servers, `notification` target (none\|slack\|jira), `lastRun*`/`nextRunAt`/`runCount`. |
+| `ScheduledTask` | 448–477 | Cron + timezone, mode/model/MCP servers, `notification` target (none\|slack\|telegram\|jira), `lastRun*`/`nextRunAt`/`runCount`. |
 | `ScheduledTaskLock` | 482–492 | Distributed lock (`taskId` + `scheduledAt`) so cron never double-fires. 1-hour TTL. |
 
 ### Run lifecycle (`status`)
@@ -118,10 +118,32 @@ Three interruption points, all resumable from the LangGraph checkpoint:
 
 ## Scheduling (cron)
 
+> Full walkthrough (flow diagram, HIL branch, re-sync loop, testing): [`scheduled-cron-delivery.md`](./scheduled-cron-delivery.md).
+
 - **Web-UI side** (`scheduler-engine.ts`) is producer-only: `registerTask()` calls `boss.createQueue` + `boss.schedule`.
-- **Worker side** (`agent-ops-scheduler/index.ts`) on startup loads all active `ScheduledTask`s and registers a timezone-aware pg-boss cron per task (`agent-ops-task:<taskId>`).
+- **Worker side** (`agent-ops-scheduler/index.ts`) syncs active `ScheduledTask`s to pg-boss cron schedules
+  (`agent-ops-task:<taskId>`) at startup **and re-syncs every 60s** (`sync.ts` diff), so tasks created,
+  paused, or re-cronned after startup take effect without a worker restart.
 - Each tick POSTs to `/api/agent-ops/scheduled-tasks/[taskId]/trigger` with `x-internal-key` (bypasses NextAuth) + `x-tenant-id`.
-- `ScheduledTaskLock` (`taskId` + `scheduledAt`) prevents duplicate runs across ECS containers.
+- The trigger route acquires `ScheduledTaskLock` (`taskId` + minute-rounded window) before creating the run —
+  duplicate triggers in the same minute return 409 `{ skipped: true }`.
+
+### Scheduled-run delivery (unidirectional)
+
+After a scheduled run settles, `finalizeScheduledRun` (`lib/agent-ops/scheduled-notifier.ts`) refreshes the
+task's `lastRun*` fields and dispatches **one digest** directly to the adapter named by
+`task.notification.type` via `adapter.sendScheduledNotification(task, run, outcome)`:
+
+| Run status | Outcome | Digest |
+|---|---|---|
+| `completed` | `result` | summary, tools used, duration, dashboard link |
+| `failed` / `cancelled` | `failure` | error message, dashboard link |
+| `awaiting_input` / `awaiting_approval` | `attention` | question / approval type + dashboard deep link |
+
+Destination comes from `task.notification` (`channelId` for Slack, `chatId` for Telegram); credentials load
+per-tenant from `TenantConfig` at send time. Delivery is best-effort and never affects the run. The same
+finalize hook runs after dashboard approve/resume, so a parked run still reports its final result.
+Supported channels: **Slack, Telegram** (`jira` type exists but delivery is not wired yet).
 
 ---
 

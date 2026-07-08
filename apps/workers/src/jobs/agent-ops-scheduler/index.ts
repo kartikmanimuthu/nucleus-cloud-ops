@@ -3,6 +3,7 @@ import { createLogger } from '../../lib/logger.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { Pool, type PoolClient } from 'pg';
 import { env } from '../../env.js';
+import { diffScheduleSync, type ActiveTaskRow, type RegisteredEntry } from './sync.js';
 
 const log = createLogger('agent-ops-scheduler');
 
@@ -66,19 +67,27 @@ function queueName(taskId: string): string {
     return `${QUEUE_PREFIX}:${taskId}`;
 }
 
-async function loadActiveTasks(): Promise<Array<{ taskId: string; tenantId: string; cronExpression: string; timezone: string }>> {
-    // Direct Prisma query — workers share DATABASE_URL with web-ui
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
-    try {
-        const tasks = await prisma.scheduledTask.findMany({
-            where: { taskStatus: 'active' },
-            select: { taskId: true, tenantId: true, cronExpression: true, timezone: true },
-        });
-        return tasks;
-    } finally {
-        await prisma.$disconnect();
+const SYNC_INTERVAL_MS = 60_000;
+
+const registeredSchedules = new Map<string, RegisteredEntry>();
+const startedConsumers = new Set<string>();
+let syncInFlight = false;
+
+let _prisma: import('@prisma/client').PrismaClient | null = null;
+async function getPrisma(): Promise<import('@prisma/client').PrismaClient> {
+    if (!_prisma) {
+        const { PrismaClient } = await import('@prisma/client');
+        _prisma = new PrismaClient();
     }
+    return _prisma;
+}
+
+async function loadActiveTasks(): Promise<ActiveTaskRow[]> {
+    const prisma = await getPrisma();
+    return prisma.scheduledTask.findMany({
+        where: { taskStatus: 'active' },
+        select: { taskId: true, tenantId: true, cronExpression: true, timezone: true },
+    });
 }
 
 export async function handleAgentOpsTick(jobData: unknown): Promise<void> {
@@ -153,24 +162,72 @@ export async function handleAgentOpsTick(jobData: unknown): Promise<void> {
     }
 }
 
-export async function register(boss: PgBoss, executor: JobExecutor): Promise<void> {
-    const tasks = await loadActiveTasks();
+async function ensureTaskRegistered(boss: PgBoss, executor: JobExecutor, task: ActiveTaskRow): Promise<void> {
+    const queue = queueName(task.taskId);
+    await boss.createQueue(queue);
 
-    for (const task of tasks) {
-        const queue = queueName(task.taskId);
-        await boss.createQueue(queue);
+    // pg-boss allows one work() subscription per queue per process
+    if (!startedConsumers.has(queue)) {
         executor.registerHandler?.(queue, handleAgentOpsTick);
-        await boss.schedule(queue, task.cronExpression, {
-            taskId: task.taskId,
-            tenantId: task.tenantId,
-        } satisfies TaskTickData, { tz: task.timezone });
-
         await boss.work(queue, { batchSize: 1 }, async (jobs: PgBoss.Job<TaskTickData>[]) => {
             for (const job of jobs) {
                 await executor.execute(queue, job.data);
             }
         });
+        startedConsumers.add(queue);
     }
 
-    log.info(`Registered ${tasks.length} agent-ops scheduled task(s)`);
+    // schedule() upserts by queue name — safe for both add and update
+    await boss.schedule(queue, task.cronExpression, {
+        taskId: task.taskId,
+        tenantId: task.tenantId,
+    } satisfies TaskTickData, { tz: task.timezone });
+
+    registeredSchedules.set(task.taskId, {
+        cronExpression: task.cronExpression,
+        timezone: task.timezone,
+    });
+}
+
+export async function syncSchedules(boss: PgBoss, executor: JobExecutor): Promise<void> {
+    if (syncInFlight) {
+        log.info('Schedule re-sync skipped — previous sync still in flight');
+        return;
+    }
+    syncInFlight = true;
+    try {
+        const active = await loadActiveTasks();
+        const diff = diffScheduleSync(active, registeredSchedules);
+
+        for (const task of [...diff.toAdd, ...diff.toUpdate]) {
+            try {
+                await ensureTaskRegistered(boss, executor, task);
+                log.info(`Registered schedule for task ${task.taskId} (${task.cronExpression} ${task.timezone})`);
+            } catch (err) {
+                log.error(`Failed to register task ${task.taskId}`, { error: String(err) });
+            }
+        }
+
+        for (const taskId of diff.toRemove) {
+            try {
+                await boss.unschedule(queueName(taskId));
+            } catch { /* schedule may not exist — safe to ignore */ }
+            registeredSchedules.delete(taskId);
+            log.info(`Unscheduled task ${taskId}`);
+        }
+    } finally {
+        syncInFlight = false;
+    }
+}
+
+export async function register(boss: PgBoss, executor: JobExecutor): Promise<void> {
+    await syncSchedules(boss, executor);
+
+    setInterval(() => {
+        syncSchedules(boss, executor).catch(err =>
+            log.error('Schedule re-sync failed', { error: String(err) }),
+        );
+    }, SYNC_INTERVAL_MS);
+
+    log.info(`Registered ${registeredSchedules.size} agent-ops scheduled task(s); re-sync every ${SYNC_INTERVAL_MS / 1000}s`);
 }

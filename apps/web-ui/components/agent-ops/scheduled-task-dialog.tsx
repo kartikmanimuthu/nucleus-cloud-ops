@@ -40,9 +40,10 @@ const DEFAULT_FORM = {
     timezone: "UTC",
     mode: "plan" as const,
     autoApprove: false,
-    notificationType: "none" as "none" | "slack" | "jira",
+    notificationType: "none" as "none" | "slack" | "jira" | "telegram",
     channelId: "",
     channelName: "",
+    chatId: "",
     issueKey: "",
 }
 
@@ -60,6 +61,7 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
         notificationType: task.notification.type,
         channelId: task.notification.channelId || "",
         channelName: task.notification.channelName || "",
+        chatId: task.notification.chatId || "",
         issueKey: task.notification.issueKey || "",
     } : DEFAULT_FORM)
 
@@ -85,6 +87,7 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
                     type: form.notificationType,
                     ...(form.notificationType === "slack" && { channelId: form.channelId, channelName: form.channelName }),
                     ...(form.notificationType === "jira" && { issueKey: form.issueKey }),
+                    ...(form.notificationType === "telegram" && { chatId: form.chatId }),
                 },
             }
 
@@ -180,6 +183,7 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
                                 <SelectContent>
                                     <SelectItem value="none">None (web UI only)</SelectItem>
                                     <SelectItem value="slack">Slack channel</SelectItem>
+                                    <SelectItem value="telegram">Telegram chat</SelectItem>
                                     <SelectItem value="jira">Jira issue comment</SelectItem>
                                 </SelectContent>
                             </Select>
@@ -203,6 +207,14 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
                         <div className="space-y-1.5">
                             <Label className="text-xs">Jira Issue Key</Label>
                             <Input placeholder="PROJ-123" value={form.issueKey} onChange={e => set("issueKey", e.target.value)} />
+                        </div>
+                    )}
+
+                    {form.notificationType === "telegram" && (
+                        <div className="space-y-1.5">
+                            <Label className="text-xs">Telegram Chat ID</Label>
+                            <Input placeholder="-1001234567890" value={form.chatId} onChange={e => set("chatId", e.target.value)} />
+                            <p className="text-xs text-muted-foreground">Numeric chat ID the bot can post to (group IDs start with -100).</p>
                         </div>
                     )}
 

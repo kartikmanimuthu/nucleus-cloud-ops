@@ -16,6 +16,7 @@ import { getGatewayEventBus } from '@/lib/gateway/event-bus';
 import { getGatewayService } from '@/lib/gateway';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import { finalizeScheduledRun } from '@/lib/agent-ops/scheduled-notifier';
 
 export async function POST(
     req: Request,
@@ -59,6 +60,10 @@ export async function POST(
 
             // Emit cancelled event so the NotificationRouter notifies the source channel
             eventBus.emit({ type: 'run:cancelled', runId, tenantId, timestamp: new Date(), data: {} });
+
+            // Scheduled runs: refresh lastRunStatus and deliver the cancellation digest.
+            // countRun: false — the trigger route already counted this run at first settle.
+            await finalizeScheduledRun({ ...run, status: 'cancelled' }, { countRun: false });
 
             const session = await getAuthSession();
             AuditService.logUserAction({
@@ -106,9 +111,16 @@ export async function POST(
         // Fire-and-forget resume — the executor emits run:completed / run:failed
         // events to the bus, and the NotificationRouter dispatches them to the
         // originating channel adapter.
-        resumeApprovedRun(run, eventBus).catch((err) => {
-            console.error(`[Agent Ops API] Resume failed for run ${runId}:`, err);
-        });
+        resumeApprovedRun(run, eventBus)
+            .then(async () => {
+                // Scheduled runs: deliver the final digest to the task's channel.
+                // countRun: false — the trigger route already counted this run at first settle.
+                const freshRun = await agentOpsService.getRun(tenantId, runId);
+                if (freshRun) await finalizeScheduledRun(freshRun, { countRun: false });
+            })
+            .catch((err) => {
+                console.error(`[Agent Ops API] Resume failed for run ${runId}:`, err);
+            });
 
         return NextResponse.json({ runId, status: 'in_progress', message: 'Run approved — resuming execution.' });
 

@@ -14,6 +14,7 @@ import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import { finalizeScheduledRun } from '@/lib/agent-ops/scheduled-notifier';
 
 export async function POST(
     req: Request,
@@ -59,9 +60,16 @@ export async function POST(
         };
 
         // Fire-and-forget re-execution
-        executeAgentRun(resumedRun).catch((err) => {
-            console.error(`[ResumeEndpoint] Execution error for run ${runId}:`, err);
-        });
+        executeAgentRun(resumedRun)
+            .then(async () => {
+                // Scheduled runs: deliver the final digest to the task's channel.
+                // countRun: false — the trigger route already counted this run at first settle.
+                const freshRun = await agentOpsService.getRun(tenantId, runId);
+                if (freshRun) await finalizeScheduledRun(freshRun, { countRun: false });
+            })
+            .catch((err) => {
+                console.error(`[ResumeEndpoint] Execution error for run ${runId}:`, err);
+            });
 
         AuditService.logUserAction({
             eventType: 'agent.run.resumed',

@@ -161,15 +161,8 @@ describe('ScheduledTaskPostgresRepository', () => {
     });
 
     describe('tryAcquireExecutionLock', () => {
-        it('returns true on first call (lock acquired within 2 seconds)', async () => {
+        it('returns true when the INSERT affects a row (lock acquired)', async () => {
             mockPrisma.$executeRaw.mockResolvedValue(1);
-            mockPrisma.scheduledTaskLock.findUnique.mockResolvedValue({
-                id: 'lock-1',
-                taskId: 'task-1',
-                scheduledAt: '2024-01-01T02:00:00Z',
-                acquiredAt: new Date(), // just now
-                expiresAt: new Date(Date.now() + 3600000),
-            });
 
             const repo = new ScheduledTaskPostgresRepository();
             const result = await repo.tryAcquireExecutionLock('task-1', '2024-01-01T02:00:00Z');
@@ -178,16 +171,8 @@ describe('ScheduledTaskPostgresRepository', () => {
             expect(mockPrisma.$executeRaw).toHaveBeenCalledOnce();
         });
 
-        it('returns false on duplicate (ON CONFLICT — lock already exists)', async () => {
+        it('returns false when ON CONFLICT DO NOTHING affects zero rows (lock already held)', async () => {
             mockPrisma.$executeRaw.mockResolvedValue(0);
-            // Lock exists but was acquired 10 seconds ago (not by us)
-            mockPrisma.scheduledTaskLock.findUnique.mockResolvedValue({
-                id: 'lock-1',
-                taskId: 'task-1',
-                scheduledAt: '2024-01-01T02:00:00Z',
-                acquiredAt: new Date(Date.now() - 10000), // 10 seconds ago
-                expiresAt: new Date(Date.now() + 3600000),
-            });
 
             const repo = new ScheduledTaskPostgresRepository();
             const result = await repo.tryAcquireExecutionLock('task-1', '2024-01-01T02:00:00Z');

@@ -382,8 +382,32 @@ export class MCPServerManager {
         const ephemeralId = `__probe__:${config.id}:${Date.now()}:${++this.probeCounter}`;
         try {
             await this._doConnect({ ...config, id: ephemeralId });
-            const tools = this.toolCache.get(ephemeralId) || [];
-            return { toolCount: tools.length, tools: tools.map(t => t.name) };
+
+            const client = this.clients.get(ephemeralId);
+            if (!client) {
+                throw new Error('Connection could not be established.');
+            }
+
+            // Strict tool discovery for the health probe. We deliberately do NOT
+            // read from the tool cache populated by _doConnect → _cacheTools,
+            // because _cacheTools swallows listTools() errors (it stores an empty
+            // list on failure). That leniency is correct for a live run — one
+            // flaky listTools shouldn't tear down an enabled server — but it makes
+            // a "Test connection" probe report success for a broken server.
+            // Here we call listTools() directly so its error propagates.
+            const result = await client.listTools();
+            const tools = (result.tools ?? []).map((t: any) => t.name);
+
+            // A healthy MCP server advertises at least one tool. Zero tools means
+            // the command/URL/args/credentials are almost certainly wrong — treat
+            // it as a failed test rather than a misleading "Connected — 0 tools".
+            if (tools.length === 0) {
+                throw new Error(
+                    'Connected, but the server exposed no tools. This usually means the command, URL, arguments, or credentials are incorrect — a working MCP server advertises at least one tool.',
+                );
+            }
+
+            return { toolCount: tools.length, tools };
         } finally {
             await this.disconnectServer(ephemeralId);
         }

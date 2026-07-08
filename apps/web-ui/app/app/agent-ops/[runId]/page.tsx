@@ -5,6 +5,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Textarea } from "@/components/ui/textarea"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import {
     ArrowLeft, Clock, CheckCircle2, XCircle, Loader2,
@@ -134,6 +135,8 @@ export default function RunDetailPage() {
     const [approving, setApproving] = useState(false)
     const [rejecting, setRejecting] = useState(false)
     const [exporting, setExporting] = useState(false)
+    const [clarificationText, setClarificationText] = useState("")
+    const [submittingClarification, setSubmittingClarification] = useState(false)
 
     const handleExportPdf = useCallback(async () => {
         if (!run) return
@@ -178,6 +181,22 @@ export default function RunDetailPage() {
         }
     }, [run, tenantId]);
 
+    const handleClarification = useCallback(async () => {
+        if (!run || !clarificationText.trim()) return;
+        setSubmittingClarification(true);
+        try {
+            await fetch(`/api/agent-ops/${run.runId}/resume`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tenantId, userInput: clarificationText.trim() }),
+            });
+            setClarificationText("");
+            await fetchDetail();
+        } finally {
+            setSubmittingClarification(false);
+        }
+    }, [run, tenantId, clarificationText]);
+
     const fetchDetail = useCallback(async () => {
         try {
             const res = await fetch(`/api/agent-ops/${runId}?tenantId=${tenantId}`)
@@ -194,7 +213,7 @@ export default function RunDetailPage() {
     useEffect(() => {
         fetchDetail()
         const interval = setInterval(() => {
-            if (run?.status === "in_progress" || run?.status === "queued" || run?.status === "awaiting_approval") {
+            if (run?.status === "in_progress" || run?.status === "queued" || run?.status === "awaiting_approval" || run?.status === "awaiting_input") {
                 fetchDetail()
             }
         }, 5000)
@@ -282,12 +301,13 @@ export default function RunDetailPage() {
                         run.status === "in_progress" ? "default" :
                         run.status === "awaiting_approval" ? "outline" : "outline"
                     }
-                    className={`text-sm px-3 py-1 ${run.status === "awaiting_approval" ? "border-amber-500 text-amber-600" : ""}`}
+                    className={`text-sm px-3 py-1 ${run.status === "awaiting_approval" ? "border-amber-500 text-amber-600" : run.status === "awaiting_input" ? "border-blue-500 text-blue-600" : ""}`}
                 >
                     {run.status === "in_progress" && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
                     {run.status === "completed" && <CheckCircle2 className="h-3 w-3 mr-1" />}
                     {run.status === "failed" && <XCircle className="h-3 w-3 mr-1" />}
                     {run.status === "awaiting_approval" && <ShieldCheck className="h-3 w-3 mr-1" />}
+                    {run.status === "awaiting_input" && <MessageSquare className="h-3 w-3 mr-1" />}
                     {run.status.replace("_", " ").toUpperCase()}
                 </Badge>
                 {(run.status === "in_progress" || run.status === "queued") && (
@@ -367,6 +387,53 @@ export default function RunDetailPage() {
                     )}
                 </CardContent>
             </Card>
+
+            {/* Clarification Panel — shown when run is awaiting_input */}
+            {run.status === "awaiting_input" && run.clarification && (
+                <Card className="border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-950/20">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm text-blue-700 dark:text-blue-400 flex items-center gap-2">
+                            <MessageSquare className="h-4 w-4" />
+                            Response Needed
+                            {run.clarification.missingInfo && (
+                                <Badge variant="outline" className="text-xs border-blue-400 text-blue-600 ml-auto">
+                                    {run.clarification.missingInfo}
+                                </Badge>
+                            )}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="bg-background rounded-md border p-3">
+                            <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                                Agent asked
+                            </p>
+                            <MarkdownContent content={run.clarification.question} />
+                        </div>
+                        <Textarea
+                            placeholder="Type your response…"
+                            value={clarificationText}
+                            onChange={e => setClarificationText(e.target.value)}
+                            rows={4}
+                            disabled={submittingClarification}
+                        />
+                        <div className="flex items-center gap-3">
+                            <Button
+                                onClick={handleClarification}
+                                disabled={submittingClarification || !clarificationText.trim()}
+                            >
+                                {submittingClarification
+                                    ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    : <MessageSquare className="h-4 w-4 mr-2" />
+                                }
+                                {submittingClarification ? "Submitting…" : "Submit Response"}
+                            </Button>
+                            <span className="text-xs text-muted-foreground ml-auto">
+                                Source: <span className="capitalize">{run.source}</span> · Triggered {formatTime(run.createdAt, timezone)}
+                            </span>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Approval Panel — shown when run is awaiting_approval */}
             {run.status === "awaiting_approval" && run.approvalRequest && (

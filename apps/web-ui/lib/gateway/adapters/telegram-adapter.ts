@@ -9,7 +9,7 @@
 import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { env } from '@/env';
-import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
+import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
 import { ChannelRateLimiter } from '@/lib/gateway/utils/rate-limiter';
 import type {
     ChannelAdapter,
@@ -18,11 +18,13 @@ import type {
     HilCapabilities,
     GatewayMessage,
     ReplyContext,
+    ScheduledOutcome,
 } from '@/lib/gateway/types';
 import type {
     AgentOpsRun,
     AgentOpsEvent,
     TelegramTriggerMeta,
+    ScheduledTask,
 } from '@/lib/agent-ops/types';
 
 // ─── Constants ────────────────────────────────────────────────────────
@@ -275,6 +277,69 @@ export class TelegramAdapter implements ChannelAdapter {
         if (ackMsgId) {
             await this.editMessage(run, trigger.chatId, ackMsgId, escapeMarkdownV2(content));
         }
+    }
+
+    async sendScheduledNotification(
+        task: ScheduledTask,
+        run: AgentOpsRun,
+        outcome: ScheduledOutcome,
+    ): Promise<void> {
+        const chatIdRaw = task.notification?.chatId;
+        if (!chatIdRaw) {
+            console.warn('[TelegramAdapter] sendScheduledNotification: no chatId on task notification');
+            return;
+        }
+        const chatId = Number(chatIdRaw);
+        const dashboardUrl = buildDashboardRunUrl(run.runId);
+        const durationSec = Math.round((run.durationMs ?? 0) / 1000);
+
+        // Telegram rejects messages over 4096 chars. The variable-length piece is
+        // the "detail" (summary / error / clarification question) — resolve it once
+        // per outcome, then build the message lines from it via a small helper so
+        // we can rebuild with a shorter detail without duplicating the branch ladder.
+        const rawDetail =
+            outcome === 'result' ? (run.result?.summary ?? '(no summary)') :
+            outcome === 'failure' ? (run.error ?? 'Run did not complete.') :
+            (run.clarification?.question ?? `Run is ${run.status.replace('_', ' ')}.`);
+
+        const buildLines = (detail: string): string[] => {
+            let lines: string[];
+            if (outcome === 'result') {
+                lines = [
+                    `*Scheduled task complete* — ${escapeMarkdownV2(task.name)}`,
+                    '',
+                    escapeMarkdownV2(detail),
+                    '',
+                    `*Tools:* ${escapeMarkdownV2(run.result?.toolsUsed?.join(', ') || 'None')}`,
+                    `*Duration:* ${durationSec}s`,
+                ];
+            } else if (outcome === 'failure') {
+                lines = [
+                    `*Scheduled task ${run.status === 'cancelled' ? 'cancelled' : 'failed'}* — ${escapeMarkdownV2(task.name)}`,
+                    '',
+                    escapeMarkdownV2(detail),
+                ];
+            } else {
+                lines = [
+                    `*Scheduled task needs attention* — ${escapeMarkdownV2(task.name)}`,
+                    '',
+                    escapeMarkdownV2(detail),
+                ];
+            }
+            lines.push('', `Run ${escapeMarkdownV2(run.runId)}`, `[Open dashboard](${escapeMarkdownV2(dashboardUrl)})`);
+            return lines;
+        };
+
+        // Never truncate the already-escaped text (that can cut a `\X` escape
+        // sequence in half) — truncate the raw detail before escaping instead.
+        let text = buildLines(rawDetail.slice(0, 3000)).join('\n');
+        if (text.length > 4096) {
+            // Worst-case escaping inflation is ~2x, so 1000 raw chars keeps the
+            // full message safely under Telegram's 4096-char limit.
+            text = buildLines(`${rawDetail.slice(0, 1000)}…`).join('\n');
+        }
+
+        await this.sendMessage(run, chatId, text);
     }
 
     // ─── Config ───────────────────────────────────────────────────────

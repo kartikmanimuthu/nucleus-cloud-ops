@@ -31,7 +31,7 @@ export default function RespondPage() {
         fetch(`/api/agent-ops/${runId}`)
             .then(res => res.json())
             .then(data => {
-                if (data.success && data.data) setRun(data.data);
+                if (data.run) setRun(data.run);
                 else setError('Run not found');
             })
             .catch(() => setError('Failed to load run'))
@@ -41,7 +41,11 @@ export default function RespondPage() {
     const handleApprove = async () => {
         setSubmitting(true);
         try {
-            await fetch(`/api/agent-ops/${runId}/approve`, { method: 'POST' });
+            await fetch(`/api/agent-ops/${runId}/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'approve' }),
+            });
             router.push('/app/agent-ops');
         } catch {
             setError('Failed to approve');
@@ -53,7 +57,11 @@ export default function RespondPage() {
     const handleReject = async () => {
         setSubmitting(true);
         try {
-            await fetch(`/api/agent-ops/${runId}/cancel`, { method: 'POST' });
+            await fetch(`/api/agent-ops/${runId}/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reject' }),
+            });
             router.push('/app/agent-ops');
         } catch {
             setError('Failed to reject');

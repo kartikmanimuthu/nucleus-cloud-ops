@@ -11,7 +11,7 @@ import type { NextRequest } from 'next/server';
 import { env } from '@/env';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
-import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
+import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
 import type {
     ChannelAdapter,
     ChannelType,
@@ -19,10 +19,12 @@ import type {
     HilCapabilities,
     GatewayMessage,
     ReplyContext,
+    ScheduledOutcome,
 } from '@/lib/gateway/types';
 import type {
     AgentOpsRun,
     AgentOpsEvent,
+    ScheduledTask,
     SlackIntegrationConfig,
     SlackTriggerMeta,
 } from '@/lib/agent-ops/types';
@@ -263,6 +265,73 @@ export class SlackAdapter implements ChannelAdapter {
             }
         } catch (err) {
             console.error('[SlackAdapter] sendApprovalRequest error:', err);
+        }
+    }
+
+    async sendScheduledNotification(
+        task: ScheduledTask,
+        run: AgentOpsRun,
+        outcome: ScheduledOutcome,
+    ): Promise<void> {
+        const channelId = task.notification?.channelId;
+        if (!channelId) {
+            console.warn('[SlackAdapter] sendScheduledNotification: no channelId on task notification');
+            return;
+        }
+        const config = await this.loadConfig(run.tenantId);
+        if (!config?.botToken) {
+            console.warn('[SlackAdapter] sendScheduledNotification: no botToken configured');
+            return;
+        }
+
+        const dashboardUrl = buildDashboardRunUrl(run.runId);
+        const durationSec = Math.round((run.durationMs ?? 0) / 1000);
+
+        let header: string;
+        let detail: string;
+        if (outcome === 'result') {
+            header = `✅ Scheduled task "${task.name}" completed`;
+            const tools = run.result?.toolsUsed?.length
+                ? `\n*Tools:* ${run.result.toolsUsed.join(', ')}`
+                : '';
+            detail = `${run.result?.summary ?? '(no summary)'}${tools}\n*Duration:* ${durationSec}s`;
+        } else if (outcome === 'failure') {
+            header = `❌ Scheduled task "${task.name}" ${run.status === 'cancelled' ? 'was cancelled' : 'failed'}`;
+            detail = run.error ?? 'Run did not complete.';
+        } else {
+            header = `⏸️ Scheduled task "${task.name}" needs your attention`;
+            detail = run.clarification?.question
+                ?? (run.approvalRequest
+                    ? `Approval required (${run.approvalRequest.approvalType}).`
+                    : `Run is ${run.status.replace('_', ' ')}.`);
+        }
+
+        const blocks = [
+            {
+                type: 'section',
+                text: { type: 'mrkdwn', text: `*${header}*\n\n${detail.slice(0, 2900)}` },
+            },
+            {
+                type: 'context',
+                elements: [{ type: 'mrkdwn', text: `Run \`${run.runId}\` · <${dashboardUrl}|Open in dashboard>` }],
+            },
+        ];
+
+        try {
+            const res = await fetch('https://slack.com/api/chat.postMessage', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${config.botToken}`,
+                },
+                body: JSON.stringify({ channel: channelId, blocks, text: header }),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                console.warn('[SlackAdapter] sendScheduledNotification post failed:', data.error);
+            }
+        } catch (err) {
+            console.error('[SlackAdapter] sendScheduledNotification error:', err);
         }
     }
 

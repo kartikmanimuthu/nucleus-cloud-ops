@@ -48,6 +48,12 @@ export interface IScheduledTaskRepository {
     pauseScheduledTask(tenantId: string, taskId: string): Promise<void>;
     resumeScheduledTask(tenantId: string, taskId: string): Promise<ScheduledTask | null>;
     deleteScheduledTask(tenantId: string, taskId: string): Promise<void>;
-    updateLastRun(tenantId: string, taskId: string, runId: string, status: AgentOpsStatus): Promise<void>;
+    updateLastRun(
+        tenantId: string,
+        taskId: string,
+        runId: string,
+        status: AgentOpsStatus,
+        opts?: { incrementRunCount?: boolean }
+    ): Promise<void>;
     tryAcquireExecutionLock(taskId: string, scheduledAt: string): Promise<boolean>;
 }

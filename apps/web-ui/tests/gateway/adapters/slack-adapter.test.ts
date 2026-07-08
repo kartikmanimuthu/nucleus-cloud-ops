@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SlackAdapter } from '@/lib/gateway/adapters/slack-adapter';
+import { TenantConfigService } from '@/lib/tenant-config-service';
+import type { ScheduledTask, AgentOpsRun } from '@/lib/agent-ops/types';
 
 vi.mock('@/lib/tenant-config-service', () => ({
     TenantConfigService: {
@@ -93,5 +95,85 @@ describe('SlackAdapter', () => {
         expect(res.status).toBe(200);
         const json = await res.json();
         expect(json.response_type).toBe('ephemeral');
+    });
+});
+
+describe('SlackAdapter.sendScheduledNotification', () => {
+    let adapter: SlackAdapter;
+
+    const task = {
+        taskId: 'task-1',
+        tenantId: 'tenant-1',
+        name: 'Daily Cost Review',
+        notification: { type: 'slack', channelId: 'C0SCHED' },
+    } as unknown as ScheduledTask;
+
+    const run = {
+        runId: 'run-1',
+        tenantId: 'tenant-1',
+        source: 'scheduled',
+        status: 'completed',
+        durationMs: 42000,
+        trigger: { taskId: 'task-1', taskName: 'Daily Cost Review', scheduledAt: '2026-07-05T00:00:00Z' },
+        result: { summary: 'No anomalies found', toolsUsed: ['execute_command'], iterations: 2 },
+    } as unknown as AgentOpsRun;
+
+    beforeEach(() => {
+        adapter = new SlackAdapter();
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({
+            signingSecret: 'test-secret',
+            botToken: 'xoxb-test-token',
+            enabled: true,
+        });
+        global.fetch = vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ ok: true, ts: '1.2' }), { status: 200 }),
+        ) as unknown as typeof fetch;
+    });
+
+    it('posts a result digest to the configured channel with the tenant botToken', async () => {
+        await adapter.sendScheduledNotification!(task, run, 'result');
+
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        const [url, init] = vi.mocked(global.fetch).mock.calls[0];
+        expect(url).toBe('https://slack.com/api/chat.postMessage');
+        expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer xoxb-test-token');
+        const body = JSON.parse(init!.body as string);
+        expect(body.channel).toBe('C0SCHED');
+        expect(JSON.stringify(body.blocks)).toContain('No anomalies found');
+        expect(JSON.stringify(body.blocks)).toContain('run-1');
+    });
+
+    it('posts a failure digest containing the error', async () => {
+        const failed = { ...run, status: 'failed', error: 'AccessDenied on ec2:StopInstances' } as unknown as AgentOpsRun;
+        await adapter.sendScheduledNotification!(task, failed, 'failure');
+        const body = JSON.parse(vi.mocked(global.fetch).mock.calls[0][1]!.body as string);
+        expect(JSON.stringify(body.blocks)).toContain('AccessDenied on ec2:StopInstances');
+    });
+
+    it('posts an attention digest with a dashboard link', async () => {
+        const parked = {
+            ...run, status: 'awaiting_approval',
+            approvalRequest: { planSteps: ['stop idle instances'], approvalType: 'plan' },
+        } as unknown as AgentOpsRun;
+        await adapter.sendScheduledNotification!(task, parked, 'attention');
+        const body = JSON.parse(vi.mocked(global.fetch).mock.calls[0][1]!.body as string);
+        expect(JSON.stringify(body.blocks)).toContain('/app/agent-ops/run-1');
+    });
+
+    it('no-ops without a channelId', async () => {
+        const noDest = { ...task, notification: { type: 'slack' } } as unknown as ScheduledTask;
+        await adapter.sendScheduledNotification!(noDest, run, 'result');
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('no-ops without a botToken', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue(null);
+        await adapter.sendScheduledNotification!(task, run, 'result');
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('never throws when fetch rejects', async () => {
+        vi.mocked(global.fetch).mockRejectedValue(new Error('network down'));
+        await expect(adapter.sendScheduledNotification!(task, run, 'result')).resolves.toBeUndefined();
     });
 });
