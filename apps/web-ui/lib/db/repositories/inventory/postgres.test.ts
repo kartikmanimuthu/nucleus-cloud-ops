@@ -135,6 +135,20 @@ describe('InventoryPostgresRepository', () => {
             const callArg = mockPrisma.inventoryResource.findMany.mock.calls[0][0];
             expect(callArg.where.tenantId).toBe('tenant-x');
         });
+
+        it('filters to isCurrent = true rows', async () => {
+            mockPrisma.inventoryResource.count.mockResolvedValue(1);
+            mockPrisma.inventoryResource.findMany.mockResolvedValue([makeRow()]);
+
+            const repo = new InventoryPostgresRepository();
+            await repo.listResources({ tenantId: 'org-default' });
+
+            const callArg = mockPrisma.inventoryResource.findMany.mock.calls[0][0];
+            expect(callArg.where.isCurrent).toBe(true);
+
+            const countArg = mockPrisma.inventoryResource.count.mock.calls[0][0];
+            expect(countArg.where.isCurrent).toBe(true);
+        });
     });
 
     describe('getResource', () => {
@@ -280,6 +294,23 @@ describe('InventoryPostgresRepository', () => {
                 })
             );
             expect(result).toBe(10);
+        });
+    });
+
+    describe('listResourcesFulltext (via searchTerm)', () => {
+        it('includes isCurrent = true in the WHERE clause', async () => {
+            mockPrisma.$queryRawUnsafe = vi
+                .fn()
+                .mockResolvedValueOnce([{ total: 0 }])
+                .mockResolvedValueOnce([]);
+
+            const repo = new InventoryPostgresRepository();
+            await repo.listResources({ tenantId: 'org-default', searchTerm: 'prod' });
+
+            const countSql = mockPrisma.$queryRawUnsafe.mock.calls[0][0];
+            const dataSql = mockPrisma.$queryRawUnsafe.mock.calls[1][0];
+            expect(countSql).toContain('"isCurrent" = true');
+            expect(dataSql).toContain('"isCurrent" = true');
         });
     });
 });
