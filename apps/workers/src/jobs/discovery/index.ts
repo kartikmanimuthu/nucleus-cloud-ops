@@ -4,7 +4,7 @@ import { getAllTenants, getTenantAccounts, updateAccountSyncStatus } from './ser
 import { writeAuditLog } from './services/audit-service.js';
 import { assumeRole } from './services/sts-service.js';
 import { runInventoryScan } from './services/scanner.js';
-import { writeResourcesToPg, saveSyncStatus } from './services/pg-writer.js';
+import { writeResourcesToPg, saveSyncStatus, reconcileStaleResources } from './services/pg-writer.js';
 import { getTenantJobConfig, updateTenantJobLastRun } from '../scheduler/services/pg-service.js';
 import type { DiscoveryFanOutJob, DiscoveryScanJob } from './types.js';
 import { readFileSync } from 'fs';
@@ -41,6 +41,23 @@ export function shouldRunTenant(
 export function resolveScanfilePath(configured: string | undefined, baseDir: string): string {
     if (!configured) return join(baseDir, 'scanfile.json');
     return isAbsolute(configured) ? configured : join(baseDir, configured);
+}
+
+async function reconcileAndWarnIfEmpty(
+    tenantId: string,
+    accountId: string,
+    scanId: string,
+    resourceCount: number,
+): Promise<void> {
+    const staleCount = await reconcileStaleResources(tenantId, accountId, scanId);
+    if (resourceCount === 0 && staleCount > 0) {
+        log.warn('Reconciliation marked previously-current resources stale after an empty/failed scan', {
+            tenantId,
+            accountId,
+            scanId,
+            staleCount,
+        });
+    }
 }
 
 function loadScanConfigs() {
@@ -87,6 +104,7 @@ export async function handleDiscoveryScan(jobData: unknown): Promise<void> {
             totalResources += result.resources.length;
 
             await writeResourcesToPg(result.resources, tenantId, account.accountId, scanId);
+            await reconcileAndWarnIfEmpty(tenantId, account.accountId, scanId, result.resources.length);
             await updateAccountSyncStatus(tenantId, account.accountId, {
                 lastSyncedAt: new Date().toISOString(),
                 lastSyncStatus: (result.errors?.length ?? 0) > 0 ? 'partial' : 'success',
@@ -107,6 +125,7 @@ export async function handleDiscoveryScan(jobData: unknown): Promise<void> {
             errors.push(`Account ${account.accountId}: ${msg}`);
             log.error('Account scan failed', { tenantId, accountId: account.accountId, error: msg });
 
+            await reconcileAndWarnIfEmpty(tenantId, account.accountId, scanId, 0);
             await updateAccountSyncStatus(tenantId, account.accountId, {
                 lastSyncedAt: new Date().toISOString(),
                 lastSyncStatus: 'error',
