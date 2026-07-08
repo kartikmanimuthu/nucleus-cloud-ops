@@ -1,0 +1,7 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - generic [ref=f1e5]:
+      - img [ref=f1e7]
+      - text: Nucleus Ops
+    - region "Notifications alt+T"
+  - alert [ref=f1e15]
