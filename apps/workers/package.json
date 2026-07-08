@@ -19,6 +19,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@aws-crypto/crc32": "^5.2.0",
     "@aws-sdk/client-acm": "^3.1024.0",
     "@aws-sdk/client-api-gateway": "^3.1024.0",
     "@aws-sdk/client-auto-scaling": "^3.700.0",
