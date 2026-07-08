@@ -62,3 +62,24 @@ export const RESOURCE_TYPE_LABELS: Record<string, string> = {
     ec2_volumes: "EBS",
     autoscaling_auto_scaling_groups: "ASG",
 };
+
+export function ConfigTable({ title, config }: { title: string; config: Record<string, unknown> | null | undefined }) {
+    const entries = config ? Object.entries(config).filter(([, v]) => v != null) : [];
+    return (
+        <div className="rounded-md border p-3">
+            <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{title}</div>
+            {entries.length === 0 ? (
+                <div className="text-sm text-muted-foreground">—</div>
+            ) : (
+                <dl className="space-y-1">
+                    {entries.map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-4 text-sm">
+                            <dt className="text-muted-foreground">{k}</dt>
+                            <dd className="text-right font-medium">{String(v)}</dd>
+                        </div>
+                    ))}
+                </dl>
+            )}
+        </div>
+    );
+}

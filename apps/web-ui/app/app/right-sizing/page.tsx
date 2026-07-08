@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,6 @@ import { RefreshCw, Play, Search, TrendingDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { SummaryCards } from "@/components/right-sizing/summary-cards";
 import { RecommendationsTable } from "@/components/right-sizing/recommendations-table";
-import { RecommendationDetailDialog } from "@/components/right-sizing/recommendation-detail-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import type { RightSizingRecommendation } from "@/lib/db/repositories/right-sizing/interface";
 import { queryKeys } from "@/lib/queries/query-keys";
@@ -23,18 +23,16 @@ import {
 const PAGE_SIZE = 25;
 const ALL = "all";
 
-export default function RightSizingPage() {
+function RightSizingPageInner() {
     const queryClient = useQueryClient();
+    const searchParams = useSearchParams();
 
     const [page, setPage] = useState(1);
-    const [search, setSearch] = useState("");
-    const [resourceType, setResourceType] = useState(ALL);
-    const [finding, setFinding] = useState(ALL);
-    const [status, setStatus] = useState(ALL);
-    const [sort, setSort] = useState("savings");
-
-    const [selected, setSelected] = useState<RightSizingRecommendation | null>(null);
-    const [dialogOpen, setDialogOpen] = useState(false);
+    const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
+    const [resourceType, setResourceType] = useState(() => searchParams.get("resourceType") ?? ALL);
+    const [finding, setFinding] = useState(() => searchParams.get("finding") ?? ALL);
+    const [status, setStatus] = useState(() => searchParams.get("status") ?? ALL);
+    const [sort, setSort] = useState(() => searchParams.get("sort") ?? "savings");
 
     // Effective filters — also the query key.
     const filters = {
@@ -46,6 +44,16 @@ export default function RightSizingPage() {
         finding: finding !== ALL ? finding : undefined,
         status: status !== ALL ? status : undefined,
     };
+
+    function buildDetailHref(r: RightSizingRecommendation): string {
+        const params = new URLSearchParams();
+        params.set("sort", sort);
+        if (search.trim()) params.set("search", search.trim());
+        if (resourceType !== ALL) params.set("resourceType", resourceType);
+        if (finding !== ALL) params.set("finding", finding);
+        if (status !== ALL) params.set("status", status);
+        return `/app/right-sizing/${r.id}?${params.toString()}`;
+    }
 
     const recsQuery = useRightSizingRecommendations(filters);
     const summaryQuery = useRightSizingSummary();
@@ -128,10 +136,7 @@ export default function RightSizingPage() {
             <RecommendationsTable
                 recommendations={recommendations}
                 loading={loading}
-                onRowClick={(r) => {
-                    setSelected(r);
-                    setDialogOpen(true);
-                }}
+                getHref={buildDetailHref}
             />
 
             {total > PAGE_SIZE && (
@@ -144,14 +149,6 @@ export default function RightSizingPage() {
                     itemLabel="recommendations"
                 />
             )}
-
-            <RecommendationDetailDialog
-                recommendation={selected}
-                open={dialogOpen}
-                onOpenChange={setDialogOpen}
-                onUpdated={refresh}
-                canReview={true}
-            />
         </div>
     );
 }
@@ -181,5 +178,13 @@ function FilterSelect({
                 ))}
             </SelectContent>
         </Select>
+    );
+}
+
+export default function RightSizingPage() {
+    return (
+        <Suspense fallback={null}>
+            <RightSizingPageInner />
+        </Suspense>
     );
 }
