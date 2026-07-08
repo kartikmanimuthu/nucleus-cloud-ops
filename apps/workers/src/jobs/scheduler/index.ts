@@ -3,7 +3,7 @@ import { createLogger } from '../../lib/logger.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { runFullScan, runPartialScan } from './services/scheduler-service.js';
 import { getActiveTenants, getTenantJobConfig, updateTenantJobLastRun } from './services/pg-service.js';
-import type { SchedulerEvent, SchedulerResult } from './types/index.js';
+import type { SchedulerEvent } from './types/index.js';
 
 const log = createLogger('scheduler');
 
@@ -99,13 +99,14 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
                     // must not abort the rest of the tenant loop or crash the worker
                     // process — pg-boss's handler callback has no outer catch, so an
                     // unhandled rejection here previously took the whole service down.
-                    let scanResult: SchedulerResult | undefined;
                     try {
-                        scanResult = (await executor.execute(JOB_NAME, {
+                        await executor.execute(JOB_NAME, {
                             triggeredBy: 'system',
                             tenantId: tenant.id,
-                        })) as SchedulerResult | undefined;
+                        });
                     } catch (err) {
+                        // Dispatch failed — do NOT advance lastRunAt, so the tenant is
+                        // retried on the next tick.
                         log.error('Tenant scan dispatch failed — will retry next tick', {
                             tenantId: tenant.id,
                             error: err instanceof Error ? err.message : String(err),
@@ -113,13 +114,18 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
                         continue;
                     }
 
-                    // Advance lastRunAt whenever the tenant was actually checked, even if
-                    // it had no schedules/accounts — otherwise an empty tenant's lastRunAt
-                    // never gets set and it gets re-dispatched (a real ECS RunTask) on
-                    // every single cron tick forever instead of once per interval.
-                    if (scanResult?.checkedTenantIds?.includes(tenant.id)) {
-                        await updateTenantJobLastRun(tenant.id, 'scheduler-cron', runAt);
-                    }
+                    // Advance lastRunAt on any SUCCESSFUL dispatch, regardless of whether
+                    // the tenant had work. Do NOT gate this on the scan's return value:
+                    // under WORKER_ARCH=horizontal, executor.execute() dispatches the scan
+                    // to a separate ephemeral ECS task and resolves to `void` on exit 0 —
+                    // the SchedulerResult (checkedTenantIds/processedTenantIds) is produced
+                    // inside that task's process and never crosses back here. Gating on it
+                    // left lastRunAt permanently null, so every tenant looked perpetually
+                    // "due" and was re-dispatched (a real RunTask) on every cron tick.
+                    // execute() resolves on success and throws on failure for BOTH the
+                    // vertical (in-process) and horizontal (ECS) executors, so a clean
+                    // resolve here is the correct, arch-independent "it ran" signal.
+                    await updateTenantJobLastRun(tenant.id, 'scheduler-cron', runAt);
                 }
             }
         },
