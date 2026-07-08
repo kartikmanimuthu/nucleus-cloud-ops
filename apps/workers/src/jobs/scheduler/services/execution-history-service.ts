@@ -37,6 +37,8 @@ export interface CreateExecutionParams {
     tenantId: string;
     accountId?: string;
     triggeredBy: 'system' | 'web-ui';
+    /** Reuse a pre-generated executionId so audit logs join to the execution row. */
+    executionId?: string;
 }
 
 export interface UpdateExecutionParams {
@@ -53,7 +55,7 @@ export interface UpdateExecutionParams {
  * Create a new execution record when a schedule starts processing
  */
 export async function createExecutionRecord(params: CreateExecutionParams): Promise<ExecutionRecord> {
-    const executionId = uuidv4();
+    const executionId = params.executionId ?? uuidv4();
     const startTime = new Date().toISOString();
     const tenantId = params.tenantId;
     const accountId = params.accountId || 'unknown';
@@ -210,31 +212,6 @@ export async function getExecutionHistory(
         return (response.Items || []) as ExecutionRecord[];
     } catch (error) {
         logger.error('Failed to fetch execution history', error, { scheduleId });
-        return [];
-    }
-}
-
-/**
- * Get recent executions across all schedules
- */
-export async function getRecentExecutions(limit = 100): Promise<ExecutionRecord[]> {
-    const client = getDynamoDBClient();
-
-    try {
-        const response = await client.send(new QueryCommand({
-            TableName: APP_TABLE_NAME,
-            IndexName: 'GSI1',
-            KeyConditionExpression: 'gsi1pk = :pkVal',
-            ExpressionAttributeValues: {
-                ':pkVal': 'TYPE#EXECUTION',
-            },
-            ScanIndexForward: false, // newest first
-            Limit: limit,
-        }));
-
-        return (response.Items || []) as ExecutionRecord[];
-    } catch (error) {
-        logger.error('Failed to fetch recent executions', error);
         return [];
     }
 }

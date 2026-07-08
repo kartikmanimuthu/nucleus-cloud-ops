@@ -32,6 +32,7 @@ describe('ScheduleExecutionPostgresRepository', () => {
         scheduleExecution: {
             create: MockedFunction<any>;
             findMany: MockedFunction<any>;
+            count: MockedFunction<any>;
         };
     };
 
@@ -40,6 +41,7 @@ describe('ScheduleExecutionPostgresRepository', () => {
             scheduleExecution: {
                 create: vi.fn(),
                 findMany: vi.fn(),
+                count: vi.fn(),
             },
         };
         vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
@@ -136,6 +138,46 @@ describe('ScheduleExecutionPostgresRepository', () => {
             expect(result).toHaveLength(1);
             expect(result[0].executionTime).toBe('2024-03-15T08:00:00.000Z');
             expect(result[0].id).toBe('exec-abc123');
+        });
+    });
+
+    describe('getExecutionHistoryPaged', () => {
+        it('applies skip/take and scopes count + findMany by tenantId + scheduleId', async () => {
+            mockPrisma.scheduleExecution.count.mockResolvedValue(57);
+            mockPrisma.scheduleExecution.findMany.mockResolvedValue([makeExecutionRow()]);
+
+            const repo = new ScheduleExecutionPostgresRepository();
+            const result = await repo.getExecutionHistoryPaged('sched-001', 'org-default', {
+                offset: 20,
+                limit: 10,
+            });
+
+            expect(mockPrisma.scheduleExecution.count).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({ tenantId: 'org-default', scheduleId: 'sched-001' }),
+                })
+            );
+            expect(mockPrisma.scheduleExecution.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({ tenantId: 'org-default', scheduleId: 'sched-001' }),
+                    skip: 20,
+                    take: 10,
+                })
+            );
+            expect(result.total).toBe(57);
+            expect(result.executions).toHaveLength(1);
+        });
+
+        it('clamps a negative offset to 0', async () => {
+            mockPrisma.scheduleExecution.count.mockResolvedValue(3);
+            mockPrisma.scheduleExecution.findMany.mockResolvedValue([]);
+
+            const repo = new ScheduleExecutionPostgresRepository();
+            await repo.getExecutionHistoryPaged('sched-001', 'org-default', { offset: -5, limit: 10 });
+
+            expect(mockPrisma.scheduleExecution.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({ skip: 0 })
+            );
         });
     });
 

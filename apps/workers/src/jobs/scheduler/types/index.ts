@@ -89,7 +89,10 @@ export interface ExecutionRecord {
     ttl: number;
 }
 
-export type ExecutionStatus = 'pending' | 'running' | 'success' | 'failed' | 'partial';
+// 'no_action' = the schedule was evaluated but every resource was already in the
+// desired state, so nothing was started/stopped/failed. We still record the run so
+// execution history reflects that the schedule ran.
+export type ExecutionStatus = 'pending' | 'running' | 'success' | 'failed' | 'partial' | 'no_action';
 
 // Schedule Execution Metadata - grouped by resource type
 export interface ScheduleExecutionMetadata {
@@ -196,6 +199,12 @@ export interface SchedulerMetadata {
     executionId: string;
     scheduleId?: string;
     scheduleName?: string;
+    /**
+     * When true, resource schedulers perform read-only describe + decision logic
+     * but skip the actual Start/Stop/Update mutation (and the success audit write).
+     * Used for safe local simulation. Error paths (describe failures) still run.
+     */
+    dryRun?: boolean;
 }
 
 // Resource action result

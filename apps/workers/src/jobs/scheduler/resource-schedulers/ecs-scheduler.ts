@@ -132,6 +132,32 @@ export async function processECSResource(
 
         log.debug(`ECS ${serviceName}: desiredCount=${currentDesiredCount}, runningCount=${runningCount}, action=${action}`);
 
+        if (metadata.dryRun) {
+            if (action === 'stop') {
+                const would = currentDesiredCount > 0;
+                log.info(`[DRY RUN] Would ${would ? 'STOP' : 'skip (already 0)'} ECS service ${serviceName}; current desiredCount=${currentDesiredCount}`);
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    clusterArn,
+                    action: would ? 'stop' : 'skip',
+                    status: 'success',
+                    last_state: { desiredCount: currentDesiredCount, runningCount, pendingCount, status: serviceStatus },
+                };
+            }
+            const targetDesiredCount = lastDesiredCount && lastDesiredCount > 0 ? lastDesiredCount : 1;
+            const would = currentDesiredCount !== targetDesiredCount;
+            log.info(`[DRY RUN] Would ${would ? `START ECS service ${serviceName} (restore desiredCount=${targetDesiredCount})` : 'skip (already at target)'}; current desiredCount=${currentDesiredCount}`);
+            return {
+                arn: resource.arn,
+                resourceId: resource.id,
+                clusterArn,
+                action: would ? 'start' : 'skip',
+                status: 'success',
+                last_state: { desiredCount: currentDesiredCount, runningCount, pendingCount, status: serviceStatus, asg_state: lastAsgState },
+            };
+        }
+
         let capturedAsgState: ASGState[] | undefined;
 
         if (action === 'stop') {

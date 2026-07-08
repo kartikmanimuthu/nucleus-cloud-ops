@@ -35,6 +35,7 @@ export async function createRun(params: {
     accountName?: string;
     selectedSkill?: string;
     mcpServerIds?: string[];
+    knowledgeBaseIds?: string[];
     autoApprove?: boolean;
     model?: string;
 }): Promise<AgentOpsRun> {

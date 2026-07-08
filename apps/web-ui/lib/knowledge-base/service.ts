@@ -62,6 +62,10 @@ export class KnowledgeBaseService {
     return getDataSourceRepository().getDataSource(kbId, dsId, tenantId);
   }
 
+  static async getDataSourceContent(kbId: string, dsId: string, tenantId: string): Promise<string | null> {
+    return getDataSourceRepository().getDataSourceContent(kbId, dsId, tenantId);
+  }
+
   static async createDataSource(
     kbId: string,
     data: CreateDataSourceInput,

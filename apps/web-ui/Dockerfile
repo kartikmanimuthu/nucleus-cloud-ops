@@ -34,6 +34,11 @@ COPY apps/web-ui/package.json ./
 COPY apps/web-ui/ .
 COPY libs/prisma/ ./libs/prisma/
 
+# tsconfig.json extends "../../tsconfig.base.json" (correct 2-level-up path in the real
+# monorepo layout apps/web-ui/tsconfig.json -> tsconfig.base.json). Flattened into /app here,
+# that same relative path resolves to /tsconfig.base.json, so place it there too.
+COPY tsconfig.base.json /tsconfig.base.json
+
 # Set Next.js environment for standalone build
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_SHARP_PATH=/tmp/node_modules/sharp

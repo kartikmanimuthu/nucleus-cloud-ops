@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 
 export type KnowledgeBaseStatus = 'active' | 'inactive';
-export type DataSourceType = 'file-upload' | 's3-bucket' | 'confluence' | 'bitbucket';
+export type DataSourceType = 'file-upload' | 's3-bucket' | 'confluence' | 'bitbucket' | 'document';
 export type DataSourceStatus = 'pending' | 'syncing' | 'synced' | 'error';
 
 // ---------------------------------------------------------------------------
@@ -41,6 +41,8 @@ export interface DataSource {
   config: DataSourceConfig;
   vectorCount: number;
   vectorKeys: string[];
+  /** Markdown body for sourceType='document'. Write-through: never returned by list/detail DTOs — read via the documents content endpoint. */
+  content?: string;
   lastSyncAt?: string;
   lastSyncError?: string;
   lastErrorMessage?: string;
@@ -101,11 +103,17 @@ export interface BitbucketConfig {
   baseUrl?: string;
 }
 
+export interface DocumentConfig {
+  format: 'markdown';
+  chunkCount: number;
+}
+
 export type DataSourceConfig =
   | FileUploadConfig
   | S3BucketConfig
   | ConfluenceConfig
-  | BitbucketConfig;
+  | BitbucketConfig
+  | DocumentConfig;
 
 // ---------------------------------------------------------------------------
 // Input types (for create / update operations)

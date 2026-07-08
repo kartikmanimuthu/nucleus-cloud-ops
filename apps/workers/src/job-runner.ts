@@ -10,6 +10,8 @@ import { handleDiscoveryScan } from './jobs/discovery/index.js';
 import { handleKbSyncJob } from './jobs/kb-sync/index.js';
 import { handleAgentOpsTick } from './jobs/agent-ops-scheduler/index.js';
 import { handleCertificateExpiryMonitor } from './jobs/certificate-expiry-monitor/index.js';
+import { handleScan as handleRightSizingScan } from './jobs/right-sizing/index.js';
+import { handlePricingRefresh } from './jobs/right-sizing/pricing-refresh.js';
 
 const log = createLogger('job-runner');
 
@@ -21,6 +23,8 @@ const HANDLERS: Record<string, (jobData: unknown) => Promise<unknown>> = {
     'discovery-scan': handleDiscoveryScan,
     'kb-sync': handleKbSyncJob,
     'certificate-expiry-monitor': handleCertificateExpiryMonitor,
+    'right-sizing-scan': handleRightSizingScan,
+    'right-sizing-pricing-refresh': handlePricingRefresh,
 };
 
 function parseArgs(): { job: string; data: unknown } {

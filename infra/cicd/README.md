@@ -22,7 +22,7 @@ The Pulumi stack creates the CodeStar Connection, S3 bucket, KMS key, IAM role, 
 cd infra/cicd
 pulumi stack select prod
 pulumi config set aws:region ap-south-1
-npm install && pulumi install
+bun install && pulumi install
 AWS_PROFILE=PLATFORM-ADMIN pulumi up --stack prod --yes
 ```
 

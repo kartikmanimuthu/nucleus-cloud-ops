@@ -6,8 +6,10 @@
   "scripts": {
     "db:generate": "bunx prisma generate --schema=../../libs/prisma/schema.prisma",
     "dev": "tsx --env-file=../../.env --watch src/index.ts",
+    "job-runner": "tsx --env-file=../../.env src/job-runner.ts",
     "start": "node --env-file=../../.env dist/index.js",
     "start:job-runner": "node --env-file=../../.env dist/job-runner.js",
+    "scheduler:local": "tsx --env-file=../../.env src/jobs/scheduler/local-runner.ts",
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -17,6 +19,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@aws-crypto/crc32": "^5.2.0",
     "@aws-sdk/client-acm": "^3.1024.0",
     "@aws-sdk/client-api-gateway": "^3.1024.0",
     "@aws-sdk/client-auto-scaling": "^3.700.0",

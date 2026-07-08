@@ -106,6 +106,8 @@ export async function logExecution(execution: {
     accountId: string;
     status: string;
     executionTime: string;
+    /** Pre-generated executionId shared with the audit log; falls back to a generated one. */
+    executionId?: string;
     resourcesStarted?: number;
     resourcesStopped?: number;
     resourcesFailed?: number;
@@ -116,7 +118,7 @@ export async function logExecution(execution: {
     const client: PoolClient = await getPool().connect();
     try {
         const id = `clex-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const executionId = `exec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const executionId = execution.executionId ?? `exec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         // 90-day TTL replacement — expiresAt used for WHERE expiresAt < NOW() cleanup jobs
         const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
 
@@ -283,6 +285,26 @@ export async function getScheduleById(scheduleId: string, tenantId: string): Pro
     } catch (error) {
         logger.error('[pg-service] Error fetching schedule by ID from PostgreSQL', error);
         throw error;
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * Resolve the tenantId that owns a schedule (used by the local runner when
+ * --tenant-id is omitted). Returns null if the schedule does not exist.
+ */
+export async function getScheduleTenantId(scheduleId: string): Promise<string | null> {
+    const client: PoolClient = await getPool().connect();
+    try {
+        const result = await client.query(
+            `SELECT "tenantId" FROM schedules WHERE "scheduleId" = $1 LIMIT 1`,
+            [scheduleId]
+        );
+        return result.rows[0]?.tenantId ?? null;
+    } catch (error) {
+        logger.error('[pg-service] Error resolving schedule tenant', error);
+        return null;
     } finally {
         client.release();
     }

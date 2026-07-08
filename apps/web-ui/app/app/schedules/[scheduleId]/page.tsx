@@ -14,7 +14,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { PaginationBar } from "@/components/ui/pagination-bar";
+import { CopyButton } from "@/components/ui/copy-button";
 import {
   Clock,
   Calendar,
@@ -31,8 +40,12 @@ import {
   Loader2,
   Server,
   Play,
+  MinusCircle,
 } from "lucide-react";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
+import { useScheduleExecutions } from "@/lib/queries/schedules";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queries/query-keys";
 import { formatDateTime } from "@/lib/date-utils";
 import { useTenant } from '@/lib/tenant-context';
 import { UISchedule } from "@/lib/types";
@@ -46,29 +59,24 @@ interface SchedulePageProps {
 }
 
 
-// Execution history type
-interface ExecutionHistoryItem {
-  executionId: string;
-  executionTime: string;
-  status: string;
-  duration?: number;
-  resourcesStarted: number;
-  resourcesStopped: number;
-  resourcesFailed: number;
-  errorMessage?: string;
-}
-
 export default function SchedulePage({ params }: SchedulePageProps) {
   const { scheduleId } = use(params);
   const router = useRouter();
   const { toast } = useToast();
   const { timezone } = useTenant();
+  const queryClient = useQueryClient();
   const [schedule, setSchedule] = useState<UISchedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [executionHistory, setExecutionHistory] = useState<any[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
+
+  // Execution history — server-side paginated grid.
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyLimit, setHistoryLimit] = useState(10);
+  const executionsQuery = useScheduleExecutions(schedule?.id, historyPage, historyLimit);
+  const executionHistory = executionsQuery.data?.executions ?? [];
+  const historyTotal = executionsQuery.data?.total ?? 0;
+  const historyLoading = executionsQuery.isLoading;
 
   const executeScheduleNow = async () => {
     if (!schedule) return;
@@ -89,16 +97,13 @@ export default function SchedulePage({ params }: SchedulePageProps) {
           variant: "success",
         });
         
-        // Refresh history after a short delay to see the new execution
+        // The scan runs asynchronously in the workers process, so the row lands a
+        // moment later. Reset to the first page and refetch after a short delay so
+        // the newest execution appears at the top.
+        setHistoryPage(1);
         setTimeout(() => {
-          // Trigger history refresh logic here if needed, 
-          // or just rely on manual refresh/polling. 
-          // For now, let's re-fetch the history.
-          // Since history fetch is in useEffect[schedule], we can't easily trigger it.
-          // Let's modify the history fetching to depend on a toggle or just call it directly.
-          // For simplicity in this edit, I won't change the useEffect architecture too much,
-          // but arguably we should reload history.
-        }, 1000);
+          queryClient.invalidateQueries({ queryKey: queryKeys.schedules.detail(schedule.id) });
+        }, 1500);
       } else {
         throw new Error('Execution request failed');
       }
@@ -149,26 +154,6 @@ export default function SchedulePage({ params }: SchedulePageProps) {
 
     fetchSchedule();
   }, [scheduleId, router]);
-
-  // Fetch execution history when schedule is loaded
-  useEffect(() => {
-    const fetchHistory = async () => {
-      if (!schedule) return;
-      try {
-        setHistoryLoading(true);
-        const response = await fetch(`/api/schedules/${encodeURIComponent(schedule.id)}/history`);
-        if (response.ok) {
-          const data = await response.json();
-          setExecutionHistory(data.executions || []);
-        }
-      } catch (err) {
-        console.error('Error fetching execution history:', err);
-      } finally {
-        setHistoryLoading(false);
-      }
-    };
-    fetchHistory();
-  }, [schedule]);
 
   if (loading) {
     return (
@@ -222,10 +207,31 @@ export default function SchedulePage({ params }: SchedulePageProps) {
         return <CheckCircle className="h-4 w-4 text-success" />;
       case "partial":
         return <AlertTriangle className="h-4 w-4 text-warning" />;
-      default:
+      case "no_action":
+        return <MinusCircle className="h-4 w-4 text-muted-foreground" />;
+      case "failed":
         return <AlertTriangle className="h-4 w-4 text-destructive" />;
+      default:
+        return <Activity className="h-4 w-4 text-muted-foreground" />;
     }
   };
+
+  const getExecutionStatusBadge = (status: string) => {
+    switch (status) {
+      case "success":
+        return { variant: "default" as const, label: "Success" };
+      case "partial":
+        return { variant: "secondary" as const, label: "Partial" };
+      case "failed":
+        return { variant: "destructive" as const, label: "Failed" };
+      case "no_action":
+        return { variant: "outline" as const, label: "No action" };
+      default:
+        return { variant: "secondary" as const, label: status };
+    }
+  };
+
+  const historyTotalPages = Math.max(1, Math.ceil(historyTotal / historyLimit));
   
   return (
     <div className="min-h-screen bg-background p-6">
@@ -278,9 +284,44 @@ export default function SchedulePage({ params }: SchedulePageProps) {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {/* Stat row — moved out of the narrow right rail to a full-width top row */}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Executions</CardTitle>
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{schedule.executionCount || 0}</div>
+                  <p className="text-xs text-muted-foreground">Total executions</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{schedule.successRate || 0}%</div>
+                  <p className="text-xs text-muted-foreground">Success rate</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Savings</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">${schedule.estimatedSavings || 0}</div>
+                  <p className="text-xs text-muted-foreground">Estimated monthly</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Configuration + Metadata side by side, above the resources grid */}
+            <div className="grid gap-6 lg:grid-cols-2">
               {/* Schedule Configuration */}
-              <Card className="md:col-span-2">
+              <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center">
                     <Settings className="h-5 w-5 mr-2" />
@@ -288,7 +329,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">Start Time</Label>
                       <div className="flex items-center space-x-2">
@@ -329,147 +370,66 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                 </CardContent>
               </Card>
 
-              {/* Resources Configuration */}
-              <Card className="md:col-span-2">
+              {/* Schedule Metadata — moved up, above the grid */}
+              <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center">
-                    <Server className="h-5 w-5 mr-2" />
-                    Target Resources
+                    <Tag className="h-5 w-5 mr-2" />
+                    Schedule Metadata
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                      <Label className="text-sm font-medium">Target Account</Label>
-                      <div className="flex items-center space-x-2">
-                        <Badge variant="outline">{schedule.accounts?.[0] || "No account selected"}</Badge>
-                      </div>
+                <CardContent>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-sm font-medium">Created</Label>
+                      <p className="text-sm text-muted-foreground">
+                        {schedule.createdAt ? formatDateTime(schedule.createdAt, undefined, timezone) : "N/A"}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm font-medium">Last Updated</Label>
+                      <p className="text-sm text-muted-foreground">
+                        {schedule.updatedAt ? formatDateTime(schedule.updatedAt, undefined, timezone) : "N/A"}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm font-medium">Created By</Label>
+                      <p className="text-sm text-muted-foreground break-all">{schedule.createdBy || "N/A"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm font-medium">Last Modified By</Label>
+                      <p className="text-sm text-muted-foreground break-all">{schedule.updatedBy || "N/A"}</p>
+                    </div>
                   </div>
-                  
-                  {schedule.resources && schedule.resources.length > 0 && (
-                     <div className="space-y-4 pt-2">
-                        <Label className="text-sm font-medium">Selected Resources ({schedule.resources.length})</Label>
-                        <Tabs defaultValue="list" className="w-full">
-                           <TabsList className="grid w-full grid-cols-2">
-                              <TabsTrigger value="list">List View</TabsTrigger>
-                              <TabsTrigger value="json">JSON View</TabsTrigger>
-                           </TabsList>
-                           <TabsContent value="list">
-                              <div className="rounded-md border p-4 h-[250px] overflow-y-auto space-y-2">
-                                 {schedule.resources.map((res: any) => (
-                                    <div key={res.id} className="flex flex-col space-y-1 border-b pb-2 last:border-0 last:pb-0">
-                                       <div className="flex items-center justify-between">
-                                          <span className="font-medium text-sm">{res.name || res.id}</span>
-                                          <Badge variant="secondary" className="text-xs">{res.type.toUpperCase()}</Badge>
-                                       </div>
-                                       <span className="text-xs text-muted-foreground font-mono">{res.arn || res.id}</span>
-                                    </div>
-                                 ))}
-                              </div>
-                           </TabsContent>
-                           <TabsContent value="json">
-                              <pre className="bg-muted p-4 rounded-md overflow-auto h-[250px] text-xs">
-                                 {JSON.stringify(schedule.resources, null, 2)}
-                              </pre>
-                           </TabsContent>
-                        </Tabs>
-                     </div>
-                  )}
                 </CardContent>
               </Card>
-
-              {/* Quick Stats */}
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center">
-                      <Activity className="h-4 w-4 mr-2" />
-                      Executions
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {schedule.executionCount || 0}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Total executions
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center">
-                      <TrendingUp className="h-4 w-4 mr-2" />
-                      Success Rate
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {schedule.successRate || 0}%
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Success rate
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center">
-                      <DollarSign className="h-4 w-4 mr-2" />
-                      Savings
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      ${schedule.estimatedSavings || 0}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Estimated monthly
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
             </div>
 
-            {/* Schedule Metadata */}
+            {/* Target Resources — full width so the ARN column has room */}
             <Card>
               <CardHeader>
-                <CardTitle>Schedule Metadata</CardTitle>
+                <CardTitle className="flex items-center">
+                  <Server className="h-5 w-5 mr-2" />
+                  Target Resources
+                </CardTitle>
+                <CardDescription className="flex items-center gap-2 pt-1">
+                  <span>Account</span>
+                  <Badge variant="outline">{schedule.accounts?.[0] || "No account selected"}</Badge>
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                  <div>
-                    <Label className="text-sm font-medium">Created</Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.createdAt
-                        ? formatDateTime(schedule.createdAt, undefined, timezone)
-                        : "N/A"}
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">Last Updated</Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.updatedAt
-                        ? formatDateTime(schedule.updatedAt, undefined, timezone)
-                        : "N/A"}
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">Created By</Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.createdBy || "N/A"}
-                    </p>
-                  </div>
-                  <div>
+              <CardContent className="space-y-2">
+                {schedule.resources && schedule.resources.length > 0 ? (
+                  <>
                     <Label className="text-sm font-medium">
-                      Last Modified By
+                      Selected Resources ({schedule.resources.length})
                     </Label>
-                    <p className="text-sm text-muted-foreground">
-                      {schedule.updatedBy || "N/A"}
-                    </p>
-                  </div>
-                </div>
+                    <TargetResourcesTable resources={schedule.resources} />
+                  </>
+                ) : (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No resources are targeted by this schedule.
+                  </p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -482,7 +442,7 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                   Recent execution history for this schedule
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 {historyLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -495,40 +455,80 @@ export default function SchedulePage({ params }: SchedulePageProps) {
                     <p className="text-sm">Executions will appear here after the schedule runs</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {executionHistory.map((execution: ExecutionHistoryItem, index: number) => (
-                      <div key={execution.executionId}>
-                        <div 
-                          className="flex items-center justify-between p-3 rounded-lg hover:bg-accent/50 cursor-pointer transition-colors"
-                          onClick={() => router.push(`/app/schedules/${encodeURIComponent(schedule.id)}/history/${encodeURIComponent(execution.executionId)}`)}
-                        >
-                          <div className="flex items-center space-x-3">
-                            {getExecutionStatusIcon(execution.status)}
-                            <div>
-                              <p className="font-medium">
-                                {formatDateTime(execution.executionTime, 'longDateTime', timezone)}
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                {execution.errorMessage || `Started: ${execution.resourcesStarted}, Stopped: ${execution.resourcesStopped}, Failed: ${execution.resourcesFailed}`}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <Badge variant={execution.status === 'success' ? 'default' : execution.status === 'failed' ? 'destructive' : 'secondary'}>
-                              {execution.status}
-                            </Badge>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {execution.duration ? `${Math.round(execution.duration / 1000)}s` : 'N/A'} •{" "}
-                              {execution.resourcesStarted + execution.resourcesStopped} resources
-                            </p>
-                          </div>
-                        </div>
-                        {index < executionHistory.length - 1 && (
-                          <Separator className="mt-4" />
-                        )}
-                      </div>
-                    ))}
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table className="min-w-[720px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Executed At</TableHead>
+                          <TableHead className="w-[130px]">Status</TableHead>
+                          <TableHead className="text-right w-[90px]">Started</TableHead>
+                          <TableHead className="text-right w-[90px]">Stopped</TableHead>
+                          <TableHead className="text-right w-[90px]">Failed</TableHead>
+                          <TableHead className="text-right w-[100px]">Duration</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {executionHistory.map((execution) => {
+                          const badge = getExecutionStatusBadge(execution.status);
+                          return (
+                            <TableRow
+                              key={execution.executionId}
+                              className="cursor-pointer hover:bg-muted/50"
+                              onClick={() =>
+                                router.push(
+                                  `/app/schedules/${encodeURIComponent(schedule.id)}/history/${encodeURIComponent(execution.executionId)}`,
+                                )
+                              }
+                            >
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  {getExecutionStatusIcon(execution.status)}
+                                  <div>
+                                    <div className="font-medium">
+                                      {formatDateTime(execution.executionTime, 'longDateTime', timezone)}
+                                    </div>
+                                    {execution.errorMessage && (
+                                      <div className="text-xs text-destructive line-clamp-1 max-w-[280px]">
+                                        {execution.errorMessage}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={badge.variant}>{badge.label}</Badge>
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">{execution.resourcesStarted}</TableCell>
+                              <TableCell className="text-right tabular-nums">{execution.resourcesStopped}</TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                <span className={execution.resourcesFailed > 0 ? 'text-destructive font-medium' : ''}>
+                                  {execution.resourcesFailed}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                                {execution.duration ? `${Math.round(execution.duration / 1000)}s` : 'N/A'}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
                   </div>
+                )}
+
+                {historyTotal > 0 && (
+                  <PaginationBar
+                    currentPage={historyPage}
+                    totalItems={historyTotal}
+                    pageSize={historyLimit}
+                    onPageChange={(p) => setHistoryPage(Math.min(Math.max(1, p), historyTotalPages))}
+                    onPageSizeChange={(size) => {
+                      setHistoryLimit(size);
+                      setHistoryPage(1);
+                    }}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                    itemLabel="executions"
+                  />
                 )}
               </CardContent>
             </Card>
@@ -536,6 +536,70 @@ export default function SchedulePage({ params }: SchedulePageProps) {
 
         </Tabs>
       </div>
+    </div>
+  );
+}
+
+// Paginated grid of a schedule's configured target resources. Client-side paged —
+// a schedule can reference many resources.
+function TargetResourcesTable({ resources }: { resources: any[] }) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const totalPages = Math.max(1, Math.ceil(resources.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const pageRows = resources.slice(start, start + pageSize);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border overflow-x-auto">
+        <Table className="min-w-[640px]">
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              <TableHead className="min-w-[220px]">Resource</TableHead>
+              <TableHead className="w-[90px]">Type</TableHead>
+              <TableHead className="min-w-[300px]">ARN</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pageRows.map((res: any, idx: number) => (
+              <TableRow key={res.id ?? start + idx}>
+                <TableCell className="font-medium text-sm">{res.name || res.id}</TableCell>
+                <TableCell>
+                  <Badge variant="secondary" className="text-xs">
+                    {res.type?.toUpperCase()}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1">
+                    <span
+                      className="block max-w-[440px] truncate font-mono text-xs text-muted-foreground"
+                      title={res.arn || res.id}
+                    >
+                      {res.arn || res.id}
+                    </span>
+                    {res.arn && <CopyButton value={res.arn} label="Copy ARN" />}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      <PaginationBar
+        currentPage={currentPage}
+        totalItems={resources.length}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSizeOptions={[10, 25, 50, 100]}
+        itemLabel="resources"
+      />
     </div>
   );
 }

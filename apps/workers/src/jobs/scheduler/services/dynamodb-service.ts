@@ -1,24 +1,18 @@
-// DynamoDB service for the scheduler Lambda
-// Uses AWS SDK v3 with separate app and audit tables
+// Scheduler audit logging (PostgreSQL-backed via pg-service) + a DynamoDB document
+// client retained only for the legacy "last resource state" reads in
+// execution-history-service.ts. The old DynamoDB schedule/account fetch paths were
+// removed once USE_PG_SCHEDULES became the permanent configuration.
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
-import {
-    DynamoDBDocumentClient,
-    PutCommand,
-    QueryCommand,
-    type QueryCommandInput,
-} from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { logger } from '../utils/logger.js';
 import { createAuditLog as createAuditLogPg } from './pg-service.js';
 import type {
     Schedule,
-    Account,
     AuditLogEntry,
     ScheduleExecutionMetadata,
 } from '../types/index.js';
-import { v4 as uuidv4 } from 'uuid';
-import { calculateTTL } from '../utils/time-utils.js';
 import { env } from '../../../env.js';
 
 // Environment variables
@@ -50,176 +44,11 @@ export function getDynamoDBClient(): DynamoDBDocumentClient {
 }
 
 /**
- * Fetch all active schedules from the app table
- * Uses GSI3: STATUS#active
- */
-export async function fetchActiveSchedules(): Promise<Schedule[]> {
-    const client = getDynamoDBClient();
-
-    const params: QueryCommandInput = {
-        TableName: APP_TABLE_NAME,
-        IndexName: 'GSI3',
-        KeyConditionExpression: 'gsi3pk = :statusVal',
-        FilterExpression: '#type = :scheduleType',
-        ExpressionAttributeNames: {
-            '#type': 'type',
-        },
-        ExpressionAttributeValues: {
-            ':statusVal': 'STATUS#active',
-            ':scheduleType': 'schedule',
-        },
-    };
-
-    try {
-        const response = await client.send(new QueryCommand(params));
-        logger.debug(`Fetched ${response.Items?.length || 0} active schedules via GSI3`);
-        return (response.Items || []) as Schedule[];
-    } catch (error) {
-        logger.error('Error fetching schedules from DynamoDB via GSI3', error);
-        // Fallback to GSI1 + Filter if GSI3 fails or is not yet populated correctly
-        try {
-            const fallbackParams: QueryCommandInput = {
-                TableName: APP_TABLE_NAME,
-                IndexName: 'GSI1',
-                KeyConditionExpression: 'gsi1pk = :typeVal',
-                FilterExpression: 'active = :activeVal',
-                ExpressionAttributeValues: {
-                    ':typeVal': 'TYPE#SCHEDULE',
-                    ':activeVal': true,
-                },
-            };
-            const fallbackResponse = await client.send(new QueryCommand(fallbackParams));
-            logger.warn('Fallback: Fetched schedules via GSI1');
-            return (fallbackResponse.Items || []) as Schedule[];
-        } catch (fallbackError) {
-            logger.error('Fallback fetch also failed', fallbackError);
-            return [];
-        }
-    }
-}
-
-/**
- * Fetch a specific schedule by ID
- * Uses GSI3 with proper key condition on both gsi3pk and gsi3sk
- */
-export async function fetchScheduleById(scheduleId: string, tenantId: string): Promise<Schedule | null> {
-    const client = getDynamoDBClient();
-
-    // Search both active and inactive status
-    const statuses = ['active', 'inactive'];
-
-    for (const status of statuses) {
-        try {
-            const response = await client.send(new QueryCommand({
-                TableName: APP_TABLE_NAME,
-                IndexName: 'GSI3',
-                KeyConditionExpression: 'gsi3pk = :gsi3pk AND gsi3sk = :gsi3sk',
-                ExpressionAttributeValues: {
-                    ':gsi3pk': `STATUS#${status}`,
-                    ':gsi3sk': `TENANT#${tenantId}#SCHEDULE#${scheduleId}`,
-                },
-            }));
-
-            if (response.Items && response.Items.length > 0) {
-                return response.Items[0] as Schedule;
-            }
-        } catch (error) {
-            logger.error(`Error searching GSI3 for status: ${status}`, error, { scheduleId, tenantId });
-        }
-    }
-
-    logger.warn('Schedule not found in GSI3', { scheduleId, tenantId });
-    return null;
-}
-
-/**
- * Fetch all active accounts from the app table
- * Uses GSI3: STATUS#active
- */
-export async function fetchActiveAccounts(): Promise<Account[]> {
-    const client = getDynamoDBClient();
-
-    const params: QueryCommandInput = {
-        TableName: APP_TABLE_NAME,
-        IndexName: 'GSI3',
-        KeyConditionExpression: 'gsi3pk = :statusVal',
-        FilterExpression: '#type = :typeVal',
-        ExpressionAttributeNames: {
-            '#type': 'type',
-        },
-        ExpressionAttributeValues: {
-            ':statusVal': 'STATUS#active',
-            ':typeVal': 'account',
-        },
-    };
-
-    try {
-        const response = await client.send(new QueryCommand(params));
-        logger.debug(`Fetched ${response.Items?.length || 0} active accounts via GSI3`);
-        return (response.Items || []) as Account[];
-    } catch (error) {
-        logger.error('Error fetching accounts from DynamoDB via GSI3', error);
-        // Fallback to GSI1
-        try {
-            const fallbackParams: QueryCommandInput = {
-                TableName: APP_TABLE_NAME,
-                IndexName: 'GSI1',
-                KeyConditionExpression: 'gsi1pk = :typeVal',
-                FilterExpression: 'active = :activeVal',
-                ExpressionAttributeValues: {
-                    ':typeVal': 'TYPE#ACCOUNT',
-                    ':activeVal': true,
-                },
-            };
-            const response = await client.send(new QueryCommand(fallbackParams));
-            return (response.Items || []) as Account[];
-        } catch (fallbackError) {
-            logger.error('Fallback account fetch failed', fallbackError);
-            return [];
-        }
-    }
-}
-
-/**
- * Create an audit log entry in the audit table
- * Used for system cron events and scheduler lifecycle logs
+ * Create an audit log entry (PostgreSQL-backed).
+ * Used for system cron events and scheduler lifecycle logs.
  */
 export async function createAuditLog(entry: AuditLogEntry): Promise<void> {
-    if (!AUDIT_TABLE_NAME) {
-        logger.warn('AUDIT_TABLE_NAME not configured, skipping audit log');
-        return;
-    }
-    // When PG is the source of truth, write audit log to PostgreSQL instead
-    if (env.USE_PG_SCHEDULES === 'true') {
-        await createAuditLogPg({ ...entry, tenantId: entry.tenantId || 'system' });
-        return;
-    }
-
-    const client = getDynamoDBClient();
-    const id = uuidv4();
-    const timestamp = new Date().toISOString();
-    const ttl = calculateTTL(90); // Audit logs kept for 90 days
-
-    const item = {
-        pk: `LOG#${id}`,
-        sk: timestamp,
-        gsi1pk: 'TYPE#LOG',
-        gsi1sk: timestamp,
-        ttl,
-        id,
-        timestamp,
-        ...entry,
-    };
-
-    try {
-        await client.send(new PutCommand({
-            TableName: AUDIT_TABLE_NAME,
-            Item: item,
-        }));
-        logger.debug('Audit log created', { id, eventType: entry.eventType });
-    } catch (error) {
-        logger.error('Failed to create audit log', error);
-    }
+    await createAuditLogPg({ ...entry, tenantId: entry.tenantId || 'system' });
 }
 
 /**

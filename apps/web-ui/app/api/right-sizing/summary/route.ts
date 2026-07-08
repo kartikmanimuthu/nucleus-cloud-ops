@@ -18,7 +18,6 @@ export async function GET() {
                     byStatus: {},
                     savingsByResourceType: {},
                     savingsByAccount: {},
-                    accountIds: [],
                     lastRunAt: null,
                 },
             });

@@ -112,6 +112,7 @@ import {
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
 import { useProviderModels } from "@/lib/queries/providers";
+import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
 
 // Phase types matching backend
@@ -532,6 +533,11 @@ export function ChatInterface({
   const [mcpSearch, setMcpSearch] = useState("");
   const mcpDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Knowledge base selection state - empty selection means the server auto-selects
+  const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
+  const { data: knowledgeBases = [] } = useKnowledgeBases();
+  const [kbDropdownOpen, setKbDropdownOpen] = useState(false);
+
   // File attachments state
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
 
@@ -638,6 +644,8 @@ export function ChatInterface({
         selectedSkill: selectedSkill || undefined,
         mcpServerIds:
           selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+        knowledgeBaseIds:
+          selectedKbIds.length > 0 ? selectedKbIds : undefined,
       },
       onResponse: (response: Response) => {
         console.log("[ChatInterface] Received response headers:", response);
@@ -882,6 +890,8 @@ export function ChatInterface({
           selectedSkill: selectedSkill || undefined,
           mcpServerIds:
             selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+          knowledgeBaseIds:
+            selectedKbIds.length > 0 ? selectedKbIds : undefined,
         },
       },
     );
@@ -928,6 +938,8 @@ export function ChatInterface({
           selectedSkill: selectedSkill || undefined,
           mcpServerIds:
             selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+          knowledgeBaseIds:
+            selectedKbIds.length > 0 ? selectedKbIds : undefined,
         },
       },
     );
@@ -1419,6 +1431,8 @@ export function ChatInterface({
                             selectedSkill: selectedSkill || undefined,
                             mcpServerIds:
                               selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+                            knowledgeBaseIds:
+                              selectedKbIds.length > 0 ? selectedKbIds : undefined,
                           }
                         });
                       }
@@ -1764,6 +1778,105 @@ export function ChatInterface({
                   </Command>
                 </PopoverContent>
               </Popover>
+
+              {/* Knowledge Base Multi-Select — empty selection means the server auto-selects */}
+              <div className="relative border-l pl-2 ml-1">
+                <Popover open={kbDropdownOpen} onOpenChange={setKbDropdownOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      disabled={isLoading || distillSkill.isPending}
+                      className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[160px] justify-start"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Database
+                          className={cn(
+                            "w-3 h-3",
+                            selectedKbIds.length > 0
+                              ? "text-emerald-500"
+                              : "text-muted-foreground",
+                          )}
+                        />
+                        <span className="truncate max-w-[140px] font-normal">
+                          {selectedKbIds.length === 0
+                            ? "Knowledge: All (auto)"
+                            : `Knowledge: ${selectedKbIds.length} selected`}
+                        </span>
+                      </div>
+                    </Button>
+                  </PopoverTrigger>
+
+                  <PopoverContent
+                    side="top"
+                    align="start"
+                    className="w-[280px] p-0 mb-2"
+                  >
+                    <div className="max-h-[300px] overflow-y-auto p-1">
+                      {knowledgeBases.length === 0 && (
+                        <p className="text-xs text-muted-foreground p-3 text-center">
+                          No knowledge bases available
+                        </p>
+                      )}
+                      {knowledgeBases.map((kb) => (
+                        <label
+                          key={kb.id}
+                          className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted cursor-pointer text-sm transition-colors"
+                        >
+                          <Checkbox
+                            checked={selectedKbIds.includes(kb.id)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedKbIds([...selectedKbIds, kb.id]);
+                              } else {
+                                setSelectedKbIds(
+                                  selectedKbIds.filter((id) => id !== kb.id),
+                                );
+                              }
+                            }}
+                            className="h-4 w-4"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate text-xs">
+                              {kb.name}
+                            </p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="p-2 border-t flex justify-between items-center bg-muted/20 rounded-b-lg">
+                      <span className="text-xs text-muted-foreground">
+                        {selectedKbIds.length === 0
+                          ? "All (auto-select)"
+                          : `${selectedKbIds.length} selected`}
+                      </span>
+                      <div className="flex gap-2">
+                        {selectedKbIds.length > 0 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs h-7"
+                            onClick={() => setSelectedKbIds([])}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          className="text-xs h-7"
+                          onClick={() => setKbDropdownOpen(false)}
+                        >
+                          Done
+                        </Button>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
 
               {/* MCP Servers Multi-Toggle */}
               {mcpServers.length > 0 && (

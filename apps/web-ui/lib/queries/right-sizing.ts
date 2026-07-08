@@ -9,7 +9,10 @@ import { queryKeys } from '@/lib/queries/query-keys';
 import type {
     RightSizingRecommendation,
     RightSizingSummary,
+    RecommendationStatus,
 } from '@/lib/db/repositories/right-sizing/interface';
+import type { InventoryResource } from '@/lib/db/repositories/inventory/interface';
+import type { UIAccount } from '@/lib/types';
 
 export interface RightSizingFilters {
     page: number;
@@ -19,7 +22,6 @@ export interface RightSizingFilters {
     resourceType?: string;
     finding?: string;
     status?: string;
-    accountId?: string;
 }
 
 interface RecommendationsResult {
@@ -40,7 +42,6 @@ export function useRightSizingRecommendations(filters: RightSizingFilters) {
             if (filters.resourceType) params.set('resourceType', filters.resourceType);
             if (filters.finding) params.set('finding', filters.finding);
             if (filters.status) params.set('status', filters.status);
-            if (filters.accountId) params.set('account', filters.accountId);
 
             const res = await fetch(`/api/right-sizing/recommendations?${params.toString()}`);
             const json = await res.json();
@@ -79,6 +80,57 @@ export function useRunRightSizingScan() {
                 throw new Error(json.error || 'Failed to start scan');
             }
             return json;
+        },
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: queryKeys.rightSizing.all });
+        },
+    });
+}
+
+export interface RightSizingRecommendationDetail {
+    recommendation: RightSizingRecommendation;
+    resource: InventoryResource | null;
+    account: UIAccount | null;
+}
+
+export function useRightSizingRecommendation(id: string | undefined) {
+    return useQuery({
+        queryKey: queryKeys.rightSizing.detail(id ?? ''),
+        enabled: !!id,
+        queryFn: async (): Promise<RightSizingRecommendationDetail> => {
+            const res = await fetch(`/api/right-sizing/recommendations/${id}`);
+            const json = await res.json();
+            if (!res.ok || !json.success) {
+                throw new Error(json.error || 'Recommendation not found');
+            }
+            return json.data as RightSizingRecommendationDetail;
+        },
+    });
+}
+
+/** Approve / dismiss / snooze / reopen a recommendation. Invalidates both the list and detail caches. */
+export function useUpdateRightSizingRecommendation() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({
+            id,
+            status,
+            snoozeUntil,
+        }: {
+            id: string;
+            status: RecommendationStatus;
+            snoozeUntil?: string;
+        }): Promise<RightSizingRecommendation> => {
+            const res = await fetch(`/api/right-sizing/recommendations/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status, snoozeUntil }),
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) {
+                throw new Error(json.error || 'Failed to update recommendation');
+            }
+            return json.data as RightSizingRecommendation;
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: queryKeys.rightSizing.all });

@@ -182,6 +182,42 @@ describe('DataSourcePostgresRepository', () => {
             );
         });
     });
+
+    describe('updateDataSource — content', () => {
+        it('writes content when provided', async () => {
+            mockPrisma.dataSource.updateMany.mockResolvedValue({ count: 1 });
+
+            const repo = new DataSourcePostgresRepository();
+            await repo.updateDataSource('kb-1', 'ds-1', { content: '# Hello', status: 'synced' }, 'tenant-1');
+
+            const callArg = mockPrisma.dataSource.updateMany.mock.calls[0][0];
+            expect(callArg.data.content).toBe('# Hello');
+            expect(callArg.data.status).toBe('synced');
+        });
+    });
+
+    describe('getDataSourceContent', () => {
+        it('returns content string, scoped by tenant/kb/ds', async () => {
+            mockPrisma.dataSource.findFirst.mockResolvedValue({ content: '# Doc body' });
+
+            const repo = new DataSourcePostgresRepository();
+            const result = await repo.getDataSourceContent('kb-1', 'ds-1', 'tenant-1');
+
+            expect(result).toBe('# Doc body');
+            expect(mockPrisma.dataSource.findFirst).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({ id: 'ds-1', knowledgeBaseId: 'kb-1', tenantId: 'tenant-1' }),
+                    select: { content: true },
+                })
+            );
+        });
+
+        it('returns null when row not found', async () => {
+            mockPrisma.dataSource.findFirst.mockResolvedValue(null);
+            const repo = new DataSourcePostgresRepository();
+            expect(await repo.getDataSourceContent('kb-1', 'missing', 'tenant-1')).toBeNull();
+        });
+    });
 });
 
 describe('DataSourcePostgresRepository — tenant isolation', () => {

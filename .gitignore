@@ -123,3 +123,6 @@ graphify-out/
 
 # Local database backups (may contain production data) — never commit
 backups/
+
+# Playwright MCP navigation artifacts
+.playwright-mcp/

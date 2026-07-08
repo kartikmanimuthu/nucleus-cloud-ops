@@ -18,6 +18,7 @@ vi.mock('@/lib/schedule-execution-service', () => ({
     ScheduleExecutionService: {
         logExecution: vi.fn(),
         getExecutionsForSchedule: vi.fn(),
+        getExecutionsPageForSchedule: vi.fn(),
         getExecutionById: vi.fn(),
     },
 }));
@@ -341,7 +342,7 @@ describe('GET /api/schedules/[scheduleId]/history', () => {
 
     it('returns 200 with execution history', async () => {
         vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
-        vi.mocked(ScheduleExecutionService.getExecutionsForSchedule).mockResolvedValue([]);
+        vi.mocked(ScheduleExecutionService.getExecutionsPageForSchedule).mockResolvedValue({ executions: [], total: 0 });
         const req = makeRequest('http://localhost/api/schedules/sched-1/history');
         const res = await historyGET(req, asyncParams({ scheduleId: 'sched-1' }) as any);
         const body = await res.json();
@@ -349,6 +350,7 @@ describe('GET /api/schedules/[scheduleId]/history', () => {
         expect(body.success).toBe(true);
         expect(body.scheduleId).toBe('sched-1');
         expect(body.scheduleName).toBe('Test Schedule');
+        expect(body.total).toBe(0);
     });
 
     it('returns 404 when schedule not found', async () => {

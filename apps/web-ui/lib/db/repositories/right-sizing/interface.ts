@@ -76,8 +76,6 @@ export interface RightSizingSummary {
     byStatus: Record<string, number>;
     savingsByResourceType: Record<string, number>;
     savingsByAccount: Record<string, number>;
-    /** Distinct account IDs that appear in the recommendations (any status). Drives the account filter. */
-    accountIds: string[];
     lastRunAt: string | null;
 }
 

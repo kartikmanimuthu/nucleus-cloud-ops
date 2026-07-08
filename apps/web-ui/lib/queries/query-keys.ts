@@ -28,6 +28,8 @@ export const queryKeys = {
         list: (filters?: unknown) => [...queryKeys.schedules.lists(), filters ?? {}] as const,
         details: () => [...queryKeys.schedules.all, 'detail'] as const,
         detail: (id: string) => [...queryKeys.schedules.details(), id] as const,
+        executions: (id: string, filters?: unknown) =>
+            [...queryKeys.schedules.detail(id), 'executions', filters ?? {}] as const,
     },
     audit: {
         all: ['audit'] as const,
@@ -40,6 +42,8 @@ export const queryKeys = {
         recommendations: (filters?: unknown) =>
             [...queryKeys.rightSizing.all, 'recommendations', filters ?? {}] as const,
         summary: () => [...queryKeys.rightSizing.all, 'summary'] as const,
+        details: () => [...queryKeys.rightSizing.all, 'detail'] as const,
+        detail: (id: string) => [...queryKeys.rightSizing.details(), id] as const,
     },
     certificates: {
         all: ['certificates'] as const,

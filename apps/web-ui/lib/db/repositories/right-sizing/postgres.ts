@@ -257,7 +257,7 @@ export class RightSizingPostgresRepository implements IRightSizingRepository {
 
     async getSummary(tenantId: string): Promise<RightSizingSummary> {
         const client = getTenantClient(tenantId);
-        const [byFinding, byStatus, byType, byAccount, distinctAccounts, lastRun, savingsAgg] = await Promise.all([
+        const [byFinding, byStatus, byType, byAccount, lastRun, savingsAgg] = await Promise.all([
             client.rightSizingRecommendation.groupBy({ by: ['finding'], where: { tenantId }, _count: { _all: true } }),
             client.rightSizingRecommendation.groupBy({ by: ['status'], where: { tenantId }, _count: { _all: true } }),
             client.rightSizingRecommendation.groupBy({
@@ -269,11 +269,6 @@ export class RightSizingPostgresRepository implements IRightSizingRepository {
                 by: ['accountId'],
                 where: { tenantId, status: { in: ['open', 'approved'] } },
                 _sum: { estimatedMonthlySavings: true },
-            }),
-            client.rightSizingRecommendation.groupBy({
-                by: ['accountId'],
-                where: { tenantId },
-                orderBy: { accountId: 'asc' },
             }),
             client.rightSizingRun.findFirst({
                 where: { tenantId, status: 'completed' },
@@ -302,7 +297,6 @@ export class RightSizingPostgresRepository implements IRightSizingRepository {
             byStatus: toCountMap(byStatus as never, 'status'),
             savingsByResourceType: toSumMap(byType as never, 'resourceType'),
             savingsByAccount: toSumMap(byAccount as never, 'accountId'),
-            accountIds: (distinctAccounts as Array<{ accountId: string }>).map((r) => r.accountId),
             lastRunAt: lastRun ? (lastRun as RunRow).startedAt.toISOString() : null,
         };
     }
