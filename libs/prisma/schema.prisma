@@ -348,14 +348,15 @@ model InventoryResource {
   tags         Json     @default("{}")
   metadata     Json     @default("{}")
   jobRunId     String?
+  isCurrent    Boolean  @default(true)
   discoveredAt DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   searchVector Unsupported("tsvector")?
 
   @@unique([tenantId, accountId, resourceType, resourceId])
-  @@index([tenantId, resourceType])
-  @@index([tenantId, accountId])
+  @@index([tenantId, resourceType, isCurrent])
+  @@index([tenantId, accountId, isCurrent])
   @@map("inventory_resources")
 }
 
