@@ -1,19 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Resource } from '../types.js';
 
-const { mockQuery, mockRelease, mockConnect } = vi.hoisted(() => {
-  const mockQuery = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
-  const mockRelease = vi.fn();
-  const mockConnect = vi.fn().mockResolvedValue({ query: mockQuery, release: mockRelease });
-  return { mockQuery, mockRelease, mockConnect };
-});
+const mockQuery = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
+const mockRelease = vi.fn();
+const mockConnect = vi.fn().mockResolvedValue({ query: mockQuery, release: mockRelease });
 
 vi.mock('pg', () => ({
-  Pool: class {
-    connect() {
-      return mockConnect();
-    }
-  },
+  Pool: vi.fn().mockImplementation(() => ({ connect: mockConnect })),
 }));
 
 import { writeResourcesToPg, saveSyncStatus, extractMetadata, reconcileStaleResources } from '../services/pg-writer.js';
