@@ -79,6 +79,17 @@ export async function processRDSResource(
                 log.info(`RDS ${resource.id}: Restoring from scheduler-managed state (was ${lastState.dbInstanceStatus})`);
             }
 
+            if (metadata.dryRun) {
+                log.info(`[DRY RUN] Would START RDS instance ${resource.id} (${resource.name || 'unnamed'}); current status=${currentStatus}`);
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    action: 'start',
+                    status: 'success',
+                    last_state: { dbInstanceStatus: currentStatus, dbInstanceClass },
+                };
+            }
+
             // Start the instance
             log.debug(`RDS ${resource.id}: Sending StartDBInstanceCommand`);
             await rdsClient.send(new StartDBInstanceCommand({ DBInstanceIdentifier: resource.id }));
@@ -112,6 +123,17 @@ export async function processRDSResource(
             };
 
         } else if (action === 'stop' && currentStatus === 'available') {
+            if (metadata.dryRun) {
+                log.info(`[DRY RUN] Would STOP RDS instance ${resource.id} (${resource.name || 'unnamed'}); current status=${currentStatus}, class=${dbInstanceClass}`);
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    action: 'stop',
+                    status: 'success',
+                    last_state: { dbInstanceStatus: currentStatus, dbInstanceClass },
+                };
+            }
+
             // Stop the instance - capture current state for later restoration
             log.debug(`RDS ${resource.id}: Sending StopDBInstanceCommand`);
             await rdsClient.send(new StopDBInstanceCommand({ DBInstanceIdentifier: resource.id }));

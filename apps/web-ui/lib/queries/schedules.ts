@@ -36,6 +36,48 @@ export function useSchedules(
     });
 }
 
+/** One execution-history row as returned by GET /api/schedules/[id]/history. */
+export interface ScheduleExecutionRow {
+    executionId: string;
+    executionTime: string;
+    status: string;
+    duration?: number;
+    resourcesStarted: number;
+    resourcesStopped: number;
+    resourcesFailed: number;
+    errorMessage?: string;
+}
+
+interface ExecutionsPage {
+    executions: ScheduleExecutionRow[];
+    total: number;
+}
+
+/**
+ * Paginated execution history for a single schedule. Server-side paged via
+ * ?page & ?limit. Disabled until a scheduleId is provided.
+ */
+export function useScheduleExecutions(
+    scheduleId: string | undefined,
+    page: number,
+    limit: number,
+) {
+    return useQuery<ExecutionsPage>({
+        queryKey: queryKeys.schedules.executions(scheduleId ?? '', { page, limit }),
+        queryFn: async () => {
+            const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+            const res = await fetch(
+                `/api/schedules/${encodeURIComponent(scheduleId as string)}/history?${params.toString()}`,
+            );
+            if (!res.ok) throw new Error('Failed to load execution history');
+            const data = await res.json();
+            return { executions: data.executions ?? [], total: data.total ?? 0 };
+        },
+        enabled: !!scheduleId,
+        placeholderData: (prev) => prev,
+    });
+}
+
 /** Fetch a single schedule by id. Disabled when no id is provided. */
 export function useSchedule(id: string | undefined) {
     return useQuery({

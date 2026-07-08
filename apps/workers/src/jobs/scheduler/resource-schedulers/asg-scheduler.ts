@@ -79,6 +79,17 @@ export async function processASGResource(
         log.debug(`ASG ${asgName}: minSize=${currentMinSize}, maxSize=${currentMaxSize}, desiredCapacity=${currentDesiredCapacity}, instances=${instanceCount}, action=${action}`);
 
         if (action === 'stop' && (currentDesiredCapacity > 0 || currentMinSize > 0)) {
+            if (metadata.dryRun) {
+                log.info(`[DRY RUN] Would STOP ASG ${asgName} (set 0/0/0); current minSize=${currentMinSize}, maxSize=${currentMaxSize}, desiredCapacity=${currentDesiredCapacity}`);
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    action: 'stop',
+                    status: 'success',
+                    last_state: { minSize: currentMinSize, maxSize: currentMaxSize, desiredCapacity: currentDesiredCapacity },
+                };
+            }
+
             // Stop the ASG by setting all capacity to 0
             // IMPORTANT: Save current values in last_state for restoration
             await asgClient.send(new UpdateAutoScalingGroupCommand({
@@ -124,6 +135,17 @@ export async function processASGResource(
             const targetMinSize = lastState?.minSize ?? 1;
             const targetMaxSize = lastState?.maxSize ?? 1;
             const targetDesiredCapacity = lastState?.desiredCapacity ?? 1;
+
+            if (metadata.dryRun) {
+                log.info(`[DRY RUN] Would START ASG ${asgName} (restore ${targetMinSize}/${targetMaxSize}/${targetDesiredCapacity}); current is 0/0/0`);
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    action: 'start',
+                    status: 'success',
+                    last_state: { minSize: currentMinSize, maxSize: currentMaxSize, desiredCapacity: currentDesiredCapacity },
+                };
+            }
 
             await asgClient.send(new UpdateAutoScalingGroupCommand({
                 AutoScalingGroupName: asgName,

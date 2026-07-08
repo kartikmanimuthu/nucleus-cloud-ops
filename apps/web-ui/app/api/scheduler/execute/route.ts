@@ -30,12 +30,17 @@ export async function POST() {
                 tenantId,
             };
 
-            // Send to per-tenant queue (matches workers/src/jobs/scheduler/index.ts registration)
-            const queueName = `scheduler-scan:${tenantId}`;
+            // Send to the global 'scheduler-scan' queue — the only queue the workers
+            // register (workers/src/jobs/scheduler/index.ts). The worker detects the
+            // 'web-ui' triggeredBy + tenantId and runs a full scan scoped to this tenant,
+            // bypassing per-tenant interval gating.
+            const queueName = 'scheduler-scan';
             console.log(`[API] Enqueuing job to ${queueName}`, payload);
 
             const boss = await getBoss();
-            await boss.send(queueName, payload);
+            // priority > 0 so this user-initiated scan is dequeued ahead of a
+            // pending system cron tick (pg-boss fetch orders by priority desc).
+            await boss.send(queueName, payload, { priority: 10 });
 
         } catch (enqueueError) {
             console.error(`[API] Job enqueue failed:`, enqueueError);

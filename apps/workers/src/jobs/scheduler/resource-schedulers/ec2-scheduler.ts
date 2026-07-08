@@ -79,6 +79,17 @@ export async function processEC2Resource(
                 log.info(`EC2 ${resource.id}: Restoring from scheduler-managed state (was ${lastState.instanceState})`);
             }
 
+            if (metadata.dryRun) {
+                log.info(`[DRY RUN] Would START EC2 instance ${resource.id} (${resource.name || 'unnamed'}); current state=${currentState}`);
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    action: 'start',
+                    status: 'success',
+                    last_state: { instanceState: currentState, instanceType },
+                };
+            }
+
             // Start the instance
             log.debug(`EC2 ${resource.id}: Sending StartInstancesCommand`);
             await ec2Client.send(new StartInstancesCommand({ InstanceIds: [resource.id] }));
@@ -112,6 +123,17 @@ export async function processEC2Resource(
             };
 
         } else if (action === 'stop' && currentState === 'running') {
+            if (metadata.dryRun) {
+                log.info(`[DRY RUN] Would STOP EC2 instance ${resource.id} (${resource.name || 'unnamed'}); current state=${currentState}, instanceType=${instanceType}`);
+                return {
+                    arn: resource.arn,
+                    resourceId: resource.id,
+                    action: 'stop',
+                    status: 'success',
+                    last_state: { instanceState: currentState, instanceType },
+                };
+            }
+
             // Stop the instance - capture current state for later restoration
             log.debug(`EC2 ${resource.id}: Sending StopInstancesCommand`);
             await ec2Client.send(new StopInstancesCommand({ InstanceIds: [resource.id] }));

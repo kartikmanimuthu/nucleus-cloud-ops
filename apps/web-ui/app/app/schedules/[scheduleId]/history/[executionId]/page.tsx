@@ -6,24 +6,30 @@ import Link from "next/link";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CopyButton } from "@/components/ui/copy-button";
+import { PaginationBar } from "@/components/ui/pagination-bar";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   Activity,
   AlertTriangle,
   CheckCircle,
   Clock,
-  Database,
-  Server,
-  Box,
   Info,
   ArrowLeft,
   Loader2,
-  Cpu,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/date-utils";
 import { useTenant } from "@/lib/tenant-context";
@@ -149,6 +155,18 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
   const docdbResources = filterActioned(metadata.docdb);
   const totalResources = ec2Resources.length + rdsResources.length + ecsResources.length + asgResources.length + docdbResources.length;
 
+  // Flatten every actioned resource into one list tagged with its type, so the
+  // "All Resources" tab renders as a single unified grid (EC2/RDS/ECS/ASG/DocDB
+  // together) rather than separate per-type boxes.
+  const toRows = (resources: any[], type: ResType) => (resources || []).map((res) => ({ res, type }));
+  const allRows: ResourceRow[] = [
+    ...toRows(ec2Resources, "ec2"),
+    ...toRows(rdsResources, "rds"),
+    ...toRows(ecsResources, "ecs"),
+    ...toRows(asgResources, "asg"),
+    ...toRows(docdbResources, "docdb"),
+  ];
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -174,39 +192,43 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
           <div>{getStatusBadge(execution.status)}</div>
         </div>
 
-        {/* Summary Card */}
+        {/* Summary — one compact card (merges the old 3 big count cards inline) */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Execution Summary</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               <div className="space-y-1">
-                <span className="text-sm text-muted-foreground">Status</span>
+                <span className="text-xs text-muted-foreground">Status</span>
                 <div>{getStatusBadge(execution.status)}</div>
               </div>
               <div className="space-y-1">
-                <span className="text-sm text-muted-foreground">Start Time</span>
+                <span className="text-xs text-muted-foreground">Start Time</span>
                 <div className="text-sm font-medium">
                   {formatDateTime(execution.executionTime || execution.startTime, 'longDateTime', timezone)}
                 </div>
               </div>
               <div className="space-y-1">
-                <span className="text-sm text-muted-foreground">Duration</span>
+                <span className="text-xs text-muted-foreground">Duration</span>
                 <div className="text-sm font-medium flex items-center gap-1">
                   <Clock className="h-4 w-4 text-muted-foreground" />
                   {execution.duration ? `${execution.duration}s` : "N/A"}
                 </div>
               </div>
               <div className="space-y-1">
-                <span className="text-sm text-muted-foreground">Total Resources</span>
-                <div className="text-sm font-medium">
-                  {totalResources} actioned
+                <span className="text-xs text-muted-foreground">Resources ({totalResources} actioned)</span>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium">
+                  <span className="text-success">{execution.resourcesStarted || 0} started</span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="text-info">{execution.resourcesStopped || 0} stopped</span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="text-destructive">{execution.resourcesFailed || 0} failed</span>
                 </div>
               </div>
             </div>
             {execution.errorMessage && (
-              <div className="mt-4 p-3 bg-destructive/10 text-red-700 rounded-md text-sm flex items-start space-x-2">
+              <div className="p-3 bg-destructive/10 text-red-700 rounded-md text-sm flex items-start space-x-2">
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>{execution.errorMessage}</span>
               </div>
@@ -214,172 +236,16 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
           </CardContent>
         </Card>
 
-        {/* Resource Quick Stats */}
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-success" />
-                Resources Started
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-success">
-                {execution.resourcesStarted || 0}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Activity className="h-4 w-4 text-info" />
-                Resources Stopped
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-info">
-                {execution.resourcesStopped || 0}
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-destructive" />
-                Resources Failed
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-destructive">
-                {execution.resourcesFailed || 0}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Resources Tabs */}
+        {/* Resource Details — one grid across all resource types, paginated */}
         <Card>
           <CardHeader>
             <CardTitle>Resource Details</CardTitle>
+            <CardDescription>
+              {totalResources} resource{totalResources === 1 ? "" : "s"} actioned in this execution
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="all" className="w-full">
-              <TabsList className="w-full h-auto flex flex-wrap justify-start gap-2 bg-transparent p-0">
-                <TabsTrigger value="all" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">All Resources</TabsTrigger>
-                <TabsTrigger value="ec2" disabled={ec2Resources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
-                  EC2 ({ec2Resources.length})
-                </TabsTrigger>
-                <TabsTrigger value="rds" disabled={rdsResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
-                  RDS ({rdsResources.length})
-                </TabsTrigger>
-                <TabsTrigger value="ecs" disabled={ecsResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
-                  ECS ({ecsResources.length})
-                </TabsTrigger>
-                <TabsTrigger value="asg" disabled={asgResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
-                  ASG ({asgResources.length})
-                </TabsTrigger>
-                <TabsTrigger value="docdb" disabled={docdbResources.length === 0} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:bg-muted flex-1 min-w-[100px]">
-                  DocDB ({docdbResources.length})
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="all" className="space-y-4 mt-4">
-                {totalResources === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p>No resources were started or stopped in this execution.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {ec2Resources.length > 0 && (
-                      <ResourceSection
-                        title="EC2 Instances"
-                        icon={<Server className="h-4 w-4" />}
-                        resources={ec2Resources}
-                        type="ec2"
-                      />
-                    )}
-                    {rdsResources.length > 0 && (
-                      <ResourceSection
-                        title="RDS Instances"
-                        icon={<Database className="h-4 w-4" />}
-                        resources={rdsResources}
-                        type="rds"
-                      />
-                    )}
-                    {ecsResources.length > 0 && (
-                      <ResourceSection
-                        title="ECS Services"
-                        icon={<Box className="h-4 w-4" />}
-                        resources={ecsResources}
-                        type="ecs"
-                      />
-                    )}
-                    {asgResources.length > 0 && (
-                      <ResourceSection
-                        title="Auto Scaling Groups"
-                        icon={<Cpu className="h-4 w-4" />}
-                        resources={asgResources}
-                        type="asg"
-                      />
-                    )}
-                    {docdbResources.length > 0 && (
-                      <ResourceSection
-                        title="DocumentDB Clusters"
-                        icon={<Database className="h-4 w-4" />}
-                        resources={docdbResources}
-                        type="docdb"
-                      />
-                    )}
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="ec2" className="mt-4">
-                <ResourceSection
-                  title="EC2 Instances"
-                  icon={<Server className="h-4 w-4" />}
-                  resources={ec2Resources}
-                  type="ec2"
-                />
-              </TabsContent>
-
-              <TabsContent value="rds" className="mt-4">
-                <ResourceSection
-                  title="RDS Instances"
-                  icon={<Database className="h-4 w-4" />}
-                  resources={rdsResources}
-                  type="rds"
-                />
-              </TabsContent>
-
-              <TabsContent value="ecs" className="mt-4">
-                <ResourceSection
-                  title="ECS Services"
-                  icon={<Box className="h-4 w-4" />}
-                  resources={ecsResources}
-                  type="ecs"
-                />
-              </TabsContent>
-
-              <TabsContent value="asg" className="mt-4">
-                <ResourceSection
-                  title="Auto Scaling Groups"
-                  icon={<Cpu className="h-4 w-4" />}
-                  resources={asgResources}
-                  type="asg"
-                />
-              </TabsContent>
-
-              <TabsContent value="docdb" className="mt-4">
-                <ResourceSection
-                  title="DocumentDB Clusters"
-                  icon={<Database className="h-4 w-4" />}
-                  resources={docdbResources}
-                  type="docdb"
-                />
-              </TabsContent>
-            </Tabs>
+            <ResourceTable rows={allRows} />
           </CardContent>
         </Card>
       </div>
@@ -387,79 +253,130 @@ export default function ExecutionDetailsPage({ params }: ExecutionDetailsPagePro
   );
 }
 
-function ResourceSection({
-  title,
-  icon,
-  resources,
-  type,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  resources: any[];
-  type: "ec2" | "rds" | "ecs" | "asg" | "docdb";
-}) {
-  if (resources.length === 0) {
+type ResType = "ec2" | "rds" | "ecs" | "asg" | "docdb";
+interface ResourceRow {
+  res: any;
+  type: ResType;
+}
+
+const RES_TYPE_LABEL: Record<ResType, string> = {
+  ec2: "EC2",
+  rds: "RDS",
+  ecs: "ECS",
+  asg: "ASG",
+  docdb: "DocDB",
+};
+
+function resourceState(type: ResType, res: any): React.ReactNode {
+  if (type === "ecs" && res.last_state) {
+    return `Desired ${res.last_state.desiredCount} → Running ${res.last_state.runningCount}`;
+  }
+  if (type === "asg" && res.last_state) {
+    return `Min ${res.last_state.minSize} / Max ${res.last_state.maxSize} / Desired ${res.last_state.desiredCapacity}`;
+  }
+  return <span className="text-muted-foreground/50">—</span>;
+}
+
+// One uniformly-aligned, paginated grid across every resource type (EC2/RDS/ECS/
+// ASG/DocDB). Pagination is client-side — the rows come from the execution's
+// in-memory metadata.
+const RESOURCE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
+function ResourceTable({ rows }: { rows: ResourceRow[] }) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  if (rows.length === 0) {
     return (
-      <div className="text-center py-4 text-muted-foreground">
-        <p>No {title.toLowerCase()} were actioned.</p>
+      <div className="rounded-lg border py-10 text-center text-muted-foreground">
+        <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
+        <p>No resources were started or stopped in this execution.</p>
       </div>
     );
   }
 
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const pageRows = rows.slice(start, start + pageSize);
+
   return (
-    <div className="border rounded-lg">
-      <div className="px-4 py-3 border-b bg-muted/30 flex items-center gap-2">
-        {icon}
-        <span className="font-medium text-sm">{title}</span>
-        <Badge variant="secondary" className="ml-auto">
-          {resources.length}
-        </Badge>
+    <div className="space-y-4">
+      <div className="rounded-lg border overflow-x-auto">
+        <Table className="min-w-[820px]">
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              <TableHead className="min-w-[300px]">Resource</TableHead>
+              <TableHead className="w-[80px]">Type</TableHead>
+              <TableHead className="w-[90px]">Action</TableHead>
+              <TableHead className="w-[200px]">State</TableHead>
+              <TableHead className="w-[100px] text-right">Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pageRows.map(({ res, type }, idx) => (
+              <TableRow key={start + idx} className="align-top">
+                <TableCell className="align-top">
+                  <div className="space-y-0.5">
+                    <div className="font-medium text-sm">
+                      {res.resourceId || res.arn?.split("/").pop()}
+                    </div>
+                    {res.arn && (
+                      <div className="flex items-center gap-1">
+                        <span
+                          className="block max-w-[420px] truncate font-mono text-xs text-muted-foreground"
+                          title={res.arn}
+                        >
+                          {res.arn}
+                        </span>
+                        <CopyButton value={res.arn} label="Copy ARN" />
+                      </div>
+                    )}
+                    {res.error && (
+                      <div className="text-xs text-destructive">{res.error}</div>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="align-top">
+                  <Badge variant="secondary" className="text-xs">
+                    {RES_TYPE_LABEL[type]}
+                  </Badge>
+                </TableCell>
+                <TableCell className="align-top">
+                  <Badge variant="outline" className="text-xs capitalize">
+                    {res.action}
+                  </Badge>
+                </TableCell>
+                <TableCell className="align-top text-xs text-muted-foreground whitespace-nowrap">
+                  {resourceState(type, res)}
+                </TableCell>
+                <TableCell className="align-top text-right">
+                  {res.status === "success" ? (
+                    <Badge className="bg-success/10 text-green-800 hover:bg-success/10">
+                      Success
+                    </Badge>
+                  ) : (
+                    <Badge variant="destructive">Failed</Badge>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
-      <div className="p-4 space-y-2">
-        {resources.map((res: any, idx: number) => (
-          <div
-            key={idx}
-            className="flex items-start justify-between p-3 border rounded-md bg-muted/30"
-          >
-            <div className="space-y-1">
-              <div className="flex items-center space-x-2">
-                <span className="font-medium text-sm">
-                  {res.resourceId || res.arn?.split("/").pop()}
-                </span>
-                <Badge variant="outline" className="text-xs capitalize">
-                  {res.action}
-                </Badge>
-              </div>
-              <div className="text-xs text-muted-foreground break-all">
-                {res.arn}
-              </div>
-              {res.error && (
-                <p className="text-xs text-destructive mt-1">{res.error}</p>
-              )}
-              {type === "ecs" && res.last_state && (
-                <div className="text-xs text-muted-foreground mt-1">
-                  Desired Count: {res.last_state.desiredCount} → Running:{" "}
-                  {res.last_state.runningCount}
-                </div>
-              )}
-              {type === "asg" && res.last_state && (
-                <div className="text-xs text-muted-foreground mt-1">
-                  Capacity: Min {res.last_state.minSize} / Max {res.last_state.maxSize} / Desired {res.last_state.desiredCapacity}
-                </div>
-              )}
-            </div>
-            <div className="flex-shrink-0">
-              {res.status === "success" ? (
-                <Badge className="bg-success/10 text-green-800 hover:bg-success/10">
-                  Success
-                </Badge>
-              ) : (
-                <Badge variant="destructive">Failed</Badge>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+
+      <PaginationBar
+        currentPage={currentPage}
+        totalItems={rows.length}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSizeOptions={RESOURCE_PAGE_SIZE_OPTIONS}
+        itemLabel="resources"
+      />
     </div>
   );
 }

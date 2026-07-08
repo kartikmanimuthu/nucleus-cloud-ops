@@ -58,6 +58,21 @@ export const env = createEnv({
         USE_PG_SCHEDULES: z.string().optional(),
         RIGHT_SIZING_ENABLED: z.string().optional(),
 
+        // pg-boss worker poll cadence (seconds). Controls how quickly the workers
+        // process picks up jobs enqueued by the web-ui — pg-boss has no cross-process
+        // push, so this is the real-time-pickup floor. Default 1s, min 0.5s. See boss.ts.
+        PGBOSS_POLL_INTERVAL_SECONDS: z.string().optional(),
+
+        // Scheduler local/simulation controls (read by the scheduler job).
+        // SCHEDULER_DRY_RUN=true  → describe + decide only, skip all Start/Stop/Update mutations
+        //                           and skip per-resource success audit writes (safe simulation).
+        // SCHEDULER_FORCE_ACTION=start|stop → override the time-window decision (test both paths).
+        SCHEDULER_DRY_RUN: z.string().optional(),
+        SCHEDULER_FORCE_ACTION: z.enum(['start', 'stop']).optional(),
+        // Max AWS accounts scanned in parallel per schedule (default 8, clamped 1..32).
+        // Read via process.env at scan time (runtime toggle) — see scheduler-service.ts.
+        SCHEDULER_ACCOUNT_CONCURRENCY: z.string().optional(),
+
         // Misc
         PORT: z.string().optional(),
         TENANT_ID: z.string().optional(),
