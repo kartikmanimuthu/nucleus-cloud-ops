@@ -86,9 +86,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -97,6 +95,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -479,6 +485,7 @@ export function ChatInterface({
       prev && availableModels.some((m) => m.id === prev) ? prev : availableModels[0]?.id ?? "",
     );
   }, [availableModels]);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [agentMode, setAgentMode] = useState("fast");
   const [hasStarted, setHasStarted] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -506,6 +513,7 @@ export function ChatInterface({
     Array<{ id: string; name: string; description: string }>
   >([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
 
   // Save-as-skill state
   const distillSkill = useDistillSkill();
@@ -521,6 +529,7 @@ export function ChatInterface({
   );
   const [mcpServersLoading, setMcpServersLoading] = useState(false);
   const [mcpDropdownOpen, setMcpDropdownOpen] = useState(false);
+  const [mcpSearch, setMcpSearch] = useState("");
   const mcpDropdownRef = useRef<HTMLDivElement>(null);
 
   // File attachments state
@@ -1579,115 +1588,182 @@ export function ChatInterface({
                 )}
               </div>
 
-              {/* Model Selector */}
-              <Select value={selectedModel} onValueChange={setSelectedModel} disabled={isLoading || distillSkill.isPending}>
-                <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px]">
-                  <div className="flex items-center gap-1.5">
-                    <Sparkles className="w-3 h-3 text-primary" />
-                    <SelectValue placeholder={availableModels.length === 0 ? "No providers configured" : "Select Model"} />
-                  </div>
-                </SelectTrigger>
-                <SelectContent>
-                  {availableModels.length === 0 && (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                      No LLM providers configured. Add one in Settings → Providers.
-                    </div>
-                  )}
-                  {(() => {
-                    // Group label per provider type. Bedrock first, then the rest in a
-                    // stable order; any unrecognised provider falls back to its raw key.
-                    const PROVIDER_GROUP_LABELS: Record<string, string> = {
-                      bedrock: "Bedrock",
-                      openai: "OpenAI",
-                      anthropic: "Anthropic",
-                      ollama: "Ollama",
-                      vllm: "vLLM",
-                      lmstudio: "LM Studio",
-                      litellm: "LiteLLM Gateway",
-                      "openai-compatible": "Self-Hosted",
-                    };
-                    const GROUP_ORDER = [
-                      "bedrock",
-                      "openai",
-                      "anthropic",
-                      "ollama",
-                      "vllm",
-                      "lmstudio",
-                      "litellm",
-                      "openai-compatible",
-                    ];
-                    const present = Array.from(new Set(availableModels.map(m => m.provider)));
-                    const orderedProviders = [
-                      ...GROUP_ORDER.filter(p => present.includes(p)),
-                      ...present.filter(p => !GROUP_ORDER.includes(p)),
-                    ];
-                    return orderedProviders.map((providerKey) => {
-                      const models = availableModels.filter(m => m.provider === providerKey);
-                      if (models.length === 0) return null;
-                      return (
-                        <SelectGroup key={providerKey}>
-                          <SelectLabel className="text-xs text-muted-foreground px-2">
-                            {PROVIDER_GROUP_LABELS[providerKey] ?? providerKey}
-                          </SelectLabel>
-                          {models.map((model) => (
-                            <SelectItem key={model.id} value={model.id} className="text-xs">
-                              {model.label}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      );
-                    });
-                  })()}
-                </SelectContent>
-              </Select>
-
-              {/* Skills Selector */}
-              <Select
-                value={selectedSkill || "none"}
-                onValueChange={(value) =>
-                  setSelectedSkill(value === "none" ? null : value)
-                }
-                disabled={hasStarted || isLoading || distillSkill.isPending}
-              >
-                <SelectTrigger className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px]">
-                  <div className="flex items-center gap-1.5">
-                    <Briefcase
-                      className={cn(
-                        "w-3 h-3",
-                        selectedSkill
-                          ? "text-purple-500"
-                          : "text-muted-foreground",
-                      )}
-                    />
-                    <span className="truncate max-w-[140px]">
-                      {selectedSkill
-                        ? availableSkills.find((s) => s.id === selectedSkill)
-                            ?.name
-                        : "Select Agent Skill"}
-                    </span>
-                  </div>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">
-                    <div className="flex flex-col">
-                      <span className="font-medium">No Skill</span>
-                      <span className="text-xs text-muted-foreground">
-                        No specific skill
+              {/* Model Selector with Search */}
+              <Popover open={modelDropdownOpen} onOpenChange={setModelDropdownOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    disabled={isLoading || distillSkill.isPending}
+                    className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px] justify-start"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-primary" />
+                      <span className="truncate max-w-[160px] font-normal">
+                        {availableModels.length === 0
+                          ? "No providers configured"
+                          : availableModels.find((m) => m.id === selectedModel)?.label ??
+                            "Select Model"}
                       </span>
                     </div>
-                  </SelectItem>
-                  {availableSkills.map((skill) => (
-                    <SelectItem key={skill.id} value={skill.id}>
-                      <div className="flex flex-col">
-                        <span className="font-medium">{skill.name}</span>
-                        <span className="text-xs text-muted-foreground truncate max-w-[250px]">
-                          {skill.description}
-                        </span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="top" align="start" className="w-[280px] p-0 mb-2">
+                  <Command>
+                    <CommandInput placeholder="Search models..." />
+                    <CommandList>
+                      <CommandEmpty>
+                        {availableModels.length === 0
+                          ? "No LLM providers configured. Add one in Settings → Providers."
+                          : "No matching models"}
+                      </CommandEmpty>
+                      {(() => {
+                        // Group label per provider type. Bedrock first, then the rest in a
+                        // stable order; any unrecognised provider falls back to its raw key.
+                        const PROVIDER_GROUP_LABELS: Record<string, string> = {
+                          bedrock: "Bedrock",
+                          openai: "OpenAI",
+                          anthropic: "Anthropic",
+                          ollama: "Ollama",
+                          vllm: "vLLM",
+                          lmstudio: "LM Studio",
+                          litellm: "LiteLLM Gateway",
+                          "openai-compatible": "Self-Hosted",
+                        };
+                        const GROUP_ORDER = [
+                          "bedrock",
+                          "openai",
+                          "anthropic",
+                          "ollama",
+                          "vllm",
+                          "lmstudio",
+                          "litellm",
+                          "openai-compatible",
+                        ];
+                        const present = Array.from(new Set(availableModels.map(m => m.provider)));
+                        const orderedProviders = [
+                          ...GROUP_ORDER.filter(p => present.includes(p)),
+                          ...present.filter(p => !GROUP_ORDER.includes(p)),
+                        ];
+                        return orderedProviders.map((providerKey) => {
+                          const models = availableModels.filter(m => m.provider === providerKey);
+                          if (models.length === 0) return null;
+                          return (
+                            <CommandGroup
+                              key={providerKey}
+                              heading={PROVIDER_GROUP_LABELS[providerKey] ?? providerKey}
+                            >
+                              {models.map((model) => (
+                                <CommandItem
+                                  key={model.id}
+                                  value={model.label}
+                                  onSelect={() => {
+                                    setSelectedModel(model.id);
+                                    setModelDropdownOpen(false);
+                                  }}
+                                  className="text-xs"
+                                >
+                                  <Check
+                                    className={cn(
+                                      "h-3.5 w-3.5",
+                                      model.id === selectedModel ? "opacity-100" : "opacity-0",
+                                    )}
+                                  />
+                                  {model.label}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          );
+                        });
+                      })()}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+
+              {/* Skills Selector with Search */}
+              <Popover open={skillDropdownOpen} onOpenChange={setSkillDropdownOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    disabled={hasStarted || isLoading || distillSkill.isPending}
+                    className="h-7 text-xs border-transparent bg-transparent hover:bg-muted/50 focus:ring-0 gap-1 px-2 w-auto min-w-[180px] justify-start"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Briefcase
+                        className={cn(
+                          "w-3 h-3",
+                          selectedSkill
+                            ? "text-purple-500"
+                            : "text-muted-foreground",
+                        )}
+                      />
+                      <span className="truncate max-w-[140px] font-normal">
+                        {selectedSkill
+                          ? availableSkills.find((s) => s.id === selectedSkill)
+                              ?.name
+                          : "Select Agent Skill"}
+                      </span>
+                    </div>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="top" align="start" className="w-[280px] p-0 mb-2">
+                  <Command>
+                    <CommandInput placeholder="Search skills..." />
+                    <CommandList>
+                      <CommandEmpty>No matching skills</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value="No Skill"
+                          onSelect={() => {
+                            setSelectedSkill(null);
+                            setSkillDropdownOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "h-3.5 w-3.5",
+                              !selectedSkill ? "opacity-100" : "opacity-0",
+                            )}
+                          />
+                          <div className="flex flex-col">
+                            <span className="font-medium">No Skill</span>
+                            <span className="text-xs text-muted-foreground">
+                              No specific skill
+                            </span>
+                          </div>
+                        </CommandItem>
+                        {availableSkills.map((skill) => (
+                          <CommandItem
+                            key={skill.id}
+                            value={`${skill.name} ${skill.description}`}
+                            onSelect={() => {
+                              setSelectedSkill(skill.id);
+                              setSkillDropdownOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "h-3.5 w-3.5",
+                                selectedSkill === skill.id ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-medium">{skill.name}</span>
+                              <span className="text-xs text-muted-foreground truncate max-w-[220px]">
+                                {skill.description}
+                              </span>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
 
               {/* MCP Servers Multi-Toggle */}
               {mcpServers.length > 0 && (
@@ -1733,43 +1809,63 @@ export function ChatInterface({
                       align="start"
                       className="w-[280px] p-0 mb-2"
                     >
-                      <div className="max-h-[300px] overflow-y-auto p-1">
-                        {mcpServers.map((server) => (
-                          <label
-                            key={server.id}
-                            className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted cursor-pointer text-sm transition-colors"
-                          >
-                            <Checkbox
-                              checked={selectedMcpServerIds.includes(server.id)}
-                              onCheckedChange={(checked) => {
-                                if (checked) {
-                                  setSelectedMcpServerIds([
-                                    ...selectedMcpServerIds,
-                                    server.id,
-                                  ]);
-                                } else {
-                                  setSelectedMcpServerIds(
-                                    selectedMcpServerIds.filter(
-                                      (id) => id !== server.id,
-                                    ),
-                                  );
-                                }
-                              }}
-                              className="h-4 w-4"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium truncate text-xs">
-                                {server.name}
-                              </p>
-                              {server.description && (
-                                <p className="text-[10px] text-muted-foreground truncate">
-                                  {server.description}
-                                </p>
-                              )}
-                            </div>
-                          </label>
-                        ))}
-                      </div>
+                      <Command shouldFilter={false}>
+                        <CommandInput
+                          placeholder="Search tools..."
+                          value={mcpSearch}
+                          onValueChange={setMcpSearch}
+                        />
+                        <CommandList>
+                          <CommandEmpty>No matching tools</CommandEmpty>
+                          <CommandGroup>
+                            {mcpServers
+                              .filter(
+                                (server) =>
+                                  server.name
+                                    .toLowerCase()
+                                    .includes(mcpSearch.toLowerCase()) ||
+                                  server.description
+                                    ?.toLowerCase()
+                                    .includes(mcpSearch.toLowerCase()),
+                              )
+                              .map((server) => (
+                                <CommandItem
+                                  key={server.id}
+                                  value={server.id}
+                                  onSelect={() => {
+                                    if (selectedMcpServerIds.includes(server.id)) {
+                                      setSelectedMcpServerIds(
+                                        selectedMcpServerIds.filter(
+                                          (id) => id !== server.id,
+                                        ),
+                                      );
+                                    } else {
+                                      setSelectedMcpServerIds([
+                                        ...selectedMcpServerIds,
+                                        server.id,
+                                      ]);
+                                    }
+                                  }}
+                                >
+                                  <Checkbox
+                                    checked={selectedMcpServerIds.includes(server.id)}
+                                    className="h-4 w-4 pointer-events-none"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-medium truncate text-xs">
+                                      {server.name}
+                                    </p>
+                                    {server.description && (
+                                      <p className="text-[10px] text-muted-foreground truncate">
+                                        {server.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                </CommandItem>
+                              ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
                       <div className="p-2 border-t flex justify-between items-center bg-muted/20 rounded-b-lg">
                         <span className="text-xs text-muted-foreground">
                           {selectedMcpServerIds.length} selected
@@ -1791,7 +1887,10 @@ export function ChatInterface({
                             variant="default"
                             size="sm"
                             className="text-xs h-7"
-                            onClick={() => setMcpDropdownOpen(false)}
+                            onClick={() => {
+                              setMcpDropdownOpen(false);
+                              setMcpSearch("");
+                            }}
                           >
                             Done
                           </Button>

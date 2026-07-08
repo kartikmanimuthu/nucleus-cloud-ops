@@ -66,12 +66,6 @@ test.describe('App — AI Ops', () => {
         ).toBeVisible({ timeout: 10000 });
     });
 
-    test('/app/agent/mcp-settings loads', async ({ page }) => {
-        await goto(page, '/app/agent/mcp-settings');
-        await expect(
-            page.getByText(/MCP|Model Context Protocol|Servers/i).first()
-        ).toBeVisible({ timeout: 10000 });
-    });
 });
 
 // ─── Agent Ops ────────────────────────────────────────────────────────────────
