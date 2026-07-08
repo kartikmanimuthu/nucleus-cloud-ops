@@ -22,6 +22,7 @@ export interface RightSizingFilters {
     resourceType?: string;
     finding?: string;
     status?: string;
+    accountId?: string;
 }
 
 interface RecommendationsResult {
@@ -42,6 +43,7 @@ export function useRightSizingRecommendations(filters: RightSizingFilters) {
             if (filters.resourceType) params.set('resourceType', filters.resourceType);
             if (filters.finding) params.set('finding', filters.finding);
             if (filters.status) params.set('status', filters.status);
+            if (filters.accountId) params.set('account', filters.accountId);
 
             const res = await fetch(`/api/right-sizing/recommendations?${params.toString()}`);
             const json = await res.json();
