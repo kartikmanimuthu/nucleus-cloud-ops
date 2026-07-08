@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-08
 **Status:** Approved
-**Branch:** fix/scheduler-ephemeral-task-flood (or new branch — see Out of Scope)
+**Branch:** new branch off master-v1 (see Out of Scope)
 
 ---
 
@@ -164,6 +164,6 @@ Grid queries listResources(tenantId, accountId?) → WHERE isCurrent = true
   to `isCurrent = true` via the schema default, but no reconciliation runs for that path.
 - The dead `deleteResourcesByAccount` method — left as-is, not removed, not used by this fix.
 - Any UI surfacing of batch ID / stale-row browsing.
-- Current branch is `fix/scheduler-ephemeral-task-flood` with unrelated uncommitted changes
+- Current branch (`fix/scheduler-lastrunat-horizontal-void`) has unrelated uncommitted changes
   (chat route, executor-graphs, bun.lock) — this work should land on its own branch rather than
   stacking on top of unrelated in-progress changes.
