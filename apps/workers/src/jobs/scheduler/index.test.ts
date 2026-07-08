@@ -176,10 +176,10 @@ describe('scheduler job registration', () => {
     expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
   });
 
-  it('should still advance lastRunAt for a tenant with no schedules/accounts (checked but not processed)', async () => {
+  it('should still advance lastRunAt for a tenant with no schedules/accounts', async () => {
     const pgService = await import('./services/pg-service.js');
     vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
-    // Empty tenant: evaluated by the scan (checkedTenantIds) but had no work (processedTenantIds excludes it).
+    // Empty tenant: the scan runs but reports no work.
     mockExecute.mockResolvedValueOnce({
       success: true,
       executionId: 'test-exec',
@@ -199,6 +199,24 @@ describe('scheduler job registration', () => {
 
     // Regression guard: without this, an empty tenant's lastRunAt never advances and it
     // gets re-dispatched (a real ECS RunTask under the horizontal executor) every single tick.
+    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
+  });
+
+  it('advances lastRunAt under the HORIZONTAL executor, which resolves to void (no SchedulerResult)', async () => {
+    // THE production case: WORKER_ARCH=horizontal dispatches the scan to a separate
+    // ephemeral ECS task and resolves execute() to `undefined` on exit 0 — the scan
+    // result never crosses the process boundary. Gating lastRunAt on the return value
+    // (processedTenantIds/checkedTenantIds) left it permanently null, so every tenant
+    // was re-dispatched every tick forever. lastRunAt must advance on a clean resolve.
+    const pgService = await import('./services/pg-service.js');
+    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
+    mockExecute.mockResolvedValueOnce(undefined); // horizontal executor returns void
+
+    await register(mockBoss, mockExecutor);
+    const workCallback = mockWork.mock.calls[0][2];
+    await workCallback([{ id: 'job-1', data: {} }]);
+
+    expect(mockExecute).toHaveBeenCalledWith('scheduler-scan', { triggeredBy: 'system', tenantId: 'tenant-1' });
     expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
   });
 
