@@ -6,6 +6,7 @@
   "scripts": {
     "db:generate": "bunx prisma generate --schema=../../libs/prisma/schema.prisma",
     "dev": "tsx --env-file=../../.env --watch src/index.ts",
+    "job-runner": "tsx --env-file=../../.env src/job-runner.ts",
     "start": "node --env-file=../../.env dist/index.js",
     "start:job-runner": "node --env-file=../../.env dist/job-runner.js",
     "build": "tsc",
