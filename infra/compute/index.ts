@@ -1138,8 +1138,9 @@ new aws.iam.RolePolicy("workers-rds-connect-policy", {
 });
 
 // Ephemeral worker task definition — lightweight tasks for horizontal dispatch
+const EPHEMERAL_WORKER_TASK_FAMILY = "nucleus-cloud-ops-ephemeral-worker-task";
 const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task-def", {
-    family: "nucleus-cloud-ops-ephemeral-worker-task",
+    family: EPHEMERAL_WORKER_TASK_FAMILY,
     cpu: "2048",
     memory: "4096",
     networkMode: "awsvpc",
@@ -1187,15 +1188,21 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
 // IAM policy for workers to dispatch ECS tasks (horizontal executor)
 new aws.iam.RolePolicy("workers-ecs-dispatch-policy", {
     role: workersTaskRole.id,
-    policy: pulumi.all([ephemeralWorkerTaskDef.arn, ecsCluster.arn, workersTaskRole.arn, ecsTaskExecutionRole.arn]).apply(
-        ([taskDefArn, clusterArn, taskRoleArn, execRoleArn]) =>
+    policy: pulumi.all([ecsCluster.arn, workersTaskRole.arn, ecsTaskExecutionRole.arn, accountId]).apply(
+        ([clusterArn, taskRoleArn, execRoleArn, accId]) =>
             JSON.stringify({
                 Version: "2012-10-17",
                 Statement: [
                     {
                         Effect: "Allow",
                         Action: ["ecs:RunTask"],
-                        Resource: [taskDefArn],
+                        // Family wildcard, NOT the exact task-def ARN (which is pinned to one
+                        // revision). Every workers deploy bumps the ephemeral task-def revision;
+                        // pinning here creates a rollout race where the still-running old workers
+                        // container (holding the previous revision's ARN in HORIZONTAL_TASK_DEF_ARN)
+                        // gets AccessDenied against the just-updated policy until ECS finishes
+                        // replacing it — which crash-loops the service in the meantime.
+                        Resource: [`arn:aws:ecs:${region}:${accId}:task-definition/${EPHEMERAL_WORKER_TASK_FAMILY}:*`],
                     },
                     {
                         Effect: "Allow",
