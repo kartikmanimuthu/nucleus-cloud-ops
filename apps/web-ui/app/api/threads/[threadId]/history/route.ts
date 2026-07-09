@@ -30,8 +30,35 @@ const PHASE_MARKERS = [
     'MEMORY_SAVE_PHASE_START\n',
 ];
 
+/**
+ * Multimodal user turns are persisted as a JSON-encoded LangChain content array
+ * (e.g. `[{"type":"text",...},{"type":"image_url",...}]`). Rendering that raw
+ * string shows a literal JSON blob. Extract the human-readable text so the UI
+ * shows the prompt; image parts are not reconstructed on reload (attachments are
+ * not persisted separately) — a known limitation, but far better than raw JSON.
+ */
+function extractDisplayText(content: string): string {
+    const trimmed = content.trimStart();
+    if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return content;
+    try {
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+            const texts = parsed
+                .filter((p) => p && typeof p === 'object' && p.type === 'text' && typeof p.text === 'string')
+                .map((p) => p.text as string);
+            const hasImage = parsed.some((p) => p && typeof p === 'object' && (p.type === 'image_url' || p.type === 'image'));
+            const joined = texts.join('');
+            if (joined || hasImage) return hasImage ? `${joined}${joined ? '\n\n' : ''}🖼️ [image attachment]` : joined;
+        }
+    } catch {
+        // Not JSON — fall through and return the original content.
+    }
+    return content;
+}
+
 function convertPlainMessage(msg: { role: string; content: string; metadata?: Record<string, unknown> }, index: number): HistoryMessage | null {
-    const { role, content, metadata } = msg;
+    const { role, metadata } = msg;
+    const content = (role === 'human' || role === 'ai') ? extractDisplayText(msg.content) : msg.content;
     if (!content && role !== 'ai') return null;
 
     if (role === 'human') {
@@ -122,33 +149,48 @@ export async function GET(
         const { threadId } = await params;
         if (!threadId) return NextResponse.json({ error: 'Thread ID is required' }, { status: 400 });
 
-        // Chat history lookup
-        {
-            let sessionUserId: string;
-            let sessionTenantId: string;
-            try {
-                sessionUserId = await getSessionUserId();
-                sessionTenantId = await getSessionTenantId();
-            } catch {
-                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-            }
-            // Allow reading another user's thread by passing ownerUserId as a query param
-            const url = new URL(_req.url);
-            const ownerUserId = url.searchParams.get('ownerUserId');
-            const userId = ownerUserId ?? sessionUserId;
-            try {
-                const chatHistory = await getChatHistory();
-                const msgs = await chatHistory.getMessages(sessionTenantId, userId, threadId);
-                if (msgs.length > 0) {
-                    const converted = msgs.map((m, i) => convertPlainMessage(m, i)).filter(Boolean) as HistoryMessage[];
-                    return NextResponse.json({ messages: mergeToolResults(converted) });
-                }
-            } catch (err) {
-                console.warn('[History API] Chat history lookup failed, falling back to checkpoint:', err);
+        let sessionUserId: string;
+        let sessionTenantId: string;
+        try {
+            sessionUserId = await getSessionUserId();
+            sessionTenantId = await getSessionTenantId();
+        } catch {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        // Reject namespaced threads whose embedded tenant segment isn't ours.
+        if (threadId.includes(':')) {
+            const [embeddedTenantId] = threadId.split(':');
+            if (embeddedTenantId !== sessionTenantId) {
+                return NextResponse.json({ error: 'Forbidden: thread belongs to another tenant' }, { status: 403 });
             }
         }
 
-        // Fallback: extract from LangGraph checkpoint
+        // Tenant-scoped ownership gate. This guards BOTH the chat-history read and
+        // the checkpoint fallback below: PostgresSaver checkpoints are keyed only by
+        // thread_id (no tenant column), so without this a request could otherwise
+        // read another tenant's checkpoint via a guessable bare/un-namespaced ID.
+        // Chat sessions are seeded eagerly at chat start, so any thread with history
+        // has a ChatSession row; a thread absent from this tenant returns empty.
+        {
+            const { threadStore } = await import('@/lib/store/thread-store');
+            const owned = await threadStore.getThread(threadId, sessionTenantId);
+            if (!owned) return NextResponse.json({ messages: [] });
+        }
+
+        // Chat history lookup (tenant-scoped; intra-tenant chats are shared by design)
+        try {
+            const chatHistory = await getChatHistory();
+            const msgs = await chatHistory.getMessages(sessionTenantId, sessionUserId, threadId);
+            if (msgs.length > 0) {
+                const converted = msgs.map((m, i) => convertPlainMessage(m, i)).filter(Boolean) as HistoryMessage[];
+                return NextResponse.json({ messages: mergeToolResults(converted) });
+            }
+        } catch (err) {
+            console.warn('[History API] Chat history lookup failed, falling back to checkpoint:', err);
+        }
+
+        // Fallback: extract from LangGraph checkpoint (ownership already verified above)
         const checkpointer = await getCheckpointer();
         const checkpoint = await checkpointer.getTuple({ configurable: { thread_id: threadId } });
         if (!checkpoint) return NextResponse.json({ messages: [] });

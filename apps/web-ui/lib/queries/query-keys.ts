@@ -82,4 +82,8 @@ export const queryKeys = {
         details: () => [...queryKeys.skills.all, 'detail'] as const,
         detail: (id: string) => [...queryKeys.skills.details(), id] as const,
     },
+    threads: {
+        all: ['threads'] as const,
+        lists: () => [...queryKeys.threads.all, 'list'] as const,
+    },
 } as const;

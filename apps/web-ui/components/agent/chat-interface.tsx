@@ -48,10 +48,12 @@ import { toast } from "sonner";
 import { useDistillSkill } from "@/lib/queries/skills";
 import { SkillFormDialog } from "@/components/skills/skill-form-dialog";
 
-// Available modes
+// Available modes — must stay in sync with the modes the server accepts in
+// /api/chat (fast | plan | deep). "deep" runs the extended-thinking agent.
 const AGENT_MODES = [
   { id: "fast", label: "Fast (ReAct)" },
   { id: "plan", label: "Plan & Execute" },
+  { id: "deep", label: "Deep (Extended Thinking)" },
 ];
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -256,6 +258,70 @@ interface MessageRowProps {
   renderToolInvocation: (part: any, messageId: string, index: number) => React.ReactNode;
 }
 
+// Extract a plain image URL from a content part, tolerating the several shapes
+// history reconstruction can produce (data URL, {url}, or Bedrock {source}).
+function partImageUrl(part: any): string | undefined {
+  if (!part || typeof part !== "object") return undefined;
+  if (typeof part.image === "string") return part.image;
+  if (typeof part.url === "string") return part.url;
+  if (typeof part.image_url === "string") return part.image_url;
+  if (part.image_url && typeof part.image_url.url === "string") return part.image_url.url;
+  if (part.source?.data && part.source?.media_type) {
+    return `data:${part.source.media_type};base64,${part.source.data}`;
+  }
+  return undefined;
+}
+
+// Render a message whose `content` has no structured `parts` (legacy / history
+// rows). If content is a JSON-encoded array of parts, render its text and image
+// portions instead of dumping the raw JSON string as markdown text.
+function MessageContentFallback({ content }: { content: any }) {
+  let value: any = content;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        value = JSON.parse(trimmed);
+      } catch {
+        // Not JSON — render the string as-is below.
+      }
+    }
+  }
+
+  if (Array.isArray(value)) {
+    return (
+      <>
+        {value.map((part: any, idx: number) => {
+          if (typeof part === "string") {
+            return <MarkdownContent key={idx} content={part} />;
+          }
+          if (part?.type === "text" && typeof part.text === "string") {
+            return <MarkdownContent key={idx} content={part.text} />;
+          }
+          const imageUrl = partImageUrl(part);
+          if (imageUrl) {
+            return (
+              <img
+                key={idx}
+                src={imageUrl}
+                alt={part?.name || "attachment"}
+                className="max-w-xs max-h-48 rounded border object-contain mb-2"
+              />
+            );
+          }
+          return null;
+        })}
+      </>
+    );
+  }
+
+  return (
+    <MarkdownContent
+      content={typeof value === "string" ? value : JSON.stringify(value)}
+    />
+  );
+}
+
 const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isActivelyStreaming, renderPhaseBlock, renderToolInvocation }: MessageRowProps) {
   const isUser = message.role === "user";
   const parts: any[] = message.parts || [];
@@ -350,15 +416,9 @@ const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isAc
             return null;
           })}
 
-        {/* Fallback for simple content */}
+        {/* Fallback for simple content (legacy / history rows without parts) */}
         {parts.length === 0 && message.content && (
-          <MarkdownContent
-            content={
-              typeof message.content === "string"
-                ? message.content
-                : JSON.stringify(message.content)
-            }
-          />
+          <MessageContentFallback content={message.content} />
         )}
       </div>
 
@@ -495,6 +555,9 @@ export function ChatInterface({
   const planStepCacheRef = useRef(new Map<string, string[]>());
   // rAF handle for debounced auto-scroll — cancelled if a new message arrives before the frame fires.
   const scrollRafRef = useRef<number | null>(null);
+  // Set once the user sends a message so a slow history fetch can't clobber the
+  // optimistic conversation with a stale (or empty) server snapshot.
+  const skipHistoryRef = useRef(false);
 
   // Scroll control state - track if user has manually scrolled up
   const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
@@ -716,11 +779,14 @@ export function ChatInterface({
     return "Processing";
   }, [isLoading, messages]);
 
-  // Fetch conversation history when component mounts (for existing threads)
+  // Fetch conversation history when component mounts (for existing threads).
+  // Guarded so a stale load (thread switch / unmount) or a send that races the
+  // fetch cannot setState late or clobber the optimistic conversation.
   useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
     async function fetchHistory() {
-      // Only fetch if this looks like an existing thread (not a new timestamp-based ID)
-      // We attempt to fetch history for all threads; if none exists, API returns empty array
       console.log(
         "[ChatInterface] Attempting to fetch history for thread:",
         threadId,
@@ -731,9 +797,13 @@ export function ChatInterface({
         const historyUrl = ownerUserId
           ? `/api/threads/${threadId}/history?ownerUserId=${encodeURIComponent(ownerUserId)}`
           : `/api/threads/${threadId}/history`;
-        const res = await fetch(historyUrl);
+        const res = await fetch(historyUrl, { signal: controller.signal });
+        // Bail if this load is no longer current, or a send has already
+        // populated the conversation for this thread.
+        if (cancelled || skipHistoryRef.current) return;
         if (res.ok) {
           const data = await res.json();
+          if (cancelled || skipHistoryRef.current) return;
           if (data.messages && data.messages.length > 0) {
             console.log(
               "[ChatInterface] Loaded",
@@ -749,14 +819,20 @@ export function ChatInterface({
           console.warn("[ChatInterface] Failed to fetch history:", res.status);
         }
       } catch (error) {
+        if ((error as any)?.name === "AbortError") return;
         console.error("[ChatInterface] Error fetching history:", error);
       } finally {
-        setIsLoadingHistory(false);
+        if (!cancelled) setIsLoadingHistory(false);
       }
     }
 
     fetchHistory();
-  }, [threadId, setMessages]);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [threadId, ownerUserId, setMessages]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -863,6 +939,9 @@ export function ChatInterface({
     setHasStarted(true);
     setWasStopped(false);
     setUserHasScrolledUp(false); // Reset scroll state on new message
+    // A send has taken over this thread — an in-flight history load must not
+    // overwrite the optimistic user message / streamed response.
+    skipHistoryRef.current = true;
 
     await sendMessage(
       {
@@ -905,14 +984,21 @@ export function ChatInterface({
   };
 
   // Handle tool approval - makes explicit API call to resume LangGraph execution
-  const handleToolApproval = async (toolCallId: string, approved: boolean) => {
+  const handleToolApproval = async (
+    toolCallId: string,
+    approved: boolean,
+    toolName: string,
+  ) => {
     console.log(
       `[ChatInterface] Tool ${approved ? "approved" : "rejected"}: ${toolCallId}`,
     );
 
-    // First, update local state via addToolResult (for UI feedback)
+    // First, update local state via addToolResult (for UI feedback).
+    // AI SDK v5 expects { tool, toolCallId, output } — passing the legacy
+    // `result` key left the tool output undefined so the approve/reject state
+    // wasn't reflected until the follow-up re-stream.
     const result = approved ? "Approved" : "Cancelled by user";
-    addToolResult({ toolCallId, result });
+    addToolResult({ tool: toolName, toolCallId, output: result });
 
     // Then, make explicit API call to resume the graph
     // We send the tool result as a message with role: 'tool'
@@ -1145,16 +1231,17 @@ export function ChatInterface({
     messageId: string,
     index: number,
   ) => {
-    // Extract tool name from multiple possible sources
-    // Priority: toolName > name > type (tool-name format) > fallback
-    let toolName = part.toolName || part.name;
-
-    if (!toolName && part.type?.startsWith('tool-')) {
-      // Extract from "tool-execute_command" → "execute_command"
-      toolName = part.type.replace('tool-', '').replace(/_/g, ' ');
+    // Raw tool identifier (as registered on the server) — used for addToolResult.
+    // Priority: toolName > name > type ("tool-execute_command" → "execute_command").
+    let rawToolName = part.toolName || part.name;
+    if (!rawToolName && part.type?.startsWith('tool-')) {
+      rawToolName = part.type.replace('tool-', '');
     }
+    rawToolName = rawToolName || "tool";
 
-    toolName = toolName || "tool";
+    // Human-friendly name for display (underscores → spaces).
+    const toolName = rawToolName.replace(/_/g, ' ');
+
     const args = part.args || part.input;
     const result = part.result || part.output;
     const state = part.state;
@@ -1163,13 +1250,23 @@ export function ChatInterface({
     // Show approval UI only when: not auto-approve AND tool is in "call" state without result
     const isPending = !autoApprove && isCall && !result && !isLoading;
 
+    const hasRealResult =
+      !!result && result !== "Approved" && result !== "Cancelled by user";
+
+    // A tool part with no result that is no longer streaming and is not awaiting
+    // approval means the run was aborted mid-tool. Surface a terminal state
+    // instead of a perpetual "pending" that never resolves (even after reload).
+    const isInterrupted = isCall && !result && !isLoading && !isPending;
+
     // Determine tool state for new component
     const toolState =
-      result && result !== "Approved" && result !== "Cancelled by user"
+      hasRealResult
         ? "complete"
         : isLoading && isCall && !result
           ? "running"
-          : "pending";
+          : isInterrupted
+            ? "error"
+            : "pending";
 
     // Determine approval state for Confirmation component
     const approvalState =
@@ -1208,14 +1305,14 @@ export function ChatInterface({
               <ConfirmationActions>
                 <ConfirmationAction
                   variant="outline"
-                  onClick={() => handleToolApproval(part.toolCallId, false)}
+                  onClick={() => handleToolApproval(part.toolCallId, false, rawToolName)}
                 >
                   <X className="w-3 h-3 mr-1" />
                   Reject
                 </ConfirmationAction>
                 <ConfirmationAction
                   variant="default"
-                  onClick={() => handleToolApproval(part.toolCallId, true)}
+                  onClick={() => handleToolApproval(part.toolCallId, true, rawToolName)}
                 >
                   <Check className="w-3 h-3 mr-1" />
                   Approve & Run
@@ -1240,16 +1337,20 @@ export function ChatInterface({
             </Confirmation>
           )}
 
-          {/* Output with loading state — truncated to TOOL_OUTPUT_TRUNCATE_BYTES if large */}
-          <ToolOutputWithTruncation
-            output={
-              result !== "Approved" && result !== "Cancelled by user"
-                ? result
-                : undefined
-            }
-            isLoading={isLoading && isCall && !result}
-            label="Output"
-          />
+          {/* Output with loading state — truncated to TOOL_OUTPUT_TRUNCATE_BYTES if large.
+              If the run was aborted mid-tool, show a terminal interrupted note. */}
+          {isInterrupted ? (
+            <ToolOutput
+              errorText="Execution interrupted — the run was stopped before this tool returned a result."
+              label="Output"
+            />
+          ) : (
+            <ToolOutputWithTruncation
+              output={hasRealResult ? result : undefined}
+              isLoading={isLoading && isCall && !result}
+              label="Output"
+            />
+          )}
         </ToolContent>
       </Tool>
     );
@@ -2028,7 +2129,9 @@ export function ChatInterface({
                 onClick={async () => {
                   const success = await copyToClipboard(messages);
                   if (success) {
-                    // Optional: Toast notification could go here
+                    toast.success("Copied to clipboard");
+                  } else {
+                    toast.error("Could not copy chat to clipboard");
                   }
                 }}
                 title="Copy chat to clipboard"

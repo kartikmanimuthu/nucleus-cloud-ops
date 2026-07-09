@@ -15,13 +15,21 @@ import {
     defaultsToJson,
     jsonToServerConfigs,
     validateMcpConfig,
+    maskServerConfigs,
+    maskMcpConfigJson,
+    restoreMaskedSecrets,
 } from '@/lib/agent/mcp-config';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
+import { authorize } from '@/lib/rbac/authorize';
 
+// MCP config is part of the AI Ops module (agent integrations).
 const CONFIG_KEY = 'mcp-servers';
 
 export async function GET() {
+    const authError = await authorize('read', 'AIOps');
+    if (authError) return authError;
+
     let tenantId: string;
     try {
         tenantId = await getSessionTenantId();
@@ -44,9 +52,10 @@ export async function GET() {
         // Return both the server list and the raw JSON for the editor
         const editorJson = savedJson || defaultsToJson();
 
+        // Never return stored secrets (bearer tokens/API keys) in plaintext.
         return NextResponse.json({
-            servers,
-            config: editorJson,
+            servers: maskServerConfigs(servers),
+            config: maskMcpConfigJson(editorJson),
             isCustom: savedJson !== null,
         });
     } catch (error: any) {
@@ -59,6 +68,9 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+    const authError = await authorize('update', 'AIOps');
+    if (authError) return authError;
+
     let tenantId: string;
     let userId: string;
     try {
@@ -70,7 +82,17 @@ export async function PUT(req: Request) {
 
     try {
         const body = await req.json();
-        const config: MCPConfigJson = body.config;
+        const incoming: MCPConfigJson = body.config;
+
+        // Restore any masked secrets from the currently-stored config, so a save
+        // that left placeholders in place preserves the existing tokens/keys.
+        let stored: MCPConfigJson | null = null;
+        try {
+            stored = await TenantConfigService.getConfig<MCPConfigJson>(CONFIG_KEY, tenantId);
+        } catch (dbError) {
+            console.warn('[API /mcp-servers] Stored config read failed during save:', dbError);
+        }
+        const config = restoreMaskedSecrets(incoming, stored);
 
         const validation = validateMcpConfig(config);
         if (!validation.ok) {
@@ -79,7 +101,18 @@ export async function PUT(req: Request) {
 
         await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);
 
-        // Return the resolved server list
+        // Drop this tenant's cached MCP connections so the next run reconnects
+        // with the new config/credentials (connections are per-tenant singletons
+        // and would otherwise serve stale endpoints/tokens). Safe here because a
+        // config save is a deliberate action, not a per-run event.
+        try {
+            const { getMCPManager } = await import('@/lib/agent/mcp-manager');
+            await getMCPManager().disconnectTenantServers(tenantId);
+        } catch (e) {
+            console.warn('[API /mcp-servers] Failed to reset MCP connections after save:', e);
+        }
+
+        // Return the resolved server list (secrets masked)
         const servers = jsonToServerConfigs(config);
 
         console.log(`[API /mcp-servers] Saved config with ${Object.keys(config.mcpServers).length} servers`);
@@ -103,8 +136,8 @@ export async function PUT(req: Request) {
 
         return NextResponse.json({
             success: true,
-            servers,
-            config,
+            servers: maskServerConfigs(servers),
+            config: maskMcpConfigJson(config),
             isCustom: true,
         });
     } catch (error: any) {
@@ -117,6 +150,9 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE() {
+    const authError = await authorize('delete', 'AIOps');
+    if (authError) return authError;
+
     let tenantId: string;
     let userId: string;
     try {
@@ -128,6 +164,15 @@ export async function DELETE() {
 
     try {
         await TenantConfigService.deleteConfig(CONFIG_KEY, tenantId);
+
+        // Drop this tenant's cached MCP connections so custom-server sessions are
+        // not reused after a reset to defaults.
+        try {
+            const { getMCPManager } = await import('@/lib/agent/mcp-manager');
+            await getMCPManager().disconnectTenantServers(tenantId);
+        } catch (e) {
+            console.warn('[API /mcp-servers] Failed to reset MCP connections after delete:', e);
+        }
 
         const servers = DEFAULT_MCP_SERVERS;
         const config = defaultsToJson();

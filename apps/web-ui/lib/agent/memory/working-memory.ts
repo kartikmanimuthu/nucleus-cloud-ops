@@ -14,9 +14,20 @@ export function workingMemoryEnabled(): boolean {
     return !(v === 'false' || v === '0');
 }
 
+// Legacy default when neither an env override nor a model-derived budget is available.
+const DEFAULT_TOKEN_BUDGET = 60000;
+
+// Explicit operator override via env, or null when unset/invalid. When set it wins over
+// any model-derived budget passed by the caller — a deliberate kill-switch / escape hatch.
+export function tokenBudgetOverride(): number | null {
+    const raw = process.env.WORKING_MEMORY_TOKEN_BUDGET;
+    if (raw === undefined || raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export function tokenBudget(): number {
-    const n = Number(process.env.WORKING_MEMORY_TOKEN_BUDGET);
-    return Number.isFinite(n) && n > 0 ? n : 60000;
+    return tokenBudgetOverride() ?? DEFAULT_TOKEN_BUDGET;
 }
 
 export function keepRecent(): number {
@@ -146,6 +157,13 @@ export interface PrepareContextDeps {
     reflectorModel: BaseChatModel;
     tenantId?: string;
     threadId?: string;
+    /** Model-derived input-token budget (provider context window minus reserved output
+     *  tokens). Used when no explicit WORKING_MEMORY_TOKEN_BUDGET env override is set, so
+     *  small/local models (8k–32k) aren't over-budgeted by the legacy 60k default. */
+    budgetTokens?: number;
+    /** Rough token cost of the always-on system prompt, subtracted from the budget so the
+     *  window accounting reflects the real per-call input, not just message tokens. */
+    systemPromptTokens?: number;
 }
 export interface PreparedContext {
     windowMessages: BaseMessage[];
@@ -169,7 +187,12 @@ export async function prepareContext(
         };
     }
 
-    const budget = tokenBudget();
+    // Budget resolution: explicit env override wins; otherwise the caller's model-derived
+    // budget; otherwise the legacy default. The always-on system prompt is charged against
+    // the budget so the message window accounts for the real per-call input, not just
+    // message tokens (a small/local model's context is spent on the system prompt too).
+    const inputCapacity = tokenBudgetOverride() ?? deps.budgetTokens ?? DEFAULT_TOKEN_BUDGET;
+    const budget = Math.max(1, inputCapacity - (deps.systemPromptTokens ?? 0));
     const keep = keepRecent();
     const total = estimateMessagesTokens(messages);
 

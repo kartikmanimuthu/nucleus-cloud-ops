@@ -19,14 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-
-interface Thread {
-    id: string;
-    title: string;
-    createdAt: number;
-    updatedAt: number;
-    ownerUserId?: string;
-}
+import { useThreads, useDeleteThread } from '@/lib/queries/threads';
 
 interface ThreadSidebarProps {
     className?: string;
@@ -43,10 +36,14 @@ export function ThreadSidebar({
     onThreadSelect,
     onNewChat
 }: ThreadSidebarProps) {
-    const [threads, setThreads] = useState<Thread[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
-    const [isLoading, setIsLoading] = useState(true);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+    // Threads list is server state — TanStack Query keeps it fresh (refetch on
+    // focus/remount) and mutations invalidate it, so the sidebar no longer goes
+    // stale after a thread is created/renamed/deleted elsewhere.
+    const { data: threads = [], isLoading } = useThreads();
+    const deleteThread = useDeleteThread();
 
     useEffect(() => {
         fetch('/api/auth/session')
@@ -55,41 +52,16 @@ export function ThreadSidebar({
             .catch(() => {});
     }, []);
 
-    const fetchThreads = async () => {
-        try {
-            const res = await fetch('/api/threads');
-            if (res.ok) {
-                const data = await res.json();
-                setThreads(data);
-            }
-        } catch (e) {
-            console.error("Failed to fetch threads", e);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchThreads();
-        // Poll for updates every 10s or relies on parent to trigger refresh?
-        // Simple polling for now
-        // const interval = setInterval(fetchThreads, 300000);
-        // return () => clearInterval(interval);
-    }, []);
-
-    const handleDeleteThread = async (e: React.MouseEvent, id: string) => {
+    const handleDeleteThread = (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
-        try {
-            const res = await fetch(`/api/threads/${id}`, { method: 'DELETE' });
-            if (res.ok) {
-                setThreads(threads.filter(t => t.id !== id));
+        deleteThread.mutate(id, {
+            onSuccess: () => {
                 if (currentThreadId === id) {
                     onNewChat();
                 }
-            }
-        } catch (e) {
-            console.error("Failed to delete thread", e);
-        }
+            },
+            onError: (err) => console.error("Failed to delete thread", err),
+        });
     };
 
     const filteredThreads = threads.filter(t => 

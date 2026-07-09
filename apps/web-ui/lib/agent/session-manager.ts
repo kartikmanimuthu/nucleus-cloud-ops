@@ -4,13 +4,24 @@ import * as os from 'os';
 
 /**
  * AWS Session Profile Manager
- * 
- * Manages temporary AWS profiles stored in ~/.aws/credentials for agent sessions.
+ *
+ * Manages temporary AWS profiles for agent sessions.
  * Profile naming convention: nucleus_agent_<accountId>_<timestamp>
- * 
+ *
+ * SECURITY — per-tenant credential file isolation:
+ * Each tenant's temporary STS credentials are written to a dedicated credentials
+ * file under a private root (`<tmpdir>/nucleus-aws-creds/<tenantId>/credentials`)
+ * that lives OUTSIDE the agent file-tool jail (see AGENT_WORKDIR in tools.ts).
+ * The file-tools cannot resolve a path into this root, so one tenant's agent can
+ * no longer read another tenant's live session credentials via read_file/ls/grep.
+ * Callers point the AWS CLI/SDK at the right file via AWS_SHARED_CREDENTIALS_FILE.
+ *
+ * A caller that does not pass a tenantId falls back to the legacy shared
+ * `~/.aws/credentials` file (preserved for non-tenant-scoped local usage).
+ *
  * Features:
- * - Creates profiles per AWS account
- * - Cleans up all agent profiles on server restart
+ * - Creates profiles per AWS account, isolated per tenant
+ * - Cleans up all agent credentials on server restart
  */
 
 export interface SessionProfile {
@@ -19,6 +30,8 @@ export interface SessionProfile {
     region: string;
     createdAt: Date;
     expiresAt: Date;
+    /** Absolute path to the credentials file this profile was written to. */
+    credentialsFile: string;
 }
 
 export interface AwsCredentials {
@@ -28,11 +41,26 @@ export interface AwsCredentials {
     region: string;
 }
 
-// AWS credentials file path
-const AWS_CREDENTIALS_FILE = path.join(os.homedir(), '.aws', 'credentials');
+// Legacy shared AWS credentials file (used only when no tenantId is supplied).
+const LEGACY_AWS_CREDENTIALS_FILE = path.join(os.homedir(), '.aws', 'credentials');
+
+// Private root for per-tenant credential files. Deliberately a SIBLING of the
+// agent file-tool jail (AGENT_WORKDIR, default <tmpdir>/nucleus-agent) so file
+// tools cannot resolve a path into it.
+const TENANT_CREDS_ROOT = path.join(os.tmpdir(), 'nucleus-aws-creds');
 
 // Profile name prefix for identification during cleanup
 const PROFILE_PREFIX = 'nucleus_agent_';
+
+/**
+ * Resolve the absolute credentials-file path for a tenant.
+ * Deterministic so execute_command (which only has the tenantId) can point
+ * AWS_SHARED_CREDENTIALS_FILE at the same file this module writes to.
+ */
+export function getTenantCredentialsFilePath(tenantId: string): string {
+    const sanitized = tenantId.replace(/[^a-zA-Z0-9_-]/g, '_') || 'default';
+    return path.join(TENANT_CREDS_ROOT, sanitized, 'credentials');
+}
 
 /**
  * Generate a unique profile name
@@ -45,9 +73,9 @@ function generateProfileName(accountId: string): string {
 /**
  * Read the current AWS credentials file
  */
-async function readCredentialsFile(): Promise<string> {
+async function readCredentialsFile(filePath: string): Promise<string> {
     try {
-        return await fs.readFile(AWS_CREDENTIALS_FILE, 'utf-8');
+        return await fs.readFile(filePath, 'utf-8');
     } catch (error: any) {
         if (error.code === 'ENOENT') {
             return '';
@@ -59,10 +87,10 @@ async function readCredentialsFile(): Promise<string> {
 /**
  * Write to the AWS credentials file
  */
-async function writeCredentialsFile(content: string): Promise<void> {
-    const awsDir = path.dirname(AWS_CREDENTIALS_FILE);
-    await fs.mkdir(awsDir, { recursive: true });
-    await fs.writeFile(AWS_CREDENTIALS_FILE, content, { mode: 0o600 });
+async function writeCredentialsFile(filePath: string, content: string): Promise<void> {
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(filePath, content, { mode: 0o600 });
 }
 
 /**
@@ -104,26 +132,32 @@ function serializeCredentialsFile(profiles: Map<string, Map<string, string>>): s
 }
 
 /**
- * Create a new AWS session profile
+ * Create a new AWS session profile.
+ *
+ * When tenantId is provided the profile is written to that tenant's isolated
+ * credentials file; otherwise it falls back to the legacy shared file.
  */
 export async function createSessionProfile(
     accountId: string,
-    credentials: AwsCredentials
+    credentials: AwsCredentials,
+    tenantId?: string
 ): Promise<SessionProfile> {
-    console.log(`[SessionManager] Creating profile for account: ${accountId}`);
+    console.log(`[SessionManager] Creating profile for account: ${accountId}${tenantId ? ` (tenant: ${tenantId})` : ''}`);
 
     const profileName = generateProfileName(accountId);
+    const credentialsFile = tenantId ? getTenantCredentialsFilePath(tenantId) : LEGACY_AWS_CREDENTIALS_FILE;
 
     const profile: SessionProfile = {
         profileName,
         accountId,
         region: credentials.region,
         createdAt: new Date(),
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+        credentialsFile,
     };
 
     // Read current credentials file
-    const content = await readCredentialsFile();
+    const content = await readCredentialsFile(credentialsFile);
     const profiles = parseCredentialsFile(content);
 
     // Add new profile
@@ -135,21 +169,45 @@ export async function createSessionProfile(
     profiles.set(profileName, profileCreds);
 
     // Write back to file
-    await writeCredentialsFile(serializeCredentialsFile(profiles));
+    await writeCredentialsFile(credentialsFile, serializeCredentialsFile(profiles));
 
-    console.log(`[SessionManager] Created profile: ${profileName}`);
+    console.log(`[SessionManager] Created profile: ${profileName} in ${credentialsFile}`);
 
     return profile;
 }
 
 /**
- * Cleanup all agent profiles (called on server startup)
+ * Remove a single tenant's credentials file (called on run end / credential rotation).
+ */
+export async function cleanupTenantCredentials(tenantId: string): Promise<void> {
+    const filePath = getTenantCredentialsFilePath(tenantId);
+    try {
+        await fs.rm(path.dirname(filePath), { recursive: true, force: true });
+        console.log(`[SessionManager] Removed credentials for tenant ${tenantId}`);
+    } catch (error) {
+        console.error(`[SessionManager] Error removing tenant ${tenantId} credentials:`, error);
+    }
+}
+
+/**
+ * Cleanup all agent profiles (called on server startup).
+ * Removes the entire per-tenant credentials root AND strips agent profiles
+ * from the legacy shared file.
  */
 export async function cleanupAllAgentProfiles(): Promise<void> {
     console.log('[SessionManager] Cleaning up all agent profiles...');
 
+    // 1. Nuke the per-tenant credentials root wholesale.
     try {
-        const content = await readCredentialsFile();
+        await fs.rm(TENANT_CREDS_ROOT, { recursive: true, force: true });
+    } catch (error) {
+        console.error('[SessionManager] Error removing per-tenant credentials root:', error);
+    }
+
+    // 2. Strip agent-created profiles from the legacy shared file (leave any
+    //    user/SSO profiles untouched).
+    try {
+        const content = await readCredentialsFile(LEGACY_AWS_CREDENTIALS_FILE);
         const profiles = parseCredentialsFile(content);
 
         let removedCount = 0;
@@ -161,10 +219,10 @@ export async function cleanupAllAgentProfiles(): Promise<void> {
         }
 
         if (removedCount > 0) {
-            await writeCredentialsFile(serializeCredentialsFile(profiles));
-            console.log(`[SessionManager] Removed ${removedCount} stale agent profiles`);
+            await writeCredentialsFile(LEGACY_AWS_CREDENTIALS_FILE, serializeCredentialsFile(profiles));
+            console.log(`[SessionManager] Removed ${removedCount} stale agent profiles from legacy file`);
         } else {
-            console.log('[SessionManager] No stale agent profiles found');
+            console.log('[SessionManager] No stale agent profiles found in legacy file');
         }
     } catch (error) {
         console.error('[SessionManager] Error during cleanup:', error);

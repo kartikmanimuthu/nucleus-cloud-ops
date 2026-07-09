@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { ChatInterface } from '@/components/agent/chat-interface';
 import { ChatTabBar, ChatTab } from '@/components/agent/chat-tab-bar';
+import { cn } from '@/lib/utils';
 
 const MAX_TABS = 8;
 
@@ -98,61 +99,48 @@ export default function AgentPage() {
 
   // ──────────────────────────────────────────────────────────────────────────
 
+  // Each tab's ChatInterface is mounted EXACTLY ONCE and never conditionally
+  // duplicated — fullscreen is a pure layout toggle on the single outer wrapper
+  // (same DOM node, only its className changes), so every ChatInterface keeps
+  // its component identity and its useChat({ id }) state across the toggle. An
+  // in-progress stream is preserved when entering/exiting fullscreen; history is
+  // fetched once per thread rather than twice.
   return (
-    <>
-      {/* Fullscreen overlay — covers entire viewport including sidebar */}
-      {isFullscreen && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex p-6">
-          {tabs.map((tab) => (
-            <div
-              key={tab.threadId}
-              className="flex-1"
-              style={{ display: tab.threadId === activeTabId ? 'flex' : 'none' }}
-            >
-              <ChatInterface
-                threadId={tab.threadId}
-                ownerUserId={tab.ownerUserId}
-                isFullscreen={isFullscreen}
-                onToggleFullscreen={() => setIsFullscreen((prev) => !prev)}
-                onStatusChange={(s) => handleStatusChange(tab.threadId, s)}
-                onTitleChange={(title) => handleTitleChange(tab.threadId, title)}
-              />
-            </div>
-          ))}
-        </div>
+    <div
+      className={cn(
+        isFullscreen
+          ? 'fixed inset-0 z-50 flex flex-col bg-background'
+          : 'flex flex-col h-[calc(100vh-theme(spacing.16))] overflow-hidden bg-background',
       )}
+    >
+      <ChatTabBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onTabSelect={setActiveTabId}
+        onTabClose={handleCloseTab}
+        onNewChat={handleNewChat}
+        onThreadSelect={handleThreadSelect}
+        maxTabs={MAX_TABS}
+      />
 
-      {/* Normal layout */}
-      <div className="flex flex-col h-[calc(100vh-theme(spacing.16))] overflow-hidden bg-background">
-        <ChatTabBar
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onTabSelect={setActiveTabId}
-          onTabClose={handleCloseTab}
-          onNewChat={handleNewChat}
-          onThreadSelect={handleThreadSelect}
-          maxTabs={MAX_TABS}
-        />
-
-        <div className="flex-1 relative overflow-hidden p-4">
-          {tabs.map((tab) => (
-            <div
-              key={tab.threadId}
-              className="absolute inset-4"
-              style={{ display: tab.threadId === activeTabId ? 'flex' : 'none' }}
-            >
-              <ChatInterface
-                threadId={tab.threadId}
-                ownerUserId={tab.ownerUserId}
-                isFullscreen={isFullscreen}
-                onToggleFullscreen={() => setIsFullscreen((prev) => !prev)}
-                onStatusChange={(s) => handleStatusChange(tab.threadId, s)}
-                onTitleChange={(title) => handleTitleChange(tab.threadId, title)}
-              />
-            </div>
-          ))}
-        </div>
+      <div className="flex-1 relative overflow-hidden p-4">
+        {tabs.map((tab) => (
+          <div
+            key={tab.threadId}
+            className="absolute inset-4"
+            style={{ display: tab.threadId === activeTabId ? 'flex' : 'none' }}
+          >
+            <ChatInterface
+              threadId={tab.threadId}
+              ownerUserId={tab.ownerUserId}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={() => setIsFullscreen((prev) => !prev)}
+              onStatusChange={(s) => handleStatusChange(tab.threadId, s)}
+              onTitleChange={(title) => handleTitleChange(tab.threadId, title)}
+            />
+          </div>
+        ))}
       </div>
-    </>
+    </div>
   );
 }

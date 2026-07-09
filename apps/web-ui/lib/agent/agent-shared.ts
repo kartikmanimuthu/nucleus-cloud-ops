@@ -519,10 +519,14 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
         return [];
     }
 
-    const { getMCPManager: getManager } = await import('./mcp-manager');
+    const { getMCPManager: getManager, tenantScopedKey } = await import('./mcp-manager');
     const { createMCPTools: createTools } = await import('./mcp-tools');
     const { mergeConfigs } = await import('./mcp-config');
     const manager = getManager();
+
+    // MCP connections are cached per tenant so no tenant reuses another's live
+    // subprocess/token. Fall back to 'default' only when no tenant is supplied.
+    const tid = tenantId || 'default';
 
     // Resolve server configs from DynamoDB + defaults
     let allConfigs;
@@ -548,7 +552,7 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
 
     // Connect regular servers (idempotent — skips already-connected)
     if (regularServerIds.length > 0) {
-        await manager.connectServers(regularServerIds, allConfigs);
+        await manager.connectServers(regularServerIds, allConfigs, tid);
     }
 
     // Connect credential-sensitive servers for ALL selected accounts
@@ -574,7 +578,7 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
                 };
                 for (const config of credentialServerConfigs) {
                     try {
-                        const scopedId = await manager.connectServerWithAwsCredentials(config, accountCtx.accountId, awsCredentials);
+                        const scopedId = await manager.connectServerWithAwsCredentials(config, accountCtx.accountId, awsCredentials, tid);
                         scopedInstanceIds.push(scopedId);
                     } catch (err: any) {
                         console.error(`[getActiveMCPTools] Failed to connect "${config.id}" for account ${accountCtx.accountId}:`, err.message);
@@ -586,7 +590,10 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
         }
     }
 
-    const allInstanceIds = [...regularServerIds, ...scopedInstanceIds];
+    // Regular tools are cached under the tenant-scoped key; map raw ids accordingly.
+    // (scopedInstanceIds are already fully-qualified keys returned by the manager.)
+    const regularInstanceIds = regularServerIds.map(id => tenantScopedKey(tid, id));
+    const allInstanceIds = [...regularInstanceIds, ...scopedInstanceIds];
     return createTools(manager, allInstanceIds);
 }
 
