@@ -36,7 +36,31 @@ export async function handleSchedulerJob(jobData: unknown) {
 export async function register(boss: PgBoss, executor: JobExecutor): Promise<void> {
     executor.registerHandler?.(JOB_NAME, handleSchedulerJob);
 
-    await boss.createQueue(JOB_NAME);
+    // The scan queue MUST bound its own backlog, or it floods the cluster with
+    // ephemeral ECS tasks. Under WORKER_ARCH=horizontal each due-tenant dispatch
+    // blocks the single work() slot (batchSize:1) for the full lifetime of an
+    // ephemeral Fargate task — HorizontalExecutor fires RunTask then polls until
+    // STOPPED (tens of seconds/tenant). While that slot is blocked the '*/5' cron
+    // keeps firing, and on a 'standard' queue every tick enqueues ANOTHER
+    // scheduler-scan job that simply stacks in 'created'. Once consumption falls
+    // behind production the backlog grows without limit; on the next worker start
+    // pg-boss drains it at pollingIntervalSeconds (1s), re-running the whole tenant
+    // loop ~once/second and firing a real ephemeral RunTask for every tenant past
+    // its interval — the "ephemeral task flood". 'stately' caps the queue at one job
+    // in 'created' + one 'active' per singletonKey, so the cron can never stack.
+    // (Same fix discovery-scan / right-sizing already carry.)
+    const existingQueue = await boss.getQueue(JOB_NAME);
+    if (!existingQueue) {
+        await boss.createQueue(JOB_NAME, { name: JOB_NAME, policy: 'stately', retryLimit: 0, expireInSeconds: 900 });
+    } else if (existingQueue.policy !== 'stately') {
+        // One-time migration off the old unbounded 'standard' queue: purge the stacked
+        // backlog (everything not yet completed) so it stops draining, then flip the
+        // policy. Idempotent — skipped once the queue is already 'stately'.
+        log.info('Migrating scheduler-scan queue to stately policy', { oldPolicy: existingQueue.policy });
+        const db = boss.getDb();
+        await db.executeSql(`DELETE FROM pgboss.job WHERE name = 'scheduler-scan' AND state NOT IN ('completed')`, []);
+        await db.executeSql(`UPDATE pgboss.queue SET policy = 'stately', updated_on = now() WHERE name = 'scheduler-scan'`, []);
+    }
     // A scan MUTATES live AWS resources (start/stop). If the worker is killed
     // mid-scan the job is orphaned in 'active'; under the global defaults
     // (expireInHours: 4, retryLimit: 3) pg-boss would resurrect and re-run it up
@@ -48,12 +72,16 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
     //                       pg-boss fails it. This value also caps the handler runtime
     //                       (pg-boss derives the handler timeout from it), so it must
     //                       comfortably exceed the longest legitimate scan.
-    // createQueue uses ON CONFLICT DO NOTHING, so updateQueue enforces it on the
-    // pre-existing queue too (matches the discovery/right-sizing pattern).
+    // updateQueue enforces these on the pre-existing queue too (createQueue's opts are
+    // ON CONFLICT DO NOTHING); it does NOT change policy — the migration above owns that.
     await boss.updateQueue(JOB_NAME, { name: JOB_NAME, retryLimit: 0, expireInSeconds: 900 });
 
-    // Global tick — every 5 min (matches minimum supported tenant interval)
-    await boss.schedule(JOB_NAME, '*/5 * * * *', {}, { tz: 'UTC' });
+    // Global tick — every 5 min (matches minimum supported tenant interval).
+    // singletonKey scopes the 'stately' de-dup to a CRON-only bucket: at most one
+    // cron-originated scan is ever queued/active, while manual "Execute Now" triggers
+    // (sent from web-ui with no singletonKey) live in a separate bucket and are never
+    // suppressed by an in-flight cron scan.
+    await boss.schedule(JOB_NAME, '*/5 * * * *', {}, { tz: 'UTC', singletonKey: 'scheduler-cron' });
 
     // batchSize: 1 prevents concurrent scans
     await boss.work<SchedulerEvent>(
