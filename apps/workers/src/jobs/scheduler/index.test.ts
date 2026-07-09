@@ -3,12 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockWork = vi.fn();
 const mockSchedule = vi.fn();
 
+const mockExecuteSql = vi.fn().mockResolvedValue(undefined);
 const mockBoss = {
   work: mockWork,
   schedule: mockSchedule,
   send: vi.fn(),
   createQueue: vi.fn().mockResolvedValue(undefined),
   updateQueue: vi.fn().mockResolvedValue(undefined),
+  // Queue absent by default → register() takes the createQueue('stately') path.
+  getQueue: vi.fn().mockResolvedValue(null),
+  getDb: vi.fn().mockReturnValue({ executeSql: mockExecuteSql }),
 } as any;
 
 const mockRegisterHandler = vi.fn();
@@ -75,14 +79,51 @@ describe('scheduler job registration', () => {
     vi.clearAllMocks();
   });
 
-  it('should register cron as */5 * * * *', async () => {
+  it('should register cron as */5 * * * * with a cron-only singletonKey', async () => {
     await register(mockBoss, mockExecutor);
+    // singletonKey keeps cron ticks in their own 'stately' bucket so they can never
+    // stack into a backlog, while manual "Execute Now" triggers stay unsuppressed.
     expect(mockSchedule).toHaveBeenCalledWith(
       'scheduler-scan',
       '*/5 * * * *',
       {},
-      { tz: 'UTC' }
+      { tz: 'UTC', singletonKey: 'scheduler-cron' }
     );
+  });
+
+  it('should create scheduler-scan with stately policy when the queue is absent', async () => {
+    const pgBoss = mockBoss as any;
+    pgBoss.getQueue.mockResolvedValueOnce(null);
+    await register(mockBoss, mockExecutor);
+    expect(mockBoss.createQueue).toHaveBeenCalledWith(
+      'scheduler-scan',
+      expect.objectContaining({ name: 'scheduler-scan', policy: 'stately', retryLimit: 0 })
+    );
+    // No migration/purge needed for a fresh queue.
+    expect(mockExecuteSql).not.toHaveBeenCalled();
+  });
+
+  it('should migrate a legacy standard queue to stately and PURGE the stacked backlog', async () => {
+    const pgBoss = mockBoss as any;
+    pgBoss.getQueue.mockResolvedValueOnce({ name: 'scheduler-scan', policy: 'standard' });
+    await register(mockBoss, mockExecutor);
+    // The flood fix: drop every non-completed scheduler-scan job (the drain source)...
+    expect(mockExecuteSql).toHaveBeenCalledWith(
+      expect.stringMatching(/DELETE FROM pgboss\.job WHERE name = 'scheduler-scan' AND state NOT IN \('completed'\)/),
+      []
+    );
+    // ...then flip the queue policy so a backlog can never form again.
+    expect(mockExecuteSql).toHaveBeenCalledWith(
+      expect.stringMatching(/UPDATE pgboss\.queue SET policy = 'stately'.*WHERE name = 'scheduler-scan'/),
+      []
+    );
+  });
+
+  it('should NOT purge or re-migrate when the queue is already stately', async () => {
+    const pgBoss = mockBoss as any;
+    pgBoss.getQueue.mockResolvedValueOnce({ name: 'scheduler-scan', policy: 'stately' });
+    await register(mockBoss, mockExecutor);
+    expect(mockExecuteSql).not.toHaveBeenCalled();
   });
 
   it('should register handler with executor', async () => {
