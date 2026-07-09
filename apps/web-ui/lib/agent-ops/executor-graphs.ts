@@ -30,6 +30,7 @@ import {
     llmAuditLog,
     getActiveMCPTools,
     getMCPToolsDescription,
+    getMCPManager,
     MAX_ITERATIONS,
 } from "@/lib/agent/agent-shared";
 import {
@@ -78,9 +79,17 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
     const toolNode = new ToolNode(tools);
 
     // ── MCP context description for prompts ───────────────────────────────────
-    const mcpContext = mcpServerIds?.length
-        ? await getMCPToolsDescription(mcpServerIds, tenantId).catch(() => '')
-        : '';
+    // assembleTools() above already connected the requested servers via the global
+    // MCPManager, so pull the description from that same instance (getMCPToolsDescription
+    // is synchronous and expects an MCPServerManager, not the id array).
+    let mcpContext = '';
+    if (mcpServerIds?.length) {
+        try {
+            mcpContext = getMCPToolsDescription(getMCPManager(), mcpServerIds);
+        } catch {
+            mcpContext = '';
+        }
+    }
 
     // ── Shared prompt fragments (built once, reused across nodes) ─────────────
     const awsCliStandards = buildAwsCliStandards();
