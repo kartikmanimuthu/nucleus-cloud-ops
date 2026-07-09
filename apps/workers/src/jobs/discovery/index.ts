@@ -48,14 +48,28 @@ async function reconcileAndWarnIfEmpty(
     accountId: string,
     scanId: string,
     resourceCount: number,
+    scanError?: string,
 ): Promise<void> {
-    const staleCount = await reconcileStaleResources(tenantId, accountId, scanId);
+    let staleCount: number;
+    try {
+        staleCount = await reconcileStaleResources(tenantId, accountId, scanId);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error('Reconciliation failed — leaving previous isCurrent state in place (fail open)', {
+            tenantId,
+            accountId,
+            scanId,
+            error: msg,
+        });
+        return;
+    }
     if (resourceCount === 0 && staleCount > 0) {
         log.warn('Reconciliation marked previously-current resources stale after an empty/failed scan', {
             tenantId,
             accountId,
             scanId,
             staleCount,
+            ...(scanError ? { scanError } : {}),
         });
     }
 }
@@ -125,7 +139,7 @@ export async function handleDiscoveryScan(jobData: unknown): Promise<void> {
             errors.push(`Account ${account.accountId}: ${msg}`);
             log.error('Account scan failed', { tenantId, accountId: account.accountId, error: msg });
 
-            await reconcileAndWarnIfEmpty(tenantId, account.accountId, scanId, 0);
+            await reconcileAndWarnIfEmpty(tenantId, account.accountId, scanId, 0, msg);
             await updateAccountSyncStatus(tenantId, account.accountId, {
                 lastSyncedAt: new Date().toISOString(),
                 lastSyncStatus: 'error',
