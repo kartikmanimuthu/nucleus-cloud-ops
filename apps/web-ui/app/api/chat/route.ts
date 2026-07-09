@@ -316,6 +316,14 @@ export async function POST(req: Request) {
                 {
                     version: "v2",
                     recursionLimit: 100,
+                    // Propagate the abort signal so a client "Stop" (or disconnect)
+                    // actually halts the LangGraph run. LangGraph forwards this signal
+                    // to every node/model call, so aborting throws an AbortError that
+                    // the stream handler catches and the `finally` block uses to release
+                    // the per-thread lock promptly — otherwise the run keeps executing
+                    // server-side, holding the lock, and the next "continue" POST is
+                    // rejected with 409 (breaking multi-turn continuity).
+                    signal: graphAbortController.signal,
                     configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId },
                     ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
                 }
