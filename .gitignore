@@ -126,3 +126,4 @@ backups/
 
 # Playwright MCP navigation artifacts
 .playwright-mcp/
+.superpowers/
