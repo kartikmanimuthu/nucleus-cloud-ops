@@ -19,6 +19,10 @@ export interface ResolvedModelConfig {
     baseUrl?: string;
     apiKey?: string;
     maxTokens?: number;
+    /** Sampling temperature. OMITTED by default — newer models (e.g. Bedrock Claude
+     *  Sonnet 5) reject any `temperature` parameter with a ValidationException, so we
+     *  only send one when a provider's model entry explicitly configures it. */
+    temperature?: number;
     /** Bedrock-only: region + explicit static credentials (when configured as a provider record). */
     region?: string;
     accessKeyId?: string;

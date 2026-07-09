@@ -94,7 +94,9 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
                 baseURL: normalizeOpenAICompatibleBaseUrl(config.provider, config.baseUrl),
                 apiKey: config.apiKey || "not-needed",
             },
-            temperature: 0,
+            // Only send temperature when the model explicitly configures one — newer
+            // models reject the parameter outright (see ResolvedModelConfig.temperature).
+            ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
         };
         return {
             main: new ChatOpenAI({
@@ -116,7 +118,7 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
         const anthropicConfig = {
             model: config.modelId,
             apiKey: config.apiKey,
-            temperature: 0,
+            ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
             ...(config.baseUrl ? { anthropicApiUrl: config.baseUrl } : {}),
         };
         const defaultMaxTokens = config.maxTokens || DEFAULT_MAX_OUTPUT_TOKENS;
@@ -145,7 +147,9 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
     const bedrockConfig = {
         region: config.region,
         model: config.modelId,
-        temperature: 0,
+        // Only send temperature when explicitly configured — Bedrock Claude Sonnet 5
+        // (and other newer models) reject any temperature with a ValidationException.
+        ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
         credentials: {
             accessKeyId: config.accessKeyId,
             secretAccessKey: config.secretAccessKey,
