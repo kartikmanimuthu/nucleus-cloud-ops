@@ -75,7 +75,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
             }
 
             // Standard Prisma path (no search term)
-            const where: Record<string, unknown> = { tenantId };
+            const where: Record<string, unknown> = { tenantId, isCurrent: true };
 
             if (accountId) where.accountId = accountId;
             else if (accountIds?.length) where.accountId = { in: accountIds };
@@ -115,7 +115,7 @@ export class InventoryPostgresRepository implements IInventoryRepository {
     ): Promise<InventoryPage> {
         const client = getTenantClient(tenantId);
         const params: unknown[] = [tenantId, searchTerm];
-        let whereClause = `WHERE "tenantId" = $1 AND "searchVector" @@ plainto_tsquery('english', $2)`;
+        let whereClause = `WHERE "tenantId" = $1 AND "isCurrent" = true AND "searchVector" @@ plainto_tsquery('english', $2)`;
 
         if (filters.accountId) {
             params.push(filters.accountId);

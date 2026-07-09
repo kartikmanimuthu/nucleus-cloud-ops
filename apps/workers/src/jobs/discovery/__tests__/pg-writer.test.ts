@@ -9,7 +9,7 @@ vi.mock('pg', () => ({
   Pool: vi.fn().mockImplementation(() => ({ connect: mockConnect })),
 }));
 
-import { writeResourcesToPg, saveSyncStatus, extractMetadata } from '../services/pg-writer.js';
+import { writeResourcesToPg, saveSyncStatus, extractMetadata, reconcileStaleResources } from '../services/pg-writer.js';
 
 describe('pg-writer', () => {
   beforeEach(() => {
@@ -85,6 +85,17 @@ describe('pg-writer', () => {
         writeResourcesToPg(resources, 'tenant-1', 'acc-123', 'job-1'),
       ).rejects.toThrow('connection refused');
     });
+
+    it('reactivates previously-stale rows via isCurrent = true on conflict', async () => {
+      const resources: Resource[] = [
+        { resourceType: 'ec2_instances', resourceId: 'i-1', region: 'us-east-1', service: 'ec2', tags: {}, rawData: {} },
+      ];
+
+      await writeResourcesToPg(resources, 'tenant-1', 'acc-123', 'job-1');
+
+      const sql = mockQuery.mock.calls[0][0];
+      expect(sql).toContain('"isCurrent" = true');
+    });
   });
 
   describe('saveSyncStatus', () => {
@@ -95,6 +106,49 @@ describe('pg-writer', () => {
         expect.stringContaining('inventory_sync_status'),
         expect.arrayContaining(['scan-123', 'tenant-1', 500, 3, 'completed', ['Account 123: timeout']]),
       );
+      expect(mockRelease).toHaveBeenCalled();
+    });
+  });
+
+  describe('reconcileStaleResources', () => {
+    it('marks rows stale when jobRunId differs from the current scan', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 3 });
+
+      const count = await reconcileStaleResources('tenant-1', 'acc-123', 'scan-999');
+
+      expect(count).toBe(3);
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining('SET "isCurrent" = false'),
+        ['tenant-1', 'acc-123', 'scan-999'],
+      );
+    });
+
+    it('scopes the UPDATE to tenantId, accountId, and a differing jobRunId', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+      await reconcileStaleResources('tenant-1', 'acc-123', 'scan-999');
+
+      const sql = mockQuery.mock.calls[0][0];
+      expect(sql).toContain('"tenantId" = $1');
+      expect(sql).toContain('"accountId" = $2');
+      expect(sql).toContain('IS DISTINCT FROM $3');
+      expect(mockRelease).toHaveBeenCalled();
+    });
+
+    it('returns 0 when rowCount is null', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [], rowCount: null });
+
+      const count = await reconcileStaleResources('tenant-1', 'acc-123', 'scan-999');
+
+      expect(count).toBe(0);
+    });
+
+    it('releases the client and rethrows on query error', async () => {
+      mockQuery.mockRejectedValueOnce(new Error('db down'));
+
+      await expect(
+        reconcileStaleResources('tenant-1', 'acc-123', 'scan-999'),
+      ).rejects.toThrow('db down');
       expect(mockRelease).toHaveBeenCalled();
     });
   });

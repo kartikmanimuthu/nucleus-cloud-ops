@@ -86,7 +86,8 @@ export async function writeResourcesToPg(
           metadata = EXCLUDED.metadata,
           "jobRunId" = EXCLUDED."jobRunId",
           "discoveredAt" = EXCLUDED."discoveredAt",
-          "updatedAt" = NOW()
+          "updatedAt" = NOW(),
+          "isCurrent" = true
       `;
 
       await client.query(sql, params);
@@ -100,6 +101,39 @@ export async function writeResourcesToPg(
   }
 
   return total;
+}
+
+// ---------------------------------------------------------------------------
+// reconcileStaleResources — mark resources not seen in the current scan as
+// isCurrent = false, scoped to one account. Never deletes rows.
+// ---------------------------------------------------------------------------
+
+export async function reconcileStaleResources(
+  tenantId: string,
+  accountId: string,
+  jobRunId: string,
+): Promise<number> {
+  const client: PoolClient = await getPool().connect();
+  try {
+    const result = await client.query(
+      `UPDATE inventory_resources
+       SET "isCurrent" = false
+       WHERE "tenantId" = $1 AND "accountId" = $2
+         AND "isCurrent" = true AND "jobRunId" IS DISTINCT FROM $3`,
+      [tenantId, accountId, jobRunId],
+    );
+    return result.rowCount ?? 0;
+  } catch (error) {
+    log.error('Failed reconciling stale resources', {
+      tenantId,
+      accountId,
+      jobRunId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 // ---------------------------------------------------------------------------
