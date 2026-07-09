@@ -438,6 +438,94 @@ export async function getTenantJobConfig(
     }
 }
 
+/**
+ * Atomically claim the right to run a tenant's periodic job.
+ *
+ * Replaces the check-then-act gate (read lastRunAt → compare → later write) that
+ * was only safe while a single stately-queue singleton serialized the fan-out.
+ * The moment two fan-out executions overlap — cron-tick expiry/overlap, a rolling
+ * deploy running old+new worker tasks, or scaling to >1 worker replica — the old
+ * gate let BOTH pass and double-dispatch a scan that MUTATES customer AWS
+ * resources. This makes the claim a single atomic UPDATE: at most one caller wins.
+ *
+ * Semantics: advances lastRunAt to `nowIso` and returns true IFF the stored
+ * lastRunAt is null or at least `minIntervalMs` old. The INSERT handles the
+ * first-ever run (no row yet); ON CONFLICT DO UPDATE ... WHERE handles the steady
+ * state, and RETURNING lets us detect whether our write actually landed.
+ *
+ * Note this claims BEFORE dispatch (advances lastRunAt up front), so a dispatch
+ * that then fails costs the tenant one interval of delay — acceptable because the
+ * next tick retries and the per-tenant queue singleton already prevents dup work.
+ * Callers may pass the failed dispatch back through releaseTenantJobClaim() to
+ * retry sooner.
+ */
+export async function tryClaimTenantRun(
+    tenantId: string,
+    jobType: string,
+    minIntervalMs: number,
+    nowIso: string = new Date().toISOString(),
+): Promise<boolean> {
+    const cutoffIso = new Date(Date.now() - minIntervalMs).toISOString();
+    const client: PoolClient = await getPool().connect();
+    try {
+        const result = await client.query(
+            `INSERT INTO tenant_configs ("id", "tenantId", "configKey", data, "updatedAt", "updatedBy")
+             VALUES (gen_random_uuid()::text, $1, $2, jsonb_build_object('lastRunAt', $3::text), now(), 'worker')
+             ON CONFLICT ("tenantId", "configKey")
+             DO UPDATE SET data = tenant_configs.data || jsonb_build_object('lastRunAt', $3::text),
+                           "updatedAt" = now()
+             WHERE tenant_configs.data->>'lastRunAt' IS NULL
+                -- CASE (not OR) so the ::timestamptz cast is only evaluated when the
+                -- stored value actually looks like an ISO timestamp. A corrupt value
+                -- would otherwise throw on cast → caught → fail-closed → the tenant is
+                -- silently wedged forever. Treat non-ISO as claimable so it self-heals.
+                OR CASE
+                     WHEN tenant_configs.data->>'lastRunAt' ~ '^\\d{4}-\\d{2}-\\d{2}T'
+                       THEN (tenant_configs.data->>'lastRunAt')::timestamptz <= $4::timestamptz
+                     ELSE true
+                   END
+             RETURNING id`,
+            [tenantId, jobType, nowIso, cutoffIso]
+        );
+        const won = (result.rowCount ?? 0) === 1;
+        logger.debug('[pg-service] tryClaimTenantRun', { tenantId, jobType, won });
+        return won;
+    } catch (error) {
+        // Fail CLOSED: on a DB error we do NOT claim, so we never dispatch an
+        // AWS-mutating scan we cannot prove we were entitled to run.
+        logger.error('[pg-service] tryClaimTenantRun error — treating as not-claimed', { tenantId, jobType, error });
+        return false;
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * Compensating action for tryClaimTenantRun: reset lastRunAt so a tenant whose
+ * dispatch failed is retried on the next tick instead of waiting a full interval.
+ * Best-effort — resets to a timestamp `minIntervalMs` in the past.
+ */
+export async function releaseTenantJobClaim(
+    tenantId: string,
+    jobType: string,
+    minIntervalMs: number,
+): Promise<void> {
+    const pastIso = new Date(Date.now() - minIntervalMs - 1000).toISOString();
+    const client: PoolClient = await getPool().connect();
+    try {
+        await client.query(
+            `UPDATE tenant_configs
+             SET data = data || jsonb_build_object('lastRunAt', $3::text), "updatedAt" = now()
+             WHERE "tenantId" = $1 AND "configKey" = $2`,
+            [tenantId, jobType, pastIso]
+        );
+    } catch (error) {
+        logger.error('[pg-service] releaseTenantJobClaim error', { tenantId, jobType, error });
+    } finally {
+        client.release();
+    }
+}
+
 /** Upsert the lastRunAt timestamp for a tenant job config row. */
 export async function updateTenantJobLastRun(
     tenantId: string,

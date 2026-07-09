@@ -34,7 +34,7 @@ export async function getDataSource(kbId: string, dsId: string) {
   const client: PoolClient = await getPool().connect();
   try {
     const result = await client.query(
-      `SELECT "vectorCount", "vectorKeys", status
+      `SELECT "vectorCount", "vectorKeys", status, config, "sourceType"
        FROM data_sources
        WHERE id = $1 AND "knowledgeBaseId" = $2
        LIMIT 1`,
@@ -46,6 +46,10 @@ export async function getDataSource(kbId: string, dsId: string) {
       vectorCount: row.vectorCount as number,
       vectorKeys: row.vectorKeys as string[],
       status: row.status as string,
+      // config holds source credentials/settings — read here so they never travel
+      // through the pg-boss job payload / ECS command line (see kb-sync/index.ts).
+      config: (row.config ?? {}) as Record<string, unknown>,
+      sourceType: row.sourceType as string,
     };
   } finally {
     client.release();
@@ -108,6 +112,28 @@ export async function updateKBVectorCount(kbId: string, delta: number) {
        SET "vectorCount" = COALESCE("vectorCount", 0) + $1, "updatedAt" = NOW()
        WHERE id = $2`,
       [delta, kbId]
+    );
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Recompute a KB's total vectorCount from the authoritative per-source counts,
+ * instead of incrementing/decrementing. Deltas corrupt the total whenever a sync
+ * handler runs twice (pg-boss retry after a mid-sync failure); a recompute is
+ * idempotent — running it any number of times yields the same correct value.
+ */
+export async function recomputeKBVectorCount(kbId: string) {
+  const client: PoolClient = await getPool().connect();
+  try {
+    await client.query(
+      `UPDATE knowledge_bases kb
+       SET "vectorCount" = COALESCE(
+             (SELECT SUM(ds."vectorCount") FROM data_sources ds WHERE ds."knowledgeBaseId" = kb.id), 0),
+           "updatedAt" = NOW()
+       WHERE kb.id = $1`,
+      [kbId]
     );
   } finally {
     client.release();

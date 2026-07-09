@@ -5,7 +5,6 @@ import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { getBoss } from '@/lib/boss-client';
-import type { S3BucketConfig, ConfluenceConfig, BitbucketConfig } from '@/lib/knowledge-base/types';
 
 const JOB_TYPE_MAP = {
   's3-bucket': 's3-sync',
@@ -35,15 +34,16 @@ export async function POST(
   // Mark as syncing immediately
   await KnowledgeBaseService.updateDataSource(kbId, dsId, { status: 'syncing' }, tenantId);
 
-  // Enqueue background job via pg-boss
+  // Enqueue background job via pg-boss. Only identifiers travel on the wire — the
+  // worker re-hydrates `config` (which may hold apiToken) and the previous
+  // vectorKeys from the data_sources row, so credentials never land in the
+  // pgboss.job table or (under horizontal arch) the ECS task command line.
   const boss = await getBoss();
   await boss.send('kb-sync', {
     type: jobType,
     kbId,
     dsId,
     tenantId,
-    oldVectorKeys: ds.vectorKeys,
-    config: ds.config as S3BucketConfig | ConfluenceConfig | BitbucketConfig,
   });
 
   AuditService.logUserAction({

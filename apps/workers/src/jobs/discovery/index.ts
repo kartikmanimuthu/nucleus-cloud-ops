@@ -5,7 +5,8 @@ import { writeAuditLog } from './services/audit-service.js';
 import { assumeRole } from './services/sts-service.js';
 import { runInventoryScan } from './services/scanner.js';
 import { writeResourcesToPg, saveSyncStatus, reconcileStaleResources } from './services/pg-writer.js';
-import { getTenantJobConfig, updateTenantJobLastRun } from '../scheduler/services/pg-service.js';
+import { getTenantJobConfig } from '../scheduler/services/pg-service.js';
+import { ensureStatelyScanQueue, dispatchTenantScan, DEAD_LETTER_QUEUE } from '../../lib/tenant-fanout.js';
 import type { DiscoveryFanOutJob, DiscoveryScanJob } from './types.js';
 import { readFileSync } from 'fs';
 import { join, dirname, isAbsolute } from 'path';
@@ -190,71 +191,51 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
         name: 'discovery-fan-out',
         retryLimit: 1,
         expireInSeconds: 300, // 5 min — fan-out is fast
+        deadLetter: DEAD_LETTER_QUEUE,
     });
 
-    // discovery-scan uses 'stately' policy: only 1 job per singletonKey per state (created OR active).
-    const existingQueue = await boss.getQueue('discovery-scan');
-    if (!existingQueue) {
-        await boss.createQueue('discovery-scan', {
-            name: 'discovery-scan',
-            policy: 'stately',
-            expireInSeconds: 1800,
-        });
-    } else if (existingQueue.policy !== 'stately') {
-        log.info('Migrating discovery-scan queue to stately policy', { oldPolicy: existingQueue.policy });
-        const db = boss.getDb();
-        await db.executeSql(`DELETE FROM pgboss.job WHERE name = 'discovery-scan' AND state NOT IN ('completed')`, []);
-        await db.executeSql(`UPDATE pgboss.queue SET policy = 'stately', updated_on = now() WHERE name = 'discovery-scan'`, []);
-    }
-    await boss.updateQueue('discovery-scan', {
-        name: 'discovery-scan',
+    // discovery-scan: stately (1 job per tenant singletonKey per state), dead-lettered.
+    // Discovery is read-only inventory scanning, so retries are safe (retryLimit:2).
+    await ensureStatelyScanQueue(boss, 'discovery-scan', log, {
         expireInSeconds: 1800,
+        retryLimit: 2,
     });
 
     // Once a day at midnight UTC
     await boss.schedule('discovery-fan-out', '0 0 * * *', {}, { tz: 'UTC' });
 
-    // Fan-out: one discovery-scan job per tenant, gated by per-tenant period config
+    // Fan-out: one discovery-scan job per tenant, atomically gated by per-tenant period.
     await boss.work<DiscoveryFanOutJob>(
         'discovery-fan-out',
         { batchSize: 1 },
         async ([job]) => {
             log.info('Fan-out triggered', { jobId: job.id });
             const tenants = await getAllTenants();
+            let dispatched = 0;
             for (const tenant of tenants) {
                 const config = await getTenantJobConfig(tenant.id, 'discovery-cron');
-                if (!shouldRunTenant(config.lastRunAt, config.period)) {
-                    log.info('Skipping discovery — interval not elapsed', {
-                        tenantId: tenant.id,
-                        period: config.period,
-                        lastRunAt: config.lastRunAt,
-                    });
-                    continue;
-                }
-                const jobId = await boss.send(
-                    'discovery-scan',
-                    { type: 'scan', tenantId: tenant.id, triggeredBy: 'cron' } satisfies DiscoveryScanJob,
-                    {
-                        singletonKey: `tenant:${tenant.id}`,
-                        retryLimit: 2,
-                        retryDelay: 60,
-                        retryBackoff: true,
-                    }
-                );
-                if (jobId === null) {
-                    log.warn('Scan job already queued or active, skipping', { tenantId: tenant.id });
-                } else {
-                    await updateTenantJobLastRun(tenant.id, 'discovery-cron', new Date().toISOString());
-                    log.debug('Scan job enqueued', { tenantId: tenant.id, jobId });
-                }
+                const outcome = await dispatchTenantScan({
+                    boss,
+                    scanQueue: 'discovery-scan',
+                    tenantId: tenant.id,
+                    jobType: 'discovery-cron',
+                    minIntervalMs: periodToMs(config.period),
+                    payload: { type: 'scan', tenantId: tenant.id, triggeredBy: 'cron' } satisfies DiscoveryScanJob,
+                    log,
+                    sendOptions: { retryLimit: 2, retryDelay: 60, retryBackoff: true },
+                });
+                if (outcome === 'dispatched') dispatched++;
             }
-            log.info('Fan-out complete', { tenantCount: tenants.length });
+            log.info('Fan-out complete', { tenantCount: tenants.length, dispatched });
         }
     );
 
     // Scan: scan all accounts for one tenant — delegates through executor
     await boss.work<DiscoveryScanJob>('discovery-scan', { batchSize: 1 }, async ([job]) => {
-        await executor.execute('discovery-scan', job.data);
+        await executor.execute('discovery-scan', job.data, {
+            idempotencyKey: job.id,
+            timeoutMs: (1800 - 60) * 1000, // below the 1800s queue expiry
+        });
     });
 
     log.info('Registered queues', { queues: ['discovery-fan-out', 'discovery-scan'], cron: '0 0 * * *' });

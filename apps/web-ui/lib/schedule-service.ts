@@ -372,7 +372,16 @@ export class ScheduleService {
             const boss = await getBoss();
             // priority > 0 so this user-initiated "run now" is dequeued ahead of a
             // pending system cron tick (pg-boss fetch orders by priority desc).
-            await boss.send('scheduler-scan', payload, { priority: 10 });
+            // Per-tenant+schedule singletonKey so this partial scan de-dups only
+            // against itself, never against another tenant's manual trigger (the
+            // stately queue buckets all keyless sends together — see execute route).
+            const jobId = await boss.send('scheduler-scan', payload, {
+                priority: 10,
+                singletonKey: `manual:${tenantId}:${schedule.id}`,
+            });
+            if (jobId === null) {
+                console.log(`[ScheduleService] Partial scan already queued/running for schedule ${schedule.id} — deduplicated`);
+            }
         } catch (enqueueError) {
             const errorMessage = enqueueError instanceof Error ? enqueueError.message : String(enqueueError);
             await AuditService.logResourceAction({

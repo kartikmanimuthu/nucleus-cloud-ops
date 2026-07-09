@@ -73,6 +73,9 @@ export const env = createEnv({
         // Read via process.env at scan time (runtime toggle) — see scheduler-service.ts.
         SCHEDULER_ACCOUNT_CONCURRENCY: z.string().optional(),
 
+        // Health server port (ECS container health check probes this). Default 8080.
+        HEALTH_PORT: z.string().optional(),
+
         // Misc
         PORT: z.string().optional(),
         TENANT_ID: z.string().optional(),

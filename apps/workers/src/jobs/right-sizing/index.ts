@@ -12,7 +12,8 @@ import type { JobExecutor } from '../../executor/index.js';
 import { getAllTenants, getTenantAccounts } from '../discovery/services/account-service.js';
 import { assumeRole } from '../discovery/services/sts-service.js';
 import { writeAuditLog } from '../discovery/services/audit-service.js';
-import { shouldRunTenant } from '../discovery/index.js';
+import { periodToMs } from '../discovery/index.js';
+import { ensureStatelyScanQueue, dispatchTenantScan, DEAD_LETTER_QUEUE } from '../../lib/tenant-fanout.js';
 import { collect } from './services/metric-collector.js';
 import { summarize } from './services/metric-summarizer.js';
 import { evaluate } from './services/engine.js';
@@ -24,7 +25,6 @@ import {
     finishRun,
     hasActiveRun,
     getTenantPeriodConfig,
-    updateLastRun,
 } from './services/db-writer.js';
 import { RIGHT_SIZING_CONFIG } from './config.js';
 import type { AnalyzableResource, RecommendationOutput } from './types.js';
@@ -154,13 +154,10 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
     executor.registerHandler?.('right-sizing-scan', handleScan);
 
     await boss.createQueue(FAN_OUT);
-    await boss.updateQueue(FAN_OUT, { name: FAN_OUT, retryLimit: 1, expireInSeconds: 300 });
+    await boss.updateQueue(FAN_OUT, { name: FAN_OUT, retryLimit: 1, expireInSeconds: 300, deadLetter: DEAD_LETTER_QUEUE });
 
-    const existing = await boss.getQueue(SCAN);
-    if (!existing) {
-        await boss.createQueue(SCAN, { name: SCAN, policy: 'stately', expireInSeconds: 3600 });
-    }
-    await boss.updateQueue(SCAN, { name: SCAN, expireInSeconds: 3600 });
+    // Right-sizing is read-only analysis, so retries are safe (retryLimit:2).
+    await ensureStatelyScanQueue(boss, SCAN, log, { expireInSeconds: 3600, retryLimit: 2 });
 
     // Daily fan-out at 01:13 UTC (off the :00 mark).
     await boss.schedule(FAN_OUT, '13 1 * * *', {}, { tz: 'UTC' });
@@ -171,27 +168,29 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
             return;
         }
         const tenants = await getAllTenants();
+        let dispatched = 0;
         for (const tenant of tenants) {
-            const { period, lastRunAt } = await getTenantPeriodConfig(tenant.id);
-            if (!shouldRunTenant(lastRunAt, period)) {
-                log.info('Skipping — interval not elapsed', { tenantId: tenant.id, period, lastRunAt });
-                continue;
-            }
-            const jobId = await boss.send(
-                SCAN,
-                { tenantId: tenant.id, trigger: 'schedule' } satisfies RightSizingScanJob,
-                { singletonKey: `tenant:${tenant.id}`, retryLimit: 2, retryDelay: 60, retryBackoff: true }
-            );
-            if (jobId === null) {
-                log.warn('Scan already queued/active, skipping', { tenantId: tenant.id });
-            } else {
-                await updateLastRun(tenant.id, new Date().toISOString());
-            }
+            const { period } = await getTenantPeriodConfig(tenant.id);
+            const outcome = await dispatchTenantScan({
+                boss,
+                scanQueue: SCAN,
+                tenantId: tenant.id,
+                jobType: 'right-sizing-cron',
+                minIntervalMs: periodToMs(period),
+                payload: { tenantId: tenant.id, trigger: 'schedule' } satisfies RightSizingScanJob,
+                log,
+                sendOptions: { retryLimit: 2, retryDelay: 60, retryBackoff: true },
+            });
+            if (outcome === 'dispatched') dispatched++;
         }
+        log.info('Right-sizing fan-out complete', { tenantCount: tenants.length, dispatched });
     });
 
     await boss.work<RightSizingScanJob>(SCAN, { batchSize: 1 }, async ([job]) => {
-        await executor.execute('right-sizing-scan', job.data);
+        await executor.execute('right-sizing-scan', job.data, {
+            idempotencyKey: job.id,
+            timeoutMs: (3600 - 60) * 1000, // below the 3600s queue expiry
+        });
     });
 
     log.info('Registered queues', { queues: [FAN_OUT, SCAN], cron: '13 1 * * *' });

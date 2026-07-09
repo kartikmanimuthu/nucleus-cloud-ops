@@ -1,20 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const mockSend = vi.fn().mockResolvedValue('job-1');
 const mockCreateQueue = vi.fn().mockResolvedValue(undefined);
+const mockUpdateQueue = vi.fn().mockResolvedValue(undefined);
 const mockWork = vi.fn().mockResolvedValue(undefined);
-const mockSchedule = vi.fn().mockResolvedValue(undefined);
-const mockUnschedule = vi.fn().mockResolvedValue(undefined);
 
 const mockBoss = {
+    send: mockSend,
     createQueue: mockCreateQueue,
+    updateQueue: mockUpdateQueue,
     work: mockWork,
-    schedule: mockSchedule,
-    unschedule: mockUnschedule,
-} as any;
-
-const mockExecutor = {
-    registerHandler: vi.fn(),
-    execute: vi.fn().mockResolvedValue(undefined),
 } as any;
 
 const mockFindMany = vi.fn();
@@ -25,46 +20,74 @@ vi.mock('@prisma/client', () => ({
     })),
 }));
 
-import { syncSchedules } from './index.js';
+import { sweep, selectDueTasks } from './index.js';
 
-describe('syncSchedules re-entrancy guard', () => {
+const task = (over: Partial<{ taskId: string; tenantId: string; cronExpression: string; timezone: string }> = {}) => ({
+    taskId: 't1',
+    tenantId: 'ten-1',
+    cronExpression: '* * * * *',
+    timezone: 'UTC',
+    ...over,
+});
+
+describe('selectDueTasks', () => {
+    it('selects a task whose previous scheduled run is within the window', () => {
+        // Every-minute cron; ref at 12:00:30 → previous run 12:00:00 → 30s ago < 60s.
+        const now = Date.UTC(2026, 0, 1, 12, 0, 30);
+        const due = selectDueTasks([task({ cronExpression: '* * * * *' })], now, 60_000);
+        expect(due.map((t) => t.taskId)).toEqual(['t1']);
+    });
+
+    it('excludes a task whose previous run is older than the window', () => {
+        // Daily midnight; ref at noon → previous run 00:00 → 12h ago.
+        const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+        const due = selectDueTasks([task({ cronExpression: '0 0 * * *' })], now, 60_000);
+        expect(due).toEqual([]);
+    });
+
+    it('skips a task with a malformed cron expression (never throws)', () => {
+        const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+        const due = selectDueTasks([task({ taskId: 'bad', cronExpression: 'not-a-cron' })], now, 60_000);
+        expect(due).toEqual([]);
+    });
+});
+
+describe('sweep', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockSend.mockResolvedValue('job-1');
     });
 
-    it('skips a concurrent sync while one is already in flight', async () => {
+    it('enqueues one tick per due task with a per-task de-dup key', async () => {
+        // Every-minute cron is always due relative to Date.now().
+        mockFindMany.mockResolvedValue([task({ taskId: 't1', tenantId: 'ten-1', cronExpression: '* * * * *' })]);
+        await sweep(mockBoss);
+        expect(mockSend).toHaveBeenCalledWith(
+            'agent-ops-tick',
+            { taskId: 't1', tenantId: 'ten-1' },
+            expect.objectContaining({ singletonKey: 'task:t1', singletonSeconds: 60 }),
+        );
+    });
+
+    it('enqueues nothing when no active task is due', async () => {
+        mockFindMany.mockResolvedValue([task({ cronExpression: '0 0 * * *' })]); // daily — not due right now
+        await sweep(mockBoss);
+        expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it('skips a concurrent sweep while one is still in flight', async () => {
         let resolveFirst!: (rows: unknown[]) => void;
-        const firstCallGate = new Promise<unknown[]>((resolve) => {
-            resolveFirst = resolve;
-        });
-        mockFindMany.mockImplementationOnce(() => firstCallGate);
+        const gate = new Promise<unknown[]>((resolve) => { resolveFirst = resolve; });
+        mockFindMany.mockImplementationOnce(() => gate);
 
-        // syncInFlight is set synchronously before the first await inside
-        // syncSchedules, so firing the second call right after the first
-        // (with no await in between) reliably races them.
-        const firstSync = syncSchedules(mockBoss, mockExecutor);
-        const secondSync = syncSchedules(mockBoss, mockExecutor);
+        const first = sweep(mockBoss);
+        const second = sweep(mockBoss);
+        await second; // guard-blocked, returns immediately
 
-        // The second call should short-circuit immediately (guard-blocked)
-        // without ever reaching Prisma.
-        await secondSync;
-
-        // Let the first call's async chain (dynamic import + query) actually
-        // reach the gated findMany call before unblocking it.
         await vi.waitFor(() => expect(mockFindMany).toHaveBeenCalledTimes(1));
-
         resolveFirst([]);
-        await firstSync;
+        await first;
 
         expect(mockFindMany).toHaveBeenCalledTimes(1);
-    });
-
-    it('allows a new sync to run once the previous one has completed', async () => {
-        mockFindMany.mockResolvedValue([]);
-
-        await syncSchedules(mockBoss, mockExecutor);
-        await syncSchedules(mockBoss, mockExecutor);
-
-        expect(mockFindMany).toHaveBeenCalledTimes(2);
     });
 });

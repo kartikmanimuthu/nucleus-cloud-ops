@@ -1,5 +1,12 @@
 # Workers Architecture — Horizontal & Vertical Execution
 
+> **See also:** [`docs/pgboss-worker-architecture.md`](docs/pgboss-worker-architecture.md)
+> — the current, diagram-heavy deep dive on the pg-boss queue model, the fan-out +
+> atomic-claim multi-tenant design, dead-letter/health/monitoring, and (in detail)
+> **how a horizontally-dispatched ephemeral task's success/error is propagated back
+> to the worker and how the worker tracks that task**. This file below covers the
+> directory layout, IAM, and mode-switching.
+
 ## Overview
 
 The workers service processes background jobs (resource scheduling, inventory discovery, knowledge base sync) using [pg-boss](https://github.com/timgit/pg-boss) as the job queue backed by PostgreSQL.

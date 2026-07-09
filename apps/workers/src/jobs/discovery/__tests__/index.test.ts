@@ -36,6 +36,9 @@ vi.mock('../services/audit-service.js', () => ({
 vi.mock('../../scheduler/services/pg-service.js', () => ({
   getTenantJobConfig: vi.fn().mockResolvedValue({ period: 'daily', lastRunAt: null }),
   updateTenantJobLastRun: vi.fn().mockResolvedValue(undefined),
+  // Atomic claim gate (fan-out now uses this instead of read-compare-write).
+  tryClaimTenantRun: vi.fn().mockResolvedValue(true),
+  releaseTenantJobClaim: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { register, resolveScanfilePath } from '../index.js';
@@ -91,56 +94,54 @@ describe('fan-out handler — per-tenant frequency check', () => {
     return call![2];
   }
 
-  it('sends scan jobs for all tenants when lastRunAt is null', async () => {
+  it('dispatches a scan per tenant when the claim is granted', async () => {
+    const pgService = await import('../../scheduler/services/pg-service.js');
+    vi.mocked(pgService.tryClaimTenantRun).mockResolvedValue(true);
+
+    const handler = await getFanOutHandler();
+    await handler([{ id: 'job-1', data: {} }]);
+
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(pgService.tryClaimTenantRun).toHaveBeenCalledTimes(2);
+  });
+
+  it('claims with the period-derived interval (daily = 24h)', async () => {
     const pgService = await import('../../scheduler/services/pg-service.js');
     vi.mocked(pgService.getTenantJobConfig).mockResolvedValue({ period: 'daily', lastRunAt: null });
+    vi.mocked(pgService.tryClaimTenantRun).mockResolvedValue(true);
 
     const handler = await getFanOutHandler();
     await handler([{ id: 'job-1', data: {} }]);
 
-    expect(mockSend).toHaveBeenCalledTimes(2);
-    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledTimes(2);
+    expect(pgService.tryClaimTenantRun).toHaveBeenCalledWith('tenant-1', 'discovery-cron', 24 * 60 * 60 * 1000);
+    expect(pgService.tryClaimTenantRun).toHaveBeenCalledWith('tenant-2', 'discovery-cron', 24 * 60 * 60 * 1000);
   });
 
-  it('sends scan job and updates lastRunAt when period has elapsed', async () => {
+  it('does not dispatch when the claim is denied (interval not elapsed)', async () => {
     const pgService = await import('../../scheduler/services/pg-service.js');
-    const oldRun = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(); // 25h ago > daily
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValue({ period: 'daily', lastRunAt: oldRun });
-
-    const handler = await getFanOutHandler();
-    await handler([{ id: 'job-1', data: {} }]);
-
-    expect(mockSend).toHaveBeenCalledTimes(2);
-    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'discovery-cron', expect.any(String));
-    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-2', 'discovery-cron', expect.any(String));
-  });
-
-  it('skips tenant when period has not elapsed', async () => {
-    const pgService = await import('../../scheduler/services/pg-service.js');
-    const recentRun = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // 2h ago < daily
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValue({ period: 'daily', lastRunAt: recentRun });
+    vi.mocked(pgService.tryClaimTenantRun).mockResolvedValue(false);
 
     const handler = await getFanOutHandler();
     await handler([{ id: 'job-1', data: {} }]);
 
     expect(mockSend).not.toHaveBeenCalled();
-    expect(pgService.updateTenantJobLastRun).not.toHaveBeenCalled();
   });
 
-  it('respects weekly period threshold', async () => {
+  it('claims with the weekly interval when period is weekly', async () => {
     const pgService = await import('../../scheduler/services/pg-service.js');
-    const recentRun = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(); // 2 days ago < weekly
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValue({ period: 'weekly', lastRunAt: recentRun });
+    vi.mocked(pgService.getTenantJobConfig).mockResolvedValue({ period: 'weekly', lastRunAt: null });
+    vi.mocked(pgService.tryClaimTenantRun).mockResolvedValue(false);
 
     const handler = await getFanOutHandler();
     await handler([{ id: 'job-1', data: {} }]);
 
+    expect(pgService.tryClaimTenantRun).toHaveBeenCalledWith('tenant-1', 'discovery-cron', 7 * 24 * 60 * 60 * 1000);
     expect(mockSend).not.toHaveBeenCalled();
   });
 
   it('sends with correct singletonKey per tenant', async () => {
     const pgService = await import('../../scheduler/services/pg-service.js');
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValue({ period: 'daily', lastRunAt: null });
+    vi.mocked(pgService.tryClaimTenantRun).mockResolvedValue(true);
 
     const handler = await getFanOutHandler();
     await handler([{ id: 'job-1', data: {} }]);
@@ -152,14 +153,15 @@ describe('fan-out handler — per-tenant frequency check', () => {
     );
   });
 
-  it('does not update lastRunAt when send returns null (job already queued)', async () => {
+  it('does not throw when send returns null (job already queued/active)', async () => {
     const pgService = await import('../../scheduler/services/pg-service.js');
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValue({ period: 'daily', lastRunAt: null });
+    vi.mocked(pgService.tryClaimTenantRun).mockResolvedValue(true);
     mockSend.mockResolvedValue(null); // already queued
 
     const handler = await getFanOutHandler();
-    await handler([{ id: 'job-1', data: {} }]);
-
-    expect(pgService.updateTenantJobLastRun).not.toHaveBeenCalled();
+    await expect(handler([{ id: 'job-1', data: {} }])).resolves.toBeUndefined();
+    // Claim already advanced above; the in-flight scan satisfies the interval, so
+    // no compensating release is issued for a duplicate.
+    expect(pgService.releaseTenantJobClaim).not.toHaveBeenCalled();
   });
 });

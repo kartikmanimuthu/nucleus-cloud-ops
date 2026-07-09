@@ -1,5 +1,5 @@
 import { createLogger } from '../lib/logger.js';
-import type { HandlerFn, JobExecutor } from './types.js';
+import type { ExecuteOptions, HandlerFn, JobExecutor } from './types.js';
 
 const log = createLogger('vertical-executor');
 
@@ -10,7 +10,8 @@ export class VerticalExecutor implements JobExecutor {
         this.registry.set(jobName, handler);
     }
 
-    async execute(jobName: string, jobData: unknown): Promise<unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async execute(jobName: string, jobData: unknown, _opts?: ExecuteOptions): Promise<unknown> {
         const handler = this.registry.get(jobName);
         if (!handler) {
             throw new Error(`No handler registered for job: ${jobName}`);
