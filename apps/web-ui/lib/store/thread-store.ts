@@ -9,6 +9,11 @@ export interface Thread {
     ownerUserId?: string;
 }
 
+// ChatSession is NOT registered in TENANT_SCOPED_MODELS (its unique key is the
+// global `sessionId`, which is incompatible with the tenant extension's
+// findUnique injection). Every method here therefore scopes on tenantId
+// MANUALLY — do not switch to getTenantClient without also solving the
+// findUnique/upsert unique-key constraint.
 export class ThreadStore {
     async listThreads(tenantId: string): Promise<Thread[]> {
         const prisma = getPrismaClient();
@@ -27,9 +32,9 @@ export class ThreadStore {
         }));
     }
 
-    async getThread(sessionId: string): Promise<Thread | undefined> {
+    async getThread(sessionId: string, tenantId: string): Promise<Thread | undefined> {
         const prisma = getPrismaClient();
-        const s = await prisma.chatSession.findUnique({ where: { sessionId } });
+        const s = await prisma.chatSession.findFirst({ where: { sessionId, tenantId } });
         if (!s) return undefined;
         return {
             id: s.sessionId,
@@ -49,10 +54,21 @@ export class ThreadStore {
         userId?: string
     ): Promise<Thread> {
         const prisma = getPrismaClient();
+        const resolvedTenantId = tenantId ?? "default";
+
+        // Guard against cross-tenant collision on the globally-unique sessionId:
+        // if a row with this sessionId already exists under a DIFFERENT tenant,
+        // refuse rather than clobber it (bare/un-namespaced IDs could otherwise
+        // let one tenant overwrite another tenant's session title/metadata).
+        const existing = await prisma.chatSession.findUnique({ where: { sessionId } });
+        if (existing && existing.tenantId !== resolvedTenantId) {
+            throw new Error("Thread ID belongs to another tenant");
+        }
+
         const s = await prisma.chatSession.upsert({
             where: { sessionId },
             create: {
-                tenantId: tenantId ?? "default",
+                tenantId: resolvedTenantId,
                 sessionId,
                 userId: userId ?? "default",
                 title,
@@ -70,37 +86,30 @@ export class ThreadStore {
         };
     }
 
-    async updateThread(sessionId: string, updates: Partial<{ title: string; model: string }>): Promise<Thread | undefined> {
+    async updateThread(
+        sessionId: string,
+        tenantId: string,
+        updates: Partial<{ title: string; model: string }>
+    ): Promise<Thread | undefined> {
         const prisma = getPrismaClient();
-        try {
-            const s = await prisma.chatSession.update({
-                where: { sessionId },
-                data: {
-                    ...(updates.title !== undefined && { title: updates.title }),
-                    ...(updates.model !== undefined && { model: updates.model }),
-                },
-            });
-            return {
-                id: s.sessionId,
-                title: s.title,
-                createdAt: s.createdAt.getTime(),
-                updatedAt: s.updatedAt.getTime(),
-                model: s.model ?? undefined,
-                ownerUserId: s.userId,
-            };
-        } catch {
-            return undefined;
-        }
+        // updateMany scopes on the (non-unique) tenantId filter and returns a count,
+        // so a cross-tenant sessionId simply matches zero rows instead of updating.
+        const res = await prisma.chatSession.updateMany({
+            where: { sessionId, tenantId },
+            data: {
+                ...(updates.title !== undefined && { title: updates.title }),
+                ...(updates.model !== undefined && { model: updates.model }),
+                updatedAt: new Date(),
+            },
+        });
+        if (res.count === 0) return undefined;
+        return this.getThread(sessionId, tenantId);
     }
 
-    async deleteThread(sessionId: string): Promise<boolean> {
+    async deleteThread(sessionId: string, tenantId: string): Promise<boolean> {
         const prisma = getPrismaClient();
-        try {
-            await prisma.chatSession.delete({ where: { sessionId } });
-            return true;
-        } catch {
-            return false;
-        }
+        const res = await prisma.chatSession.deleteMany({ where: { sessionId, tenantId } });
+        return res.count > 0;
     }
 }
 

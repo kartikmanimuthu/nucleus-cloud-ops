@@ -37,9 +37,17 @@ export function validateSQL(rawSQL: string): ValidationResult {
         }
     }
 
-    // Must reference $1 for tenant_id
-    if (!sql.includes('$1')) {
-        return { valid: false, sql: rawSQL, error: 'Query must include $1 parameter for tenant_id isolation.' };
+    // Must contain a genuine tenant-id equality predicate bound to $1.
+    // A bare `$1` reference is NOT enough — e.g. `WHERE $1 IS NOT NULL` references
+    // $1 but returns every tenant's rows. Require `tenant_id = $1` (optionally
+    // table-qualified, or the camelCase "tenantId" column), in either operand order.
+    const TENANT_PREDICATE = /(?:\btenant_id\b|"tenantId")\s*=\s*\$1\b|\$1\s*=\s*(?:\btenant_id\b|"tenantId")/i;
+    if (!TENANT_PREDICATE.test(sql)) {
+        return {
+            valid: false,
+            sql: rawSQL,
+            error: 'Query must filter by tenant with a tenant_id = $1 equality predicate for tenant isolation.',
+        };
     }
 
     // Block system catalog access

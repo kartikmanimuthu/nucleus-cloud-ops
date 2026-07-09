@@ -106,7 +106,7 @@ export function createGetAwsCredentialsTool(tenantId: string) {
                 // 3. Determine region (use first region from account, or default)
                 const region = account.regions?.[0] || env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
 
-                // 4. Create session profile
+                // 4. Create session profile in the tenant-isolated credentials file
                 const profile = await createSessionProfile(
                     accountId,
                     {
@@ -114,7 +114,8 @@ export function createGetAwsCredentialsTool(tenantId: string) {
                         secretAccessKey: credentials.SecretAccessKey!,
                         sessionToken: credentials.SessionToken!,
                         region: region
-                    }
+                    },
+                    tenantId
                 );
 
                 console.log(`[Tool] Created profile: ${profile.profileName} for account: ${accountId}`);

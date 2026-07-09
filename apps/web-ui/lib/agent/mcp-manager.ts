@@ -171,6 +171,32 @@ function extractDockerEnvVars(args: string[]): Record<string, string> {
 }
 
 /**
+ * Build the stdio subprocess environment.
+ *
+ * A tenant-authored MCP server command runs as a child process. Spreading the
+ * full parent `process.env` would hand it every application secret (DATABASE_URL,
+ * NEXTAUTH_SECRET, COGNITO_*, provider API keys, LANGFUSE_*, …). We instead pass
+ * an explicit allowlist plus the server-specific `config.env` (which is where the
+ * server's own credentials, e.g. GRAFANA_TOKEN, are intentionally provided).
+ */
+function buildStdioEnv(configEnv?: Record<string, string>): Record<string, string> {
+    const ALLOWED_KEYS = [
+        'PATH', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'TMPDIR',
+        'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_STS_REGIONAL_ENDPOINTS', 'AWS_CA_BUNDLE',
+        // uv/uvx + node runtime knobs the MCP server processes rely on.
+        'NODE_EXTRA_CA_CERTS', 'UV_CACHE_DIR', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'NPM_CONFIG_CACHE',
+    ];
+    const env: Record<string, string> = {};
+    for (const key of ALLOWED_KEYS) {
+        const val = process.env[key];
+        if (val !== undefined) env[key] = val;
+    }
+    // Server-specific env wins (credentials, log level, and any AWS_PROFILE /
+    // AWS_SHARED_CREDENTIALS_FILE injected for credential-scoped servers).
+    return { ...env, ...(configEnv || {}) };
+}
+
+/**
  * Build the MCP client transport for a server config.
  * Pure + side-effect free (constructs the transport object) — unit tested.
  */
@@ -192,10 +218,7 @@ export function buildTransport(config: MCPServerConfig): Transport {
     return new StdioClientTransport({
         command: config.command,
         args: config.args,
-        env: {
-            ...process.env as Record<string, string>,
-            ...(config.env || {}),
-        },
+        env: buildStdioEnv(config.env),
     });
 }
 
@@ -207,6 +230,22 @@ export interface MCPToolInfo {
     inputSchema: any;
 }
 
+/**
+ * Separator between the tenant prefix and the logical server id in a connection
+ * cache key. Distinct from the account separator ('::') so tool-name derivation
+ * in mcp-tools.ts can strip the tenant prefix without disturbing account scoping.
+ *
+ * Key shapes:
+ *   regular         → `<tenantId>##<serverId>`
+ *   account-scoped  → `<tenantId>##<serverId>::<accountId>`
+ */
+export const TENANT_SEP = '##';
+
+/** Build the tenant-scoped connection cache key for a (regular) server. */
+export function tenantScopedKey(tenantId: string, serverId: string): string {
+    return `${tenantId || 'default'}${TENANT_SEP}${serverId}`;
+}
+
 export class MCPServerManager {
     private clients: Map<string, Client> = new Map();
     private transports: Map<string, Transport> = new Map();
@@ -215,30 +254,37 @@ export class MCPServerManager {
     private probeCounter = 0;
 
     /**
-     * Connect to a specific MCP server by config.
-     * Returns immediately if already connected.
+     * Connect to a specific MCP server by config, isolated per tenant.
+     * Returns immediately if this tenant already has the server connected.
      * Uses a connecting lock to prevent duplicate connections.
+     *
+     * The connection is cached under a tenant-scoped key so one tenant can never
+     * reuse another tenant's live subprocess/session (e.g. two tenants both
+     * defining a server id "grafana" get separate connections + tokens).
      */
-    async connectServer(config: MCPServerConfig): Promise<void> {
-        if (this.clients.has(config.id)) {
-            console.log(`[MCPManager] Server "${config.name}" (${config.id}) already connected`);
+    async connectServer(config: MCPServerConfig, tenantId: string = 'default'): Promise<void> {
+        const key = tenantScopedKey(tenantId, config.id);
+
+        if (this.clients.has(key)) {
+            console.log(`[MCPManager] Server "${config.name}" (${key}) already connected`);
             return;
         }
 
         // Prevent duplicate concurrent connections
-        if (this.connecting.has(config.id)) {
-            console.log(`[MCPManager] Server "${config.name}" (${config.id}) connection in progress, waiting...`);
-            await this.connecting.get(config.id);
+        if (this.connecting.has(key)) {
+            console.log(`[MCPManager] Server "${config.name}" (${key}) connection in progress, waiting...`);
+            await this.connecting.get(key);
             return;
         }
 
-        const connectPromise = this._doConnect(config);
-        this.connecting.set(config.id, connectPromise);
+        // _doConnect stores under the config's `id`; give it the tenant-scoped key.
+        const connectPromise = this._doConnect({ ...config, id: key });
+        this.connecting.set(key, connectPromise);
 
         try {
             await connectPromise;
         } finally {
-            this.connecting.delete(config.id);
+            this.connecting.delete(key);
         }
     }
 
@@ -330,41 +376,42 @@ export class MCPServerManager {
     async connectServerWithAwsCredentials(
         config: MCPServerConfig,
         accountId: string,
-        credentials: { accessKeyId: string; secretAccessKey: string; sessionToken: string; region: string }
+        credentials: { accessKeyId: string; secretAccessKey: string; sessionToken: string; region: string },
+        tenantId: string = 'default'
     ): Promise<string> {
         // Remote transports never use AWS credential injection — connect normally.
         if ((config.transport ?? 'stdio') !== 'stdio') {
-            await this.connectServer(config);
-            return config.id;
+            await this.connectServer(config, tenantId);
+            return tenantScopedKey(tenantId, config.id);
         }
 
-        const scopedId = `${config.id}::${accountId}`;
+        // Tenant-scoped + account-scoped key: `<tenantId>##<serverId>::<accountId>`.
+        const scopedId = `${tenantScopedKey(tenantId, config.id)}::${accountId}`;
 
         if (this.clients.has(scopedId)) {
             console.log(`[MCPManager] Account-scoped server "${config.name}" for account ${accountId} already connected`);
             return scopedId;
         }
 
-        // Write STS credentials to a named profile in ~/.aws/credentials so Python's boto3
-        // uses the correct account credentials regardless of what AWS_PROFILE the parent
-        // process has set (e.g. an SSO profile like STX-CLOUD-PLATFORM-ADMIN).
-        // Setting AWS_PROFILE in the subprocess env overrides the parent's profile.
-        // This is the same mechanism used by get_aws_credentials for CLI commands.
+        // Write STS credentials to a named profile in this tenant's ISOLATED
+        // credentials file so boto3 uses the correct account credentials regardless
+        // of the parent process's AWS_PROFILE. The file lives outside the agent
+        // file-tool jail and is per-tenant, so no cross-tenant credential leak.
         const { createSessionProfile } = await import('./session-manager');
-        const sessionProfile = await createSessionProfile(accountId, credentials);
+        const sessionProfile = await createSessionProfile(accountId, credentials, tenantId);
         console.log(`[MCPManager] Created session profile "${sessionProfile.profileName}" for account-scoped MCP server`);
 
-        // Build subprocess env: merge parent env, then override with server-specific vars,
-        // then force AWS_PROFILE to our named profile (overriding any SSO profile).
+        // Build subprocess env: server-specific vars, then force AWS_PROFILE to our
+        // named profile and point AWS_SHARED_CREDENTIALS_FILE at the tenant file so
+        // the subprocess resolves the profile from there (not the shared ~/.aws file).
         const scopedConfig: MCPServerConfig = {
             ...config,
             id: scopedId,
             env: {
                 ...(config.env || {}),
-                // Point boto3 at the named profile written to ~/.aws/credentials above.
-                // This overrides AWS_PROFILE=<sso-profile> from the parent process.
                 AWS_PROFILE: sessionProfile.profileName,
                 AWS_DEFAULT_PROFILE: sessionProfile.profileName,
+                AWS_SHARED_CREDENTIALS_FILE: sessionProfile.credentialsFile,
                 AWS_DEFAULT_REGION: credentials.region,
             },
         };
@@ -418,22 +465,36 @@ export class MCPServerManager {
      * Useful for credential rotation or cleanup.
      */
     async disconnectAccountScopedServers(baseServerId: string): Promise<void> {
-        const prefix = `${baseServerId}::`;
-        const scopedIds = Array.from(this.clients.keys()).filter(id => id.startsWith(prefix));
+        // Matches `<tenantId>##<baseServerId>::<accountId>` across all tenants.
+        const marker = `${TENANT_SEP}${baseServerId}::`;
+        const scopedIds = Array.from(this.clients.keys()).filter(id => id.includes(marker) || id.startsWith(`${baseServerId}::`));
         console.log(`[MCPManager] Disconnecting ${scopedIds.length} account-scoped instances of "${baseServerId}"`);
         await Promise.allSettled(scopedIds.map(id => this.disconnectServer(id)));
+    }
+
+    /**
+     * Disconnect every server instance opened for a tenant (regular + account-scoped).
+     * Call this on run end / abort so a run's MCP subprocesses and their live tokens
+     * do not outlive the run. Safe to call when nothing is connected.
+     */
+    async disconnectTenantServers(tenantId: string): Promise<void> {
+        const prefix = `${tenantId || 'default'}${TENANT_SEP}`;
+        const ids = Array.from(this.clients.keys()).filter(id => id.startsWith(prefix));
+        if (ids.length === 0) return;
+        console.log(`[MCPManager] Disconnecting ${ids.length} server instance(s) for tenant "${tenantId}"`);
+        await Promise.allSettled(ids.map(id => this.disconnectServer(id)));
     }
 
     /**
      * Connect to multiple MCP servers by their IDs.
      * If allConfigs is provided (from DynamoDB), uses those; otherwise falls back to DEFAULT_MCP_SERVERS.
      */
-    async connectServers(serverIds: string[], allConfigs?: MCPServerConfig[]): Promise<void> {
+    async connectServers(serverIds: string[], allConfigs?: MCPServerConfig[], tenantId: string = 'default'): Promise<void> {
         const source = allConfigs || DEFAULT_MCP_SERVERS;
         const configs = source.filter(s => serverIds.includes(s.id));
 
         const results = await Promise.allSettled(
-            configs.map(config => this.connectServer(config))
+            configs.map(config => this.connectServer(config, tenantId))
         );
 
         for (let i = 0; i < results.length; i++) {

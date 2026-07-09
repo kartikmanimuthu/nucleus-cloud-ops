@@ -51,8 +51,14 @@ export class MemoryService {
         try {
             const emb = await this.getEmbeddings(m.tenantId);
             vec = await emb.embedQuery(JSON.stringify(m.value));
-        } catch {
-            // provider missing / embedding failure is non-fatal
+        } catch (err) {
+            // Provider missing / embedding failure is non-fatal: the memory is still
+            // stored (below, via the null-embedding ORM path), so recency recall can
+            // surface it — but it is unreachable by vector similarity search until
+            // re-embedded. Surface it at warn level with tenant context.
+            console.warn(
+                `[MemoryService] Embedding failed for tenant=${m.tenantId} namespace=${m.namespace.join('/')} key=${m.key} — storing without embedding (vector recall will miss it): ${(err as { message?: string })?.message ?? err}`,
+            );
         }
 
         if (vec) {
@@ -133,6 +139,7 @@ export class MemoryService {
                 FROM agent_memories
                 WHERE "tenantId" = ${p.tenantId}
                   AND "supersededById" IS NULL
+                  AND "expiresAt" > NOW()
                   AND (${nsPrefix} = '' OR "namespace" LIKE ${nsPrefix + '%'})
                   AND (${kindList}::text[] IS NULL OR "kind"::text = ANY(${kindList}::text[]))
                 ORDER BY embedding <=> ${vecStr}::vector
@@ -144,6 +151,7 @@ export class MemoryService {
                 FROM agent_memories
                 WHERE "tenantId" = ${p.tenantId}
                   AND "supersededById" IS NULL
+                  AND "expiresAt" > NOW()
                   AND (${nsPrefix} = '' OR "namespace" LIKE ${nsPrefix + '%'})
                   AND (${kindList}::text[] IS NULL OR "kind"::text = ANY(${kindList}::text[]))
                 ORDER BY "createdAt" DESC
@@ -151,12 +159,15 @@ export class MemoryService {
             `;
         }
 
-        // Reinforcement signal — best-effort, non-blocking.
-        const keys = rows.map((r) => r.key);
-        if (keys.length) {
+        // Reinforcement signal — best-effort, non-blocking. Bump ONLY the rows actually
+        // recalled (by id), not every row sharing a key string: a key like "prod-region"
+        // recurs across namespaces and superseded rows, and skill-synthesis matures rules
+        // at accessCount >= threshold, so a key-scoped UPDATE would inflate maturity.
+        const ids = rows.map((r) => r.id);
+        if (ids.length) {
             prisma.$executeRaw`
                 UPDATE agent_memories SET "lastAccessedAt" = NOW(), "accessCount" = "accessCount" + 1
-                WHERE "tenantId" = ${p.tenantId} AND "key" = ANY(${keys}::text[])
+                WHERE "tenantId" = ${p.tenantId} AND "id" = ANY(${ids}::text[])
             `.catch(() => {});
         }
 

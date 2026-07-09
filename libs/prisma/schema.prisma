@@ -495,6 +495,22 @@ model ScheduledTaskLock {
   @@map("scheduled_task_locks")
 }
 
+// ChatThreadLock — cross-instance per-thread execution lock for the AI chat.
+// Replaces the in-memory Map in app/api/chat/route.ts, which only guards a
+// single ECS task (web-ui autoscales), so concurrent requests on the same
+// thread could otherwise run two graphs and interleave checkpoint writes.
+// `holder` is a per-request token so release only deletes the lock we hold;
+// `expiresAt` lets a crashed holder's stale lock be reclaimed.
+model ChatThreadLock {
+  threadId   String   @id
+  holder     String
+  acquiredAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([expiresAt])
+  @@map("chat_thread_locks")
+}
+
 enum MemoryKind {
   SEMANTIC
   EPISODIC

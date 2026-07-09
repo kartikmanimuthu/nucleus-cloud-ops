@@ -171,9 +171,20 @@ export async function reconcileMemories(params: {
                         value: item.fact.value as unknown as Record<string, unknown>,
                         sourceThreadId,
                     });
-                    await svc.supersede(tenantId, d.targetId!, newId);
-                    summary.superseded++;
-                    summary.added++;
+                    if (newId !== d.targetId!) {
+                        await svc.supersede(tenantId, d.targetId!, newId);
+                        summary.superseded++;
+                        summary.added++;
+                    } else {
+                        // remember() upserted ONTO the very row the judge wanted superseded
+                        // (they share namespace+key — the "same fact, value changed" case).
+                        // The ON CONFLICT DO UPDATE already replaced the value in place, so the
+                        // fact is current. Calling supersede() here would set the row's
+                        // supersededById to itself and recall's `supersededById IS NULL` filter
+                        // would drop it — data loss. In-place update is the correct outcome.
+                        console.log(`🧠 [JUDGE] ${item.fact.key}: SUPERSEDE collapsed to in-place update (new row == target ${d.targetId})`);
+                        summary.updated++;
+                    }
                     break;
                 }
                 case 'REINFORCE':

@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { X, Paperclip, FileImage } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export interface FileAttachment {
   name: string;
@@ -20,11 +21,17 @@ interface FileUploadProps {
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILES = 5;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 export function FileUpload({ onFilesChange, files, disabled }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string>("");
+
+  const reject = (message: string) => {
+    setError(message);
+    toast.error(message);
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []);
@@ -33,13 +40,18 @@ export function FileUpload({ onFilesChange, files, disabled }: FileUploadProps) 
     const validFiles: FileAttachment[] = [];
 
     for (const file of selectedFiles) {
+      if (files.length + validFiles.length >= MAX_FILES) {
+        reject(`You can attach at most ${MAX_FILES} images`);
+        break;
+      }
+
       if (!ALLOWED_TYPES.includes(file.type)) {
-        setError(`${file.name}: Only images are supported`);
+        reject(`${file.name}: Only images are supported (JPEG, PNG, GIF, WebP)`);
         continue;
       }
 
       if (file.size > MAX_FILE_SIZE) {
-        setError(`${file.name}: File too large (max 5MB)`);
+        reject(`${file.name}: File too large (max 5MB)`);
         continue;
       }
 
@@ -53,7 +65,7 @@ export function FileUpload({ onFilesChange, files, disabled }: FileUploadProps) 
       });
     }
 
-    onFilesChange([...files, ...validFiles]);
+    if (validFiles.length > 0) onFilesChange([...files, ...validFiles]);
     if (inputRef.current) inputRef.current.value = "";
   };
 

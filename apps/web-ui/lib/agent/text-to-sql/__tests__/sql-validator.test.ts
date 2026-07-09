@@ -44,6 +44,29 @@ describe('validateSQL', () => {
         expect(result.error).toMatch(/tenant/i);
     });
 
+    it('rejects the "$1 IS NOT NULL" tenant-predicate bypass', () => {
+        // References $1 but applies no real tenant filter — must be rejected.
+        const result = validateSQL("SELECT * FROM inventory_resources WHERE $1 IS NOT NULL");
+        expect(result.valid).toBe(false);
+        expect(result.error).toMatch(/tenant/i);
+    });
+
+    it('rejects $1 used only in a non-tenant predicate', () => {
+        const result = validateSQL("SELECT * FROM inventory_resources WHERE account_id = $1");
+        expect(result.valid).toBe(false);
+        expect(result.error).toMatch(/tenant/i);
+    });
+
+    it('accepts a genuine tenant_id = $1 predicate', () => {
+        const result = validateSQL("SELECT * FROM inventory_resources WHERE tenant_id = $1 AND region = 'us-east-1'");
+        expect(result.valid).toBe(true);
+    });
+
+    it('accepts a table-qualified tenant_id = $1 predicate', () => {
+        const result = validateSQL("SELECT * FROM inventory_resources WHERE inventory_resources.tenant_id = $1");
+        expect(result.valid).toBe(true);
+    });
+
     it('rejects queries referencing other tables', () => {
         const result = validateSQL("SELECT * FROM auth_users WHERE tenant_id = $1");
         expect(result.valid).toBe(false);

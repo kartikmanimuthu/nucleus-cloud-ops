@@ -399,6 +399,90 @@ export function validateMcpConfig(config: unknown): { ok: true } | { ok: false; 
     return { ok: true };
 }
 
+// ─── Secret masking ──────────────────────────────────────────────────────────
+//
+// GET /api/mcp-servers must never return stored secrets (bearer tokens in
+// headers, API keys in env) in plaintext. We replace secret-looking values with
+// a sentinel placeholder in responses, keeping the stored copy intact. On save,
+// any field still equal to the placeholder is restored from the stored config,
+// so editing a server without re-typing its secret preserves it.
+
+/** Sentinel returned in place of a secret value. The UI shows it read-only. */
+export const MCP_SECRET_MASK = '__NUCLEUS_SECRET_UNCHANGED__';
+
+/** True for map keys that name a secret (API key, token, password, Authorization…). */
+function isSecretKey(key: string): boolean {
+    return /(secret|token|password|passwd|credential|authorization|auth\b|api[_-]?key|access[_-]?key|_key$|^key$)/i.test(key);
+}
+
+function maskValueMap(map: Record<string, string> | undefined): Record<string, string> | undefined {
+    if (!map) return map;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(map)) {
+        out[k] = v && isSecretKey(k) ? MCP_SECRET_MASK : v;
+    }
+    return out;
+}
+
+function restoreValueMap(
+    incoming: Record<string, string> | undefined,
+    stored: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+    if (!incoming) return incoming;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(incoming)) {
+        if (v === MCP_SECRET_MASK) {
+            // Unchanged secret: restore the stored value; drop the field entirely
+            // if there is nothing to restore (never persist the placeholder literal).
+            if (stored && stored[k] !== undefined) out[k] = stored[k];
+        } else {
+            out[k] = v;
+        }
+    }
+    return out;
+}
+
+/** Mask secret values in the resolved server list (GET response). */
+export function maskServerConfigs(servers: MCPServerConfig[]): MCPServerConfig[] {
+    return servers.map(s => ({
+        ...s,
+        env: maskValueMap(s.env),
+        headers: maskValueMap(s.headers),
+    }));
+}
+
+/** Mask secret values in the editor JSON (GET response). */
+export function maskMcpConfigJson(json: MCPConfigJson): MCPConfigJson {
+    const masked: MCPConfigJson = { mcpServers: {} };
+    for (const [id, entry] of Object.entries(json.mcpServers)) {
+        if (isRemoteEntry(entry)) {
+            masked.mcpServers[id] = { ...entry, headers: maskValueMap(entry.headers) };
+        } else {
+            masked.mcpServers[id] = { ...entry, env: maskValueMap(entry.env) };
+        }
+    }
+    return masked;
+}
+
+/**
+ * Restore masked secrets in an incoming config against what is currently stored,
+ * so a save that left placeholders in place keeps the existing secrets.
+ */
+export function restoreMaskedSecrets(incoming: MCPConfigJson, stored: MCPConfigJson | null): MCPConfigJson {
+    const result: MCPConfigJson = { mcpServers: {} };
+    for (const [id, entry] of Object.entries(incoming.mcpServers)) {
+        const prev = stored?.mcpServers?.[id];
+        if (isRemoteEntry(entry)) {
+            const prevHeaders = prev && isRemoteEntry(prev) ? prev.headers : undefined;
+            result.mcpServers[id] = { ...entry, headers: restoreValueMap(entry.headers, prevHeaders) };
+        } else {
+            const prevEnv = prev && !isRemoteEntry(prev) ? prev.env : undefined;
+            result.mcpServers[id] = { ...entry, env: restoreValueMap(entry.env, prevEnv) };
+        }
+    }
+    return result;
+}
+
 /**
  * Get a specific MCP server config by ID from defaults.
  */

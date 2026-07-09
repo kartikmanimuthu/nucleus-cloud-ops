@@ -7,12 +7,20 @@ import {
 } from '@/lib/agent/mcp-config';
 import { getMCPManager } from '@/lib/agent/mcp-manager';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { authorize } from '@/lib/rbac/authorize';
 
 /**
  * Shared "Test connection" handler for both MCP settings surfaces.
  * Probes a single server entry (connect → listTools → disconnect). No persistence.
  */
 export async function handleMcpTest(req: Request): Promise<NextResponse> {
+    // Testing a connection spawns a subprocess / opens an outbound connection — gate
+    // it behind the AI Ops module (same surface that owns MCP config).
+    const authError = await authorize('read', 'AIOps');
+    if (authError) {
+        return NextResponse.json({ success: false, error: 'Forbidden' }, { status: authError.status });
+    }
+
     try {
         await getSessionTenantId();
     } catch {

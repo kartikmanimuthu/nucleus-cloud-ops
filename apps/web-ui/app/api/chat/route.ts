@@ -7,13 +7,39 @@ import { isProviderConfigError } from '@/lib/agent/provider-errors';
 import { buildClientErrorText } from '@/lib/agent/stream-error';
 import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
+import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
-// Per-thread execution lock: prevents duplicate/parallel LangGraph executions on the same thread.
-// useChat's maxSteps fires follow-up POSTs when a streaming response ends; without this guard a
-// second graph execution re-plans from scratch, doubling LLM API cost and interleaving checkpoints.
-const activeThreads = new Map<string, boolean>();
+// Server-side attachment limits (client validation in file-upload.tsx is advisory only).
+const MAX_ATTACHMENTS_PER_MESSAGE = 5;
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // 5MB decoded
+
+// Validate experimental_attachments on inbound messages. Returns an error string
+// (→ 400) or null if all attachments are acceptable. The agent runs on shared
+// infra, so an unbounded/arbitrary data: URL would inflate the request and the
+// provider payload; only bounded image attachments are accepted.
+function validateAttachments(messages: Message[]): string | null {
+    for (const m of messages) {
+        const atts = (m as { experimental_attachments?: Array<{ url?: string; contentType?: string }> }).experimental_attachments;
+        if (!atts?.length) continue;
+        if (atts.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+            return `Too many attachments (max ${MAX_ATTACHMENTS_PER_MESSAGE} per message).`;
+        }
+        for (const att of atts) {
+            const url = att.url ?? '';
+            const match = /^data:([^;,]+)(;base64)?,([\s\S]*)$/.exec(url);
+            if (!match) return 'Attachments must be inline data: URLs.';
+            const mime = match[1] || '';
+            if (!mime.startsWith('image/')) return 'Only image attachments are supported.';
+            const isBase64 = !!match[2];
+            const payload = match[3] ?? '';
+            const bytes = isBase64 ? Math.floor((payload.length * 3) / 4) : payload.length;
+            if (bytes > MAX_ATTACHMENT_BYTES) return 'Attachment exceeds the 5MB limit.';
+        }
+    }
+    return null;
+}
 
 // Phase types for UI segregation
 type AgentPhase = 'planning' | 'execution' | 'reflection' | 'revision' | 'final' | 'memory_recall' | 'memory_save' | 'text';
@@ -35,7 +61,7 @@ interface Message {
 
 export async function POST(req: Request) {
     // Declare outside try so the catch block can always call it safely
-    let releaseThreadLock: () => void = () => { };
+    let releaseLock: () => void = () => { };
 
     try {
         const {
@@ -88,15 +114,16 @@ export async function POST(req: Request) {
         // Langfuse expects a plain ID without the USER# prefix
         const langfuseUserId = resolvedUserId.replace(/^USER#/, '') || undefined;
 
-        // Reject duplicate requests on the same thread (e.g. from useChat maxSteps retries)
-        if (activeThreads.has(threadId)) {
+        // Reject duplicate/parallel requests on the same thread across ALL instances
+        // (cross-instance lock — see lib/agent/thread-lock.ts).
+        const lockToken = await acquireThreadLock(threadId);
+        if (lockToken === null) {
             return new Response(
                 JSON.stringify({ error: "Thread is already processing a request. Please wait for it to finish." }),
                 { status: 409, headers: { 'Content-Type': 'application/json' } }
             );
         }
-        activeThreads.set(threadId, true);
-        releaseThreadLock = () => activeThreads.delete(threadId);
+        releaseLock = () => { void releaseThreadLockDb(threadId, lockToken); };
 
         // Ensure thread exists in store (without persisting messages yet)
         const firstUserMsg = messages.find((m: Message) => m.role === 'user');
@@ -131,7 +158,7 @@ export async function POST(req: Request) {
                 ? await resolveModelConfig(modelString, resolvedTenantId)
                 : await resolveDefaultModelConfig(resolvedTenantId);
         } catch (e) {
-            releaseThreadLock();
+            releaseLock();
             if (isProviderConfigError(e)) {
                 return new Response(
                     JSON.stringify({ error: e.message }),
@@ -197,6 +224,16 @@ export async function POST(req: Request) {
 
         // Track pre-run message count so we only persist NEW messages from this turn
         let preRunMessageCount = 0;
+
+        // Server-side attachment validation (client checks are advisory only).
+        const attachmentError = validateAttachments(messages as Message[]);
+        if (attachmentError) {
+            releaseLock();
+            return new Response(
+                JSON.stringify({ error: attachmentError }),
+                { status: 400, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
 
         if (lastMessage.role === 'tool') {
             // Tool result (Human-in-the-Loop approval)
@@ -334,7 +371,8 @@ export async function POST(req: Request) {
                     streamEvents,
                     autoApprove,
                     resumedToolCallId,
-                    releaseThreadLock,
+                    releaseLock,
+
                     threadId,
                     graph,
                     { configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId } },
@@ -392,7 +430,7 @@ export async function POST(req: Request) {
             }
 
             // Also include tool calls if present, though likely handled by the loop if not simple text
-            releaseThreadLock();
+            releaseLock();
             return NextResponse.json({
                 role: 'assistant',
                 content: content,
@@ -401,7 +439,7 @@ export async function POST(req: Request) {
         }
 
     } catch (error) {
-        releaseThreadLock();
+        releaseLock();
         console.error('[API Error]:', error);
         return new Response(
             JSON.stringify({

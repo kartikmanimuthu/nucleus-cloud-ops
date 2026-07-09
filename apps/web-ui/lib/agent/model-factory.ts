@@ -38,6 +38,40 @@ export interface AgentModels {
     reflector: BaseChatModel;
 }
 
+/** Conservative default output-token cap when a provider record doesn't specify one.
+ *  4096 is safe across small/local models and matches the Anthropic/Bedrock defaults —
+ *  the previous 40000 OpenAI-path default overflowed 8k–32k context windows. */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
+
+/** Provider-level context-window estimates (tokens). The ProviderModel schema has no
+ *  per-model context-window field, so we approximate at the provider family level — no
+ *  model-ID assumptions. Self-hosted families are sized conservatively for small local
+ *  models; operators can still override the derived working-memory budget via
+ *  WORKING_MEMORY_TOKEN_BUDGET. */
+const PROVIDER_CONTEXT_WINDOW: Record<ResolvedModelConfig["provider"], number> = {
+    bedrock: 200_000,
+    anthropic: 200_000,
+    openai: 128_000,
+    "openai-compatible": 16_000,
+    ollama: 16_000,
+    vllm: 16_000,
+    litellm: 16_000,
+    lmstudio: 16_000,
+};
+
+/**
+ * Derives a safe input-token budget for working-memory compaction from the resolved
+ * model config: the provider's context window minus the model's output-token
+ * reservation and a safety margin, floored to a usable minimum. Fed to prepareContext
+ * so small/local models aren't over-budgeted by the legacy 60k default.
+ */
+export function deriveInputTokenBudget(config: ResolvedModelConfig): number {
+    const contextWindow = PROVIDER_CONTEXT_WINDOW[config.provider] ?? 16_000;
+    const outputReserve = config.maxTokens || DEFAULT_MAX_OUTPUT_TOKENS;
+    const SAFETY_MARGIN = 2_000;
+    return Math.max(8_000, contextWindow - outputReserve - SAFETY_MARGIN);
+}
+
 /**
  * Creates the main and reflector model instances for a given resolved config.
  * Routes to ChatBedrockConverse (AWS) or ChatOpenAI (self-hosted) based on provider.
@@ -60,12 +94,14 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
                 baseURL: normalizeOpenAICompatibleBaseUrl(config.provider, config.baseUrl),
                 apiKey: config.apiKey || "not-needed",
             },
-            temperature: 0,
+            // Only send temperature when the model explicitly configures one — newer
+            // models reject the parameter outright (see ResolvedModelConfig.temperature).
+            ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
         };
         return {
             main: new ChatOpenAI({
                 ...openaiConfig,
-                maxTokens: config.maxTokens || 40000,
+                maxTokens: config.maxTokens || DEFAULT_MAX_OUTPUT_TOKENS,
                 streaming: true,
             }),
             reflector: new ChatOpenAI({
@@ -82,10 +118,10 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
         const anthropicConfig = {
             model: config.modelId,
             apiKey: config.apiKey,
-            temperature: 0,
+            ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
             ...(config.baseUrl ? { anthropicApiUrl: config.baseUrl } : {}),
         };
-        const defaultMaxTokens = config.maxTokens || 4096;
+        const defaultMaxTokens = config.maxTokens || DEFAULT_MAX_OUTPUT_TOKENS;
         return {
             main: new ChatAnthropic({
                 ...anthropicConfig,
@@ -111,13 +147,15 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
     const bedrockConfig = {
         region: config.region,
         model: config.modelId,
-        temperature: 0,
+        // Only send temperature when explicitly configured — Bedrock Claude Sonnet 5
+        // (and other newer models) reject any temperature with a ValidationException.
+        ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
         credentials: {
             accessKeyId: config.accessKeyId,
             secretAccessKey: config.secretAccessKey,
         },
     };
-    const defaultMaxTokens = config.maxTokens || 4096;
+    const defaultMaxTokens = config.maxTokens || DEFAULT_MAX_OUTPUT_TOKENS;
     return {
         main: new ChatBedrockConverse({
             ...bedrockConfig,

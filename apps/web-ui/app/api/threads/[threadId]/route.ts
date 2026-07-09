@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { AuditService } from '@/lib/audit-service';
-import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 
 interface NormalizedThread {
     id: string;
@@ -10,6 +10,30 @@ interface NormalizedThread {
     model?: string;
 }
 
+/**
+ * Resolve the caller's tenant/user and reject a threadId whose embedded tenant
+ * segment (tenantId:userId:ts) belongs to a different tenant. Returns the
+ * resolved identity, or a NextResponse to return early (401/403).
+ */
+async function resolveOwnership(threadId: string):
+    Promise<{ tenantId: string; userId: string } | NextResponse> {
+    let tenantId: string;
+    let userId: string;
+    try {
+        tenantId = await getSessionTenantId();
+        userId = await getSessionUserId();
+    } catch {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (threadId.includes(':')) {
+        const [embeddedTenantId] = threadId.split(':');
+        if (embeddedTenantId !== tenantId) {
+            return NextResponse.json({ error: 'Forbidden: thread belongs to another tenant' }, { status: 403 });
+        }
+    }
+    return { tenantId, userId };
+}
+
 export async function DELETE(
     _req: Request,
     { params }: { params: Promise<{ threadId: string }> }
@@ -17,8 +41,12 @@ export async function DELETE(
     try {
         const { threadId } = await params;
 
+        const owner = await resolveOwnership(threadId);
+        if (owner instanceof NextResponse) return owner;
+        const { tenantId, userId } = owner;
+
         const { threadStore } = await import('@/lib/store/thread-store');
-        const success = await threadStore.deleteThread(threadId);
+        const success = await threadStore.deleteThread(threadId, tenantId);
         if (!success) return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
 
         AuditService.logUserAction({
@@ -30,11 +58,11 @@ export async function DELETE(
             resourceType: 'chat',
             resourceId: threadId,
             resourceName: threadId,
-            user: 'unknown',
+            user: userId,
             userType: 'user',
             status: 'success',
             details: `Deleted chat thread ${threadId}`,
-            tenantId: await getSessionTenantId().catch(() => 'unknown'),
+            tenantId,
         }).catch(() => {});
 
         return NextResponse.json({ success: true });
@@ -51,8 +79,12 @@ export async function PATCH(
         const { threadId } = await params;
         const { title } = await req.json();
 
+        const owner = await resolveOwnership(threadId);
+        if (owner instanceof NextResponse) return owner;
+        const { tenantId, userId } = owner;
+
         const { threadStore } = await import('@/lib/store/thread-store');
-        const updated = await threadStore.updateThread(threadId, { title });
+        const updated = await threadStore.updateThread(threadId, tenantId, { title });
         if (!updated) return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
 
         AuditService.logUserAction({
@@ -64,11 +96,11 @@ export async function PATCH(
             resourceType: 'chat',
             resourceId: threadId,
             resourceName: title || threadId,
-            user: 'unknown',
+            user: userId,
             userType: 'user',
             status: 'success',
             details: `Updated chat thread ${threadId}`,
-            tenantId: await getSessionTenantId().catch(() => 'unknown'),
+            tenantId,
         }).catch(() => {});
 
         return NextResponse.json(updated);

@@ -26,10 +26,10 @@ import {
     buildOperationalWorkflows,
     CORE_PRINCIPLES,
 } from "./prompt-templates";
-import { createAgentModels, assembleTools } from "./model-factory";
+import { createAgentModels, assembleTools, deriveInputTokenBudget } from "./model-factory";
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 import { autoSkillSelectionEnabled } from "./auto-skill-select";
-import { prepareContext, buildWorkingMemorySection } from "./memory/working-memory";
+import { prepareContext, buildWorkingMemorySection, estimateTokens } from "./memory/working-memory";
 
 // Factory function to create a configured reflection graph
 export async function createReflectionGraph(config: GraphConfig) {
@@ -76,7 +76,15 @@ export async function createReflectionGraph(config: GraphConfig) {
     const memorySaveNode = createMemorySaveNode(memoryDeps);
 
     // Working-memory deps — threadId is read per-node from the runtime config.
-    const wmDeps = { reflectorModel, tenantId, userId: config.userId };
+    // budgetTokens is derived from the resolved model so small/local context windows
+    // trigger compaction correctly; systemPromptTokens charges the always-on prompt
+    // (identity + skill + principles + workflows + account context) against that budget.
+    const budgetTokens = deriveInputTokenBudget(modelConfig);
+    const systemPromptTokens = estimateTokens(
+        baseIdentity + effectiveSkillSection + CORE_PRINCIPLES + awsCliStandards +
+        reportStrategy + autoApproveGuidance + operationalWorkflows + accountContext,
+    );
+    const wmDeps = { reflectorModel, tenantId, userId: config.userId, budgetTokens, systemPromptTokens };
 
     // ---------------------------------------------------------------------------
     // PLANNER NODE
@@ -134,8 +142,16 @@ Only return the JSON array, nothing else.`);
 
         const _auditInputs_plan = [plannerSystemPrompt, lastMessage];
         const _auditStart_plan = Date.now();
-        const response = await model.invoke(_auditInputs_plan);
-        llmAuditLog('PLANNER', _auditInputs_plan, response, _auditStart_plan);
+        let response: AIMessage;
+        try {
+            response = await model.invoke(_auditInputs_plan) as AIMessage;
+            llmAuditLog('PLANNER', _auditInputs_plan, response, _auditStart_plan);
+        } catch (err: any) {
+            // A provider hiccup while planning must not abort the run — fall back to a
+            // trivial single-step plan (the empty content flows through the parse fallback below).
+            console.error(`[Planner] LLM invoke failed, falling back to single-step plan: ${err?.message ?? err}`);
+            response = new AIMessage({ content: '' });
+        }
 
         let planSteps: PlanStep[] = [];
         try {
@@ -232,8 +248,16 @@ ${accountContext}
         const safeMessages = sanitizeMessagesForBedrock(recentMessages);
         const _auditInputs_exec = [executorSystemPrompt, ...safeMessages];
         const _auditStart_exec = Date.now();
-        const response = await modelWithTools.invoke(_auditInputs_exec);
-        llmAuditLog('EXECUTOR', _auditInputs_exec, response, _auditStart_exec);
+        let response: AIMessage;
+        try {
+            response = await modelWithTools.invoke(_auditInputs_exec) as AIMessage;
+            llmAuditLog('EXECUTOR', _auditInputs_exec, response, _auditStart_exec);
+        } catch (err: any) {
+            // Provider error mid-step: don't crash the run. Emit a text note (no tool calls)
+            // so the graph routes on to reflection/finalization with whatever was gathered.
+            console.error(`⚠️ [EXECUTOR] LLM invoke failed: ${err?.message ?? err}`);
+            response = new AIMessage({ content: `⚠️ This step could not be executed due to a model/provider error (${err?.message ?? err}). Proceeding with the information gathered so far.` });
+        }
 
         if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
             console.log(`\n🛠️ [EXECUTOR] Tool Calls Generated:`);
@@ -388,8 +412,21 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
 
         const _auditInputs_ref = [reflectorSystemPrompt, summaryInput];
         const _auditStart_ref = Date.now();
-        const response = await reflectorModel.invoke(_auditInputs_ref);
-        llmAuditLog('REFLECTOR', _auditInputs_ref, response, _auditStart_ref);
+        let response: Awaited<ReturnType<typeof reflectorModel.invoke>>;
+        try {
+            response = await reflectorModel.invoke(_auditInputs_ref);
+            llmAuditLog('REFLECTOR', _auditInputs_ref, response, _auditStart_ref);
+        } catch (err: any) {
+            // If the reflector fails (throttle, context overflow, parse-impossible), treat the
+            // work as complete and force finalization rather than aborting the whole run.
+            console.warn(`⚠️ [REFLECTOR] invoke failed, forcing finalization: ${err?.message ?? err}`);
+            return {
+                messages: [tagMessagePhase(new AIMessage({ content: "🔍 Reflection skipped due to a model/provider error — finalizing with the results gathered so far." }), 'reflection')],
+                reflection: state.reflection || "Reflection unavailable (provider error).",
+                isComplete: true,
+                nextAction: "complete",
+            };
+        }
 
         let analysis = "";
         let issues = "None";
@@ -485,7 +522,7 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
     // REVISER NODE
     // ---------------------------------------------------------------------------
     async function reviseNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
-        const { messages, reflection, errors } = state;
+        const { messages, reflection, errors, iterationCount } = state;
 
         const threadId = runtimeConfig?.configurable?.thread_id as string | undefined;
         const { windowMessages, workingMemorySection, stateUpdate } =
@@ -526,12 +563,21 @@ ${accountContext}`);
         const safeMessages = sanitizeMessagesForBedrock(recentMessages);
         const _auditInputs_rev = [reviserSystemPrompt, ...safeMessages];
         const _auditStart_rev = Date.now();
-        const response = await modelWithTools.invoke(_auditInputs_rev);
-        llmAuditLog('REVISER', _auditInputs_rev, response, _auditStart_rev);
+        let response: AIMessage;
+        try {
+            response = await modelWithTools.invoke(_auditInputs_rev) as AIMessage;
+            llmAuditLog('REVISER', _auditInputs_rev, response, _auditStart_rev);
+        } catch (err: any) {
+            // Provider error while revising: emit a text note (no tool calls) so the graph
+            // routes back to reflection and can finalize instead of aborting.
+            console.error(`⚠️ [REVISER] LLM invoke failed: ${err?.message ?? err}`);
+            response = new AIMessage({ content: `⚠️ Revision could not be completed due to a model/provider error (${err?.message ?? err}).` });
+        }
 
-        if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
+        const revHasToolCalls = 'tool_calls' in response && !!response.tool_calls && response.tool_calls.length > 0;
+        if (revHasToolCalls) {
             console.log(`\n🛠️ [REVISER] Tool Calls Generated:`);
-            for (const toolCall of response.tool_calls) {
+            for (const toolCall of response.tool_calls!) {
                 console.log(`   → Tool: ${toolCall.name}`);
             }
         }
@@ -539,6 +585,12 @@ ${accountContext}`);
         return {
             messages: [tagMessagePhase(response, 'revision')],
             nextAction: "generate",
+            // Advance the iteration counter on the prose reflect→revise→reflect cycle. The
+            // executor only increments when it runs, so a reviser returning prose (no tool
+            // calls) would otherwise ping-pong reflect↔revise until GraphRecursionError. When
+            // the reviser emits tool_calls the tools→generate path increments as before, so
+            // we leave the counter untouched there to avoid double-counting.
+            ...(revHasToolCalls ? {} : { iterationCount: iterationCount + 1 }),
             ...stateUpdate,
         };
     }
@@ -580,11 +632,27 @@ Write for an engineer audience. Be specific — include resource IDs, account na
         });
         const _auditInputs_fin = [summarySystemPrompt, summaryInput];
         const _auditStart_fin = Date.now();
-        const summaryResponse = await model.invoke(_auditInputs_fin);
-        llmAuditLog('FINAL', _auditInputs_fin, summaryResponse, _auditStart_fin);
-        const summaryContent = typeof summaryResponse.content === 'string'
-            ? summaryResponse.content
-            : JSON.stringify(summaryResponse.content);
+        let summaryContent: string;
+        try {
+            const summaryResponse = await model.invoke(_auditInputs_fin);
+            llmAuditLog('FINAL', _auditInputs_fin, summaryResponse, _auditStart_fin);
+            summaryContent = typeof summaryResponse.content === 'string'
+                ? summaryResponse.content
+                : JSON.stringify(summaryResponse.content);
+        } catch (err: any) {
+            // A finalize failure must never crash the run — assemble a best-effort summary
+            // from the tool results and review notes already captured in state.
+            console.error(`⚠️ [FINAL] Summary synthesis failed: ${err?.message ?? err}`);
+            const toolDigest = toolResults.length > 0
+                ? toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}]\n${truncateOutput(e.output, 500)}`).join('\n\n---\n\n')
+                : '(no tool output was captured)';
+            summaryContent = `⚠️ I could not generate a polished summary due to a model/provider error (${err?.message ?? err}), but here is what was gathered:
+
+**Key tool outputs:**
+${toolDigest}
+
+**Review notes:** ${reflection || 'None'}`;
+        }
 
         const finalMessage = `✅ **Task Complete**
 

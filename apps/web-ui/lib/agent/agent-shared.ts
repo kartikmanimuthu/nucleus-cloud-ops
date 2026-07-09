@@ -19,6 +19,10 @@ export interface ResolvedModelConfig {
     baseUrl?: string;
     apiKey?: string;
     maxTokens?: number;
+    /** Sampling temperature. OMITTED by default — newer models (e.g. Bedrock Claude
+     *  Sonnet 5) reject any `temperature` parameter with a ValidationException, so we
+     *  only send one when a provider's model entry explicitly configures it. */
+    temperature?: number;
     /** Bedrock-only: region + explicit static credentials (when configured as a provider record). */
     region?: string;
     accessKeyId?: string;
@@ -407,6 +411,51 @@ export function getRecentMessages(messages: BaseMessage[], maxMessages: number =
  *
  * Call this function immediately before invoking modelWithTools.
  */
+/**
+ * Detects an extended-thinking / reasoning content block in either the LangChain
+ * normalized shape (`type: 'thinking' | 'reasoning' | 'reasoning_content' | …`) or
+ * the raw Bedrock Converse shape (`{ reasoningContent: { reasoningText: … } }`).
+ */
+function isReasoningBlock(b: unknown): boolean {
+    if (!b || typeof b !== 'object') return false;
+    const block = b as Record<string, unknown>;
+    if ('reasoningContent' in block || 'reasoning_content' in block) return true;
+    const t = block.type;
+    return t === 'reasoning_content' || t === 'reasoning' || t === 'thinking'
+        || t === 'redacted_reasoning' || t === 'redacted_thinking';
+}
+
+/**
+ * Removes reasoning/thinking content blocks from an AI message's content array.
+ *
+ * Why: Bedrock Claude Sonnet 5 emits `reasoningContent` blocks, but these do not
+ * survive the checkpoint round-trip intact — on replay `reasoningText.text` comes
+ * back null, and Bedrock rejects the next invoke with
+ *   ValidationException: Value at 'messages.N.content.M.reasoningContent.reasoningText.text'
+ *   failed to satisfy constraint: Member must not be null
+ * Reasoning content is the model's own scratchpad, not required for context
+ * fidelity, and we do not explicitly enable extended thinking (so Bedrock does not
+ * require it on replay). Stripping it is the safe, standard mitigation. Returns the
+ * original message untouched when it carries no reasoning blocks.
+ */
+function stripReasoningBlocks(msg: BaseMessage): BaseMessage {
+    if (msg._getType() !== 'ai') return msg;
+    const ai = msg as AIMessage;
+    if (!Array.isArray(ai.content)) return msg;
+    const original = ai.content as unknown[];
+    const filtered = original.filter((b) => !isReasoningBlock(b));
+    if (filtered.length === original.length) return msg; // nothing to strip
+    return new AIMessage({
+        content: filtered as AIMessage['content'],
+        tool_calls: ai.tool_calls,
+        additional_kwargs: ai.additional_kwargs,
+        response_metadata: ai.response_metadata,
+        id: ai.id,
+        name: ai.name,
+        usage_metadata: ai.usage_metadata,
+    });
+}
+
 export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage[] {
     // Bedrock requires every toolResult to IMMEDIATELY follow the assistant
     // toolUse that owns it — "answered somewhere in the array" is not enough.
@@ -441,7 +490,10 @@ export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage
         // Skip ToolMessages here — they are re-emitted via their AI owner below.
         if (msg._getType() === 'tool') continue;
 
-        result.push(msg);
+        // Strip reasoning/thinking blocks from AI messages — they come back with a
+        // null reasoningText after a checkpoint round-trip and Bedrock rejects them.
+        const cleaned = stripReasoningBlocks(msg);
+        result.push(cleaned);
 
         if (msg._getType() !== 'ai') continue;
         const aiMsg = msg as AIMessage;
@@ -519,10 +571,14 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
         return [];
     }
 
-    const { getMCPManager: getManager } = await import('./mcp-manager');
+    const { getMCPManager: getManager, tenantScopedKey } = await import('./mcp-manager');
     const { createMCPTools: createTools } = await import('./mcp-tools');
     const { mergeConfigs } = await import('./mcp-config');
     const manager = getManager();
+
+    // MCP connections are cached per tenant so no tenant reuses another's live
+    // subprocess/token. Fall back to 'default' only when no tenant is supplied.
+    const tid = tenantId || 'default';
 
     // Resolve server configs from DynamoDB + defaults
     let allConfigs;
@@ -548,7 +604,7 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
 
     // Connect regular servers (idempotent — skips already-connected)
     if (regularServerIds.length > 0) {
-        await manager.connectServers(regularServerIds, allConfigs);
+        await manager.connectServers(regularServerIds, allConfigs, tid);
     }
 
     // Connect credential-sensitive servers for ALL selected accounts
@@ -574,7 +630,7 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
                 };
                 for (const config of credentialServerConfigs) {
                     try {
-                        const scopedId = await manager.connectServerWithAwsCredentials(config, accountCtx.accountId, awsCredentials);
+                        const scopedId = await manager.connectServerWithAwsCredentials(config, accountCtx.accountId, awsCredentials, tid);
                         scopedInstanceIds.push(scopedId);
                     } catch (err: any) {
                         console.error(`[getActiveMCPTools] Failed to connect "${config.id}" for account ${accountCtx.accountId}:`, err.message);
@@ -586,7 +642,10 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
         }
     }
 
-    const allInstanceIds = [...regularServerIds, ...scopedInstanceIds];
+    // Regular tools are cached under the tenant-scoped key; map raw ids accordingly.
+    // (scopedInstanceIds are already fully-qualified keys returned by the manager.)
+    const regularInstanceIds = regularServerIds.map(id => tenantScopedKey(tid, id));
+    const allInstanceIds = [...regularInstanceIds, ...scopedInstanceIds];
     return createTools(manager, allInstanceIds);
 }
 

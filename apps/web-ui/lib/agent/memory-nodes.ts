@@ -272,13 +272,21 @@ Extract memories to save.`
             } else {
                 console.log(`🧠 [MEMORY SAVE] Saving ${toSave.length} memories (reconcile disabled)...`);
                 for (const mem of toSave) {
-                    if (mem.kind === 'PROCEDURAL') {
-                        console.log(`   ⏭️ Skipped procedural rule ${mem.key} (reconcile disabled)`);
-                        continue;
-                    }
                     try {
-                        await saveMemory(tenantId, userId, mem.namespace, mem.key, mem.value as Record<string, unknown>);
-                        console.log(`   ✅ Saved: ${mem.namespace.join("/")}/${mem.key}`);
+                        if (mem.kind === 'PROCEDURAL') {
+                            // Persist with the PROCEDURAL kind (saveMemory hardcodes SEMANTIC),
+                            // matching how the reconcile-on path stores rules. Without this,
+                            // procedural memory silently never works unless reconcile is also on,
+                            // even though recall/extraction/skill-synthesis all still run.
+                            await getMemoryService().remember({
+                                tenantId, userId, kind: 'PROCEDURAL',
+                                namespace: mem.namespace, key: mem.key,
+                                value: mem.value as Record<string, unknown>,
+                            });
+                        } else {
+                            await saveMemory(tenantId, userId, mem.namespace, mem.key, mem.value as Record<string, unknown>);
+                        }
+                        console.log(`   ✅ Saved: ${mem.namespace.join("/")}/${mem.key}${mem.kind === 'PROCEDURAL' ? ' [PROCEDURAL]' : ''}`);
                     } catch (err: any) {
                         console.warn(`   ⚠️ Failed to save ${mem.key}: ${err?.message ?? err}`);
                     }

@@ -26,7 +26,7 @@ async function loadRecordModel(providerRecordId: string, modelId: string, tenant
     if (!record || !record.isEnabled) {
         throw new Error('Provider not found or disabled');
     }
-    const models = record.models as Array<{ id: string; label: string; maxTokens?: number }>;
+    const models = record.models as Array<{ id: string; label: string; maxTokens?: number; temperature?: number }>;
     const modelEntry = models.find((m) => m.id === modelId);
     if (!modelEntry) {
         throw new Error(`Model "${modelId}" is not available on provider "${record.name}"`);
@@ -45,6 +45,7 @@ function toResolvedConfig(
     config: Pick<ProviderRuntimeConfig, 'region' | 'accessKeyId' | 'secretAccessKey' | 'baseUrl' | 'apiKey'>,
     modelId: string,
     maxTokens?: number,
+    temperature?: number,
 ): ResolvedModelConfig {
     if (provider === 'bedrock') {
         return {
@@ -54,6 +55,7 @@ function toResolvedConfig(
             accessKeyId: config.accessKeyId,
             secretAccessKey: config.secretAccessKey,
             maxTokens,
+            temperature,
         };
     }
     return {
@@ -62,6 +64,7 @@ function toResolvedConfig(
         baseUrl: config.baseUrl,
         apiKey: config.apiKey,
         maxTokens,
+        temperature,
     };
 }
 
@@ -94,7 +97,7 @@ export async function resolveModelConfig(
         const { record, modelEntry } = await loadRecordModel(last, modelId, tenantId);
         const config = await ProviderModelService.getConfigById(record.id, tenantId);
         if (!config) throw new ProviderConfigError('Provider not found or disabled');
-        return toResolvedConfig('bedrock', config, modelId, modelEntry.maxTokens);
+        return toResolvedConfig('bedrock', config, modelId, modelEntry.maxTokens, modelEntry.temperature);
     }
 
     // Record-backed providers (anthropic + the OpenAI-compatible family).
@@ -106,7 +109,7 @@ export async function resolveModelConfig(
         // Secrets live in the encrypted `credentials` blob — resolve via getConfigById (decrypts).
         const config = await ProviderModelService.getConfigById(record.id, tenantId);
         if (!config) throw new ProviderConfigError('Provider not found or disabled');
-        return toResolvedConfig(providerType, config, modelId, modelEntry.maxTokens);
+        return toResolvedConfig(providerType, config, modelId, modelEntry.maxTokens, modelEntry.temperature);
     }
 
     throw new ProviderConfigError(
@@ -128,6 +131,8 @@ export async function resolveDefaultModelConfig(tenantId: string): Promise<Resol
             'The default LLM provider has no chat model selected. Pick a chat model on the provider in Settings → Providers.',
         );
     }
-    const modelEntry = config.models.find((m) => m.id === config.chatModel);
-    return toResolvedConfig(config.provider, config, config.chatModel, modelEntry?.maxTokens);
+    const modelEntry = config.models.find((m) => m.id === config.chatModel) as
+        | { id: string; maxTokens?: number; temperature?: number }
+        | undefined;
+    return toResolvedConfig(config.provider, config, config.chatModel, modelEntry?.maxTokens, modelEntry?.temperature);
 }

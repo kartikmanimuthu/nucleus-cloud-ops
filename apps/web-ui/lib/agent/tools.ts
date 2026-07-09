@@ -4,14 +4,80 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { env } from '@/env';
+import { getTenantCredentialsFilePath } from './session-manager';
+import { AuditService } from '@/lib/audit-service';
 
 // Re-export AWS credentials tool factories
 export { createGetAwsCredentialsTool, createListAwsAccountsTool } from './aws-credentials-tool';
 
 const execAsync = promisify(exec);
+
+// --- File-tool path jail (defense-in-depth) ---
+// All file tools (read/write/edit/ls/glob/grep) confine their paths to a single
+// working directory so the agent cannot read or write outside it — e.g.
+// /proc/self/environ, ~/.aws/credentials, or another tenant's files. Configurable
+// via AGENT_WORKDIR; defaults to a directory under the OS temp dir.
+const AGENT_WORKDIR = path.resolve(process.env.AGENT_WORKDIR || path.join(os.tmpdir(), 'nucleus-agent'));
+
+let workdirReady: Promise<void> | null = null;
+function ensureWorkdir(): Promise<void> {
+    if (!workdirReady) {
+        workdirReady = fs.mkdir(AGENT_WORKDIR, { recursive: true }).then(() => undefined);
+    }
+    return workdirReady;
+}
+
+/**
+ * Resolve a model-supplied path inside the jail. Relative paths resolve against
+ * the jail root; absolute paths must already fall within it. Returns null when
+ * the resolved path escapes the jail (caller returns an error string, never throws).
+ */
+function resolveInJail(inputPath: string): string | null {
+    const resolved = path.resolve(AGENT_WORKDIR, inputPath && inputPath.length > 0 ? inputPath : '.');
+    if (resolved === AGENT_WORKDIR || resolved.startsWith(AGENT_WORKDIR + path.sep)) {
+        return resolved;
+    }
+    return null;
+}
+
+const JAIL_ERROR = (p: string) =>
+    `Error: path "${p}" is outside the agent working directory (${AGENT_WORKDIR}). ` +
+    `File tools may only access paths within that directory.`;
+
+/**
+ * Build an explicit environment allowlist for execute_command.
+ *
+ * DEFENSE-IN-DEPTH ONLY. execute_command runs an arbitrary shell, so this does
+ * NOT sandbox the command — a determined command can still reach the container's
+ * filesystem and network. What it DOES do is stop the application's own secrets
+ * (DATABASE_URL, NEXTAUTH_SECRET, COGNITO_*, TAVILY_API_KEY, LANGFUSE_*, and any
+ * *_SECRET / *_KEY) from being inherited into the child's environment, where a
+ * simple `env`/`printenv` would otherwise dump them. Full OS/container sandboxing
+ * (seccomp, read-only rootfs, network egress policy, dropped capabilities) is a
+ * separate infrastructure follow-up tracked outside this change.
+ */
+function buildCommandEnv(tenantId?: string): Record<string, string> {
+    const ALLOWED_KEYS = [
+        'PATH', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'TMPDIR',
+        'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_PROFILE', 'AWS_DEFAULT_PROFILE',
+        'AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE', 'AWS_STS_REGIONAL_ENDPOINTS', 'AWS_CA_BUNDLE',
+    ];
+    const childEnv: Record<string, string> = {};
+    for (const key of ALLOWED_KEYS) {
+        const val = process.env[key];
+        if (val !== undefined) childEnv[key] = val;
+    }
+    // Point the AWS CLI/SDK at this tenant's isolated credentials file so profiles
+    // created by get_aws_credentials resolve — without exposing other tenants' files.
+    if (tenantId) {
+        childEnv.AWS_SHARED_CREDENTIALS_FILE = getTenantCredentialsFilePath(tenantId);
+    }
+    return childEnv;
+}
 
 // Helper to truncate large tool outputs to prevent prompt token limits
 const MAX_OUTPUT_LENGTH = 100000;
@@ -33,23 +99,51 @@ const formatSize = (bytes: number) => {
 
 // --- Execute Command Tool ---
 export const executeCommandTool = tool(
-    async ({ command }: { command: string }) => {
+    async ({ command }: { command: string }, config?: any) => {
         console.log(`[Tool] Executing command: ${command}`);
+
+        // Tenant/user context arrives via the LangGraph RunnableConfig set in
+        // app/api/chat/route.ts ({ configurable: { tenant_id, user_id } }).
+        const configurable = config?.configurable ?? {};
+        const tenantId = configurable.tenant_id as string | undefined;
+        const userId = configurable.user_id as string | undefined;
+
+        const audit = (status: 'success' | 'error') => {
+            // Fire-and-forget: never block or fail tool execution on audit write.
+            AuditService.logResourceAction({
+                eventType: 'agent.tool.execute_command',
+                action: 'execute_command',
+                resourceType: 'agent_tool',
+                resourceId: 'execute_command',
+                resourceName: 'Agent Shell Command',
+                status,
+                details: `Agent executed shell command: ${command}`.slice(0, 2000),
+                user: userId || 'agent',
+                userType: userId ? 'user' : 'system',
+                source: 'agent',
+                severity: 'medium',
+                ...(tenantId ? { tenantId } : {}),
+                metadata: { tenantId, command },
+            }).catch(() => {});
+        };
 
         try {
             const { stdout, stderr } = await execAsync(command, {
                 shell: '/bin/bash',
                 timeout: 120000, // 2 minute timeout for long-running AWS CLI commands
                 maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+                env: buildCommandEnv(tenantId) as NodeJS.ProcessEnv,
             });
 
             const output = stdout || stderr || 'Command executed successfully (no output)';
             console.log(`[Tool] Command Output Length: ${output.length}`);
 
+            audit('success');
             return truncateToolOutput(output);
         } catch (error: any) {
             const errorMsg = `Command failed: ${error.message}\n${error.stderr || ''}`;
             console.error(`[Tool] Command Error:`, errorMsg);
+            audit('error');
             return errorMsg;
         }
     },
@@ -67,7 +161,9 @@ export const lsTool = tool(
     async ({ path: dirPath }: { path: string }) => {
         console.log(`[Tool] Listing contents: ${dirPath}`);
         try {
-            const fullPath = path.resolve(dirPath);
+            await ensureWorkdir();
+            const fullPath = resolveInJail(dirPath);
+            if (!fullPath) return JAIL_ERROR(dirPath);
             const stats = await fs.stat(fullPath);
 
             if (!stats.isDirectory()) {
@@ -123,7 +219,10 @@ export const readFileTool = tool(
         console.log(`[Tool] Reading file: ${file_path}`);
 
         try {
-            const content = await fs.readFile(file_path, 'utf-8');
+            await ensureWorkdir();
+            const fullPath = resolveInJail(file_path);
+            if (!fullPath) return JAIL_ERROR(file_path);
+            const content = await fs.readFile(fullPath, 'utf-8');
             const lines = content.split('\n');
 
             let result = content;
@@ -182,12 +281,16 @@ export const writeFileTool = tool(
         }
 
         try {
-            const dir = path.dirname(file_path);
+            await ensureWorkdir();
+            const fullPath = resolveInJail(file_path);
+            if (!fullPath) return JAIL_ERROR(file_path);
+
+            const dir = path.dirname(fullPath);
             if (dir && dir !== '.') {
                 await fs.mkdir(dir, { recursive: true });
             }
 
-            await fs.writeFile(file_path, content, 'utf-8');
+            await fs.writeFile(fullPath, content, 'utf-8');
             console.log(`[Tool] File written successfully`);
             return `Successfully written to '${file_path}'.`;
         } catch (error: any) {
@@ -212,7 +315,10 @@ export const editFileTool = tool(
         console.log(`[Tool] Editing file: ${file_path} with ${edits.length} edits`);
 
         try {
-            let content = await fs.readFile(file_path, 'utf-8');
+            await ensureWorkdir();
+            const fullPath = resolveInJail(file_path);
+            if (!fullPath) return JAIL_ERROR(file_path);
+            let content = await fs.readFile(fullPath, 'utf-8');
             let updatedContent = content;
 
             for (const edit of edits) {
@@ -231,7 +337,7 @@ export const editFileTool = tool(
             }
 
             if (!dry_run) {
-                await fs.writeFile(file_path, updatedContent, 'utf-8');
+                await fs.writeFile(fullPath, updatedContent, 'utf-8');
                 console.log(`[Tool] File updated successfully`);
                 return `Successfully applied ${edits.length} edit(s) to ${file_path}.`;
             } else {
@@ -263,14 +369,19 @@ export const globTool = tool(
         console.log(`[Tool] Glob search: ${pattern} in ${basePath || '.'}`);
 
         try {
-            const searchPath = basePath || '.';
+            await ensureWorkdir();
+            const searchPath = resolveInJail(basePath || '.');
+            if (!searchPath) return JAIL_ERROR(basePath || '.');
             try {
                 await fs.access(searchPath);
             } catch {
-                return `Error: Directory '${searchPath}' does not exist.`;
+                return `Error: Directory '${basePath || '.'}' does not exist.`;
             }
 
-            const command = `find "${searchPath}" -name "${pattern}" -not -path '*/node_modules/*' -maxdepth 10`;
+            // Pattern is a filename glob only (no slashes per the schema) — pass it as a
+            // literal -name argument so it cannot break out of the find invocation.
+            const safePattern = pattern.replace(/["`$\\]/g, '');
+            const command = `find "${searchPath}" -name "${safePattern}" -not -path '*/node_modules/*' -maxdepth 10`;
 
             const { stdout, stderr } = await execAsync(command);
 
@@ -311,6 +422,24 @@ export const grepTool = tool(
         console.log(`[Tool] Grep: "${pattern}"`);
 
         try {
+            await ensureWorkdir();
+
+            // Confine every search target to the jail. Runs with cwd = AGENT_WORKDIR
+            // so bare defaults ('.' / '*') and any provided paths stay inside it.
+            let targetStr: string;
+            if (file_paths && file_paths.length > 0) {
+                const resolvedTargets: string[] = [];
+                for (const p of file_paths) {
+                    const resolved = resolveInJail(p);
+                    if (!resolved) return JAIL_ERROR(p);
+                    resolvedTargets.push(resolved);
+                }
+                targetStr = resolvedTargets.map(p => `"${p}"`).join(' ');
+            } else {
+                // Left unquoted so the shell expands '*' relative to cwd (the jail root).
+                targetStr = recursive ? '.' : '*';
+            }
+
             let command = 'grep';
 
             if (include_lines) command += ' -n';
@@ -323,15 +452,9 @@ export const grepTool = tool(
 
             const safePattern = pattern.replace(/"/g, '\\"');
             command += ` "${safePattern}"`;
+            command += ` ${targetStr}`;
 
-            if (file_paths && file_paths.length > 0) {
-                command += ` ${file_paths.map(p => `"${p}"`).join(' ')}`;
-            } else {
-                if (recursive) command += ' .';
-                else command += ' *';
-            }
-
-            const { stdout, stderr } = await execAsync(command);
+            const { stdout, stderr } = await execAsync(command, { cwd: AGENT_WORKDIR });
 
             if (!stdout && !stderr) return "No matches found.";
 

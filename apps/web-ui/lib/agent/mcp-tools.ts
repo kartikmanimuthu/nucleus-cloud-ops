@@ -10,7 +10,19 @@
 
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { MCPServerManager, MCPToolInfo } from './mcp-manager';
+import { MCPServerManager, MCPToolInfo, TENANT_SEP } from './mcp-manager';
+import { AuditService } from '@/lib/audit-service';
+
+/**
+ * Strip the tenant prefix (`<tenantId>##`) from a connection key, leaving the
+ * logical server id — either `<serverId>` or `<serverId>::<accountId>`.
+ * Tool names/descriptions are derived from the logical id so they stay stable
+ * and human-readable regardless of the tenant the run belongs to.
+ */
+function logicalServerId(mcpServerId: string): string {
+    const idx = mcpServerId.indexOf(TENANT_SEP);
+    return idx >= 0 ? mcpServerId.slice(idx + TENANT_SEP.length) : mcpServerId;
+}
 
 /**
  * Convert a JSON Schema property type to a Zod schema.
@@ -190,17 +202,19 @@ export function createMCPTools(
     console.log(`[MCPTools] Converting ${mcpTools.length} MCP tools to LangChain format`);
 
     const langchainTools = mcpTools.map(mcpTool => {
-        // For account-scoped servers (serverId contains ::accountId), include last 4 digits
-        // of the account ID in the tool name so the LLM can target specific accounts.
-        // Bedrock enforces a 64-char tool name limit — truncate if needed.
+        // Derive the tool name from the tenant-stripped logical id.
+        // For account-scoped servers (logicalId contains ::accountId), include last 4
+        // digits of the account ID in the tool name so the LLM can target specific
+        // accounts. Bedrock enforces a 64-char tool name limit — truncate if needed.
+        const logicalId = logicalServerId(mcpTool.mcpServerId);
         let namespacedName: string;
-        if (mcpTool.mcpServerId.includes('::')) {
-            const [baseServerId, accountId] = mcpTool.mcpServerId.split('::');
+        if (logicalId.includes('::')) {
+            const [baseServerId, accountId] = logicalId.split('::');
             const accountSuffix = accountId.slice(-4);
             const raw = `mcp_${baseServerId}_${accountSuffix}_${mcpTool.name}`.replace(/[^a-zA-Z0-9_-]/g, '_');
             namespacedName = raw.slice(0, 64);
         } else {
-            namespacedName = `mcp_${mcpTool.mcpServerId}_${mcpTool.name}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+            namespacedName = `mcp_${logicalId}_${mcpTool.name}`.replace(/[^a-zA-Z0-9_-]/g, '_');
         }
 
         // Convert MCP input schema to Zod
@@ -213,13 +227,40 @@ export function createMCPTools(
         }
 
         // Prefix description with server name + account context for clarity in the LLM prompt
-        const accountId = mcpTool.mcpServerId.includes('::') ? mcpTool.mcpServerId.split('::')[1] : undefined;
+        const accountId = logicalId.includes('::') ? logicalId.split('::')[1] : undefined;
         const description = accountId
             ? `[MCP: ${mcpTool.mcpServerName} | Account: ${accountId}] ${mcpTool.description || mcpTool.name}`
             : `[MCP: ${mcpTool.mcpServerName}] ${mcpTool.description || mcpTool.name}`;
 
         return tool(
-            async (input: any) => {
+            async (input: any, config?: any) => {
+                // Tenant/user context arrives via the LangGraph RunnableConfig
+                // ({ configurable: { tenant_id, user_id } }) set by the chat/agent-ops routes.
+                const configurable = config?.configurable ?? {};
+                const auditTenantId = (configurable.tenant_id as string | undefined) ?? undefined;
+                const auditUserId = (configurable.user_id as string | undefined) ?? undefined;
+
+                const audit = (status: 'success' | 'error') => {
+                    // MCP tools call out to customer AWS/integrations — audit every invocation.
+                    // Fire-and-forget: never block or fail tool execution on audit write.
+                    AuditService.logResourceAction({
+                        eventType: 'agent.tool.mcp',
+                        action: 'mcp_tool_call',
+                        resourceType: 'mcp_tool',
+                        resourceId: namespacedName,
+                        resourceName: `${mcpTool.mcpServerName} / ${mcpTool.name}`,
+                        status,
+                        details: `Agent invoked MCP tool "${mcpTool.name}" on server "${mcpTool.mcpServerName}"${accountId ? ` (account ${accountId})` : ''}`,
+                        user: auditUserId || 'agent',
+                        userType: auditUserId ? 'user' : 'system',
+                        source: 'agent',
+                        severity: 'medium',
+                        ...(auditTenantId ? { tenantId: auditTenantId } : {}),
+                        ...(accountId ? { accountId } : {}),
+                        metadata: { tenantId: auditTenantId, mcpServer: mcpTool.mcpServerName, tool: mcpTool.name, accountId },
+                    }).catch(() => {});
+                };
+
                 try {
                     const coercedInput = coerceInputToSchema(input, mcpTool.inputSchema);
                     console.log(`[MCPTools] Executing MCP tool: ${mcpTool.name} on server: ${mcpTool.mcpServerId}`);
@@ -233,10 +274,12 @@ export function createMCPTools(
                     const formatted = formatMCPResult(result);
                     console.log(`[MCPTools] MCP tool ${mcpTool.name} completed. Result length: ${formatted.length}`);
 
+                    audit('success');
                     return formatted;
                 } catch (error: any) {
                     const errorMsg = `Error executing MCP tool "${mcpTool.name}": ${error.message}`;
                     console.error(`[MCPTools] ${errorMsg}`);
+                    audit('error');
                     return errorMsg;
                 }
             },
@@ -277,7 +320,7 @@ export function getMCPToolsDescription(mcpManager: MCPServerManager, serverIds?:
     for (const [serverName, serverTools] of grouped) {
         desc += `  [${serverName}]:\n`;
         for (const t of serverTools) {
-            desc += `  - mcp_${t.mcpServerId}_${t.name}: ${(t.description || t.name).slice(0, 100)}\n`;
+            desc += `  - mcp_${logicalServerId(t.mcpServerId)}_${t.name}: ${(t.description || t.name).slice(0, 100)}\n`;
         }
     }
 

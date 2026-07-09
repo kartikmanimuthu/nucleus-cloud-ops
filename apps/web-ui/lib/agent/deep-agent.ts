@@ -27,7 +27,29 @@ export async function createDeepGraph(config: GraphConfig) {
     const { model: modelConfig, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId, userId } = config as any;
     const modelId = modelConfig.modelId;
     const checkpointer = await getCheckpointer();
-    const store = await getStore();
+    const baseStore = await getStore();
+
+    // Tenant-bind the long-term store for this run. deepagents calls the
+    // config-less BaseStore methods (store.put/get/search), so the underlying
+    // batch() never receives the run config and would fall back to the shared
+    // tenant "default" pool — mixing every tenant's deep-agent store data. Wrap
+    // (never mutate) the singleton so batch() always carries THIS run's tenant.
+    const store = (tenantId
+        ? Object.assign(Object.create(baseStore), {
+            batch(ops: unknown[], config?: unknown) {
+                const cfg = (config as Record<string, unknown>) ?? {};
+                const merged = {
+                    ...cfg,
+                    configurable: {
+                        ...((cfg.configurable as Record<string, unknown>) ?? {}),
+                        tenant_id: tenantId,
+                        user_id: userId,
+                    },
+                };
+                return (baseStore as { batch: (o: unknown[], c: unknown) => Promise<unknown[]> }).batch(ops, merged);
+            },
+        })
+        : baseStore);
 
     // --- Skill loading (async DB lookup, tenant-scoped) ---
     let skillSection = '';
@@ -115,6 +137,20 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
         ...mcpTools,
     ];
 
+    // --- HITL interrupt configuration ---
+    // When autoApprove=false, interrupt before mutation tools execute.
+    // IMPORTANT: deepagents (v1.10.5) does NOT propagate the top-level `interruptOn`
+    // into subagents — `interruptOn` is a per-subagent field. The mutation tools
+    // actually live inside the aws-ops (execute_command) and code-iac
+    // (write_file/edit_file/execute_command) subagents, so the same config must be
+    // attached to each of those specs or HITL is silently bypassed for exactly the
+    // destructive actions it is meant to gate.
+    const interruptOn = autoApprove ? undefined : {
+        execute_command: true,
+        write_file: true,
+        edit_file: true,
+    };
+
     // --- Subagent Definitions ---
     const awsOpsSubagent: SubAgent = {
         name: "aws-ops",
@@ -136,6 +172,7 @@ ${accountContext}
 - Use --no-paginate for small result sets; use pagination loops for large ones
 - Verify current resource state before any mutation command`,
         tools: [executeCommandTool, getAwsCredentialsTool, listAwsAccountsTool],
+        interruptOn,
     };
 
     const researchSubagent: SubAgent = {
@@ -168,6 +205,7 @@ Always cite the source URL when returning findings.`,
 
 Always read existing files before editing them to understand the current state.`,
         tools: [readFileTool, writeFileTool, editFileTool, lsTool, globTool, grepTool, executeCommandTool],
+        interruptOn,
     };
 
     // --- System Prompt ---
@@ -211,15 +249,8 @@ ${accountContext}
     console.log(`   Subagents: aws-ops, research, code-iac`);
     console.log(`================================================================================\n`);
 
-    // --- HITL interrupt configuration ---
-    // When autoApprove=false, interrupt before mutation tools execute
-    const interruptOn = autoApprove ? undefined : {
-        execute_command: true,
-        write_file: true,
-        edit_file: true,
-    };
-
-    // Create Deep Agent
+    // Create Deep Agent — orchestrator's own tools gated by the top-level
+    // interruptOn; subagents gated by their per-spec interruptOn (see above).
     const agent = createDeepAgent({
         model: model,
         tools: allTools,
