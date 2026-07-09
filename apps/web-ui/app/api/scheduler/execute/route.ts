@@ -40,7 +40,25 @@ export async function POST() {
             const boss = await getBoss();
             // priority > 0 so this user-initiated scan is dequeued ahead of a
             // pending system cron tick (pg-boss fetch orders by priority desc).
-            await boss.send(queueName, payload, { priority: 10 });
+            // singletonKey `manual:<tenantId>` scopes de-dup PER TENANT: without it,
+            // the stately queue buckets all keyless jobs together, so one tenant's
+            // in-flight manual scan would silently swallow another tenant's "Execute
+            // Now" (send returns null) — a cross-tenant interference bug that also
+            // reported a false success. Per-tenant keying isolates them.
+            const jobId = await boss.send(queueName, payload, {
+                priority: 10,
+                singletonKey: `manual:${tenantId}`,
+            });
+            if (jobId === null) {
+                console.log(`[API] Full scan already queued/running for tenant ${tenantId} — deduplicated`);
+                return NextResponse.json({
+                    success: true,
+                    deduplicated: true,
+                    message: 'A full scan is already queued or running for this tenant',
+                    executionTime,
+                    isAsync: true,
+                });
+            }
 
         } catch (enqueueError) {
             console.error(`[API] Job enqueue failed:`, enqueueError);

@@ -5,9 +5,15 @@ import { handleFileUpload } from './handlers/file-upload.js';
 import { handleS3Sync } from './handlers/s3-sync.js';
 import { handleConfluenceSync } from './handlers/confluence-sync.js';
 import { handleBitbucketSync } from './handlers/bitbucket-sync.js';
-import { getDataSource, updateDS, updateKBVectorCount, getPool } from './lib/vector-store.js';
+import { getDataSource, updateDS, recomputeKBVectorCount, getPool } from './lib/vector-store.js';
 import { deleteOldVectors } from './lib/embedding.js';
-import type { KBSyncJob } from './types.js';
+import type {
+  KBSyncMessage,
+  FileUploadJob,
+  S3SyncJob,
+  ConfluenceSyncJob,
+  BitbucketSyncJob,
+} from './types.js';
 
 const log = createLogger('kb-sync');
 
@@ -54,11 +60,11 @@ async function writeAuditLog(entry: {
 }
 
 export async function handleKbSyncJob(jobData: unknown): Promise<void> {
-  const job = jobData as KBSyncJob;
-  const { kbId, dsId, tenantId } = job;
+  const msg = jobData as KBSyncMessage;
+  const { kbId, dsId, tenantId } = msg;
   const startedAt = Date.now();
 
-  log.info(`Processing ${job.type}`, { kbId, dsId });
+  log.info(`Processing ${msg.type}`, { kbId, dsId });
 
   await writeAuditLog({
     tenantId,
@@ -67,27 +73,40 @@ export async function handleKbSyncJob(jobData: unknown): Promise<void> {
     resourceId: dsId,
     status: 'info',
     severity: 'info',
-    details: `KB sync started for data source ${dsId} (type: ${job.type})`,
-    metadata: { kbId, dsId, type: job.type },
+    details: `KB sync started for data source ${dsId} (type: ${msg.type})`,
+    metadata: { kbId, dsId, type: msg.type },
   });
 
   const ds = await getDataSource(kbId, dsId);
-  const oldVectorCount = (ds?.vectorCount as number) || 0;
-  const oldVectorKeys: string[] = job.oldVectorKeys || (ds?.vectorKeys as string[]) || [];
+  if (!ds) throw new Error(`Data source ${dsId} not found in knowledge base ${kbId}`);
 
-  // Delete old vectors
+  // Idempotent cleanup: delete the previous vectors AND clear vectorKeys before we
+  // embed. Persisting the empty list up front means a retry after a mid-sync crash
+  // sees no old keys and cannot double-delete; the KB total is recomputed (not
+  // decremented) at the end, so it stays correct across retries.
+  const oldVectorKeys: string[] = ds.vectorKeys ?? [];
   if (oldVectorKeys.length) {
     await deleteOldVectors(oldVectorKeys);
-    await updateKBVectorCount(kbId, -oldVectorCount);
+    await updateDS(kbId, dsId, { vectorKeys: [] });
   }
 
+  // Re-hydrate source config from the DB (never from the wire payload — it may
+  // contain credentials) and construct the type-specific handler job.
   let vectorKeys: string[];
-  switch (job.type) {
-    case 'file-upload':      vectorKeys = await handleFileUpload(job); break;
-    case 's3-sync':          vectorKeys = await handleS3Sync(job); break;
-    case 'confluence-sync':  vectorKeys = await handleConfluenceSync(job); break;
-    case 'bitbucket-sync':   vectorKeys = await handleBitbucketSync(job); break;
-    default: throw new Error(`Unknown job type: ${(job as KBSyncJob).type}`);
+  switch (msg.type) {
+    case 'file-upload':
+      vectorKeys = await handleFileUpload({ ...msg } as FileUploadJob);
+      break;
+    case 's3-sync':
+      vectorKeys = await handleS3Sync({ ...msg, config: ds.config as S3SyncJob['config'] });
+      break;
+    case 'confluence-sync':
+      vectorKeys = await handleConfluenceSync({ ...msg, config: ds.config as ConfluenceSyncJob['config'] });
+      break;
+    case 'bitbucket-sync':
+      vectorKeys = await handleBitbucketSync({ ...msg, config: ds.config as BitbucketSyncJob['config'] });
+      break;
+    default: throw new Error(`Unknown job type: ${(msg as KBSyncMessage).type}`);
   }
 
   await updateDS(kbId, dsId, {
@@ -97,7 +116,8 @@ export async function handleKbSyncJob(jobData: unknown): Promise<void> {
     lastSyncAt: new Date().toISOString(),
     lastSyncError: null,
   });
-  await updateKBVectorCount(kbId, vectorKeys.length);
+  // Recompute (idempotent) rather than increment — see recomputeKBVectorCount.
+  await recomputeKBVectorCount(kbId);
 
   const duration = Date.now() - startedAt;
 
@@ -109,10 +129,10 @@ export async function handleKbSyncJob(jobData: unknown): Promise<void> {
     status: 'success',
     severity: 'info',
     details: `KB sync completed for data source ${dsId}: ${vectorKeys.length} vectors`,
-    metadata: { kbId, dsId, type: job.type, vectorCount: vectorKeys.length, duration },
+    metadata: { kbId, dsId, type: msg.type, vectorCount: vectorKeys.length, duration },
   });
 
-  log.info(`Done ${job.type}`, { kbId, dsId, vectors: vectorKeys.length });
+  log.info(`Done ${msg.type}`, { kbId, dsId, vectors: vectorKeys.length });
 }
 
 export async function register(boss: PgBoss, executor: JobExecutor): Promise<void> {
@@ -123,13 +143,13 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
   await boss.createQueue(JOB_NAME);
 
   // batchSize: 3 — max 3 concurrent KB jobs to avoid Bedrock rate limiting
-  await boss.work<KBSyncJob>(
+  await boss.work<KBSyncMessage>(
     JOB_NAME,
     { batchSize: 3 },
     async (jobs) => {
       for (const job of jobs) {
         try {
-          await executor.execute(JOB_NAME, job.data);
+          await executor.execute(JOB_NAME, job.data, { idempotencyKey: job.id });
         } catch (err) {
           const shortMessage = err instanceof Error ? err.message.slice(0, 200) : String(err);
           const fullDetail = err instanceof Error ? (err.stack ?? err.message) : String(err);

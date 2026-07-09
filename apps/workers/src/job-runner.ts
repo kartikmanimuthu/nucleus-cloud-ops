@@ -15,8 +15,6 @@ import { handlePricingRefresh } from './jobs/right-sizing/pricing-refresh.js';
 
 const log = createLogger('job-runner');
 
-const AGENT_OPS_PREFIX = 'agent-ops-task:';
-
 // Well-known job name → handler mapping
 const HANDLERS: Record<string, (jobData: unknown) => Promise<unknown>> = {
     'scheduler-scan': handleSchedulerJob,
@@ -25,6 +23,8 @@ const HANDLERS: Record<string, (jobData: unknown) => Promise<unknown>> = {
     'certificate-expiry-monitor': handleCertificateExpiryMonitor,
     'right-sizing-scan': handleRightSizingScan,
     'right-sizing-pricing-refresh': handlePricingRefresh,
+    // Single agent-ops tick queue (sweeper design — see agent-ops-scheduler/index.ts).
+    'agent-ops-tick': handleAgentOpsTick,
 };
 
 function parseArgs(): { job: string; data: unknown } {
@@ -60,12 +60,6 @@ async function main(): Promise<void> {
     // Register well-known handlers
     for (const [name, handler] of Object.entries(HANDLERS)) {
         executor.registerHandler(name, handler);
-    }
-
-    // Agent-ops uses dynamic queue names (agent-ops-task:<taskId>)
-    // Register handleAgentOpsTick under the exact job name from --job arg
-    if (job.startsWith(AGENT_OPS_PREFIX)) {
-        executor.registerHandler(job, handleAgentOpsTick);
     }
 
     await executor.execute(job, data);

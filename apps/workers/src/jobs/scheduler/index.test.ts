@@ -2,12 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockWork = vi.fn();
 const mockSchedule = vi.fn();
+const mockUnschedule = vi.fn().mockResolvedValue(undefined);
+const mockSend = vi.fn().mockResolvedValue('job-id-123');
 
 const mockExecuteSql = vi.fn().mockResolvedValue(undefined);
 const mockBoss = {
   work: mockWork,
   schedule: mockSchedule,
-  send: vi.fn(),
+  unschedule: mockUnschedule,
+  send: mockSend,
   createQueue: vi.fn().mockResolvedValue(undefined),
   updateQueue: vi.fn().mockResolvedValue(undefined),
   // Queue absent by default → register() takes the createQueue('stately') path.
@@ -16,261 +19,157 @@ const mockBoss = {
 } as any;
 
 const mockRegisterHandler = vi.fn();
-// Cron path scopes each scan to a tenant and advances lastRunAt whenever the
-// scan actually evaluated that tenant (checkedTenantIds includes it) — even if
-// the tenant had no schedules/accounts, so it isn't re-dispatched every tick.
-const mockExecute = vi.fn().mockResolvedValue({
-  success: true,
-  executionId: 'test-exec',
-  mode: 'full',
-  schedulesProcessed: 1,
-  resourcesStarted: 0,
-  resourcesStopped: 0,
-  resourcesFailed: 0,
-  duration: 100,
-  processedTenantIds: ['tenant-1'],
-  checkedTenantIds: ['tenant-1'],
-});
+const mockExecute = vi.fn().mockResolvedValue(undefined);
 const mockExecutor = {
   registerHandler: mockRegisterHandler,
   execute: mockExecute,
 };
 
 vi.mock('./services/scheduler-service.js', () => ({
-  runFullScan: vi.fn().mockResolvedValue({
-    success: true,
-    executionId: 'test-exec',
-    mode: 'full',
-    schedulesProcessed: 0,
-    resourcesStarted: 0,
-    resourcesStopped: 0,
-    resourcesFailed: 0,
-    duration: 100,
-  }),
-  runPartialScan: vi.fn().mockResolvedValue({
-    success: true,
-    executionId: 'test-exec',
-    mode: 'partial',
-    schedulesProcessed: 1,
-    resourcesStarted: 0,
-    resourcesStopped: 0,
-    resourcesFailed: 0,
-    duration: 50,
-  }),
+  runFullScan: vi.fn().mockResolvedValue({ success: true, mode: 'full' }),
+  runPartialScan: vi.fn().mockResolvedValue({ success: true, mode: 'partial' }),
 }));
 
 vi.mock('./services/pg-service.js', () => ({
-  getActiveTenants: vi.fn().mockResolvedValue([
-    { id: 'tenant-1', name: 'Tenant One' },
-  ]),
-  getTenantSchedulerConfig: vi.fn().mockResolvedValue({ intervalMinutes: 60 }),
+  getActiveTenants: vi.fn().mockResolvedValue([{ id: 'tenant-1', name: 'Tenant One' }]),
   getTenantJobConfig: vi.fn().mockResolvedValue({ intervalMinutes: 60, lastRunAt: null }),
-  updateTenantJobLastRun: vi.fn().mockResolvedValue(undefined),
-  getSchedules: vi.fn().mockResolvedValue([]),
-  getAccounts: vi.fn().mockResolvedValue([]),
-  getScheduleById: vi.fn().mockResolvedValue(null),
-  logExecution: vi.fn().mockResolvedValue(undefined),
+  // Atomic claim gate replaces read-compare-write.
+  tryClaimTenantRun: vi.fn().mockResolvedValue(true),
+  releaseTenantJobClaim: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { register } from './index.js';
 
+function fanOutHandler() {
+  return mockWork.mock.calls.find((c: any[]) => c[0] === 'scheduler-fan-out')![2];
+}
+function scanHandler() {
+  return mockWork.mock.calls.find((c: any[]) => c[0] === 'scheduler-scan')![2];
+}
+
 describe('scheduler job registration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSend.mockResolvedValue('job-id-123');
   });
 
-  it('should register cron as */5 * * * * with a cron-only singletonKey', async () => {
+  it('schedules the fan-out cron as */5 with a cron-only singletonKey', async () => {
     await register(mockBoss, mockExecutor);
-    // singletonKey keeps cron ticks in their own 'stately' bucket so they can never
-    // stack into a backlog, while manual "Execute Now" triggers stay unsuppressed.
     expect(mockSchedule).toHaveBeenCalledWith(
-      'scheduler-scan',
+      'scheduler-fan-out',
       '*/5 * * * *',
       {},
       { tz: 'UTC', singletonKey: 'scheduler-cron' }
     );
   });
 
-  it('should create scheduler-scan with stately policy when the queue is absent', async () => {
-    const pgBoss = mockBoss as any;
-    pgBoss.getQueue.mockResolvedValueOnce(null);
+  it('retires the legacy cron that fired directly on scheduler-scan', async () => {
+    await register(mockBoss, mockExecutor);
+    expect(mockUnschedule).toHaveBeenCalledWith('scheduler-scan');
+  });
+
+  it('creates scheduler-scan with stately policy + retryLimit 0 when absent', async () => {
+    mockBoss.getQueue.mockResolvedValueOnce(null);
     await register(mockBoss, mockExecutor);
     expect(mockBoss.createQueue).toHaveBeenCalledWith(
       'scheduler-scan',
       expect.objectContaining({ name: 'scheduler-scan', policy: 'stately', retryLimit: 0 })
     );
-    // No migration/purge needed for a fresh queue.
     expect(mockExecuteSql).not.toHaveBeenCalled();
   });
 
-  it('should migrate a legacy standard queue to stately and PURGE the stacked backlog', async () => {
-    const pgBoss = mockBoss as any;
-    pgBoss.getQueue.mockResolvedValueOnce({ name: 'scheduler-scan', policy: 'standard' });
+  it('migrates a legacy standard queue to stately and PURGES the backlog', async () => {
+    mockBoss.getQueue.mockResolvedValueOnce({ name: 'scheduler-scan', policy: 'standard' });
     await register(mockBoss, mockExecutor);
-    // The flood fix: drop every non-completed scheduler-scan job (the drain source)...
     expect(mockExecuteSql).toHaveBeenCalledWith(
-      expect.stringMatching(/DELETE FROM pgboss\.job WHERE name = 'scheduler-scan' AND state NOT IN \('completed'\)/),
-      []
+      expect.stringMatching(/DELETE FROM pgboss\.job WHERE name = \$1 AND state NOT IN \('completed'\)/),
+      ['scheduler-scan']
     );
-    // ...then flip the queue policy so a backlog can never form again.
     expect(mockExecuteSql).toHaveBeenCalledWith(
-      expect.stringMatching(/UPDATE pgboss\.queue SET policy = 'stately'.*WHERE name = 'scheduler-scan'/),
-      []
+      expect.stringMatching(/UPDATE pgboss\.queue SET policy = 'stately'.*WHERE name = \$1/),
+      ['scheduler-scan']
     );
   });
 
-  it('should NOT purge or re-migrate when the queue is already stately', async () => {
-    const pgBoss = mockBoss as any;
-    pgBoss.getQueue.mockResolvedValueOnce({ name: 'scheduler-scan', policy: 'stately' });
+  it('does NOT purge or re-migrate when the queue is already stately', async () => {
+    mockBoss.getQueue.mockResolvedValueOnce({ name: 'scheduler-scan', policy: 'stately' });
     await register(mockBoss, mockExecutor);
     expect(mockExecuteSql).not.toHaveBeenCalled();
   });
 
-  it('should register handler with executor', async () => {
+  it('registers the scan handler with the executor', async () => {
     await register(mockBoss, mockExecutor);
     expect(mockRegisterHandler).toHaveBeenCalledWith('scheduler-scan', expect.any(Function));
   });
 
-  it('should call executor.execute scoped per due tenant on a cron tick', async () => {
+  it('enforces retryLimit 0 + a bounded expiry on scheduler-scan', async () => {
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][2];
-    await workCallback([{ id: 'job-1', data: {} }]);
-    // Cron tick ({} payload) → scoped per-tenant scan, not an unscoped {} scan
-    expect(mockExecute).toHaveBeenCalledWith('scheduler-scan', { triggeredBy: 'system', tenantId: 'tenant-1' });
-  });
-
-  it('should run a manual full-scan trigger immediately, bypassing interval gating', async () => {
-    const pgService = await import('./services/pg-service.js');
-    const recentRun = new Date(Date.now() - 1 * 60 * 1000).toISOString(); // 1 min ago (would be gated)
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValue({ intervalMinutes: 60, lastRunAt: recentRun });
-
-    await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][2];
-    const manual = { triggeredBy: 'web-ui', tenantId: 'tenant-9', userEmail: 'u@x' };
-    await workCallback([{ id: 'job-1', data: manual }]);
-
-    // Runs the payload as-is (no gating), and does NOT touch tenant interval config
-    expect(mockExecute).toHaveBeenCalledWith('scheduler-scan', manual);
-    expect(pgService.getActiveTenants).not.toHaveBeenCalled();
-    expect(pgService.updateTenantJobLastRun).not.toHaveBeenCalled();
-  });
-
-  it('should run a manual partial-scan trigger immediately', async () => {
-    await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][2];
-    const manual = { scheduleId: 'sched-1', tenantId: 'tenant-1', triggeredBy: 'web-ui' };
-    await workCallback([{ id: 'job-1', data: manual }]);
-    expect(mockExecute).toHaveBeenCalledWith('scheduler-scan', manual);
-  });
-
-  it('should harden scheduler-scan so an interrupted scan is discarded, not resurrected', async () => {
-    await register(mockBoss, mockExecutor);
-    // retryLimit:0 → no auto-rerun of a stale scan; bounded expireInSeconds so an
-    // orphaned 'active' job is failed in minutes, not the 4h global default.
-    expect(mockBoss.updateQueue).toHaveBeenCalledWith(
-      'scheduler-scan',
-      expect.objectContaining({ name: 'scheduler-scan', retryLimit: 0, expireInSeconds: expect.any(Number) })
-    );
     const call = mockBoss.updateQueue.mock.calls.find((c: any[]) => c[0] === 'scheduler-scan');
-    expect(call[1].expireInSeconds).toBeGreaterThan(120); // must exceed a real scan
+    expect(call![1]).toEqual(expect.objectContaining({ name: 'scheduler-scan', retryLimit: 0 }));
+    expect(call![1].expireInSeconds).toBeGreaterThan(120);
   });
 
-  it('should register a scheduler-reschedule drain consumer', async () => {
+  it('registers a scheduler-reschedule drain consumer', async () => {
     await register(mockBoss, mockExecutor);
     expect(mockBoss.createQueue).toHaveBeenCalledWith('scheduler-reschedule');
-    const rescheduleWork = mockWork.mock.calls.find((c: any[]) => c[0] === 'scheduler-reschedule');
-    expect(rescheduleWork).toBeDefined();
+    expect(mockWork.mock.calls.find((c: any[]) => c[0] === 'scheduler-reschedule')).toBeDefined();
   });
 
-  it('should skip tenant when interval has not elapsed', async () => {
-    const pgService = await import('./services/pg-service.js');
-    const recentRun = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 min ago
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: recentRun });
+  // ---- fan-out handler (the cron tick) --------------------------------------
+
+  it('claims and dispatches a per-tenant scan when the claim is granted', async () => {
+    const pg = await import('./services/pg-service.js');
+    vi.mocked(pg.tryClaimTenantRun).mockResolvedValue(true);
 
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][2];
-    await workCallback([{ id: 'job-1', data: {} }]);
+    await fanOutHandler()();
 
-    expect(pgService.updateTenantJobLastRun).not.toHaveBeenCalled();
+    expect(pg.tryClaimTenantRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', 60 * 60 * 1000);
+    expect(mockSend).toHaveBeenCalledWith(
+      'scheduler-scan',
+      expect.objectContaining({ triggeredBy: 'system', tenantId: 'tenant-1' }),
+      expect.objectContaining({ singletonKey: 'tenant:tenant-1' })
+    );
   });
 
-  it('should run tenant and update lastRunAt when interval has elapsed', async () => {
-    const pgService = await import('./services/pg-service.js');
-    const oldRun = new Date(Date.now() - 90 * 60 * 1000).toISOString(); // 90 min ago
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: oldRun });
+  it('does not dispatch when the claim is denied (interval not elapsed)', async () => {
+    const pg = await import('./services/pg-service.js');
+    vi.mocked(pg.tryClaimTenantRun).mockResolvedValue(false);
 
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][2];
-    await workCallback([{ id: 'job-1', data: {} }]);
+    await fanOutHandler()();
 
-    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
+    expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it('should always run tenant when lastRunAt is null', async () => {
-    const pgService = await import('./services/pg-service.js');
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
+  it('does not throw when a dispatch send fails (loop continues)', async () => {
+    const pg = await import('./services/pg-service.js');
+    vi.mocked(pg.tryClaimTenantRun).mockResolvedValue(true);
+    mockSend.mockRejectedValueOnce(new Error('transient enqueue error'));
 
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][2];
-    await workCallback([{ id: 'job-1', data: {} }]);
-
-    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
+    await expect(fanOutHandler()()).resolves.toBeUndefined();
+    // A failed dispatch releases the claim so the tenant retries next tick.
+    expect(pg.releaseTenantJobClaim).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', 60 * 60 * 1000);
   });
 
-  it('should still advance lastRunAt for a tenant with no schedules/accounts', async () => {
-    const pgService = await import('./services/pg-service.js');
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
-    // Empty tenant: the scan runs but reports no work.
-    mockExecute.mockResolvedValueOnce({
-      success: true,
-      executionId: 'test-exec',
-      mode: 'full',
-      schedulesProcessed: 0,
-      resourcesStarted: 0,
-      resourcesStopped: 0,
-      resourcesFailed: 0,
-      duration: 100,
-      processedTenantIds: [],
-      checkedTenantIds: ['tenant-1'],
-    });
+  // ---- scan consumer (runs manual + system jobs) ----------------------------
 
+  it('delegates each scan job to the executor with idempotency + timeout', async () => {
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][2];
-    await workCallback([{ id: 'job-1', data: {} }]);
+    const manual = { triggeredBy: 'web-ui', tenantId: 'tenant-9' };
+    await scanHandler()([{ id: 'job-7', data: manual }]);
 
-    // Regression guard: without this, an empty tenant's lastRunAt never advances and it
-    // gets re-dispatched (a real ECS RunTask under the horizontal executor) every single tick.
-    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
+    expect(mockExecute).toHaveBeenCalledWith(
+      'scheduler-scan',
+      manual,
+      expect.objectContaining({ idempotencyKey: 'job-7', timeoutMs: expect.any(Number) })
+    );
   });
 
-  it('advances lastRunAt under the HORIZONTAL executor, which resolves to void (no SchedulerResult)', async () => {
-    // THE production case: WORKER_ARCH=horizontal dispatches the scan to a separate
-    // ephemeral ECS task and resolves execute() to `undefined` on exit 0 — the scan
-    // result never crosses the process boundary. Gating lastRunAt on the return value
-    // (processedTenantIds/checkedTenantIds) left it permanently null, so every tenant
-    // was re-dispatched every tick forever. lastRunAt must advance on a clean resolve.
-    const pgService = await import('./services/pg-service.js');
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
-    mockExecute.mockResolvedValueOnce(undefined); // horizontal executor returns void
-
+  it('runs an empty ({}) job payload without gating in the scan consumer', async () => {
     await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][2];
-    await workCallback([{ id: 'job-1', data: {} }]);
-
-    expect(mockExecute).toHaveBeenCalledWith('scheduler-scan', { triggeredBy: 'system', tenantId: 'tenant-1' });
-    expect(pgService.updateTenantJobLastRun).toHaveBeenCalledWith('tenant-1', 'scheduler-cron', expect.any(String));
-  });
-
-  it('should not advance lastRunAt or abort the loop when executor.execute throws for a tenant', async () => {
-    const pgService = await import('./services/pg-service.js');
-    vi.mocked(pgService.getTenantJobConfig).mockResolvedValueOnce({ intervalMinutes: 60, lastRunAt: null });
-    mockExecute.mockRejectedValueOnce(new Error('AccessDeniedException: not authorized to perform ecs:RunTask'));
-
-    await register(mockBoss, mockExecutor);
-    const workCallback = mockWork.mock.calls[0][2];
-    // Must not throw — an unhandled rejection here previously crashed the whole worker process.
-    await expect(workCallback([{ id: 'job-1', data: {} }])).resolves.not.toThrow();
-
-    expect(pgService.updateTenantJobLastRun).not.toHaveBeenCalled();
+    await scanHandler()([{ id: 'job-8', data: {} }]);
+    expect(mockExecute).toHaveBeenCalledWith('scheduler-scan', {}, expect.any(Object));
   });
 });

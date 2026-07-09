@@ -62,6 +62,6 @@ describe('kb-sync job registration', () => {
     const fakeJob = { id: 'job-1', data: { type: 'file-upload', kbId: 'kb-1', dsId: 'ds-1' } };
     await workCallback([fakeJob]);
 
-    expect(mockExecute).toHaveBeenCalledWith('kb-sync', fakeJob.data);
+    expect(mockExecute).toHaveBeenCalledWith('kb-sync', fakeJob.data, { idempotencyKey: 'job-1' });
   });
 });

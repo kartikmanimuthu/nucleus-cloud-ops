@@ -69,6 +69,27 @@ new aws.secretsmanager.SecretVersion("nextauth-secret-version", {
     secretString: nextauthSecretRandom.result,
 });
 
+// Shared secret authenticating the workers -> web-ui internal trigger endpoint
+// (agent-ops scheduled tasks). Both services read the SAME value; there is no
+// hardcoded fallback anymore, so this MUST be provisioned for scheduled agent
+// tasks to run. Random per stack.
+const internalApiKeyRandom = new random.RandomPassword("internal-api-key-random", {
+    length: 48,
+    special: false,
+    keepers: { version: "1" },
+});
+
+const internalApiKeySm = new aws.secretsmanager.Secret("internal-api-key", {
+    name: `${appName}/internal-api-key`,
+    description: "Shared secret for workers -> web-ui internal API calls",
+    recoveryWindowInDays: 0,
+});
+
+new aws.secretsmanager.SecretVersion("internal-api-key-version", {
+    secretId: internalApiKeySm.id,
+    secretString: internalApiKeyRandom.result,
+});
+
 const databaseUrlSm = new aws.secretsmanager.Secret("database-url", {
     name: `${appName}/database-url`,
     description: "Full PostgreSQL connection string for ECS tasks",
@@ -500,14 +521,14 @@ new aws.iam.RolePolicyAttachment("ecs-task-execution-role-policy", {
 
 new aws.iam.RolePolicy("ecs-execution-role-secrets-policy", {
     role: ecsTaskExecutionRole.id,
-    policy: pulumi.all([nextauthSecretSm.arn, databaseUrlSm.arn]).apply(
-        ([nextauthArn, dbArn]) =>
+    policy: pulumi.all([nextauthSecretSm.arn, databaseUrlSm.arn, internalApiKeySm.arn]).apply(
+        ([nextauthArn, dbArn, internalKeyArn]) =>
             JSON.stringify({
                 Version: "2012-10-17",
                 Statement: [{
                     Effect: "Allow",
                     Action: ["secretsmanager:GetSecretValue"],
-                    Resource: [nextauthArn, dbArn],
+                    Resource: [nextauthArn, dbArn, internalKeyArn],
                 }],
             })
     ),
@@ -659,11 +680,12 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         webUiImage.imageUri,
         nextauthSecretSm.arn,
         databaseUrlSm.arn,
+        internalApiKeySm.arn,
     ]).apply(([
         cognitoPoolId, cognitoClientId, cognitoClientSecret,
         appBucketN,
         webUiLogGroupN, acctId, imageUri,
-        nextauthSecretArn, databaseUrlArn,
+        nextauthSecretArn, databaseUrlArn, internalApiKeyArn,
     ]) => JSON.stringify([{
         name: "WebUIContainer",
         image: imageUri,
@@ -680,6 +702,7 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
         secrets: [
             { name: "NEXTAUTH_SECRET", valueFrom: nextauthSecretArn },
             { name: "DATABASE_URL", valueFrom: databaseUrlArn },
+            { name: "INTERNAL_API_KEY", valueFrom: internalApiKeyArn },
         ],
         environment: [
             { name: "NODE_ENV", value: "production" },
@@ -1082,6 +1105,22 @@ new aws.iam.RolePolicy("workers-s3vectors-policy", {
     }),
 });
 
+// CloudWatch custom metrics (best-effort dead-letter / queue-depth metrics from
+// observability.ts). PutMetricData cannot be resource-scoped; namespace is
+// constrained via a condition so this cannot publish outside Nucleus/Workers.
+new aws.iam.RolePolicy("workers-cloudwatch-metrics-policy", {
+    role: workersTaskRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Action: ["cloudwatch:PutMetricData"],
+            Resource: ["*"],
+            Condition: { StringEquals: { "cloudwatch:namespace": "Nucleus/Workers" } },
+        }],
+    }),
+});
+
 new aws.iam.RolePolicy("workers-s3-policy", {
     role: workersTaskRole.id,
     policy: appBucket.arn.apply(arn =>
@@ -1157,9 +1196,11 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
         snsTopic.arn,
         workersImage.imageUri,
         databaseUrlSm.arn,
+        internalApiKeySm.arn,
+        cloudFrontDistribution.domainName,
     ]).apply(([
         appBucketN,
-        ephLogGroupN, snsTopicArn, imageUri, databaseUrlArn,
+        ephLogGroupN, snsTopicArn, imageUri, databaseUrlArn, internalApiKeyArn, cloudFrontDomain,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
         image: imageUri,
@@ -1174,6 +1215,9 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
         },
         secrets: [
             { name: "DATABASE_URL", valueFrom: databaseUrlArn },
+            // Ephemeral tasks run job-runner, which for agent-ops-tick makes the
+            // authenticated internal call back to the web-ui — needs the shared key.
+            { name: "INTERNAL_API_KEY", valueFrom: internalApiKeyArn },
         ],
         environment: [
             { name: "AWS_REGION", value: region },
@@ -1181,6 +1225,7 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
             { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
             { name: "USE_PG_SCHEDULES", value: "true" },
             { name: "LOG_LEVEL", value: "info" },
+            { name: "WEB_UI_BASE_URL", value: `https://${cloudFrontDomain}` },
         ],
     }])),
 }, { retainOnDelete: true });
@@ -1259,14 +1304,32 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
         workersSecurityGroup.id,
         privateSubnetIds.apply(ids => ids.join(",")),
         databaseUrlSm.arn,
+        internalApiKeySm.arn,
+        cloudFrontDistribution.domainName,
     ]).apply(([
         appBucketN,
         workersLogGroupN, snsTopicArn, imageUri,
-        clusterArn, ephTaskDefArn, workersSgId, subnetsJoined, databaseUrlArn,
+        clusterArn, ephTaskDefArn, workersSgId, subnetsJoined, databaseUrlArn, internalApiKeyArn, cloudFrontDomain,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
         image: imageUri,
         essential: true,
+        // Give in-flight pg-boss handlers time to drain before SIGKILL. Must exceed
+        // the boss.stop() graceful timeout (90s in index.ts).
+        stopTimeout: 120,
+        // Container health check: probes the liveness server (health.ts). Goes
+        // unhealthy when the pg-boss supervisor loop stops emitting monitor-states,
+        // so ECS replaces a wedged task instead of leaving all crons silently dead.
+        healthCheck: {
+            command: [
+                "CMD-SHELL",
+                "node -e \"require('http').get('http://127.0.0.1:8080/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
+            ],
+            interval: 30,
+            timeout: 5,
+            retries: 3,
+            startPeriod: 60,
+        },
         logConfiguration: {
             logDriver: "awslogs",
             options: {
@@ -1277,6 +1340,7 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
         },
         secrets: [
             { name: "DATABASE_URL", valueFrom: databaseUrlArn },
+            { name: "INTERNAL_API_KEY", valueFrom: internalApiKeyArn },
         ],
         environment: [
             { name: "AWS_REGION", value: region },
@@ -1284,6 +1348,13 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
             { name: "BEDROCK_MODEL_ID", value: "amazon.titan-embed-text-v2:0" },
             { name: "USE_PG_SCHEDULES", value: "true" },
             { name: "LOG_LEVEL", value: "info" },
+            { name: "HEALTH_PORT", value: "8080" },
+            // The workers -> web-ui internal trigger reaches the app via the public
+            // CloudFront URL (NAT egress). The ALB is internet-facing and its SG
+            // only admits CloudFront's prefix list, so a private-subnet worker
+            // cannot hit the ALB directly; CloudFront also injects the
+            // X-Origin-Verify header the origin path expects.
+            { name: "WEB_UI_BASE_URL", value: `https://${cloudFrontDomain}` },
             { name: "WORKER_ARCH", value: "horizontal" },
             { name: "HORIZONTAL_CLUSTER_ARN", value: clusterArn },
             { name: "HORIZONTAL_TASK_DEF_ARN", value: ephTaskDefArn },
@@ -1298,9 +1369,18 @@ const workersService = new aws.ecs.Service("workers-service", {
     name: "nucleus-cloud-ops-workers-service",
     cluster: ecsCluster.arn,
     taskDefinition: workersTaskDef.arn,
-    desiredCount: 1,
+    // 2 replicas for HA / zero-downtime rollouts. Safe now that duplicate execution
+    // is structurally prevented: atomic per-tenant claim (tryClaimTenantRun) +
+    // per-tenant stately singletonKeys + idempotent ECS launch (startedBy). pg-boss
+    // itself dedups cron fires across instances (singletonKey + singletonSeconds),
+    // and work() uses SELECT ... FOR UPDATE SKIP LOCKED so a job runs on one replica.
+    desiredCount: 2,
     launchType: "FARGATE",
     forceNewDeployment: true,
+    // Roll one task at a time (keep >=1 serving) and let ECS roll back a bad deploy.
+    deploymentMinimumHealthyPercent: 50,
+    deploymentMaximumPercent: 200,
+    deploymentCircuitBreaker: { enable: true, rollback: true },
     networkConfiguration: {
         subnets: privateSubnetIds,
         securityGroups: [workersSecurityGroup.id],

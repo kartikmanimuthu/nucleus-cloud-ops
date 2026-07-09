@@ -7,15 +7,20 @@ import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { env } from '@/env';
 
-const INTERNAL_API_KEY = env.INTERNAL_API_KEY || 'internal-worker-key';
-
 /**
  * Resolve tenantId from either session auth or internal worker header.
  * Workers pass x-internal-key + x-tenant-id to bypass NextAuth session.
+ *
+ * The internal path authenticates ONLY when INTERNAL_API_KEY is configured AND
+ * matches. There is deliberately no hardcoded fallback: a default like
+ * 'internal-worker-key' would let anyone able to reach this service trigger any
+ * tenant's task by sending the well-known key + an arbitrary x-tenant-id. If the
+ * env var is unset, the internal branch never matches and we fall through to
+ * session auth (fail closed).
  */
 async function resolveTenantId(req: Request): Promise<string> {
     const internalKey = req.headers.get('x-internal-key');
-    if (internalKey === INTERNAL_API_KEY) {
+    if (env.INTERNAL_API_KEY && internalKey === env.INTERNAL_API_KEY) {
         const tenantId = req.headers.get('x-tenant-id');
         if (!tenantId) throw new Error('x-tenant-id header required for internal calls');
         return tenantId;

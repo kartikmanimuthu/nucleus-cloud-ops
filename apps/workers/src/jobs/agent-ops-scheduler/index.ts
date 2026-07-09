@@ -1,14 +1,38 @@
 import type PgBoss from 'pg-boss';
+import { Cron } from 'croner';
 import { createLogger } from '../../lib/logger.js';
 import type { JobExecutor } from '../../executor/index.js';
+import { DEAD_LETTER_QUEUE } from '../../lib/tenant-fanout.js';
 import { Pool, type PoolClient } from 'pg';
 import { env } from '../../env.js';
-import { diffScheduleSync, type ActiveTaskRow, type RegisteredEntry } from './sync.js';
+
+export interface ActiveTaskRow {
+    taskId: string;
+    tenantId: string;
+    cronExpression: string;
+    timezone: string;
+}
 
 const log = createLogger('agent-ops-scheduler');
 
-const QUEUE_PREFIX = 'agent-ops-task';
-const INTERNAL_API_KEY = env.INTERNAL_API_KEY || 'internal-worker-key';
+// Single shared tick queue for ALL tenant scheduled tasks. The previous design
+// created one pg-boss queue + one work() poller PER active task (pgboss.schedule
+// is keyed by queue name, so per-task cron forces per-task queues). At N tasks
+// that was N pollers each doing an indexed SELECT every pollingIntervalSeconds
+// (1s) — O(N) DB round-trips/second doing nothing — plus a consumer/queue leak on
+// task deletion. This sweeper evaluates cron in-app and multiplexes every task
+// onto ONE queue: one poller, unlimited tasks, no per-task leak.
+const TICK_QUEUE = 'agent-ops-tick';
+
+// How often the sweeper evaluates which tasks are due.
+const SWEEP_INTERVAL_MS = 30_000;
+// A task counts as "due" if its most recent scheduled occurrence is within this
+// window (mirrors pg-boss's own timekeeper `prevDiff < 60`). singletonSeconds:60
+// on the send collapses the two sweeps that fall inside one due-minute into a
+// single tick, and works across replicas.
+const DUE_WINDOW_MS = 60_000;
+
+const INTERNAL_API_KEY = env.INTERNAL_API_KEY;
 const WEB_UI_BASE_URL = env.WEB_UI_BASE_URL || `http://localhost:${env.PORT || 3000}`;
 
 let _pool: Pool | null = null;
@@ -63,16 +87,6 @@ export interface TaskTickData {
     tenantId: string;
 }
 
-function queueName(taskId: string): string {
-    return `${QUEUE_PREFIX}:${taskId}`;
-}
-
-const SYNC_INTERVAL_MS = 60_000;
-
-const registeredSchedules = new Map<string, RegisteredEntry>();
-const startedConsumers = new Set<string>();
-let syncInFlight = false;
-
 let _prisma: import('@prisma/client').PrismaClient | null = null;
 async function getPrisma(): Promise<import('@prisma/client').PrismaClient> {
     if (!_prisma) {
@@ -90,9 +104,39 @@ async function loadActiveTasks(): Promise<ActiveTaskRow[]> {
     });
 }
 
+/**
+ * Pure selection of which active tasks are due at `nowMs`. A task is due if its
+ * most recent scheduled occurrence (per its cron + timezone) falls within
+ * `windowMs` before now. A malformed cron expression is skipped (never throws).
+ */
+export function selectDueTasks(tasks: ActiveTaskRow[], nowMs: number, windowMs: number): ActiveTaskRow[] {
+    const ref = new Date(nowMs);
+    return tasks.filter((t) => {
+        try {
+            const cron = new Cron(t.cronExpression, { timezone: t.timezone });
+            const prev = cron.previousRuns(1, ref)[0];
+            return !!prev && nowMs - prev.getTime() < windowMs;
+        } catch (err) {
+            log.warn('Invalid cron expression — skipping task', {
+                taskId: t.taskId,
+                cronExpression: t.cronExpression,
+                error: err instanceof Error ? err.message : String(err),
+            });
+            return false;
+        }
+    });
+}
+
 export async function handleAgentOpsTick(jobData: unknown): Promise<void> {
     const { taskId, tenantId } = jobData as TaskTickData;
     log.info(`Tick: task=${taskId} tenant=${tenantId}`);
+
+    if (!INTERNAL_API_KEY) {
+        // Fail closed: without a shared secret we cannot authenticate to the web-ui
+        // internal trigger endpoint. Throw so pg-boss retries (and the misconfig is
+        // loud) rather than silently dropping the scheduled run.
+        throw new Error('INTERNAL_API_KEY is not configured — cannot trigger scheduled task');
+    }
 
     await writeAuditLog({
         tenantId,
@@ -105,129 +149,145 @@ export async function handleAgentOpsTick(jobData: unknown): Promise<void> {
         metadata: { taskId, tenantId },
     });
 
-    try {
-        const url = `${WEB_UI_BASE_URL}/api/agent-ops/scheduled-tasks/${taskId}/trigger`;
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-internal-key': INTERNAL_API_KEY,
-                'x-tenant-id': tenantId,
-            },
-            body: JSON.stringify({ source: 'worker' }),
-        });
+    const url = `${WEB_UI_BASE_URL}/api/agent-ops/scheduled-tasks/${taskId}/trigger`;
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-internal-key': INTERNAL_API_KEY,
+            'x-tenant-id': tenantId,
+        },
+        body: JSON.stringify({ source: 'worker' }),
+    });
 
-        if (!res.ok) {
-            const body = await res.text();
-            log.error(`Trigger failed for task ${taskId}: ${res.status} ${body}`);
-
-            await writeAuditLog({
-                tenantId,
-                eventType: 'agent.task.cron_failed',
-                action: 'Cron Trigger Failed',
-                resourceId: taskId,
-                status: 'error',
-                severity: 'high',
-                details: `Agent ops scheduler trigger failed for task ${taskId}: ${res.status}`,
-                metadata: { taskId, tenantId, statusCode: res.status },
-            });
-        } else {
-            const data = await res.json() as { runId: string };
-            log.info(`Triggered task ${taskId}: runId=${data.runId}`);
-
-            await writeAuditLog({
-                tenantId,
-                eventType: 'agent.task.cron_completed',
-                action: 'Cron Trigger Completed',
-                resourceId: taskId,
-                status: 'success',
-                severity: 'info',
-                details: `Agent ops scheduler triggered task ${taskId}, runId=${data.runId}`,
-                metadata: { taskId, tenantId, runId: data.runId },
-            });
-        }
-    } catch (err) {
-        log.error(`Trigger error for task ${taskId}`, { error: String(err) });
-
+    if (!res.ok) {
+        const body = await res.text();
+        log.error(`Trigger failed for task ${taskId}: ${res.status} ${body}`);
         await writeAuditLog({
             tenantId,
             eventType: 'agent.task.cron_failed',
-            action: 'Cron Trigger Error',
+            action: 'Cron Trigger Failed',
             resourceId: taskId,
             status: 'error',
             severity: 'high',
-            details: `Agent ops scheduler error for task ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
-            metadata: { taskId, tenantId },
+            details: `Agent ops scheduler trigger failed for task ${taskId}: ${res.status}`,
+            metadata: { taskId, tenantId, statusCode: res.status },
         });
-    }
-}
-
-async function ensureTaskRegistered(boss: PgBoss, executor: JobExecutor, task: ActiveTaskRow): Promise<void> {
-    const queue = queueName(task.taskId);
-    await boss.createQueue(queue);
-
-    // pg-boss allows one work() subscription per queue per process
-    if (!startedConsumers.has(queue)) {
-        executor.registerHandler?.(queue, handleAgentOpsTick);
-        await boss.work(queue, { batchSize: 1 }, async (jobs: PgBoss.Job<TaskTickData>[]) => {
-            for (const job of jobs) {
-                await executor.execute(queue, job.data);
-            }
-        });
-        startedConsumers.add(queue);
+        // Retry 5xx, 429, 408 (transient), AND 401/403 — an auth failure is almost
+        // always an INTERNAL_API_KEY misconfig, which must be LOUD (retry → exhaust →
+        // dead-letter), never a silent green tick that drops every tenant's scheduled
+        // run. Only task-STATE 4xx (404 not-found / 409 duplicate / 410 paused-or-
+        // deleted) that the web-ui returns deliberately are terminal.
+        const retryable =
+            res.status >= 500 || res.status === 429 || res.status === 408
+            || res.status === 401 || res.status === 403;
+        if (!retryable) {
+            log.warn(`Task ${taskId} trigger returned ${res.status} — terminal task state (no retry)`);
+            return;
+        }
+        throw new Error(`Trigger failed for task ${taskId}: ${res.status} (retryable)`);
     }
 
-    // schedule() upserts by queue name — safe for both add and update
-    await boss.schedule(queue, task.cronExpression, {
-        taskId: task.taskId,
-        tenantId: task.tenantId,
-    } satisfies TaskTickData, { tz: task.timezone });
-
-    registeredSchedules.set(task.taskId, {
-        cronExpression: task.cronExpression,
-        timezone: task.timezone,
+    const data = await res.json() as { runId: string };
+    log.info(`Triggered task ${taskId}: runId=${data.runId}`);
+    await writeAuditLog({
+        tenantId,
+        eventType: 'agent.task.cron_completed',
+        action: 'Cron Trigger Completed',
+        resourceId: taskId,
+        status: 'success',
+        severity: 'info',
+        details: `Agent ops scheduler triggered task ${taskId}, runId=${data.runId}`,
+        metadata: { taskId, tenantId, runId: data.runId },
     });
 }
 
-export async function syncSchedules(boss: PgBoss, executor: JobExecutor): Promise<void> {
-    if (syncInFlight) {
-        log.info('Schedule re-sync skipped — previous sync still in flight');
+let sweepInFlight = false;
+
+/** Query active tasks, select those due, and enqueue one tick each. */
+export async function sweep(boss: PgBoss): Promise<void> {
+    if (sweepInFlight) {
+        log.debug('Sweep skipped — previous sweep still in flight');
         return;
     }
-    syncInFlight = true;
+    sweepInFlight = true;
     try {
         const active = await loadActiveTasks();
-        const diff = diffScheduleSync(active, registeredSchedules);
-
-        for (const task of [...diff.toAdd, ...diff.toUpdate]) {
+        const due = selectDueTasks(active, Date.now(), DUE_WINDOW_MS);
+        for (const task of due) {
             try {
-                await ensureTaskRegistered(boss, executor, task);
-                log.info(`Registered schedule for task ${task.taskId} (${task.cronExpression} ${task.timezone})`);
+                await boss.send(
+                    TICK_QUEUE,
+                    { taskId: task.taskId, tenantId: task.tenantId } satisfies TaskTickData,
+                    {
+                        // Per-task de-dup within the due minute (and across replicas).
+                        singletonKey: `task:${task.taskId}`,
+                        singletonSeconds: 60,
+                        retryLimit: 3,
+                        retryDelay: 60,
+                        retryBackoff: true,
+                        expireInSeconds: 300,
+                    },
+                );
             } catch (err) {
-                log.error(`Failed to register task ${task.taskId}`, { error: String(err) });
+                log.error(`Failed to enqueue tick for task ${task.taskId}`, { error: String(err) });
             }
         }
-
-        for (const taskId of diff.toRemove) {
-            try {
-                await boss.unschedule(queueName(taskId));
-            } catch { /* schedule may not exist — safe to ignore */ }
-            registeredSchedules.delete(taskId);
-            log.info(`Unscheduled task ${taskId}`);
-        }
+        if (due.length) log.info(`Enqueued ${due.length} due task tick(s)`, { active: active.length });
     } finally {
-        syncInFlight = false;
+        sweepInFlight = false;
     }
 }
 
 export async function register(boss: PgBoss, executor: JobExecutor): Promise<void> {
-    await syncSchedules(boss, executor);
+    executor.registerHandler?.(TICK_QUEUE, handleAgentOpsTick);
 
-    setInterval(() => {
-        syncSchedules(boss, executor).catch(err =>
-            log.error('Schedule re-sync failed', { error: String(err) }),
-        );
-    }, SYNC_INTERVAL_MS);
+    await boss.createQueue(TICK_QUEUE);
+    await boss.updateQueue(TICK_QUEUE, {
+        name: TICK_QUEUE,
+        retryLimit: 3,
+        expireInSeconds: 300,
+        deadLetter: DEAD_LETTER_QUEUE,
+    });
 
-    log.info(`Registered ${registeredSchedules.size} agent-ops scheduled task(s); re-sync every ${SYNC_INTERVAL_MS / 1000}s`);
+    // Single poller for all tasks. batchSize:5 lets independent tenants' ticks run
+    // concurrently without one poller per task.
+    await boss.work<TaskTickData>(TICK_QUEUE, { batchSize: 5 }, async (jobs) => {
+        for (const job of jobs) {
+            await executor.execute(TICK_QUEUE, job.data, { idempotencyKey: job.id });
+        }
+    });
+
+    await sweep(boss);
+    sweepTimer = setInterval(() => {
+        sweep(boss).catch((err) => log.error('Sweep failed', { error: String(err) }));
+    }, SWEEP_INTERVAL_MS);
+
+    log.info(`Registered agent-ops sweeper on '${TICK_QUEUE}'; sweep every ${SWEEP_INTERVAL_MS / 1000}s`);
+}
+
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Stop scheduling new sweeps. Call at the START of shutdown, before boss.stop(),
+ *  so no tick is enqueued against a stopping boss while in-flight handlers drain. */
+export function stopAgentOpsSweeper(): void {
+    if (sweepTimer) {
+        clearInterval(sweepTimer);
+        sweepTimer = null;
+    }
+}
+
+/** Close the module-owned DB handles. Call AFTER boss.stop() so draining tick
+ *  handlers can still write their audit rows. */
+export async function closeAgentOpsResources(): Promise<void> {
+    try {
+        if (_pool) { await _pool.end(); _pool = null; }
+    } catch (err) {
+        log.warn('Error closing agent-ops pool', { error: String(err) });
+    }
+    try {
+        if (_prisma) { await _prisma.$disconnect(); _prisma = null; }
+    } catch (err) {
+        log.warn('Error disconnecting agent-ops prisma', { error: String(err) });
+    }
 }

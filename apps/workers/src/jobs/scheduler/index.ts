@@ -2,12 +2,20 @@ import type PgBoss from 'pg-boss';
 import { createLogger } from '../../lib/logger.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { runFullScan, runPartialScan } from './services/scheduler-service.js';
-import { getActiveTenants, getTenantJobConfig, updateTenantJobLastRun } from './services/pg-service.js';
+import { getActiveTenants, getTenantJobConfig } from './services/pg-service.js';
+import { ensureStatelyScanQueue, dispatchTenantScan } from '../../lib/tenant-fanout.js';
 import type { SchedulerEvent } from './types/index.js';
 
 const log = createLogger('scheduler');
 
 const JOB_NAME = 'scheduler-scan';
+const FAN_OUT = 'scheduler-fan-out';
+
+// A scan MUTATES live AWS resources (start/stop). retryLimit:0 → an interrupted scan
+// is DISCARDED, never resurrected hours later to fire stale start/stop commands; the
+// next cron tick re-evaluates state. expireInSeconds caps handler runtime and now
+// bounds ONE tenant's scan (not the whole tenant loop), so it is meaningful again.
+const SCAN_EXPIRE_SECONDS = 900;
 
 export async function handleSchedulerJob(jobData: unknown) {
     const event = jobData as SchedulerEvent | undefined;
@@ -26,7 +34,7 @@ export async function handleSchedulerJob(jobData: unknown) {
         return result;
     } else {
         // Full scan: when a tenantId is supplied (manual dashboard trigger or a
-        // per-tenant cron tick) scope the scan to that tenant; otherwise scan all.
+        // per-tenant fan-out job) scope the scan to that tenant; otherwise scan all.
         const result = await runFullScan(triggeredBy, event?.tenantId);
         log.info('Full scan complete', { result });
         return result;
@@ -36,128 +44,71 @@ export async function handleSchedulerJob(jobData: unknown) {
 export async function register(boss: PgBoss, executor: JobExecutor): Promise<void> {
     executor.registerHandler?.(JOB_NAME, handleSchedulerJob);
 
-    // The scan queue MUST bound its own backlog, or it floods the cluster with
-    // ephemeral ECS tasks. Under WORKER_ARCH=horizontal each due-tenant dispatch
-    // blocks the single work() slot (batchSize:1) for the full lifetime of an
-    // ephemeral Fargate task — HorizontalExecutor fires RunTask then polls until
-    // STOPPED (tens of seconds/tenant). While that slot is blocked the '*/5' cron
-    // keeps firing, and on a 'standard' queue every tick enqueues ANOTHER
-    // scheduler-scan job that simply stacks in 'created'. Once consumption falls
-    // behind production the backlog grows without limit; on the next worker start
-    // pg-boss drains it at pollingIntervalSeconds (1s), re-running the whole tenant
-    // loop ~once/second and firing a real ephemeral RunTask for every tenant past
-    // its interval — the "ephemeral task flood". 'stately' caps the queue at one job
-    // in 'created' + one 'active' per singletonKey, so the cron can never stack.
-    // (Same fix discovery-scan / right-sizing already carry.)
-    const existingQueue = await boss.getQueue(JOB_NAME);
-    if (!existingQueue) {
-        await boss.createQueue(JOB_NAME, { name: JOB_NAME, policy: 'stately', retryLimit: 0, expireInSeconds: 900 });
-    } else if (existingQueue.policy !== 'stately') {
-        // One-time migration off the old unbounded 'standard' queue: purge the stacked
-        // backlog (everything not yet completed) so it stops draining, then flip the
-        // policy. Idempotent — skipped once the queue is already 'stately'.
-        log.info('Migrating scheduler-scan queue to stately policy', { oldPolicy: existingQueue.policy });
-        const db = boss.getDb();
-        await db.executeSql(`DELETE FROM pgboss.job WHERE name = 'scheduler-scan' AND state NOT IN ('completed')`, []);
-        await db.executeSql(`UPDATE pgboss.queue SET policy = 'stately', updated_on = now() WHERE name = 'scheduler-scan'`, []);
-    }
-    // A scan MUTATES live AWS resources (start/stop). If the worker is killed
-    // mid-scan the job is orphaned in 'active'; under the global defaults
-    // (expireInHours: 4, retryLimit: 3) pg-boss would resurrect and re-run it up
-    // to 4 hours later — firing stale start/stop commands at an unexpected time.
-    // For this queue that is unsafe, so:
-    //   retryLimit: 0     → an interrupted/failed scan is DISCARDED, never re-run
-    //                       (the next cron tick or manual trigger re-evaluates state).
-    //   expireInSeconds   → bounds how long an orphaned 'active' job lingers before
-    //                       pg-boss fails it. This value also caps the handler runtime
-    //                       (pg-boss derives the handler timeout from it), so it must
-    //                       comfortably exceed the longest legitimate scan.
-    // updateQueue enforces these on the pre-existing queue too (createQueue's opts are
-    // ON CONFLICT DO NOTHING); it does NOT change policy — the migration above owns that.
-    await boss.updateQueue(JOB_NAME, { name: JOB_NAME, retryLimit: 0, expireInSeconds: 900 });
+    // Per-tenant scan queue (stately, bounded, dead-lettered). Handles BOTH the
+    // fanned-out system scans (singletonKey `tenant:<id>`) and the manual "Execute
+    // Now" / "run schedule now" triggers sent from web-ui (singletonKey
+    // `manual:<...>`). Distinct singleton buckets mean a system scan never
+    // suppresses a user's manual action and vice-versa — and, critically, one
+    // tenant's manual scan never suppresses ANOTHER tenant's.
+    await ensureStatelyScanQueue(boss, JOB_NAME, log, {
+        expireInSeconds: SCAN_EXPIRE_SECONDS,
+        retryLimit: 0,
+    });
 
-    // Global tick — every 5 min (matches minimum supported tenant interval).
-    // singletonKey scopes the 'stately' de-dup to a CRON-only bucket: at most one
-    // cron-originated scan is ever queued/active, while manual "Execute Now" triggers
-    // (sent from web-ui with no singletonKey) live in a separate bucket and are never
-    // suppressed by an in-flight cron scan.
-    await boss.schedule(JOB_NAME, '*/5 * * * *', {}, { tz: 'UTC', singletonKey: 'scheduler-cron' });
+    // Fan-out queue: the cron tick lands here and does ONLY cheap gate+enqueue work
+    // (milliseconds per tenant). This is the fix for the old design where the cron
+    // handler ran the whole tenant loop inline — under WORKER_ARCH=horizontal each
+    // tenant dispatch blocked the single work() slot for the full lifetime of an
+    // ephemeral Fargate task, so with more than a handful of tenants one tick blew
+    // past expireInSeconds, pg-boss freed the stately cron bucket, and the NEXT tick
+    // started a second concurrent loop → duplicate RunTask per tenant → duplicate
+    // start/stop against customer AWS. Fanning out makes overlap structurally
+    // impossible (per-tenant singleton) and makes throughput scale with replicas.
+    await boss.createQueue(FAN_OUT);
+    await boss.updateQueue(FAN_OUT, { name: FAN_OUT, retryLimit: 1, expireInSeconds: 300 });
 
-    // batchSize: 1 prevents concurrent scans
-    await boss.work<SchedulerEvent>(
-        JOB_NAME,
-        { batchSize: 1 },
-        async (jobs) => {
-            for (const job of jobs) {
-                const data = (job.data || {}) as SchedulerEvent;
+    // Retire the legacy cron that used to fire directly on scheduler-scan
+    // (singletonKey 'scheduler-cron'); the fan-out queue owns the cron now.
+    try {
+        await boss.unschedule(JOB_NAME);
+    } catch { /* no prior schedule — fine */ }
 
-                // Manual trigger — a partial scan (scheduleId/scheduleName) or a
-                // dashboard full-scan (triggeredBy 'web-ui'). Run immediately and
-                // bypass per-tenant interval gating.
-                if (data.triggeredBy === 'web-ui' || data.scheduleId || data.scheduleName) {
-                    log.info('Manual scheduler trigger — running immediately', {
-                        triggeredBy: data.triggeredBy,
-                        scheduleId: data.scheduleId,
-                        tenantId: data.tenantId,
-                    });
-                    await executor.execute(JOB_NAME, data);
-                    continue;
-                }
+    // Global tick every 5 min (matches the minimum supported tenant interval).
+    await boss.schedule(FAN_OUT, '*/5 * * * *', {}, { tz: 'UTC', singletonKey: 'scheduler-cron' });
 
-                // System cron tick ({} payload) — interval-gate EACH tenant and
-                // scan only those due, scoped per tenant (respects per-tenant intervals).
-                const tenants = await getActiveTenants();
-                const now = Date.now();
-                const runAt = new Date().toISOString();
+    // Fan-out handler — gate each tenant atomically and enqueue only those due.
+    await boss.work(FAN_OUT, { batchSize: 1 }, async () => {
+        const tenants = await getActiveTenants();
+        let dispatched = 0;
+        for (const tenant of tenants) {
+            const config = await getTenantJobConfig(tenant.id, 'scheduler-cron');
+            const outcome = await dispatchTenantScan({
+                boss,
+                scanQueue: JOB_NAME,
+                tenantId: tenant.id,
+                jobType: 'scheduler-cron',
+                minIntervalMs: config.intervalMinutes * 60 * 1000,
+                payload: { triggeredBy: 'system', tenantId: tenant.id } satisfies SchedulerEvent,
+                log,
+                sendOptions: { retryLimit: 0, expireInSeconds: SCAN_EXPIRE_SECONDS },
+            });
+            if (outcome === 'dispatched') dispatched++;
+        }
+        log.info('Scheduler fan-out complete', { tenantCount: tenants.length, dispatched });
+    });
 
-                for (const tenant of tenants) {
-                    const config = await getTenantJobConfig(tenant.id, 'scheduler-cron');
-                    const thresholdMs = config.intervalMinutes * 60 * 1000;
-                    const lastRun = config.lastRunAt ? new Date(config.lastRunAt).getTime() : 0;
-                    if (now - lastRun < thresholdMs) {
-                        log.info('Skipping tenant — interval not elapsed', {
-                            tenantId: tenant.id,
-                            intervalMinutes: config.intervalMinutes,
-                            lastRunAt: config.lastRunAt,
-                        });
-                        continue;
-                    }
-
-                    // A single tenant's dispatch failing (e.g. a transient ECS/IAM error)
-                    // must not abort the rest of the tenant loop or crash the worker
-                    // process — pg-boss's handler callback has no outer catch, so an
-                    // unhandled rejection here previously took the whole service down.
-                    try {
-                        await executor.execute(JOB_NAME, {
-                            triggeredBy: 'system',
-                            tenantId: tenant.id,
-                        });
-                    } catch (err) {
-                        // Dispatch failed — do NOT advance lastRunAt, so the tenant is
-                        // retried on the next tick.
-                        log.error('Tenant scan dispatch failed — will retry next tick', {
-                            tenantId: tenant.id,
-                            error: err instanceof Error ? err.message : String(err),
-                        });
-                        continue;
-                    }
-
-                    // Advance lastRunAt on any SUCCESSFUL dispatch, regardless of whether
-                    // the tenant had work. Do NOT gate this on the scan's return value:
-                    // under WORKER_ARCH=horizontal, executor.execute() dispatches the scan
-                    // to a separate ephemeral ECS task and resolves to `void` on exit 0 —
-                    // the SchedulerResult (checkedTenantIds/processedTenantIds) is produced
-                    // inside that task's process and never crosses back here. Gating on it
-                    // left lastRunAt permanently null, so every tenant looked perpetually
-                    // "due" and was re-dispatched (a real RunTask) on every cron tick.
-                    // execute() resolves on success and throws on failure for BOTH the
-                    // vertical (in-process) and horizontal (ECS) executors, so a clean
-                    // resolve here is the correct, arch-independent "it ran" signal.
-                    await updateTenantJobLastRun(tenant.id, 'scheduler-cron', runAt);
-                }
-            }
-        },
-    );
+    // Scan consumer — runs one tenant's scan (system) or a manual trigger.
+    // batchSize:1 keeps a single scan per worker slot.
+    await boss.work<SchedulerEvent>(JOB_NAME, { batchSize: 1 }, async (jobs) => {
+        for (const job of jobs) {
+            await executor.execute(JOB_NAME, job.data || {}, {
+                idempotencyKey: job.id,
+                // Keep the executor timeout below the queue expiry so it stops a
+                // leaked ECS task before pg-boss expires and retries the job.
+                timeoutMs: (SCAN_EXPIRE_SECONDS - 60) * 1000,
+            });
+        }
+    });
 
     // Drain the 'scheduler-reschedule' queue produced by the web-ui settings PUT.
     // The interval is read from tenant_configs on every cron tick, so this message
@@ -171,5 +122,5 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
         }
     });
 
-    log.info('Registered scheduler-scan job + cron + reschedule drain');
+    log.info('Registered scheduler fan-out + per-tenant scan + reschedule drain');
 }
