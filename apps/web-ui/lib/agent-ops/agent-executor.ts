@@ -117,7 +117,7 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
         } catch { /* non-fatal */ }
 
         const graphInput = { messages: [new HumanMessage(taskDescription)] };
-        const graphRunConfig = { configurable: { thread_id: threadId }, recursionLimit: 50 };
+        const graphRunConfig = { configurable: { thread_id: threadId }, recursionLimit: 150 };
 
         // ── Event tracking ────────────────────────────────────────────────────
         const toolsUsed = new Set<string>();
@@ -539,7 +539,9 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
         };
 
         const graph = await createDynamicExecutorGraph(graphConfig);
-        const graphRunConfig = { configurable: { thread_id: threadId } };
+        // Match the initial-run recursionLimit; otherwise a resumed run would fall
+        // back to LangGraph's default of 25 (tighter than the initial 150).
+        const graphRunConfig = { configurable: { thread_id: threadId }, recursionLimit: 150 };
 
         // Inject approvalStatus='approved' so routing skips both gates on resume
         await (graph as any).updateState(graphRunConfig, {

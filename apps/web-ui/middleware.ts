@@ -45,6 +45,18 @@ export default withAuth(
         callbacks: {
             authorized: ({ token, req }) => {
                 const { pathname } = req.nextUrl;
+                // Internal worker -> web-ui call: the agent-ops scheduler triggers a
+                // scheduled task with a shared x-internal-key instead of a NextAuth
+                // session. Let it past the auth gate; the route's resolveTenantId still
+                // strictly validates the secret (and falls back to session auth if it
+                // does not match). Mirrors the api/v1/trigger matcher exemption.
+                if (
+                    pathname.startsWith("/api/agent-ops/scheduled-tasks/") &&
+                    pathname.endsWith("/trigger") &&
+                    req.headers.get("x-internal-key")
+                ) {
+                    return true;
+                }
                 // Public routes — no auth required
                 if (
                     pathname === "/login" ||

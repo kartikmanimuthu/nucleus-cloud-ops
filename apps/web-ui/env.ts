@@ -96,6 +96,11 @@ export const env = createEnv({
         DUAL_WRITE_SCHEDULES: z.string().optional(),
         INTERNAL_API_KEY: z.string().optional(),
         DEFAULT_TENANT_ID: z.string().optional(),
+        // Iteration budget for autonomous Agent Ops runs (scheduled/channel-triggered).
+        // Decoupled from the shared MAX_ITERATIONS=30 used by the interactive chat
+        // agents, since unattended runs (e.g. AWS auth → cost query → Slack) need
+        // more steps. Defaults to 150 when unset.
+        AGENT_OPS_MAX_ITERATIONS: z.string().optional(),
     },
 
     /**

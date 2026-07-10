@@ -141,9 +141,16 @@ export function getTenantClient(tenantId: string) {
                         };
                     }
 
-                    // Updates: inject tenantId into WHERE
+                    // Updates: inject tenantId into WHERE. Also strip tenantId from
+                    // `data` so a request body can NEVER re-home a row to another
+                    // tenant (a client-supplied data.tenantId would otherwise pass
+                    // straight to SET, orphaning the row and breaking tenant scoping).
                     if (['update', 'updateMany'].includes(operation)) {
                         args = { ...args, where: { ...args.where, tenantId } };
+                        if (args.data && typeof args.data === 'object' && 'tenantId' in (args.data as Record<string, unknown>)) {
+                            const { tenantId: _dropTenantId, ...restData } = args.data as Record<string, unknown>;
+                            args = { ...args, data: restData };
+                        }
                     }
 
                     // Deletes: inject tenantId into WHERE
