@@ -74,6 +74,16 @@ export const env = createEnv({
         JIRA_BASE_URL: z.string().optional(),
         JIRA_USER_EMAIL: z.string().optional(),
         JIRA_API_TOKEN: z.string().optional(),
+
+        // Platform-level OAuth apps (one-click connectors). When set, every
+        // tenant connects via these without registering their own OAuth app.
+        // A tenant may still override with a per-tenant ConnectorApp (BYO).
+        JIRA_OAUTH_CLIENT_ID: z.string().optional(),
+        JIRA_OAUTH_CLIENT_SECRET: z.string().optional(),
+        SLACK_OAUTH_CLIENT_ID: z.string().optional(),
+        SLACK_OAUTH_CLIENT_SECRET: z.string().optional(),
+        GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+        GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
         DISCORD_PUBLIC_KEY: z.string().optional(),
         TELEGRAM_BOT_TOKEN: z.string().optional(),
         TELEGRAM_SECRET_TOKEN: z.string().optional(),
