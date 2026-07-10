@@ -1349,6 +1349,13 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
             { name: "USE_PG_SCHEDULES", value: "true" },
             { name: "LOG_LEVEL", value: "info" },
             { name: "HEALTH_PORT", value: "8080" },
+            // Per-replica local heartbeat cadence for the container health check.
+            // Drives liveness independently of pg-boss's singleton monitor-states
+            // event, so every replica in an autoscaled fleet stays healthy — not
+            // just the one holding the monitor lock. 30s = 4 ticks within the
+            // 120s staleness budget (HEALTH_STALENESS_MS in index.ts). See
+            // apps/workers/src/lib/health.ts.
+            { name: "HEALTH_HEARTBEAT_INTERVAL_MS", value: "30000" },
             // The workers -> web-ui internal trigger reaches the app via the public
             // CloudFront URL (NAT egress). The ALB is internet-facing and its SG
             // only admits CloudFront's prefix list, so a private-subnet worker

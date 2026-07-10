@@ -76,6 +76,15 @@ export const env = createEnv({
         // Health server port (ECS container health check probes this). Default 8080.
         HEALTH_PORT: z.string().optional(),
 
+        // Per-replica local heartbeat cadence (ms). The health endpoint reports
+        // unhealthy when the heartbeat goes stale (> HEALTH_STALENESS_MS, see
+        // index.ts). This interval advances the heartbeat independently of
+        // pg-boss's singleton monitor-states event, so every replica in an
+        // autoscaled fleet stays healthy — not just the one holding the monitor
+        // lock. Default 30s (4 ticks within the 120s staleness budget). See
+        // health.ts.
+        HEALTH_HEARTBEAT_INTERVAL_MS: z.string().optional(),
+
         // Misc
         PORT: z.string().optional(),
         TENANT_ID: z.string().optional(),

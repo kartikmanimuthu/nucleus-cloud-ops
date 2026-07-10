@@ -1,7 +1,7 @@
 import { createBoss } from './boss.js';
 import { createExecutor } from './executor/index.js';
 import { createLogger } from './lib/logger.js';
-import { startHealthServer, markReady } from './lib/health.js';
+import { startHealthServer, markReady, startLocalHeartbeat, stopLocalHeartbeat } from './lib/health.js';
 import type { Server } from 'node:http';
 import { registerDeadLetterQueue, registerMonitoring, registerErrorTripwire } from './lib/observability.js';
 import { register as registerSchedulerJobs } from './jobs/scheduler/index.js';
@@ -25,6 +25,12 @@ const HEALTH_PORT = parseInt(env.HEALTH_PORT ?? '8080', 10);
 // monitor-states ticks every 30s (see boss.ts). Allow ~4 missed ticks before we
 // declare the supervisor wedged, so a single slow tick does not flap the task.
 const HEALTH_STALENESS_MS = 120_000;
+// Per-replica local heartbeat cadence. Default 30s = 4 ticks within the 120s
+// staleness budget, so a single missed tick never flaps the task. This is the
+// load-bearing liveness signal across a multi-replica / autoscaled fleet — pg-boss
+// monitor-states is a singleton and can't drive every replica's heartbeat. See
+// lib/health.ts.
+const HEALTH_HEARTBEAT_INTERVAL_MS = parseInt(env.HEALTH_HEARTBEAT_INTERVAL_MS ?? '30000', 10);
 
 let healthServer: Server | undefined;
 
@@ -41,7 +47,9 @@ async function shutdown(signal: string): Promise<void> {
     // Stop scheduling new agent-ops ticks BEFORE draining, so the sweeper interval
     // cannot enqueue against a stopping boss during the drain window.
     stopAgentOpsSweeper();
-    // Fail the health check immediately so ECS/LB stops routing to this task.
+    // Stop advancing the heartbeat and fail the health check immediately so ECS
+    // stops routing work to a draining task.
+    stopLocalHeartbeat();
     healthServer?.close();
     try {
         // Give in-flight handlers time to finish. Must stay below the ECS task
@@ -64,9 +72,13 @@ async function main() {
 
     // Health server first so ECS gets a fast /live even while queues register.
     healthServer = startHealthServer({ port: HEALTH_PORT, stalenessMs: HEALTH_STALENESS_MS });
+    // Local heartbeat drives liveness per-replica (not via pg-boss's singleton
+    // monitor-states) — correct for HA / autoscale. See lib/health.ts.
+    startLocalHeartbeat(HEALTH_HEARTBEAT_INTERVAL_MS);
 
-    // Error tripwire + monitoring replace the bare error log: sustained errors now
-    // exit the process (ECS restarts), and monitor-states drives the heartbeat.
+    // Error tripwire + monitoring: sustained boss 'error' bursts exit the process
+    // (ECS restarts), and monitor-states / wip / maintenance bump the heartbeat as
+    // a bonus on top of the per-replica local timer above.
     registerErrorTripwire(boss, log, { threshold: 10, windowMs: 60_000 });
     registerMonitoring(boss, log);
 
