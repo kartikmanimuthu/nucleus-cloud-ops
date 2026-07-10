@@ -8,6 +8,7 @@
  */
 import { getConnectorRepository } from '@/lib/db/repository-factory';
 import { refreshAccessToken } from './token-exchange';
+import { resolveAppCredentials } from './app-credentials';
 import { encryptJson, decryptJson } from '@/lib/crypto/provider-credentials';
 import type { ConnectorProvider } from '@/lib/db/repositories/connectors/interface';
 
@@ -23,9 +24,9 @@ export async function getUsableAccessToken(
     const expired = conn.expiresAt ? conn.expiresAt.getTime() - EXPIRY_SKEW_MS < Date.now() : false;
 
     if (expired && conn.refreshTokenEnc) {
-        const app = await repo.getApp(provider, tenantId);
-        if (app) {
-            const refreshed = await refreshAccessToken(provider, app, decryptJson<string>(conn.refreshTokenEnc));
+        const creds = await resolveAppCredentials(provider, tenantId);
+        if (creds) {
+            const refreshed = await refreshAccessToken(provider, creds, decryptJson<string>(conn.refreshTokenEnc));
             await repo.updateConnectionTokens(conn.id, tenantId, {
                 accessTokenEnc: encryptJson(refreshed.accessToken),
                 refreshTokenEnc: refreshed.refreshToken ? encryptJson(refreshed.refreshToken) : undefined,

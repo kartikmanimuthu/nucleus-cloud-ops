@@ -6,10 +6,10 @@
  * matching httpOnly CSRF nonce cookie.
  */
 import { NextResponse } from 'next/server';
-import { getConnectorRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { authorize } from '@/lib/rbac/authorize';
 import { getProviderConfig, isConnectorProvider } from '@/lib/connectors/providers';
+import { resolveAppCredentials } from '@/lib/connectors/app-credentials';
 import { signState } from '@/lib/connectors/oauth-state';
 import { randomBytes } from 'crypto';
 import type { ConnectorProvider } from '@/lib/db/repositories/connectors/interface';
@@ -21,15 +21,15 @@ export async function GET(req: Request, { params }: Ctx) {
     if (!isConnectorProvider(provider)) return NextResponse.json({ success: false, error: 'Unknown provider' }, { status: 400 });
     const forbidden = await authorize('update', 'Agent'); if (forbidden) return forbidden;
     const tenantId = await getSessionTenantId();
-    const app = await getConnectorRepository().getApp(provider as ConnectorProvider, tenantId);
-    if (!app?.clientId) return NextResponse.json({ success: false, error: 'Connector app not configured' }, { status: 400 });
+    const creds = await resolveAppCredentials(provider as ConnectorProvider, tenantId);
+    if (!creds?.clientId) return NextResponse.json({ success: false, error: 'Connector app not configured' }, { status: 400 });
 
     const cfg = getProviderConfig(provider);
     const origin = new URL(req.url).origin;
     const nonce = randomBytes(16).toString('hex');
     const state = signState({ tenantId, provider, nonce });
     const url = new URL(cfg.authorizeUrl);
-    url.searchParams.set('client_id', app.clientId);
+    url.searchParams.set('client_id', creds.clientId);
     url.searchParams.set('redirect_uri', `${origin}/api/connections/${provider}/callback`);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('scope', cfg.scopes.join(' '));

@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-let appResult: any = { clientId: 'cid', clientSecretEnc: 'x.y.z' };
-vi.mock('@/lib/db/repository-factory', () => ({ getConnectorRepository: () => ({ getApp: async () => appResult }) }));
+const h = vi.hoisted(() => ({ creds: { clientId: 'cid', clientSecret: 'sec', source: 'platform' } as any }));
+vi.mock('@/lib/connectors/app-credentials', () => ({ resolveAppCredentials: async () => h.creds }));
 vi.mock('@/lib/auth-session', () => ({ getSessionTenantId: async () => 'tenantA' }));
 vi.mock('@/lib/rbac/authorize', () => ({ authorize: async () => null }));
 vi.mock('@/env', () => ({ env: { NEXTAUTH_SECRET: 's' } }));
 
 import { GET } from '@/app/api/connections/[provider]/authorize/route';
 
-beforeEach(() => { appResult = { clientId: 'cid', clientSecretEnc: 'x.y.z' }; });
+beforeEach(() => { h.creds = { clientId: 'cid', clientSecret: 'sec', source: 'platform' }; });
 
 describe('GET authorize', () => {
     it('redirects to provider consent with state + nonce cookie', async () => {
@@ -23,7 +23,7 @@ describe('GET authorize', () => {
     });
 
     it('400s when app not configured', async () => {
-        appResult = null;
+        h.creds = null;
         const res = await GET(new Request('http://x/api/connections/jira/authorize'), { params: Promise.resolve({ provider: 'jira' }) } as any);
         expect(res.status).toBe(400);
     });

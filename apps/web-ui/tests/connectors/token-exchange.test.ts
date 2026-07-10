@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-vi.mock('@/env', () => ({ env: { NEXTAUTH_SECRET: 's' } }));
-import { encryptJson } from '@/lib/crypto/provider-credentials';
 import { exchangeCode, fetchIdentity, refreshAccessToken } from '@/lib/connectors/token-exchange';
 
-const app = { clientId: 'cid', clientSecretEnc: encryptJson('secret') } as any;
+const app = { clientId: 'cid', clientSecret: 'secret', source: 'platform' } as any;
 
 beforeEach(() => vi.restoreAllMocks());
 

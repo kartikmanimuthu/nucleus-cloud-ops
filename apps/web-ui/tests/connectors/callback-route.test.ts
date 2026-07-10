@@ -5,6 +5,9 @@ vi.mock('@/lib/connectors/token-exchange', () => ({
     exchangeCode: async () => ({ accessToken: 'at', refreshToken: 'rt', expiresInSec: 3600, scopes: ['read:jira-work'] }),
     fetchIdentity: async () => ({ accountLabel: 'Acme', externalAccountId: 'cloud1', metadata: { cloudId: 'cloud1' } }),
 }));
+vi.mock('@/lib/connectors/app-credentials', () => ({
+    resolveAppCredentials: async () => ({ clientId: 'cid', clientSecret: 'sec', source: 'platform' }),
+}));
 vi.mock('@/lib/audit-service', () => ({ AuditService: { logUserAction: vi.fn(async () => {}) } }));
 vi.mock('@/env', () => ({ env: { NEXTAUTH_SECRET: 's' } }));
 import { signState } from '@/lib/connectors/oauth-state';

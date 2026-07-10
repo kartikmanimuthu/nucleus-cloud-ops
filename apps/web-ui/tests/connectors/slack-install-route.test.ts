@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 const upsertApp = vi.fn();
 vi.mock('@/lib/db/repository-factory', () => ({ getConnectorRepository: () => ({ getApp: async () => ({ clientId: 'cid', clientSecretEnc: 'x' }), upsertApp }) }));
+vi.mock('@/lib/connectors/app-credentials', () => ({ resolveAppCredentials: async () => ({ clientId: 'cid', clientSecret: 'sec', source: 'platform' }) }));
 vi.mock('@/lib/auth-session', () => ({ getSessionTenantId: async () => 'tenantA' }));
 vi.mock('@/lib/rbac/authorize', () => ({ authorize: async () => null }));
 vi.mock('@/lib/connectors/token-exchange', () => ({ exchangeSlackBot: async () => ({ botToken: 'xoxb-1', teamName: 'Acme', teamId: 'T1', botUserId: 'B1', scopes: ['chat:write'] }) }));

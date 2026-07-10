@@ -6,15 +6,11 @@
  * ConnectorApp record inside these functions and never leaves this module.
  */
 import { getProviderConfig } from './providers';
-import { decryptJson } from '@/lib/crypto/provider-credentials';
-import type { ConnectorProvider, ConnectorAppRecord } from '@/lib/db/repositories/connectors/interface';
+import type { ConnectorProvider } from '@/lib/db/repositories/connectors/interface';
+import type { ResolvedAppCreds } from './app-credentials';
 
 export interface TokenResult { accessToken: string; refreshToken?: string; expiresInSec?: number; scopes: string[]; }
 export interface Identity { accountLabel: string; externalAccountId: string; metadata: Record<string, unknown>; }
-
-function clientSecret(app: Pick<ConnectorAppRecord, 'clientSecretEnc'>): string {
-    return decryptJson<string>(app.clientSecretEnc);
-}
 
 function parseScopes(scope: unknown): string[] {
     if (typeof scope === 'string') return scope.split(/[ ,]+/).filter(Boolean);
@@ -23,15 +19,15 @@ function parseScopes(scope: unknown): string[] {
 }
 
 export async function exchangeCode(
-    provider: ConnectorProvider, app: ConnectorAppRecord, code: string, redirectUri: string,
+    provider: ConnectorProvider, creds: ResolvedAppCreds, code: string, redirectUri: string,
 ): Promise<TokenResult> {
     const cfg = getProviderConfig(provider);
     const body = new URLSearchParams({
         grant_type: 'authorization_code',
         code,
         redirect_uri: redirectUri,
-        client_id: app.clientId,
-        client_secret: clientSecret(app),
+        client_id: creds.clientId,
+        client_secret: creds.clientSecret,
     });
     const res = await fetch(cfg.tokenUrl, {
         method: 'POST',
@@ -55,14 +51,14 @@ export async function exchangeCode(
 }
 
 export async function refreshAccessToken(
-    provider: ConnectorProvider, app: ConnectorAppRecord, refreshToken: string,
+    provider: ConnectorProvider, creds: ResolvedAppCreds, refreshToken: string,
 ): Promise<TokenResult> {
     const cfg = getProviderConfig(provider);
     const body = new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
-        client_id: app.clientId,
-        client_secret: clientSecret(app),
+        client_id: creds.clientId,
+        client_secret: creds.clientSecret,
     });
     const res = await fetch(cfg.tokenUrl, {
         method: 'POST',
@@ -82,10 +78,10 @@ export async function refreshAccessToken(
 export interface SlackBotResult { botToken: string; teamName: string; teamId: string; botUserId: string; scopes: string[]; }
 
 /** Exchanges a Slack workspace-install code for a bot token via oauth.v2.access. */
-export async function exchangeSlackBot(app: ConnectorAppRecord, code: string, redirectUri: string): Promise<SlackBotResult> {
+export async function exchangeSlackBot(creds: ResolvedAppCreds, code: string, redirectUri: string): Promise<SlackBotResult> {
     const body = new URLSearchParams({
         grant_type: 'authorization_code', code, redirect_uri: redirectUri,
-        client_id: app.clientId, client_secret: clientSecret(app),
+        client_id: creds.clientId, client_secret: creds.clientSecret,
     });
     const res = await fetch('https://slack.com/api/oauth.v2.access', {
         method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,

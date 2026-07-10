@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server';
 import { getConnectorRepository } from '@/lib/db/repository-factory';
 import { verifyState } from '@/lib/connectors/oauth-state';
 import { exchangeCode, fetchIdentity } from '@/lib/connectors/token-exchange';
+import { resolveAppCredentials } from '@/lib/connectors/app-credentials';
 import { encryptJson } from '@/lib/crypto/provider-credentials';
 import { isConnectorProvider } from '@/lib/connectors/providers';
 import { AuditService } from '@/lib/audit-service';
@@ -40,11 +41,11 @@ export async function GET(req: Request, { params }: Ctx) {
 
         const tenantId = state.tenantId;
         const repo = getConnectorRepository();
-        const app = await repo.getApp(provider as ConnectorProvider, tenantId);
-        if (!app) throw new Error('Connector app not configured');
+        const creds = await resolveAppCredentials(provider as ConnectorProvider, tenantId);
+        if (!creds) throw new Error('Connector app not configured');
 
         const redirectUri = `${origin}/api/connections/${provider}/callback`;
-        const tokens = await exchangeCode(provider as ConnectorProvider, app, code, redirectUri);
+        const tokens = await exchangeCode(provider as ConnectorProvider, creds, code, redirectUri);
         const identity = await fetchIdentity(provider as ConnectorProvider, tokens.accessToken);
 
         await repo.upsertConnection({

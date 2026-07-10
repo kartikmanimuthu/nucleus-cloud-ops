@@ -15,6 +15,7 @@ import { authorize } from '@/lib/rbac/authorize';
 import { AuditService } from '@/lib/audit-service';
 import { encryptJson, decryptJson } from '@/lib/crypto/provider-credentials';
 import { isConnectorProvider } from '@/lib/connectors/providers';
+import { hasPlatformApp } from '@/lib/connectors/app-credentials';
 import type { ConnectorProvider } from '@/lib/db/repositories/connectors/interface';
 
 type Ctx = { params: Promise<{ provider: string }> };
@@ -32,11 +33,20 @@ export async function GET(req: Request, { params }: Ctx) {
     const tenantId = await getSessionTenantId();
     const app = await getConnectorRepository().getApp(provider as ConnectorProvider, tenantId);
     const origin = new URL(req.url).origin;
+    const tenantConfigured = !!(app?.clientId && app?.clientSecretEnc);
+    const platformAvailable = hasPlatformApp(provider as ConnectorProvider);
+    // Which app the Connect flow will actually use, and whether it can start.
+    const appSource: 'tenant' | 'platform' | 'none' = tenantConfigured ? 'tenant' : platformAvailable ? 'platform' : 'none';
     return NextResponse.json({
         success: true,
         provider,
-        configured: !!app,
-        status: app ? 'configured' : 'not_set',
+        // `configured` = tenant saved its OWN (BYO) app — drives the Advanced card badge.
+        configured: tenantConfigured,
+        // `connectReady` = a usable app exists (tenant BYO or platform) — drives Connect enablement.
+        connectReady: appSource !== 'none',
+        appSource,
+        platformAvailable,
+        status: tenantConfigured ? 'configured' : 'not_set',
         clientId: app?.clientId ?? '',
         clientSecretHint: hint(app?.clientSecretEnc ?? null),
         signingSecretConfigured: !!app?.signingSecretEnc,
