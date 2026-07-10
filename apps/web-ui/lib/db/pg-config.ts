@@ -85,6 +85,8 @@ export const TENANT_SCOPED_MODELS = new Set([
     'RightSizingRecommendation',
     'RightSizingRun',
     'Skill',
+    'ConnectorApp',
+    'ConnectorConnection',
 ]);
 
 /**

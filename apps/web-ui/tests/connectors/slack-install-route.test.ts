@@ -14,11 +14,11 @@ describe('slack install', () => {
         const res = await install(new Request('http://x/api/slack/install'));
         expect(res.status).toBe(307);
         expect(res.headers.get('location')).toContain('scope=');
-        expect(res.headers.get('set-cookie')).toContain('connector_oauth_nonce');
+        expect(res.headers.get('set-cookie')).toContain('connector_install_nonce');
     });
     it('stores the bot token on callback', async () => {
         const state = signState({ tenantId: 'tenantA', provider: 'slack', nonce: 'n1' });
-        const req = new Request(`http://x/api/slack/install/callback?code=c&state=${encodeURIComponent(state)}`, { headers: { cookie: 'connector_oauth_nonce=n1' } });
+        const req = new Request(`http://x/api/slack/install/callback?code=c&state=${encodeURIComponent(state)}`, { headers: { cookie: 'connector_install_nonce=n1' } });
         const res = await cb(req);
         expect(res.status).toBe(307);
         const saved = upsertApp.mock.calls[0][0];

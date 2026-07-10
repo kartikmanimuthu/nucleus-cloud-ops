@@ -20,7 +20,8 @@ export async function GET(req: Request) {
         const stateToken = url.searchParams.get('state');
         if (!code || !stateToken) throw new Error('Missing code/state');
         const state = verifyState(stateToken);
-        const cookieNonce = req.headers.get('cookie')?.match(/connector_oauth_nonce=([^;]+)/)?.[1];
+        if (state.provider !== 'slack') throw new Error('State provider mismatch');
+        const cookieNonce = req.headers.get('cookie')?.match(/connector_install_nonce=([^;]+)/)?.[1];
         if (!cookieNonce || cookieNonce !== state.nonce) throw new Error('CSRF nonce mismatch');
         const repo = getConnectorRepository();
         const app = await repo.getApp('slack', state.tenantId);
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
         const result = await exchangeSlackBot(app, code, `${origin}/api/slack/install/callback`);
         await repo.upsertApp({ provider: 'slack', botTokenEnc: encryptJson(result.botToken), botAccountLabel: result.teamName }, state.tenantId, 'user');
         const res = back('bot_installed=1');
-        res.cookies.delete('connector_oauth_nonce');
+        res.cookies.delete('connector_install_nonce');
         return res;
     } catch (err: unknown) {
         return back(`error=${encodeURIComponent(err instanceof Error ? err.message : 'install_failed')}`);

@@ -28,6 +28,6 @@ export async function GET(req: Request) {
     url.searchParams.set('redirect_uri', `${origin}/api/slack/install/callback`);
     url.searchParams.set('state', state);
     const res = NextResponse.redirect(url.toString());
-    res.cookies.set('connector_oauth_nonce', nonce, { httpOnly: true, sameSite: 'lax', secure: origin.startsWith('https'), path: '/', maxAge: 600 });
+    res.cookies.set('connector_install_nonce', nonce, { httpOnly: true, sameSite: 'lax', secure: origin.startsWith('https'), path: '/', maxAge: 600 });
     return res;
 }
