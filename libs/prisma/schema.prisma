@@ -955,3 +955,45 @@ model Skill {
   @@unique([tenantId, slug])
   @@index([tenantId])
 }
+
+
+model ConnectorApp {
+  id               String   @id @default(cuid())
+  tenantId         String
+  provider         String   // jira | slack | google
+  clientId         String
+  clientSecretEnc  String
+  signingSecretEnc String?
+  botTokenEnc      String?
+  botAccountLabel  String?
+  status           String   @default("configured")
+  createdBy        String   @default("system")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+  @@map("connector_apps")
+}
+
+model ConnectorConnection {
+  id                String    @id @default(cuid())
+  tenantId          String
+  provider          String
+  accountLabel      String
+  externalAccountId String
+  accessTokenEnc    String
+  refreshTokenEnc   String?
+  expiresAt         DateTime?
+  scopes            String[]  @default([])
+  tokenType         String    @default("user") // user | bot
+  metadata          Json      @default("{}")
+  status            String    @default("active") // active | expired | revoked
+  createdBy         String    @default("system")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([tenantId, provider])
+  @@index([tenantId, provider, status])
+  @@map("connector_connections")
+}
