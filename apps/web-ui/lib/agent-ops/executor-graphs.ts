@@ -31,7 +31,6 @@ import {
     getActiveMCPTools,
     getMCPToolsDescription,
     getMCPManager,
-    MAX_ITERATIONS,
 } from "@/lib/agent/agent-shared";
 import {
     buildBaseIdentity,
@@ -51,6 +50,13 @@ import { resolveKnowledgeBaseIds } from "@/lib/agent/auto-kb-select";
 import { GraphConfig } from "@/lib/agent/agent-shared";
 import { ReflectionState, graphState, PlanStep, RequestEvaluation, ToolResultEntry } from "./executor-state";
 import { filterMutativeToolCalls } from "./tool-classifier";
+import { env } from "@/env";
+
+// Autonomous Agent Ops runs (scheduled / channel-triggered) get their own, larger
+// iteration budget — the interactive chat agents keep the shared MAX_ITERATIONS=30.
+// A multi-step unattended task (AWS auth → cost query → Slack report) needs more
+// headroom, especially when it must resolve the target account first.
+const AGENT_OPS_MAX_ITERATIONS = Number(env.AGENT_OPS_MAX_ITERATIONS) || 150;
 
 // ============================================================================
 // AGENT OPS DYNAMIC EXECUTOR GRAPH
@@ -304,7 +310,7 @@ Return ONLY a JSON array of step strings. Example:
     // ============================================================================
     async function generateNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         const { messages, plan, iterationCount, evaluation } = state;
-        console.log(`\n[EXECUTOR] Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
+        console.log(`\n[EXECUTOR] Iteration ${iterationCount + 1}/${AGENT_OPS_MAX_ITERATIONS}`);
 
         const { skillSection, accountContext, mutationInstruction, mcpInstructions, memorySection, kbSection } = getDynamicContext(evaluation, state.memoryContext);
         const baseIdentity = buildBaseIdentity(evaluation?.skillId);
@@ -491,11 +497,11 @@ Otherwise list specific issues to fix. Do not generate the fixed answer.`);
                 messages: [new AIMessage({ content: `🔍 **Reflection:**\n${analysis}${issues !== 'None' ? `\n⚠️ Issues: ${issues}` : ''}` })],
                 reflection: analysis,
                 errors: issues !== 'None' ? [issues] : [],
-                isComplete: isComplete || iterationCount >= MAX_ITERATIONS,
+                isComplete: isComplete || iterationCount >= AGENT_OPS_MAX_ITERATIONS,
                 plan: updatedPlan.length > 0 ? updatedPlan : plan,
             };
         } else {
-            if (content.includes('COMPLETE') || iterationCount >= MAX_ITERATIONS) {
+            if (content.includes('COMPLETE') || iterationCount >= AGENT_OPS_MAX_ITERATIONS) {
                 return { messages: [response], isComplete: true };
             }
             return {
@@ -621,17 +627,17 @@ Be specific — include resource IDs, account names, and numeric values where av
         if (state.evaluation?.mode === 'plan') {
             return state.iterationCount <= 1 ? 'final' : 'reflect';
         }
-        if (state.iterationCount >= MAX_ITERATIONS) return '__end__';
+        if (state.iterationCount >= AGENT_OPS_MAX_ITERATIONS) return '__end__';
         return 'reflect';
     }
 
     function routeFromTools(state: ReflectionState): 'generate' | 'reflect' {
-        return state.iterationCount >= MAX_ITERATIONS ? 'reflect' : 'generate';
+        return state.iterationCount >= AGENT_OPS_MAX_ITERATIONS ? 'reflect' : 'generate';
     }
 
     function routeFromReflect(state: ReflectionState): 'revise' | 'generate' | 'final' | '__end__' {
         if (state.evaluation?.mode === 'plan') {
-            if (state.isComplete || state.iterationCount >= MAX_ITERATIONS) return 'final';
+            if (state.isComplete || state.iterationCount >= AGENT_OPS_MAX_ITERATIONS) return 'final';
             return 'revise';
         }
         if (state.isComplete) return '__end__';

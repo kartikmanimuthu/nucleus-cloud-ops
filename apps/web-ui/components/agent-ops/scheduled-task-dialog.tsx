@@ -75,8 +75,9 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
         setError(null)
         setLoading(true)
         try {
+            // tenantId is resolved server-side from the session — never sent by the
+            // client (a stale/placeholder value here would re-home the task's tenant).
             const body = {
-                tenantId,
                 name: form.name.trim(),
                 description: form.description.trim(),
                 cronExpression: form.cronExpression,
