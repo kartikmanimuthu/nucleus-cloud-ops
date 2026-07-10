@@ -21,11 +21,32 @@ vi.mock('@/lib/agent-ops/agent-ops-service', () => ({
     },
 }));
 
+// Default: no OAuth connection → existing Basic-auth path is exercised.
+vi.mock('@/lib/connectors/connection-service', () => ({
+    getUsableAccessToken: vi.fn().mockResolvedValue(null),
+}));
+import { getUsableAccessToken } from '@/lib/connectors/connection-service';
+
 describe('JiraAdapter', () => {
     let adapter: JiraAdapter;
 
     beforeEach(() => {
         adapter = new JiraAdapter();
+    });
+
+    it('posts comments via OAuth when a connection exists', async () => {
+        (getUsableAccessToken as any).mockResolvedValueOnce({
+            accessToken: 'oauth-at',
+            metadata: { apiBaseUrl: 'https://api.atlassian.com/ex/jira/cloud1' },
+        });
+        const fetchMock = vi.fn(async () => ({ ok: true, status: 201, text: async () => '' }));
+        vi.stubGlobal('fetch', fetchMock as any);
+        await (adapter as any).postComment('tenantA', 'OPS-1', 'hello', null);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [calledUrl, opts] = fetchMock.mock.calls[0] as any;
+        expect(calledUrl).toContain('api.atlassian.com/ex/jira/cloud1');
+        expect(opts.headers.Authorization).toBe('Bearer oauth-at');
+        vi.unstubAllGlobals();
     });
 
     it('has correct channel metadata', () => {

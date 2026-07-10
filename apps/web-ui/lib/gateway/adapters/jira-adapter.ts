@@ -9,6 +9,7 @@
 import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { env } from '@/env';
+import { getUsableAccessToken } from '@/lib/connectors/connection-service';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
 import type {
@@ -258,7 +259,7 @@ export class JiraAdapter implements ChannelAdapter {
             summary,
         ].join('\n');
 
-        await this.postComment(issueKey, text, config);
+        await this.postComment(run.tenantId, issueKey, text, config);
     }
 
     async sendError(run: AgentOpsRun, error: string): Promise<void> {
@@ -273,7 +274,7 @@ export class JiraAdapter implements ChannelAdapter {
             `Error: ${error}`,
         ].join('\n');
 
-        await this.postComment(issueKey, text, config);
+        await this.postComment(run.tenantId, issueKey, text, config);
     }
 
     async sendClarification(run: AgentOpsRun, question: string): Promise<void> {
@@ -295,7 +296,7 @@ export class JiraAdapter implements ChannelAdapter {
             `Or respond via the dashboard: ${dashboardUrl}`,
         ].join('\n');
 
-        await this.postComment(issueKey, text, config);
+        await this.postComment(run.tenantId, issueKey, text, config);
     }
 
     async sendApprovalRequest(
@@ -328,7 +329,7 @@ export class JiraAdapter implements ChannelAdapter {
             `Or use the dashboard for button-based approval: ${dashboardUrl}`,
         ].join('\n');
 
-        await this.postComment(issueKey, text, config);
+        await this.postComment(run.tenantId, issueKey, text, config);
     }
 
     // ─── Config ───────────────────────────────────────────────────────
@@ -359,23 +360,8 @@ export class JiraAdapter implements ChannelAdapter {
         return `Basic ${Buffer.from(`${userEmail}:${apiToken}`).toString('base64')}`;
     }
 
-    /**
-     * Post a comment to a Jira issue using Atlassian Document Format (ADF).
-     */
-    private async postComment(
-        issueKey: string,
-        bodyText: string,
-        config: JiraIntegrationConfig | null,
-    ): Promise<void> {
-        const { baseUrl, userEmail, apiToken } = this.resolveApiConfig(config);
-
-        if (!baseUrl || !userEmail || !apiToken) {
-            console.warn('[JiraAdapter] Jira API not configured — skipping comment post');
-            return;
-        }
-
-        const url = `${baseUrl}/rest/api/3/issue/${issueKey}/comment`;
-        const body = {
+    private buildAdfBody(bodyText: string) {
+        return {
             body: {
                 type: 'doc',
                 version: 1,
@@ -387,7 +373,59 @@ export class JiraAdapter implements ChannelAdapter {
                 ],
             },
         };
+    }
 
+    /**
+     * Post a comment to a Jira issue using Atlassian Document Format (ADF).
+     *
+     * Prefers the tenant's active OAuth connection (Bearer token against the
+     * Atlassian API gateway); falls back to the manual Basic-auth
+     * userEmail:apiToken / env config when no connection exists or the OAuth
+     * call returns 401.
+     */
+    private async postComment(
+        tenantId: string,
+        issueKey: string,
+        bodyText: string,
+        config: JiraIntegrationConfig | null,
+    ): Promise<void> {
+        const body = this.buildAdfBody(bodyText);
+
+        const oauth = await getUsableAccessToken('jira', tenantId).catch(() => null);
+        if (oauth) {
+            const base = (oauth.metadata.apiBaseUrl as string) || '';
+            if (base) {
+                try {
+                    const res = await fetch(`${base}/rest/api/3/issue/${issueKey}/comment`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${oauth.accessToken}`,
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(body),
+                    });
+                    if (res.ok) return;
+                    if (res.status !== 401) {
+                        const text = await res.text().catch(() => '');
+                        console.error(`[JiraAdapter] Jira OAuth API error ${res.status}: ${text}`);
+                        return;
+                    }
+                    // 401 → token invalid; fall through to manual/env auth
+                    console.warn('[JiraAdapter] OAuth token rejected (401) — falling back to manual auth');
+                } catch (err) {
+                    console.error('[JiraAdapter] OAuth comment post failed, falling back:', err);
+                }
+            }
+        }
+
+        const { baseUrl, userEmail, apiToken } = this.resolveApiConfig(config);
+        if (!baseUrl || !userEmail || !apiToken) {
+            console.warn('[JiraAdapter] Jira API not configured — skipping comment post');
+            return;
+        }
+
+        const url = `${baseUrl}/rest/api/3/issue/${issueKey}/comment`;
         try {
             const res = await fetch(url, {
                 method: 'POST',
