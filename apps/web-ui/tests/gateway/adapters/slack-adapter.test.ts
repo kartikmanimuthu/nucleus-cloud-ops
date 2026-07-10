@@ -20,11 +20,28 @@ vi.mock('@/lib/agent-ops/agent-ops-service', () => ({
     },
 }));
 
+// Default: no installed workspace-bot token → manual config.botToken is used.
+vi.mock('@/lib/connectors/connection-service', () => ({
+    getBotToken: vi.fn().mockResolvedValue(null),
+}));
+import { getBotToken } from '@/lib/connectors/connection-service';
+
 describe('SlackAdapter', () => {
     let adapter: SlackAdapter;
 
     beforeEach(() => {
         adapter = new SlackAdapter();
+    });
+
+    it('prefers the installed workspace-bot token for outbound', async () => {
+        (getBotToken as any).mockResolvedValueOnce('xoxb-installed');
+        const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, ts: '1.1' }) }));
+        vi.stubGlobal('fetch', fetchMock as any);
+        const run = { runId: 'r1', tenantId: 'tenantA', taskDescription: 'do it', trigger: { channelId: 'C1' } } as any;
+        await adapter.sendApprovalRequest(run, ['step one'], []);
+        const [, opts] = fetchMock.mock.calls[0] as any;
+        expect(opts.headers.Authorization).toBe('Bearer xoxb-installed');
+        vi.unstubAllGlobals();
     });
 
     it('has correct channel metadata', () => {

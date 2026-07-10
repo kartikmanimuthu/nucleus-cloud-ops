@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 import type { NextRequest } from 'next/server';
 import { env } from '@/env';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getBotToken } from '@/lib/connectors/connection-service';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
 import type {
@@ -181,7 +182,8 @@ export class SlackAdapter implements ChannelAdapter {
         }
 
         const config = await this.loadConfig(run.tenantId);
-        if (!config?.botToken) {
+        const botToken = await this.resolveBotToken(run.tenantId, config);
+        if (!botToken) {
             console.warn('[SlackAdapter] sendApprovalRequest: no botToken configured');
             return;
         }
@@ -239,7 +241,7 @@ export class SlackAdapter implements ChannelAdapter {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Bearer ${config.botToken}`,
+                    Authorization: `Bearer ${botToken}`,
                 },
                 body: JSON.stringify({
                     channel: channelId,
@@ -279,7 +281,8 @@ export class SlackAdapter implements ChannelAdapter {
             return;
         }
         const config = await this.loadConfig(run.tenantId);
-        if (!config?.botToken) {
+        const botToken = await this.resolveBotToken(run.tenantId, config);
+        if (!botToken) {
             console.warn('[SlackAdapter] sendScheduledNotification: no botToken configured');
             return;
         }
@@ -322,7 +325,7 @@ export class SlackAdapter implements ChannelAdapter {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Bearer ${config.botToken}`,
+                    Authorization: `Bearer ${botToken}`,
                 },
                 body: JSON.stringify({ channel: channelId, blocks, text: header }),
             });
@@ -349,6 +352,15 @@ export class SlackAdapter implements ChannelAdapter {
             'agent-ops-slack',
             tenantId,
         ).catch(() => null);
+    }
+
+    /**
+     * Resolve the bot token for outbound Slack calls. Precedence:
+     * installed workspace-bot token (ConnectorApp) → manual botToken (tenant config).
+     */
+    private async resolveBotToken(tenantId: string, config: SlackIntegrationConfig | null): Promise<string | null> {
+        const installed = await getBotToken(tenantId).catch(() => null);
+        return installed || config?.botToken || null;
     }
 
     private async parseSlashCommand(params: URLSearchParams): Promise<GatewayMessage> {
@@ -443,12 +455,13 @@ export class SlackAdapter implements ChannelAdapter {
 
             if (trigger?.threadTs && trigger?.channelId) {
                 const config = await this.loadConfig(run.tenantId);
-                if (config?.botToken) {
+                const botToken = await this.resolveBotToken(run.tenantId, config);
+                if (botToken) {
                     const res = await fetch('https://slack.com/api/chat.postMessage', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            Authorization: `Bearer ${config.botToken}`,
+                            Authorization: `Bearer ${botToken}`,
                         },
                         body: JSON.stringify({
                             channel: trigger.channelId,
