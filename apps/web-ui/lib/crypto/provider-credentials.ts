@@ -62,6 +62,29 @@ export function decryptCredentials(payload: string): ProviderCredentials {
     return JSON.parse(plaintext.toString('utf8')) as ProviderCredentials;
 }
 
+/** Encrypts any JSON-serializable value into the wire format string. */
+export function encryptJson<T>(value: T): string {
+    const key = getKey();
+    const iv = randomBytes(IV_LENGTH);
+    const cipher = createCipheriv(ALGORITHM, key, iv);
+    const plaintext = Buffer.from(JSON.stringify(value), 'utf8');
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    return [iv.toString('base64'), authTag.toString('base64'), ciphertext.toString('base64')].join('.');
+}
+
+/** Decrypts a wire-format string produced by encryptJson back into a value. */
+export function decryptJson<T>(payload: string): T {
+    const key = getKey();
+    const parts = payload.split('.');
+    if (parts.length !== 3) throw new Error('Malformed encrypted payload');
+    const [ivB64, tagB64, dataB64] = parts;
+    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(ivB64, 'base64'));
+    decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(dataB64, 'base64')), decipher.final()]);
+    return JSON.parse(plaintext.toString('utf8')) as T;
+}
+
 /**
  * Produces a masked hint for a secret, e.g. "sk-…X9f2", for display in the UI
  * without revealing the full credential. Returns null when there is no secret.
