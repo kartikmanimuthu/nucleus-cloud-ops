@@ -1,8 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
+import { useConnectorApp } from '@/lib/queries/connectors';
+import { AppCredentialsCard } from '@/components/channels/app-credentials-card';
+import { ConnectionsCard } from '@/components/channels/connections-card';
+import { WorkspaceBotCard } from '@/components/channels/workspace-bot-card';
+import { ConnectorCallbackToast } from '@/components/channels/connector-callback-toast';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,6 +53,7 @@ function SlackSettingsFormInner({
     initialEnabled,
 }: SlackSettingsFormProps & { initialConfigured: boolean; initialEnabled: boolean }) {
     const router = useRouter();
+    const { data: connectorApp } = useConnectorApp('slack');
     const saveMutation = useSaveChannelSettings('slack');
     const saving = saveMutation.isPending;
     const [configured, setConfigured] = useState(initialConfigured);
@@ -125,6 +131,32 @@ function SlackSettingsFormInner({
                     </Badge>
                 )}
             </div>
+
+            <Suspense fallback={null}>
+                <ConnectorCallbackToast displayName="Slack" />
+            </Suspense>
+
+            {/* OAuth: bring-your-own app + workspace bot + connections */}
+            <AppCredentialsCard provider="slack" displayName="Slack" showSigningSecret helpUrl="https://api.slack.com/apps" />
+            <WorkspaceBotCard
+                botConfigured={!!connectorApp?.botConfigured}
+                botAccountLabel={connectorApp?.botAccountLabel ?? null}
+                disabled={!connectorApp?.configured}
+            />
+            <ConnectionsCard
+                provider="slack"
+                displayName="Slack"
+                description="Connect your Slack account so the agent can read and act as you."
+                emptyHint="Grants the agent access to your Slack messages, channels, and the ability to post as you."
+            />
+
+            {/* Manual / advanced: signing secret + bot token */}
+            <details className="rounded-lg border p-4 [&_svg.chevron]:open:rotate-90">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+                    <span className="chevron transition-transform">▸</span>
+                    Manual / advanced (signing secret + bot token)
+                </summary>
+                <div className="mt-4 space-y-6">
 
             {/* Webhook URL */}
             <Card>
@@ -275,6 +307,8 @@ function SlackSettingsFormInner({
                     </ol>
                 </CardContent>
             </Card>
+                </div>
+            </details>
         </div>
     );
 }

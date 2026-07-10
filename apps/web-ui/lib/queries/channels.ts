@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 export interface ChannelStatus {
     slack: { configured: boolean; enabled: boolean } | null;
     jira: { configured: boolean; enabled: boolean } | null;
+    google: { configured: boolean; enabled: boolean } | null;
     discord: { configured: boolean; enabled: boolean } | null;
     telegram: { configured: boolean; enabled: boolean } | null;
     webhook: { configured: boolean; enabled: boolean } | null;
@@ -20,6 +21,7 @@ export interface ChannelStatus {
 const EMPTY_STATUS: ChannelStatus = {
     slack: null,
     jira: null,
+    google: null,
     discord: null,
     telegram: null,
     webhook: null,
@@ -34,10 +36,11 @@ export function useChannelStatus() {
     return useQuery({
         queryKey: ['channels', 'status'] as const,
         queryFn: async (): Promise<ChannelStatus> => {
-            const [slack, jira, discord, telegram, webhook, mcp, providers] =
+            const [slack, jira, google, discord, telegram, webhook, mcp, providers] =
                 await Promise.all([
                     fetch('/api/agent-ops/settings/slack').then((r) => r.json()).catch(() => null),
                     fetch('/api/agent-ops/settings/jira').then((r) => r.json()).catch(() => null),
+                    fetch('/api/connections/google/app').then((r) => r.json()).catch(() => null),
                     fetch('/api/agent-ops/settings/discord').then((r) => r.json()).catch(() => null),
                     fetch('/api/agent-ops/settings/telegram').then((r) => r.json()).catch(() => null),
                     fetch('/api/agent-ops/settings/webhook').then((r) => r.json()).catch(() => null),
@@ -48,6 +51,7 @@ export function useChannelStatus() {
             return {
                 slack: toToggle(slack),
                 jira: toToggle(jira),
+                google: google?.configured != null ? { configured: !!google.configured, enabled: true } : null,
                 discord: toToggle(discord),
                 telegram: toToggle(telegram),
                 webhook: toToggle(webhook),

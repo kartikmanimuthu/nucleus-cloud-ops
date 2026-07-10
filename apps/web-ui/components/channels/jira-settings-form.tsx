@@ -1,8 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
 import { useRouter } from 'next/navigation';
+import { AppCredentialsCard } from '@/components/channels/app-credentials-card';
+import { ConnectionsCard } from '@/components/channels/connections-card';
+import { ConnectorCallbackToast } from '@/components/channels/connector-callback-toast';
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -147,6 +150,27 @@ function JiraSettingsFormInner({
                     </Badge>
                 )}
             </div>
+
+            <Suspense fallback={null}>
+                <ConnectorCallbackToast displayName="Jira" />
+            </Suspense>
+
+            {/* OAuth: bring-your-own app + connections */}
+            <AppCredentialsCard provider="jira" displayName="Jira" helpUrl="https://developer.atlassian.com/console/myapps/" />
+            <ConnectionsCard
+                provider="jira"
+                displayName="Jira"
+                description="Connect Jira (Atlassian Cloud) to read and update work items."
+                emptyHint="Grants the agent read & write access to Jira work — issues, sprints, and projects."
+            />
+
+            {/* Manual / advanced: webhook-trigger configuration */}
+            <details className="rounded-lg border p-4 [&_svg.chevron]:open:rotate-90">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+                    <span className="chevron transition-transform">▸</span>
+                    Manual / advanced (Automation webhook trigger)
+                </summary>
+                <div className="mt-4 space-y-6">
 
             {/* Webhook URL */}
             <Card>
@@ -441,6 +465,8 @@ function JiraSettingsFormInner({
                     </ol>
                 </CardContent>
             </Card>
+                </div>
+            </details>
         </div>
     );
 }
