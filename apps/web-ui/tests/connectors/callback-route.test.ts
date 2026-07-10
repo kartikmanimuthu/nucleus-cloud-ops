@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-const upsertConnection = vi.fn(async () => ({ id: 'c1' }));
+const upsertConnection = vi.fn((..._args: any[]) => Promise.resolve({ id: 'c1' }));
 vi.mock('@/lib/db/repository-factory', () => ({ getConnectorRepository: () => ({ getApp: async () => ({ clientId: 'cid', clientSecretEnc: 'x' }), upsertConnection }) }));
 vi.mock('@/lib/connectors/token-exchange', () => ({
     exchangeCode: async () => ({ accessToken: 'at', refreshToken: 'rt', expiresInSec: 3600, scopes: ['read:jira-work'] }),

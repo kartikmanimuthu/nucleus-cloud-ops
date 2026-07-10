@@ -86,4 +86,9 @@ export const queryKeys = {
         all: ['threads'] as const,
         lists: () => [...queryKeys.threads.all, 'list'] as const,
     },
+    connectors: {
+        all: ['connectors'] as const,
+        app: (provider: string) => [...queryKeys.connectors.all, provider, 'app'] as const,
+        connections: (provider: string) => [...queryKeys.connectors.all, provider, 'connections'] as const,
+    },
 } as const;
