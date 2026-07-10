@@ -27,6 +27,13 @@ import type { IRightSizingRepository } from './repositories/right-sizing/interfa
 import type { IPricingCatalogRepository } from './repositories/pricing/interface';
 import type { IAgentMemoryRepository } from './repositories/agent-memory/interface';
 import type { ISkillRepository } from './repositories/skill/interface';
+import type { IConnectorRepository } from './repositories/connectors/interface';
+
+export function getConnectorRepository(): IConnectorRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getConnectorRepository: get } = require('./repositories/connectors/postgres');
+    return get();
+}
 
 export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
