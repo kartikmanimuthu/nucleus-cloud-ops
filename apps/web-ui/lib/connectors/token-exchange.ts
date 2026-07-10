@@ -79,6 +79,25 @@ export async function refreshAccessToken(
     };
 }
 
+export interface SlackBotResult { botToken: string; teamName: string; teamId: string; botUserId: string; scopes: string[]; }
+
+/** Exchanges a Slack workspace-install code for a bot token via oauth.v2.access. */
+export async function exchangeSlackBot(app: ConnectorAppRecord, code: string, redirectUri: string): Promise<SlackBotResult> {
+    const body = new URLSearchParams({
+        grant_type: 'authorization_code', code, redirect_uri: redirectUri,
+        client_id: app.clientId, client_secret: clientSecret(app),
+    });
+    const res = await fetch('https://slack.com/api/oauth.v2.access', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,
+    });
+    const json: any = await res.json();
+    if (!json.ok) throw new Error(`Slack bot install failed: ${json.error}`);
+    return {
+        botToken: json.access_token, teamName: json.team?.name ?? 'workspace', teamId: json.team?.id ?? '',
+        botUserId: json.bot_user_id ?? '', scopes: parseScopes(json.scope),
+    };
+}
+
 export async function fetchIdentity(provider: ConnectorProvider, accessToken: string): Promise<Identity> {
     if (provider === 'jira') {
         const res = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
