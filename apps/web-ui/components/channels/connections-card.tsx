@@ -40,7 +40,7 @@ export function ConnectionsCard({ provider, displayName, description, emptyHint 
             <CardTitle className="text-base">{displayName}</CardTitle>
             <CardDescription>{description}</CardDescription>
           </div>
-          <Button onClick={connect} disabled={!app?.configured} className="gap-2 shrink-0">
+          <Button onClick={connect} disabled={!app?.connectReady} className="gap-2 shrink-0">
             {connections.length ? <RefreshCw className="h-4 w-4" /> : <Plug className="h-4 w-4" />}
             {connections.length ? 'Reconnect' : `Connect ${displayName}`}
           </Button>
@@ -67,7 +67,7 @@ export function ConnectionsCard({ provider, displayName, description, emptyHint 
         {!connections.length ? (
           <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
             No {displayName} account connected.{' '}
-            {app?.configured ? (emptyHint ?? '') : 'Add app credentials above first.'}
+            {app?.connectReady ? (emptyHint ?? '') : 'No OAuth app available yet — add your own under Advanced, or ask an admin to configure the managed app.'}
           </div>
         ) : null}
         <p className="text-xs text-muted-foreground">

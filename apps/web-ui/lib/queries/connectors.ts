@@ -10,6 +10,9 @@ import { queryKeys } from './query-keys';
 
 export interface ConnectorApp {
     configured: boolean;
+    connectReady: boolean;
+    appSource: 'tenant' | 'platform' | 'none';
+    platformAvailable: boolean;
     status: string;
     clientId: string;
     clientSecretHint: string | null;

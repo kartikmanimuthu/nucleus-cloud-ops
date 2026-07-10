@@ -51,7 +51,7 @@ export function useChannelStatus() {
             return {
                 slack: toToggle(slack),
                 jira: toToggle(jira),
-                google: google?.configured != null ? { configured: !!google.configured, enabled: true } : null,
+                google: google?.connectReady != null ? { configured: !!google.connectReady, enabled: true } : null,
                 discord: toToggle(discord),
                 telegram: toToggle(telegram),
                 webhook: toToggle(webhook),

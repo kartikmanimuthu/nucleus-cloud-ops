@@ -144,9 +144,9 @@ function JiraSettingsFormInner({
                     </p>
                 </div>
                 {configured && (
-                    <Badge variant="secondary" className="gap-1">
+                    <Badge variant="outline" className="gap-1 text-muted-foreground">
                         <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                        Configured
+                        Manual config set
                     </Badge>
                 )}
             </div>
