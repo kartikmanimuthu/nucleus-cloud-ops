@@ -352,3 +352,21 @@ export function getMCPServerConfigById(id: string): MCPServerConfig | undefined 
 export function getEnabledMCPServers(): MCPServerConfig[] {
     return DEFAULT_MCP_SERVERS.filter(s => s.enabled);
 }
+
+/**
+ * Intersect the requested MCP server ids with the enabled configs.
+ * When no ids are requested, returns every enabled server id. Disabled
+ * servers are always excluded — this is the single source of truth for
+ * "which MCP servers may actually be connected/used".
+ */
+export function resolveEnabledServerIds(
+    requestedIds: string[] | undefined,
+    configs: MCPServerConfig[],
+): string[] {
+    const enabled = configs.filter(c => c.enabled);
+    if (!requestedIds || requestedIds.length === 0) {
+        return enabled.map(c => c.id);
+    }
+    const enabledSet = new Set(enabled.map(c => c.id));
+    return requestedIds.filter(id => enabledSet.has(id));
+}

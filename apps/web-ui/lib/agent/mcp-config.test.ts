@@ -3,6 +3,7 @@ import {
     jsonToServerConfigs,
     mergeConfigs,
     validateMcpConfig,
+    resolveEnabledServerIds,
     type MCPConfigJson,
 } from './mcp-config';
 
@@ -64,5 +65,30 @@ describe('validateMcpConfig', () => {
     it('rejects an unknown transport type', () => {
         const r = validateMcpConfig({ mcpServers: { a: { type: 'ws', url: 'https://h' } } } as any);
         expect(r.ok).toBe(false);
+    });
+});
+
+describe('resolveEnabledServerIds', () => {
+    const configs = [
+        { id: 'a', name: 'A', description: '', command: 'x', args: [], enabled: true },
+        { id: 'b', name: 'B', description: '', command: 'x', args: [], enabled: false },
+        { id: 'c', name: 'C', description: '', command: 'x', args: [], enabled: true },
+    ] as any;
+
+    it('returns all enabled ids when none requested', () => {
+        expect(resolveEnabledServerIds(undefined, configs)).toEqual(['a', 'c']);
+        expect(resolveEnabledServerIds([], configs)).toEqual(['a', 'c']);
+    });
+
+    it('intersects requested ids with enabled configs', () => {
+        expect(resolveEnabledServerIds(['a', 'b'], configs)).toEqual(['a']);
+    });
+
+    it('drops requested ids that are disabled or unknown', () => {
+        expect(resolveEnabledServerIds(['b', 'ghost'], configs)).toEqual([]);
+    });
+
+    it('preserves requested order', () => {
+        expect(resolveEnabledServerIds(['c', 'a'], configs)).toEqual(['c', 'a']);
     });
 });
