@@ -59,8 +59,27 @@ describe('buildSteps', () => {
     });
 
     it('treats legacy evaluator planning events as evaluation (old runs)', () => {
-        const steps = buildSteps([ev({ eventType: 'planning', node: 'evaluator' })], 'completed');
+        // Old runs recorded the evaluator's structured decision on the legacy
+        // 'planning' eventType, carrying { mode, skillId } metadata.
+        const steps = buildSteps([
+            ev({ eventType: 'planning', node: 'evaluator', metadata: { mode: 'fast', skillId: null } }),
+        ], 'completed');
         expect(steps[0].kind).toBe('evaluation');
+    });
+
+    it('does not treat the evaluator node raw LLM chatter as a second evaluation step', () => {
+        // The evaluator node's own LLM call is recorded as a 'planning' event too,
+        // but with generation metadata (inputTokens/outputTokens/contentType) —
+        // not the structured { mode, ... } shape — so it must fold into the
+        // normal planning step, not a duplicate pill-less evaluation.
+        const steps = buildSteps([
+            ev({
+                eventType: 'planning',
+                node: 'evaluator',
+                metadata: { inputTokens: 5, outputTokens: 2, contentType: 'response' },
+            }),
+        ], 'completed');
+        expect(steps[0].kind).toBe('planning');
     });
 
     it('folds ≥3 contiguous work steps into a group, keeps structural steps outside', () => {

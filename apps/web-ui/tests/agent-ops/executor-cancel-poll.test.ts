@@ -47,7 +47,7 @@ vi.mock('@/lib/skill-service', () => ({
     loadAllSkillContent: vi.fn().mockResolvedValue(new Map()),
 }));
 
-import { executeAgentRun } from '../../lib/agent-ops/agent-executor';
+import { executeAgentRun, resumeApprovedRun } from '../../lib/agent-ops/agent-executor';
 
 function makeRun(overrides: Record<string, unknown> = {}) {
     return {
@@ -80,6 +80,7 @@ function makeGraph(stream: AsyncIterable<unknown>) {
         streamEvents: vi.fn().mockReturnValue(stream),
         getGraph: vi.fn().mockReturnValue({ drawMermaid: vi.fn().mockReturnValue('') }),
         getState: vi.fn().mockResolvedValue({ values: {}, next: [] }),
+        updateState: vi.fn().mockResolvedValue(undefined),
     };
 }
 
@@ -111,6 +112,34 @@ describe('executor cross-replica cancellation poll', () => {
         mockGetRun.mockResolvedValue({ runId: 'run-poll-1', tenantId: 'T1', status: 'in_progress' });
 
         await executeAgentRun(makeRun() as never);
+
+        const statuses = mockUpdateRunStatus.mock.calls.map((c: unknown[]) => c[2]);
+        expect(statuses).not.toContain('cancelled');
+        expect(statuses).toContain('completed');
+    });
+});
+
+describe('resumeApprovedRun cross-replica cancellation poll', () => {
+    it('stops the resumed run and marks it cancelled when the DB status flips to cancelled', async () => {
+        mockCreateDynamicExecutorGraph.mockResolvedValue(makeGraph(endlessStream()));
+        // Another replica cancelled the run: the DB now reports 'cancelled'.
+        mockGetRun.mockResolvedValue({ runId: 'run-poll-1', tenantId: 'T1', status: 'cancelled' });
+
+        await resumeApprovedRun(makeRun() as never);
+
+        const statuses = mockUpdateRunStatus.mock.calls.map((c: unknown[]) => c[2]);
+        expect(statuses).toContain('cancelled');
+        expect(statuses).not.toContain('completed');
+    });
+
+    it('does not cancel a healthy resumed run whose DB status is still in_progress', async () => {
+        async function* shortStream() {
+            yield { event: 'on_chain_start', name: 'evaluator', metadata: { langgraph_node: 'evaluator' }, data: {} };
+        }
+        mockCreateDynamicExecutorGraph.mockResolvedValue(makeGraph(shortStream()));
+        mockGetRun.mockResolvedValue({ runId: 'run-poll-1', tenantId: 'T1', status: 'in_progress' });
+
+        await resumeApprovedRun(makeRun() as never);
 
         const statuses = mockUpdateRunStatus.mock.calls.map((c: unknown[]) => c[2]);
         expect(statuses).not.toContain('cancelled');

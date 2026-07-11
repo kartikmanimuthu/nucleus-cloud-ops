@@ -602,7 +602,20 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
             signal: abortController.signal,
         }) as AsyncIterable<any>;
 
+        let lastCancelPoll = 0; // 0 → poll on the first event, then throttled
+
         for await (const event of eventStream) {
+            // Cross-replica cancellation: pause/delete/cancel handled on another
+            // replica only flips the run's DB status. Poll it (throttled) so this
+            // replica — which owns the AbortController — actually stops execution.
+            if (Date.now() - lastCancelPoll >= CANCEL_POLL_INTERVAL_MS) {
+                lastCancelPoll = Date.now();
+                try {
+                    const fresh = await agentOpsService.getRun(tenantId, runId);
+                    if (fresh?.status === 'cancelled') abortController.abort();
+                } catch { /* never let a status poll abort an otherwise healthy run */ }
+            }
+
             if (isAborted(runId)) {
                 console.log(`[AgentExecutor] 🛑 Resumed run ${runId} cancelled`);
                 break;

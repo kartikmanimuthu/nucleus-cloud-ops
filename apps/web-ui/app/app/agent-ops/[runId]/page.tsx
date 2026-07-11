@@ -17,6 +17,7 @@ import { useRunStream } from "@/components/agent-ops/run-timeline/use-run-stream
 import { useAgentOpsRunDetail, useApproveRun, useCancelRun, useResumeRun } from "@/lib/queries/agent-ops"
 import { exportRunToPdf } from "@/lib/agent-ops/export-pdf"
 import { useTenant } from "@/lib/tenant-context"
+import { toast } from "sonner"
 
 const ACTIVE = new Set(["queued", "in_progress", "awaiting_input", "awaiting_approval"])
 
@@ -49,7 +50,13 @@ export default function RunDetailPage() {
   const handleExportPdf = useCallback(async () => {
     if (!run) return
     setExporting(true)
-    try { await exportRunToPdf(run, events) } finally { setExporting(false) }
+    try {
+      await exportRunToPdf(run, events)
+    } catch (err) {
+      toast.error("PDF export failed", { description: (err as Error).message })
+    } finally {
+      setExporting(false)
+    }
   }, [run, events])
 
   if (detail.isLoading) {

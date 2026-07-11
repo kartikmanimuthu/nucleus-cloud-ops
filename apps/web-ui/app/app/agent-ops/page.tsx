@@ -239,6 +239,7 @@ export default function AgentOpsPage() {
                 const SourceIcon = SOURCE_ICONS[run.source];
                 const statusConfig = STATUS_CONFIG[run.status];
                 const StatusIcon = statusConfig.icon;
+                const isCancelling = cancelRun.isPending && cancelRun.variables?.runId === run.runId;
 
                 return (
                   <div
@@ -286,10 +287,10 @@ export default function AgentOpsPage() {
                             e.stopPropagation();
                             cancelRun.mutate({ runId: run.runId, body: { tenantId: run.tenantId } });
                           }}
-                          disabled={cancelRun.isPending}
+                          disabled={isCancelling}
                           title="Cancel run"
                         >
-                          {cancelRun.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <StopCircle className="h-3 w-3" />}
+                          {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : <StopCircle className="h-3 w-3" />}
                         </Button>
                       )}
                     </div>

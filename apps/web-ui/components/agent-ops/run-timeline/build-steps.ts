@@ -43,8 +43,12 @@ export function buildSteps(events: AgentOpsEvent[], runStatus: AgentOpsStatus): 
         flat.push({ kind: "evaluation", event: e });
         break;
       case "planning":
-        // Legacy runs recorded the evaluator's decision as a planning event.
-        if (e.node === "evaluator") flat.push({ kind: "evaluation", event: e });
+        // Legacy runs recorded the evaluator's decision as a planning event with
+        // the old structured metadata shape ({ mode, skillId, ... }). New runs
+        // emit a dedicated 'evaluation' eventType instead, so a node==='evaluator'
+        // planning event without that shape is just the evaluator's raw LLM
+        // chatter — treat it as a normal planning step, not a second evaluation pill.
+        if (e.node === "evaluator" && e.metadata && "mode" in e.metadata) flat.push({ kind: "evaluation", event: e });
         else flat.push({ kind: "planning", event: e });
         break;
       case "tool_call": {
