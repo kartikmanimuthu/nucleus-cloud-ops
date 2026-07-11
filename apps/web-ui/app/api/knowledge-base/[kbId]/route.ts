@@ -63,28 +63,46 @@ export async function PUT(
     const { kbId } = await params;
     const tenantId = await getSessionTenantId();
     const body = await request.json();
-    const { name, description } = body as { name?: string; description?: string };
+    const { name, description, status } = body as {
+      name?: string;
+      description?: string;
+      status?: 'active' | 'inactive';
+    };
 
     const existing = await KnowledgeBaseService.getKnowledgeBase(kbId, tenantId);
     if (!existing) {
       return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
     }
 
-    await KnowledgeBaseService.updateKnowledgeBase(kbId, { name, description }, tenantId);
+    if (status !== undefined) {
+      if (status !== 'active' && status !== 'inactive') {
+        return NextResponse.json(
+          { success: false, error: "status must be 'active' or 'inactive'" },
+          { status: 400 },
+        );
+      }
+      await KnowledgeBaseService.setKnowledgeBaseStatus(kbId, tenantId, status);
+    }
+
+    if (name !== undefined || description !== undefined) {
+      await KnowledgeBaseService.updateKnowledgeBase(kbId, { name, description }, tenantId);
+    }
 
     AuditService.logUserAction({
       eventType: 'kb.knowledgebase.updated',
       severity: 'medium',
       apiRoute: 'PUT /api/knowledge-base/[kbId]',
       httpMethod: 'PUT',
-      action: 'Updated Knowledge Base',
+      action: status !== undefined ? `${status === 'active' ? 'Activated' : 'Deactivated'} Knowledge Base` : 'Updated Knowledge Base',
       resourceType: 'kb',
       resourceId: kbId,
-      resourceName: name || kbId,
+      resourceName: name || existing.name || kbId,
       user: session?.user?.email || 'unknown',
       userType: 'user',
       status: 'success',
-      details: `Updated knowledge base "${name || kbId}"`,
+      details: status !== undefined
+        ? `Set knowledge base "${existing.name || kbId}" status to ${status}`
+        : `Updated knowledge base "${name || kbId}"`,
       metadata: { tenantId },
     }).catch(() => {});
 
