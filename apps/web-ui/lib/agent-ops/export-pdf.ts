@@ -10,12 +10,18 @@ const EVENT_META: Record<string, { label: string; bg: string; color: string }> =
     revision: { label: "Revision", bg: "#e0e7ff", color: "#4338ca" },
     final: { label: "Final", bg: "#dcfce7", color: "#166534" },
     error: { label: "Error", bg: "#fee2e2", color: "#dc2626" },
+    memory_recall: { label: "Memory Recall", bg: "#ede9fe", color: "#6d28d9" },
+    memory_save:   { label: "Memory Save",   bg: "#ede9fe", color: "#6d28d9" },
+    evaluation:    { label: "Evaluation",    bg: "#fef3c7", color: "#b45309" },
 }
 
 const TIMELINE_COLORS: Record<string, string> = {
     planning: "#3b82f6", execution: "#22c55e", tool_call: "#f97316",
     tool_result: "#14b8a6", reflection: "#a855f7", revision: "#6366f1",
     final: "#16a34a", error: "#ef4444",
+    memory_recall: "#8b5cf6",
+    memory_save: "#8b5cf6",
+    evaluation: "#f59e0b",
 }
 
 function formatTime(iso: string, timeZone?: string) {
