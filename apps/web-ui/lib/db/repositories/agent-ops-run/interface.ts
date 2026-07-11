@@ -49,6 +49,9 @@ export interface IAgentOpsRunRepository {
     getRun(tenantId: string, runId: string): Promise<AgentOpsRun | null>;
     listRuns(query: RunListQuery): Promise<{ runs: AgentOpsRun[]; lastKey?: Record<string, unknown> }>;
     listRunsBySource(source: TriggerSource, limit?: number): Promise<AgentOpsRun[]>;
+    /** Non-terminal (queued/in_progress/awaiting_*) scheduled runs for a task, so
+     *  pausing/deleting a task can cancel whatever it already launched. */
+    listActiveRunsByTask(tenantId: string, taskId: string): Promise<AgentOpsRun[]>;
     findAwaitingApprovalRun(runId: string): Promise<AgentOpsRun | null>;
     findAwaitingApprovalRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null>;
     findAwaitingRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null>;

@@ -22,6 +22,11 @@ import type { GatewayEventBus } from '@/lib/gateway/event-bus';
 
 const SANDBOX_BASE = '/tmp/agent-ops';
 
+// How often the executor re-reads its run's DB status mid-stream to honour a
+// cancellation issued on a different web-ui replica (in-process AbortController
+// only reaches the replica that owns the run). Throttled to keep it cheap.
+const CANCEL_POLL_INTERVAL_MS = 5_000;
+
 // ─── Node → EventType mapping ────────────────────────────────────────────────
 
 function mapNodeToEventType(node: string): AgentEventType {
@@ -133,8 +138,21 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
             signal: abortController.signal,
         }) as AsyncIterable<any>;
 
+        let lastCancelPoll = 0; // 0 → poll on the first event, then throttled
+
         for await (const event of eventStream) {
-            // Check for cancellation on every event
+            // Cross-replica cancellation: pause/delete/cancel handled on another
+            // replica only flips the run's DB status. Poll it (throttled) so this
+            // replica — which owns the AbortController — actually stops execution.
+            if (Date.now() - lastCancelPoll >= CANCEL_POLL_INTERVAL_MS) {
+                lastCancelPoll = Date.now();
+                try {
+                    const fresh = await agentOpsService.getRun(tenantId, runId);
+                    if (fresh?.status === 'cancelled') abortController.abort();
+                } catch { /* never let a status poll abort an otherwise healthy run */ }
+            }
+
+            // Check for cancellation on every event (in-process abort or DB poll above)
             if (isAborted(runId)) {
                 console.log(`[AgentExecutor] 🛑 Run ${runId} cancelled`);
                 break;
@@ -382,12 +400,29 @@ async function processLangGraphEvent(
                     metadata: { stepCount: event.data.output.plan.length, steps: event.data.output.plan },
                 });
             }
+            if ((node === 'memory_recall' || node === 'memory_save') && event.data?.output?.memoryStats) {
+                const stats = event.data.output.memoryStats;
+                const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+                const content = stats.phase === 'recall'
+                    ? (stats.injected
+                        ? `Recalled ${plural(stats.facts.length, 'fact')} · ${plural(stats.rules.length, 'rule')} · ${plural(stats.episodes.length, 'episode')}`
+                        : 'No relevant memories found')
+                    : `Saved ${plural(stats.savedFacts, 'fact')} · ${plural(stats.savedRules, 'rule')}${stats.episodeCaptured ? ' · episode captured' : ''}`;
+                await agentOpsService.recordEvent({
+                    runId, tenantId, eventType: node as AgentEventType, node,
+                    content, metadata: stats,
+                });
+            }
             if (node === 'evaluator' && event.data?.output?.evaluation) {
                 const eval_ = event.data.output.evaluation;
                 await agentOpsService.recordEvent({
-                    runId, tenantId, eventType: 'planning', node,
-                    content: JSON.stringify(eval_, null, 2),
-                    metadata: { mode: eval_.mode, skillId: eval_.skillId },
+                    runId, tenantId, eventType: 'evaluation', node,
+                    content: eval_.reasoning || JSON.stringify(eval_, null, 2),
+                    metadata: {
+                        mode: eval_.mode, skillId: eval_.skillId, skillName: eval_.skillName ?? null,
+                        knowledgeBaseIds: eval_.knowledgeBaseIds ?? [],
+                        requiresApproval: !!eval_.requiresApproval,
+                    },
                 });
             }
             break;
@@ -403,6 +438,10 @@ async function processLangGraphEvent(
                 result.inputTokens = usage.input_tokens || usage.prompt_tokens || 0;
                 result.outputTokens = usage.output_tokens || usage.completion_tokens || 0;
             }
+
+            // Memory nodes' internal LLM calls (relevance filter, extraction) are implementation
+            // chatter — the structured memory_recall/memory_save events carry the signal.
+            if (node === 'memory_recall' || node === 'memory_save') break;
 
             const toolCalls = output.tool_calls || [];
             for (const tc of toolCalls) {
@@ -563,7 +602,20 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
             signal: abortController.signal,
         }) as AsyncIterable<any>;
 
+        let lastCancelPoll = 0; // 0 → poll on the first event, then throttled
+
         for await (const event of eventStream) {
+            // Cross-replica cancellation: pause/delete/cancel handled on another
+            // replica only flips the run's DB status. Poll it (throttled) so this
+            // replica — which owns the AbortController — actually stops execution.
+            if (Date.now() - lastCancelPoll >= CANCEL_POLL_INTERVAL_MS) {
+                lastCancelPoll = Date.now();
+                try {
+                    const fresh = await agentOpsService.getRun(tenantId, runId);
+                    if (fresh?.status === 'cancelled') abortController.abort();
+                } catch { /* never let a status poll abort an otherwise healthy run */ }
+            }
+
             if (isAborted(runId)) {
                 console.log(`[AgentExecutor] 🛑 Resumed run ${runId} cancelled`);
                 break;

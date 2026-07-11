@@ -71,4 +71,22 @@ export interface MemoryNodeState {
     iterationCount: number;
     isComplete: boolean;
     memoryContext: string;
+    memoryStats?: MemoryStats | null;
 }
+
+export interface MemoryHitStat { key: string; distance?: number }
+export interface MemoryRecallStats {
+    phase: 'recall';
+    facts: MemoryHitStat[];      // raw semantic hits (pre-LLM-filter)
+    rules: MemoryHitStat[];      // distance-gate survivors
+    episodes: MemoryHitStat[];   // distance-gate survivors
+    injected: boolean;           // memoryContext non-empty
+}
+export interface MemorySaveStats {
+    phase: 'save';
+    savedFacts: number;          // SEMANTIC items extracted+persisted
+    savedRules: number;          // PROCEDURAL items extracted+persisted
+    episodeCaptured: boolean;
+    reconcileActions?: Record<string, number>;  // {added,updated,superseded,reinforced,noop,failed}
+}
+export type MemoryStats = MemoryRecallStats | MemorySaveStats;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
+import { useChannelSettings, useSaveChannelSettings, revealChannelSecrets } from '@/lib/queries/channel-settings';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -56,7 +56,22 @@ function DiscordSettingsFormInner({
     const [errorMessage, setErrorMessage] = useState('');
     const [showPublicKey, setShowPublicKey] = useState(false);
     const [showBotToken, setShowBotToken] = useState(false);
+    const [revealed, setRevealed] = useState(false);
     const [copied, setCopied] = useState(false);
+
+    // Lazily pull the stored plaintext secrets into the form the first time the
+    // user reveals a field (only when already configured and untouched).
+    const revealSecrets = async () => {
+        if (revealed || !configured) return;
+        setRevealed(true);
+        const data = await revealChannelSecrets('discord');
+        setForm(prev => ({
+            ...prev,
+            applicationId: prev.applicationId || (data.applicationId as string) || '',
+            publicKey: prev.publicKey || (data.publicKey as string) || '',
+            botToken: prev.botToken || (data.botToken as string) || '',
+        }));
+    };
 
     const [form, setForm] = useState<DiscordSettingsState>({
         applicationId: '',
@@ -71,20 +86,23 @@ function DiscordSettingsFormInner({
             : '/api/v1/gateway/discord';
 
     const handleSave = async () => {
-        if (!form.applicationId.trim()) {
-            setErrorMessage('Application ID is required');
-            setSaveStatus('error');
-            return;
-        }
-        if (!form.publicKey.trim()) {
-            setErrorMessage('Public Key is required');
-            setSaveStatus('error');
-            return;
-        }
-        if (!form.botToken.trim()) {
-            setErrorMessage('Bot Token is required');
-            setSaveStatus('error');
-            return;
+        // When already configured, blank fields keep existing stored values.
+        if (!configured) {
+            if (!form.applicationId.trim()) {
+                setErrorMessage('Application ID is required');
+                setSaveStatus('error');
+                return;
+            }
+            if (!form.publicKey.trim()) {
+                setErrorMessage('Public Key is required');
+                setSaveStatus('error');
+                return;
+            }
+            if (!form.botToken.trim()) {
+                setErrorMessage('Bot Token is required');
+                setSaveStatus('error');
+                return;
+            }
         }
         try {
             setErrorMessage('');
@@ -97,6 +115,9 @@ function DiscordSettingsFormInner({
             setConfigured(true);
             setSaveStatus('saved');
             setForm(prev => ({ ...prev, applicationId: '', publicKey: '', botToken: '' }));
+            setRevealed(false);
+            setShowPublicKey(false);
+            setShowBotToken(false);
             setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
@@ -208,7 +229,10 @@ function DiscordSettingsFormInner({
                                 variant="ghost"
                                 size="icon"
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={() => setShowPublicKey(v => !v)}
+                                onClick={async () => {
+                                    if (!showPublicKey) await revealSecrets();
+                                    setShowPublicKey(v => !v);
+                                }}
                             >
                                 {showPublicKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>
@@ -237,7 +261,10 @@ function DiscordSettingsFormInner({
                                 variant="ghost"
                                 size="icon"
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={() => setShowBotToken(v => !v)}
+                                onClick={async () => {
+                                    if (!showBotToken) await revealSecrets();
+                                    setShowBotToken(v => !v);
+                                }}
                             >
                                 {showBotToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>

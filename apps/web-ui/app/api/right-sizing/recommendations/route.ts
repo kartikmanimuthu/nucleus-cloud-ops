@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId } from '@/lib/auth-session';
-import { isRightSizingEnabled } from '@/lib/right-sizing/feature-flag';
 import { RightSizingService } from '@/lib/right-sizing-service';
 import type { Finding, RecommendationStatus } from '@/lib/db/repositories/right-sizing/interface';
 
@@ -11,9 +10,6 @@ export async function GET(request: NextRequest) {
     if (authError) return authError;
 
     try {
-        if (!isRightSizingEnabled()) {
-            return NextResponse.json({ success: true, data: [], meta: { total: 0, page: 1, limit: 0 } });
-        }
         const { searchParams } = new URL(request.url);
         const page = parseInt(searchParams.get('page') || '1', 10);
         const limit = parseInt(searchParams.get('limit') || '25', 10);

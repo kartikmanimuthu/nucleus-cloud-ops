@@ -80,7 +80,6 @@ export const env = createEnv({
         WEBHOOK_SECRET: z.string().optional(),
 
         // Feature flags / misc
-        RIGHT_SIZING_ENABLED: z.string().optional(),
         WORKING_MEMORY_ENABLED: z.string().optional(),
         WORKING_MEMORY_TOKEN_BUDGET: z.string().optional(),
         WORKING_MEMORY_KEEP_RECENT: z.string().optional(),
@@ -109,7 +108,6 @@ export const env = createEnv({
     client: {
         NEXT_PUBLIC_AWS_REGION: z.string().optional(),
         NEXT_PUBLIC_HUB_ACCOUNT_ID: z.string().optional(),
-        NEXT_PUBLIC_RIGHT_SIZING_ENABLED: z.string().optional(),
         NEXT_PUBLIC_APP_URL: z.string().optional(),
     },
 
@@ -121,8 +119,6 @@ export const env = createEnv({
     experimental__runtimeEnv: {
         NEXT_PUBLIC_AWS_REGION: process.env.NEXT_PUBLIC_AWS_REGION,
         NEXT_PUBLIC_HUB_ACCOUNT_ID: process.env.NEXT_PUBLIC_HUB_ACCOUNT_ID,
-        NEXT_PUBLIC_RIGHT_SIZING_ENABLED:
-            process.env.NEXT_PUBLIC_RIGHT_SIZING_ENABLED,
         NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     },
 

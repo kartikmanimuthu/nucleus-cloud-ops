@@ -123,7 +123,7 @@ function baseState(messages: any[]): ReflectionState {
     return {
         messages, taskDescription: 't', plan: [], code: '', executionOutput: '',
         errors: [], reflection: '', iterationCount: 0, nextAction: 'plan',
-        isComplete: false, toolResults: [], memoryContext: '',
+        isComplete: false, toolResults: [], memoryContext: '', memoryStats: null,
         runningSummary: '', scratchpad: { openGoals: [], keyFindings: [], resourceIds: [], pendingSteps: [] },
     };
 }

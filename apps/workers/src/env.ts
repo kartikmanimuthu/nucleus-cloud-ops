@@ -56,7 +56,6 @@ export const env = createEnv({
 
         // Feature flags / scheduling
         USE_PG_SCHEDULES: z.string().optional(),
-        RIGHT_SIZING_ENABLED: z.string().optional(),
 
         // pg-boss worker poll cadence (seconds). Controls how quickly the workers
         // process picks up jobs enqueued by the web-ui — pg-boss has no cross-process

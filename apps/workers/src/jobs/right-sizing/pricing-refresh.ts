@@ -2,10 +2,9 @@
 //
 // Weekly pricing-catalog refresh job (RS-007).
 // Refreshes pricing_catalog from the AWS Price List API for every region in use across
-// active tenant accounts. Per-region failures are isolated. Gated by RIGHT_SIZING_ENABLED.
+// active tenant accounts. Per-region failures are isolated.
 import type PgBoss from 'pg-boss';
 import { createLogger } from '../../lib/logger.js';
-import { env } from '../../env.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { fetchAllPricing } from './services/pricing-client.js';
 import { getDistinctAccountRegions, upsertPricingEntries } from './services/pricing-writer.js';
@@ -13,15 +12,7 @@ import { getDistinctAccountRegions, upsertPricingEntries } from './services/pric
 const log = createLogger('right-sizing-pricing-refresh');
 const QUEUE = 'right-sizing-pricing-refresh';
 
-export function isRightSizingEnabled(): boolean {
-    return env.RIGHT_SIZING_ENABLED === 'true';
-}
-
 export async function handlePricingRefresh(): Promise<void> {
-    if (!isRightSizingEnabled()) {
-        log.info('RIGHT_SIZING_ENABLED is not true — skipping pricing refresh');
-        return;
-    }
     const regions = await getDistinctAccountRegions();
     if (!regions.length) {
         log.info('No active-account regions found — nothing to refresh');

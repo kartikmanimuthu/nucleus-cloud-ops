@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import { authorize } from '@/lib/rbac/authorize';
 import type { JiraIntegrationConfig } from '@/lib/agent-ops/types';
 
 const CONFIG_KEY = 'agent-ops-jira';
@@ -19,7 +20,7 @@ function maskSecret(value: string | undefined): string {
     return value.slice(0, 4) + '****' + value.slice(-4);
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const tenantId = await getSessionTenantId();
         const config = await TenantConfigService.getConfig<JiraIntegrationConfig>(CONFIG_KEY, tenantId);
@@ -28,13 +29,43 @@ export async function GET() {
             return NextResponse.json({ configured: false, enabled: false });
         }
 
+        // Plaintext secrets are only returned when explicitly revealed by the
+        // authenticated tenant admin (eye toggle), never on the default load.
+        const reveal = new URL(req.url).searchParams.get('reveal') === '1';
+
+        if (reveal) {
+            const authError = await authorize('update', 'Agent');
+            if (authError) return authError;
+        }
+
+        const show = (value: string | undefined) => (reveal ? value ?? '' : maskSecret(value));
+
+        if (reveal) {
+            const session = await getAuthSession();
+            AuditService.logUserAction({
+                eventType: 'agent.settings.jira_secret_reveal',
+                severity: 'high',
+                apiRoute: 'GET /api/agent-ops/settings/jira',
+                httpMethod: 'GET',
+                action: 'channel_secret_reveal',
+                resourceType: 'agent',
+                resourceId: 'jira-integration',
+                resourceName: 'Jira Integration',
+                user: session?.user?.email || 'unknown',
+                userType: 'user',
+                status: 'success',
+                details: 'Revealed plaintext Jira integration secrets',
+                metadata: { tenantId },
+            }).catch(() => {});
+        }
+
         return NextResponse.json({
             configured: true,
             enabled: config.enabled,
-            webhookSecret: maskSecret(config.webhookSecret),
+            webhookSecret: show(config.webhookSecret),
             baseUrl: config.baseUrl || '',
             userEmail: config.userEmail || '',
-            apiToken: maskSecret(config.apiToken),
+            apiToken: show(config.apiToken),
             botAccountId: config.botAccountId || '',
             autoApprove: config.autoApprove ?? false,
         });
@@ -52,7 +83,13 @@ export async function PUT(req: Request) {
         const tenantId = await getSessionTenantId();
         const body = await req.json() as Partial<JiraIntegrationConfig>;
 
-        if (!body.webhookSecret || body.webhookSecret.trim() === '') {
+        // "Leave blank to keep existing values": merge the incoming body over the
+        // stored config so blank fields retain what's already saved rather than
+        // wiping it (secrets especially can never be re-read from the masked GET).
+        const existing = await TenantConfigService.getConfig<JiraIntegrationConfig>(CONFIG_KEY, tenantId);
+
+        const webhookSecret = body.webhookSecret?.trim() || existing?.webhookSecret;
+        if (!webhookSecret) {
             return NextResponse.json(
                 { error: 'webhookSecret is required' },
                 { status: 400 }
@@ -60,13 +97,13 @@ export async function PUT(req: Request) {
         }
 
         const config: JiraIntegrationConfig = {
-            webhookSecret: body.webhookSecret.trim(),
-            baseUrl: body.baseUrl?.trim() || undefined,
-            userEmail: body.userEmail?.trim() || undefined,
-            apiToken: body.apiToken?.trim() || undefined,
-            botAccountId: body.botAccountId?.trim() || undefined,
-            enabled: body.enabled !== false,
-            autoApprove: body.autoApprove ?? false,
+            webhookSecret,
+            baseUrl: body.baseUrl?.trim() || existing?.baseUrl || undefined,
+            userEmail: body.userEmail?.trim() || existing?.userEmail || undefined,
+            apiToken: body.apiToken?.trim() || existing?.apiToken || undefined,
+            botAccountId: body.botAccountId?.trim() || existing?.botAccountId || undefined,
+            enabled: body.enabled ?? existing?.enabled ?? true,
+            autoApprove: body.autoApprove ?? existing?.autoApprove ?? false,
         };
 
         await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);

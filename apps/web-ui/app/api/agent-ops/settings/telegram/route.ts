@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import { authorize } from '@/lib/rbac/authorize';
 import type { TelegramIntegrationConfig } from '@/lib/agent-ops/types';
 
 const CONFIG_KEY = 'agent-ops-telegram';
@@ -19,7 +20,7 @@ function maskSecret(value: string | undefined): string {
     return value.slice(0, 4) + '****' + value.slice(-4);
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const tenantId = await getSessionTenantId();
         const config = await TenantConfigService.getConfig<TelegramIntegrationConfig>(CONFIG_KEY, tenantId);
@@ -28,11 +29,41 @@ export async function GET() {
             return NextResponse.json({ configured: false, enabled: false });
         }
 
+        // Plaintext secrets are only returned when explicitly revealed by the
+        // authenticated tenant admin (eye toggle), never on the default load.
+        const reveal = new URL(req.url).searchParams.get('reveal') === '1';
+
+        if (reveal) {
+            const authError = await authorize('update', 'Agent');
+            if (authError) return authError;
+        }
+
+        const show = (value: string | undefined) => (reveal ? value ?? '' : maskSecret(value));
+
+        if (reveal) {
+            const session = await getAuthSession();
+            AuditService.logUserAction({
+                eventType: 'agent.settings.telegram_secret_reveal',
+                severity: 'high',
+                apiRoute: 'GET /api/agent-ops/settings/telegram',
+                httpMethod: 'GET',
+                action: 'channel_secret_reveal',
+                resourceType: 'agent',
+                resourceId: 'telegram-integration',
+                resourceName: 'Telegram Integration',
+                user: session?.user?.email || 'unknown',
+                userType: 'user',
+                status: 'success',
+                details: 'Revealed plaintext Telegram integration secrets',
+                metadata: { tenantId },
+            }).catch(() => {});
+        }
+
         return NextResponse.json({
             configured: true,
             enabled: config.enabled,
-            botToken: maskSecret(config.botToken),
-            secretToken: maskSecret(config.secretToken),
+            botToken: show(config.botToken),
+            secretToken: show(config.secretToken),
         });
     } catch (error: any) {
         console.error('[API /agent-ops/settings/telegram] GET error:', error);
@@ -48,7 +79,13 @@ export async function PUT(req: Request) {
         const tenantId = await getSessionTenantId();
         const body = await req.json() as Partial<TelegramIntegrationConfig>;
 
-        if (!body.botToken?.trim() || !body.secretToken?.trim()) {
+        // "Leave blank to keep existing values": merge the incoming body over the
+        // stored config so blank secret fields retain what's already saved.
+        const existing = await TenantConfigService.getConfig<TelegramIntegrationConfig>(CONFIG_KEY, tenantId);
+
+        const botToken = body.botToken?.trim() || existing?.botToken;
+        const secretToken = body.secretToken?.trim() || existing?.secretToken;
+        if (!botToken || !secretToken) {
             return NextResponse.json(
                 { error: 'botToken and secretToken are required' },
                 { status: 400 }
@@ -56,9 +93,9 @@ export async function PUT(req: Request) {
         }
 
         const config: TelegramIntegrationConfig = {
-            botToken: body.botToken.trim(),
-            secretToken: body.secretToken.trim(),
-            enabled: body.enabled !== false,
+            botToken,
+            secretToken,
+            enabled: body.enabled ?? existing?.enabled ?? true,
         };
 
         await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);

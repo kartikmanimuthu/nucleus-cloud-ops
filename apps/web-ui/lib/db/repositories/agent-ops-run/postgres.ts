@@ -182,6 +182,19 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         return { runs: records.map(toAgentOpsRun) };
     }
 
+    async listActiveRunsByTask(tenantId: string, taskId: string): Promise<AgentOpsRun[]> {
+        const records = await getTenantClient(tenantId).agentOpsRun.findMany({
+            where: {
+                tenantId,
+                source: 'scheduled',
+                status: { in: ['queued', 'in_progress', 'awaiting_input', 'awaiting_approval'] },
+                trigger: { path: ['taskId'], equals: taskId },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        return records.map(toAgentOpsRun);
+    }
+
     // Cross-tenant: webhook handlers need to find runs across tenants
     async listRunsBySource(source: TriggerSource, limit = 25): Promise<AgentOpsRun[]> {
         const records = await getPrismaClient().agentOpsRun.findMany({

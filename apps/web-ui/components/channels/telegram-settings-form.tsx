@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
+import { useChannelSettings, useSaveChannelSettings, revealChannelSecrets } from '@/lib/queries/channel-settings';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,7 +55,21 @@ function TelegramSettingsFormInner({
     const [errorMessage, setErrorMessage] = useState('');
     const [showBotToken, setShowBotToken] = useState(false);
     const [showSecretToken, setShowSecretToken] = useState(false);
+    const [revealed, setRevealed] = useState(false);
     const [copied, setCopied] = useState(false);
+
+    // Lazily pull the stored plaintext secrets into the form the first time the
+    // user reveals a field (only when already configured and untouched).
+    const revealSecrets = async () => {
+        if (revealed || !configured) return;
+        setRevealed(true);
+        const data = await revealChannelSecrets('telegram');
+        setForm(prev => ({
+            ...prev,
+            botToken: prev.botToken || (data.botToken as string) || '',
+            secretToken: prev.secretToken || (data.secretToken as string) || '',
+        }));
+    };
 
     const [form, setForm] = useState<TelegramSettingsState>({
         botToken: '',
@@ -69,15 +83,18 @@ function TelegramSettingsFormInner({
             : '/api/v1/gateway/telegram';
 
     const handleSave = async () => {
-        if (!form.botToken.trim()) {
-            setErrorMessage('Bot Token is required');
-            setSaveStatus('error');
-            return;
-        }
-        if (!form.secretToken.trim()) {
-            setErrorMessage('Secret Token is required');
-            setSaveStatus('error');
-            return;
+        // When already configured, blank fields keep existing stored values.
+        if (!configured) {
+            if (!form.botToken.trim()) {
+                setErrorMessage('Bot Token is required');
+                setSaveStatus('error');
+                return;
+            }
+            if (!form.secretToken.trim()) {
+                setErrorMessage('Secret Token is required');
+                setSaveStatus('error');
+                return;
+            }
         }
         try {
             setErrorMessage('');
@@ -89,6 +106,9 @@ function TelegramSettingsFormInner({
             setConfigured(true);
             setSaveStatus('saved');
             setForm(prev => ({ ...prev, botToken: '', secretToken: '' }));
+            setRevealed(false);
+            setShowBotToken(false);
+            setShowSecretToken(false);
             setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
@@ -182,7 +202,10 @@ function TelegramSettingsFormInner({
                                 variant="ghost"
                                 size="icon"
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={() => setShowBotToken(v => !v)}
+                                onClick={async () => {
+                                    if (!showBotToken) await revealSecrets();
+                                    setShowBotToken(v => !v);
+                                }}
                             >
                                 {showBotToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>
@@ -211,7 +234,10 @@ function TelegramSettingsFormInner({
                                 variant="ghost"
                                 size="icon"
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={() => setShowSecretToken(v => !v)}
+                                onClick={async () => {
+                                    if (!showSecretToken) await revealSecrets();
+                                    setShowSecretToken(v => !v);
+                                }}
                             >
                                 {showSecretToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>

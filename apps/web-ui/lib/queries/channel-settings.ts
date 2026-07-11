@@ -27,6 +27,17 @@ export function useChannelSettings(channel: string) {
     });
 }
 
+/**
+ * Imperative fetch of a channel's *plaintext* secrets, used when the user clicks
+ * the eye toggle to reveal a stored value. Kept out of the default useChannelSettings
+ * query on purpose — secrets are only pulled from the server on explicit reveal,
+ * never on page load.
+ */
+export async function revealChannelSecrets(channel: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`/api/agent-ops/settings/${channel}?reveal=1`);
+    return res.json().catch(() => ({}));
+}
+
 export function useSaveChannelSettings(channel: string) {
     const qc = useQueryClient();
     return useMutation({
