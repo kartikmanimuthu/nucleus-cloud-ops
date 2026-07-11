@@ -30,6 +30,7 @@ describe('searchKbChunks', () => {
         const sql = q.mock.calls[0][0] as string;
         expect(sql).not.toContain('ANY(');
         expect(sql).toContain('"tenantId" = $2');
+        expect(sql).toContain("status = 'active'");
         expect(q.mock.calls[0].slice(1)).toEqual(['[0.1,0.2]', 't1']);
     });
 
@@ -37,7 +38,16 @@ describe('searchKbChunks', () => {
         await searchKbChunks({ tenantId: 't1', query: 'q', knowledgeBaseIds: ['kb1', 'kb2'] });
         const sql = q.mock.calls[0][0] as string;
         expect(sql).toContain('"knowledgeBaseId" = ANY($3::text[])');
+        expect(sql).toContain("status = 'active'");
         expect(q.mock.calls[0][3]).toEqual(['kb1', 'kb2']);
+    });
+
+    it('always restricts to active knowledge bases via a tenant-scoped subquery', async () => {
+        await searchKbChunks({ tenantId: 't1', query: 'q' });
+        const sql = q.mock.calls[0][0] as string;
+        expect(sql).toContain('FROM knowledge_bases');
+        expect(sql).toContain('"tenantId" = $2');
+        expect(sql).toContain("status = 'active'");
     });
 
     it('applies minScore filtering in JS', async () => {

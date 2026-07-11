@@ -37,12 +37,16 @@ export async function searchKbChunks(params: {
                   "knowledgeBaseId", "dataSourceId", "textContent",
                   1 - (embedding <=> $1::vector) as score`;
 
+    // Only chunks whose parent KB is active are searchable. Subquery reuses the
+    // $2 tenantId bind (raw SQL is not tenant-intercepted — scope stays manual).
+    const activeKbFilter = `"knowledgeBaseId" IN (SELECT id FROM knowledge_bases WHERE "tenantId" = $2 AND status = 'active')`;
+
     let rows: KbChunkHit[];
     if (knowledgeBaseIds && knowledgeBaseIds.length > 0) {
         rows = await prisma.$queryRawUnsafe<KbChunkHit[]>(
             `SELECT ${cols}
              FROM kb_document_chunks
-             WHERE "tenantId" = $2 AND "knowledgeBaseId" = ANY($3::text[])
+             WHERE "tenantId" = $2 AND "knowledgeBaseId" = ANY($3::text[]) AND ${activeKbFilter}
              ORDER BY embedding <=> $1::vector
              LIMIT ${Number(limit)}`,
             vectorLiteral, tenantId, knowledgeBaseIds,
@@ -51,7 +55,7 @@ export async function searchKbChunks(params: {
         rows = await prisma.$queryRawUnsafe<KbChunkHit[]>(
             `SELECT ${cols}
              FROM kb_document_chunks
-             WHERE "tenantId" = $2
+             WHERE "tenantId" = $2 AND ${activeKbFilter}
              ORDER BY embedding <=> $1::vector
              LIMIT ${Number(limit)}`,
             vectorLiteral, tenantId,
