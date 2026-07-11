@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import { authorize } from '@/lib/rbac/authorize';
 import type { SlackIntegrationConfig } from '@/lib/agent-ops/types';
 
 const CONFIG_KEY = 'agent-ops-slack';
@@ -31,7 +32,32 @@ export async function GET(req: Request) {
         // Plaintext secrets are only returned when explicitly revealed by the
         // authenticated tenant admin (eye toggle), never on the default load.
         const reveal = new URL(req.url).searchParams.get('reveal') === '1';
+
+        if (reveal) {
+            const authError = await authorize('update', 'Agent');
+            if (authError) return authError;
+        }
+
         const show = (value: string | undefined) => (reveal ? value ?? '' : maskSecret(value));
+
+        if (reveal) {
+            const session = await getAuthSession();
+            AuditService.logUserAction({
+                eventType: 'agent.settings.slack_secret_reveal',
+                severity: 'high',
+                apiRoute: 'GET /api/agent-ops/settings/slack',
+                httpMethod: 'GET',
+                action: 'channel_secret_reveal',
+                resourceType: 'agent',
+                resourceId: 'slack-integration',
+                resourceName: 'Slack Integration',
+                user: session?.user?.email || 'unknown',
+                userType: 'user',
+                status: 'success',
+                details: 'Revealed plaintext Slack integration secrets',
+                metadata: { tenantId },
+            }).catch(() => {});
+        }
 
         return NextResponse.json({
             configured: true,

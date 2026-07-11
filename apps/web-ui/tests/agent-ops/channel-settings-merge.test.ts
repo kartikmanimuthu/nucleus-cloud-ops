@@ -19,12 +19,14 @@ const {
     mockGetSessionTenantId,
     mockGetAuthSession,
     mockLogUserAction,
+    mockAuthorize,
 } = vi.hoisted(() => ({
     mockGetConfig: vi.fn(),
     mockSaveConfig: vi.fn(),
     mockGetSessionTenantId: vi.fn(),
     mockGetAuthSession: vi.fn(),
     mockLogUserAction: vi.fn(),
+    mockAuthorize: vi.fn(),
 }));
 
 vi.mock('@/lib/tenant-config-service', () => ({
@@ -38,6 +40,10 @@ vi.mock('@/lib/auth-session', () => ({
 
 vi.mock('@/lib/audit-service', () => ({
     AuditService: { logUserAction: mockLogUserAction },
+}));
+
+vi.mock('@/lib/rbac/authorize', () => ({
+    authorize: mockAuthorize,
 }));
 
 // Import after mocks
@@ -62,6 +68,7 @@ beforeEach(() => {
     mockGetAuthSession.mockResolvedValue({ user: { email: 'user@example.com' } });
     mockLogUserAction.mockResolvedValue(undefined);
     mockSaveConfig.mockResolvedValue(undefined);
+    mockAuthorize.mockResolvedValue(null); // authorized by default
 });
 
 describe('Slack settings PUT — merge on blank', () => {
@@ -135,6 +142,25 @@ describe('Slack settings GET — reveal', () => {
 
         expect(body.signingSecret).toBe('sign-1234567890');
         expect(body.botToken).toBe('bot-1234567890');
+    });
+
+    it('403s and withholds secrets when reveal is requested but RBAC denies it', async () => {
+        mockGetConfig.mockResolvedValue({
+            signingSecret: 'sign-1234567890',
+            botToken: 'bot-1234567890',
+            enabled: true,
+        });
+        mockAuthorize.mockResolvedValue(
+            new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })
+        );
+
+        const res = await slackGET(getReq('?reveal=1'));
+        const bodyText = await res.text();
+
+        expect(res.status).toBe(403);
+        expect(bodyText).not.toContain('sign-1234567890');
+        expect(bodyText).not.toContain('bot-1234567890');
+        expect(mockLogUserAction).not.toHaveBeenCalled();
     });
 });
 
