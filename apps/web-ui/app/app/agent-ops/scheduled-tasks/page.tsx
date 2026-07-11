@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,7 +19,7 @@ import {
 } from "lucide-react"
 import type { ScheduledTask } from "@/lib/agent-ops/types"
 import type { TaskListQuery } from "@/lib/db/repositories/scheduled-task/interface"
-import { ScheduledTaskDialog } from "@/components/agent-ops/scheduled-task-dialog"
+import { ScheduledTaskDialog, SCHEDULED_TASK_PREFILL_KEY, type ScheduledTaskPrefill } from "@/components/agent-ops/scheduled-task-dialog"
 import { useScheduledTasks } from "@/lib/queries/agent-ops-scheduled-tasks"
 import { formatDateTime } from "@/lib/date-utils"
 import { useTenant } from '@/lib/tenant-context'
@@ -56,6 +56,22 @@ export default function ScheduledTasksPage() {
     const [pageSize, setPageSize] = useState(25)
     const [sortValue, setSortValue] = useState<string>("createdAt:desc")
     const [actionIds, setActionIds] = useState<Set<string>>(new Set())
+    const [prefill, setPrefill] = useState<ScheduledTaskPrefill | null>(null)
+    const [prefillOpen, setPrefillOpen] = useState(false)
+
+    useEffect(() => {
+        if (searchParams.get("prefill") !== "1") return
+        try {
+            const raw = sessionStorage.getItem(SCHEDULED_TASK_PREFILL_KEY)
+            if (raw) {
+                setPrefill(JSON.parse(raw) as ScheduledTaskPrefill)
+                setPrefillOpen(true)
+            }
+        } catch { /* ignore malformed draft */ }
+        sessionStorage.removeItem(SCHEDULED_TASK_PREFILL_KEY)
+        // strip the query param so a refresh doesn't re-open the dialog
+        router.replace("/app/agent-ops/scheduled-tasks")
+    }, [searchParams, router])
 
     const { sortBy, sortDir } = parseSort(sortValue)
     const tasksQuery = useScheduledTasks({ page, limit: pageSize, sortBy, sortDir })
@@ -135,6 +151,15 @@ export default function ScheduledTasksPage() {
                         Refresh
                     </Button>
                     <ScheduledTaskDialog tenantId={tenantId} onSaved={() => tasksQuery.refetch()} />
+                    {prefill && (
+                        <ScheduledTaskDialog
+                            tenantId={tenantId}
+                            prefill={prefill}
+                            open={prefillOpen}
+                            onOpenChange={(o) => { setPrefillOpen(o); if (!o) setPrefill(null); }}
+                            onSaved={() => { setPrefillOpen(false); setPrefill(null); tasksQuery.refetch(); }}
+                        />
+                    )}
                 </div>
             </div>
 
