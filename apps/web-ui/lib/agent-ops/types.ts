@@ -20,7 +20,10 @@ export type AgentEventType =
     | 'reflection'
     | 'revision'
     | 'final'
-    | 'error';
+    | 'error'
+    | 'memory_recall'
+    | 'memory_save'
+    | 'evaluation';
 
 // ─── Trigger Metadata ──────────────────────────────────────────────────
 
