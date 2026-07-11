@@ -1936,12 +1936,12 @@ export function ChatInterface({
                     className="w-[280px] p-0 mb-2"
                   >
                     <div className="max-h-[300px] overflow-y-auto p-1">
-                      {knowledgeBases.length === 0 && (
+                      {knowledgeBases.filter((kb) => kb.status === 'active').length === 0 && (
                         <p className="text-xs text-muted-foreground p-3 text-center">
                           No knowledge bases available
                         </p>
                       )}
-                      {knowledgeBases.map((kb) => (
+                      {knowledgeBases.filter((kb) => kb.status === 'active').map((kb) => (
                         <label
                           key={kb.id}
                           className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted cursor-pointer text-sm transition-colors"
@@ -2054,6 +2054,7 @@ export function ChatInterface({
                           <CommandEmpty>No matching tools</CommandEmpty>
                           <CommandGroup>
                             {mcpServers
+                              .filter((server) => server.enabled)
                               .filter(
                                 (server) =>
                                   server.name

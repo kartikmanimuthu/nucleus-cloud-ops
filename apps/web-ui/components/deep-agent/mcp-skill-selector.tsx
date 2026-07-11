@@ -13,6 +13,7 @@ interface SkillMeta {
 interface McpServer {
   id: string;
   name: string;
+  enabled?: boolean;
 }
 
 interface McpSkillSelectorProps {
@@ -189,10 +190,10 @@ export function McpSkillSelector({
               )}
             </div>
             <div className="max-h-52 overflow-y-auto p-1.5 space-y-0.5">
-              {mcpServers.length === 0 ? (
+              {mcpServers.filter(s => s.enabled !== false).length === 0 ? (
                 <p className="text-xs text-muted-foreground px-2 py-2">No MCP servers configured</p>
               ) : (
-                mcpServers.map(server => (
+                mcpServers.filter(s => s.enabled !== false).map(server => (
                   <button
                     key={server.id}
                     onClick={() => toggleMcp(server.id)}
