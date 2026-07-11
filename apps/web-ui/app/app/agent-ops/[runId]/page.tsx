@@ -27,6 +27,9 @@ const EVENT_TYPE_CONFIG: Record<AgentEventType, { label: string; icon: typeof Br
     revision:    { label: "Revision",   icon: RefreshCw,    color: "text-indigo-500", bg: "border-indigo-400" },
     final:       { label: "Final",      icon: CheckCircle2, color: "text-green-600",  bg: "border-green-600" },
     error:       { label: "Error",      icon: XCircle,      color: "text-red-500",    bg: "border-red-400" },
+    memory_recall: { label: "Memory Recall", icon: Brain,     color: "text-violet-500", bg: "border-violet-400" },
+    memory_save:   { label: "Memory Save",   icon: Brain,     color: "text-violet-500", bg: "border-violet-400" },
+    evaluation:    { label: "Evaluation",    icon: Zap,       color: "text-amber-500",  bg: "border-amber-400" },
 }
 
 // ─── Single event row ────────────────────────────────────────────────────────
