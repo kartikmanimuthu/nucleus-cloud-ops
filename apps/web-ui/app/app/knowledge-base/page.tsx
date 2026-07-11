@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useKnowledgeBases, useCreateKnowledgeBase, useDeleteKnowledgeBase } from '@/lib/queries/knowledge-base';
+import { useKnowledgeBases, useCreateKnowledgeBase, useDeleteKnowledgeBase, useSetKnowledgeBaseStatus } from '@/lib/queries/knowledge-base';
 import { Spinner } from '@/components/ui/spinner';
 import { BookOpen, Loader2, Plus, Database, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ export default function KnowledgeBasePage() {
   const kbQuery = useKnowledgeBases();
   const createKB = useCreateKnowledgeBase();
   const deleteKB = useDeleteKnowledgeBase();
+  const setStatus = useSetKnowledgeBaseStatus();
 
   const knowledgeBases = kbQuery.data ?? [];
   const loading = kbQuery.isLoading;
@@ -146,6 +147,26 @@ export default function KnowledgeBasePage() {
                       onClick={() => router.push(`/app/knowledge-base/${kb.id}`)}
                     >
                       Open
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={setStatus.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const next = kb.status === 'active' ? 'inactive' : 'active';
+                        setStatus.mutate(
+                          { id: kb.id, status: next },
+                          {
+                            onSuccess: () => toast.success(`Knowledge base ${next === 'active' ? 'activated' : 'deactivated'}`),
+                            onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to update status'),
+                          },
+                        );
+                      }}
+                      title={kb.status === 'active' ? 'Deactivate' : 'Activate'}
+                    >
+                      {kb.status === 'active' ? 'Deactivate' : 'Activate'}
                     </Button>
                     <Button
                       variant="ghost"

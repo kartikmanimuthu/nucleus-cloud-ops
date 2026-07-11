@@ -55,6 +55,25 @@ export function useDeleteKnowledgeBase() {
     });
 }
 
+export function useSetKnowledgeBaseStatus() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, status }: { id: string; status: 'active' | 'inactive' }) => {
+            const res = await fetch(`/api/knowledge-base/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status }),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error ?? 'Failed to update status');
+            }
+            return res.json().catch(() => ({}));
+        },
+        onSuccess: () => qc.invalidateQueries({ queryKey: knowledgeBasesKey }),
+    });
+}
+
 export function useCreateDocument(kbId: string) {
     const qc = useQueryClient();
     return useMutation({
