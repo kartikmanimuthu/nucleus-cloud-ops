@@ -22,7 +22,10 @@ import {
     PROCEDURE_RECALL_LIMIT, PROCEDURE_DISTANCE_THRESHOLD,
 } from "./memory/procedural";
 import { synthesizeDomainSkills } from "./memory/skill-synthesis";
-import type { ExtractedFact, EpisodicValue, ProceduralValue, MemoryNodeState } from "./memory/types";
+import type {
+    ExtractedFact, EpisodicValue, ProceduralValue, MemoryNodeState,
+    MemoryRecallStats, MemorySaveStats, MemoryHitStat,
+} from "./memory/types";
 
 interface MemoryNodeDeps {
     reflectorModel: BaseChatModel;
@@ -34,17 +37,17 @@ interface MemoryNodeDeps {
 export function createMemoryRecallNode(deps: MemoryNodeDeps) {
     const { reflectorModel, tenantId, userId, store } = deps;
 
-    return async function memoryRecallNode(state: MemoryNodeState): Promise<{ memoryContext: string }> {
+    return async function memoryRecallNode(state: MemoryNodeState): Promise<{ memoryContext: string; memoryStats: MemoryRecallStats | null }> {
         if (!store || !tenantId || !userId) {
             console.log("[MemoryRecall] Skipped — store, tenantId, or userId not available");
-            return { memoryContext: "" };
+            return { memoryContext: "", memoryStats: null };
         }
 
         const { messages } = state;
         const lastHuman = [...messages].reverse().find(m => m._getType() === "human");
         if (!lastHuman) {
             console.log("[MemoryRecall] Skipped — no human message found");
-            return { memoryContext: "" };
+            return { memoryContext: "", memoryStats: null };
         }
 
         const query = typeof lastHuman.content === "string"
@@ -53,6 +56,10 @@ export function createMemoryRecallNode(deps: MemoryNodeDeps) {
 
         console.log(`\n🧠 [MEMORY RECALL] Searching memories for: "${truncateOutput(query, 100)}"`);
 
+        const factStats: MemoryHitStat[] = [];
+        const ruleStats: MemoryHitStat[] = [];
+        const episodeStats: MemoryHitStat[] = [];
+
         // ── Semantic facts → existing LLM relevance filter ──────────────────
         let factsSection = "";
         try {
@@ -60,6 +67,7 @@ export function createMemoryRecallNode(deps: MemoryNodeDeps) {
                 tenantId, userId, query, kinds: ["SEMANTIC"], limit: 10,
             });
             console.log(`🧠 [RECALL:facts] ${hits.length} hit(s): ${hits.map(h => `${h.key}${h.distance !== undefined ? `(d=${h.distance.toFixed(2)})` : ''}`).join(', ') || '(none)'}`);
+            hits.forEach(h => factStats.push({ key: h.key, distance: h.distance }));
             if (hits.length > 0) {
                 const memorySummary = hits.map((m, i) =>
                     `${i + 1}. [${m.namespace}/${m.key}] ${JSON.stringify(m.value)}`
@@ -110,8 +118,9 @@ Return only the relevant memories.`
                     const kept = d !== undefined && d <= PROCEDURE_DISTANCE_THRESHOLD;
                     console.log(`🧠 [RECALL:rules] ${r.key} d=${d?.toFixed(2) ?? 'n/a'} ${kept ? 'kept' : `dropped (> ${PROCEDURE_DISTANCE_THRESHOLD} gate)`}`);
                 });
-                const near = rules
-                    .filter(r => r.distance !== undefined && r.distance <= PROCEDURE_DISTANCE_THRESHOLD)
+                const nearRules = rules.filter(r => r.distance !== undefined && r.distance <= PROCEDURE_DISTANCE_THRESHOLD);
+                nearRules.forEach(r => ruleStats.push({ key: r.key, distance: r.distance }));
+                const near = nearRules
                     .map(r => r.value as unknown as ProceduralValue)
                     .filter(v => !!v?.instruction && !!v?.trigger);
                 if (near.length > 0) {
@@ -135,6 +144,7 @@ Return only the relevant memories.`
                     console.log(`🧠 [RECALL:episodes] ${e.key} d=${d?.toFixed(2) ?? 'n/a'} ${kept ? 'replayed' : `dropped (> ${EPISODE_DISTANCE_THRESHOLD} gate)`}`);
                 });
                 const near = eps.filter(e => e.distance !== undefined && e.distance <= EPISODE_DISTANCE_THRESHOLD);
+                near.forEach(e => episodeStats.push({ key: e.key, distance: e.distance }));
                 if (near.length > 0) {
                     episodesSection = formatEpisodesSection(near.map(e => e.value as unknown as EpisodicValue));
                 }
@@ -152,26 +162,37 @@ Return only the relevant memories.`
         } else {
             console.log("[MemoryRecall] Nothing relevant found");
         }
-        return { memoryContext };
+        return {
+            memoryContext,
+            memoryStats: {
+                phase: 'recall',
+                facts: factStats, rules: ruleStats, episodes: episodeStats,
+                injected: memoryContext.length > 0,
+            },
+        };
     };
 }
 
 export function createMemorySaveNode(deps: MemoryNodeDeps) {
     const { reflectorModel, tenantId, userId, store } = deps;
 
-    return async function memorySaveNode(state: MemoryNodeState, runtimeConfig?: any): Promise<Record<string, never>> {
+    return async function memorySaveNode(state: MemoryNodeState, runtimeConfig?: any): Promise<{ memoryStats: MemorySaveStats | null }> {
         if (!store || !tenantId || !userId) {
             console.log("[MemorySave] Skipped — store, tenantId, or userId not available");
-            return {};
+            return { memoryStats: null };
         }
 
         const { messages, taskDescription, memoryContext } = state;
         if (messages.length < 2) {
             console.log("[MemorySave] Skipped — conversation too short to extract learnings");
-            return {};
+            return { memoryStats: null };
         }
 
         console.log(`\n🧠 [MEMORY SAVE] Analyzing session for learnings...`);
+
+        let savedFacts = 0;
+        let savedRules = 0;
+        let reconcileActions: Record<string, number> | undefined;
 
         const recentMessages = messages.slice(-20);
         const conversationSummary = recentMessages.map(m => {
@@ -234,7 +255,7 @@ Extract memories to save.`
             const jsonMatch = content.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {
                 console.log("[MemorySave] No JSON array found in response — nothing to save");
-                return {};
+                return { memoryStats: { phase: 'save', savedFacts: 0, savedRules: 0, episodeCaptured: false } };
             }
 
             const memories: Array<{
@@ -245,6 +266,8 @@ Extract memories to save.`
             }> = JSON.parse(jsonMatch[0]);
 
             const toSave = memories.filter(isValidExtractedItem);
+            savedFacts = toSave.filter(m => m.kind !== 'PROCEDURAL').length;
+            savedRules = toSave.filter(m => m.kind === 'PROCEDURAL').length;
             const kinds = toSave.map(m => `${m.key}[${m.kind === 'PROCEDURAL' ? 'PROCEDURAL' : 'SEMANTIC'}]`).join(', ');
             console.log(`🧠 [SAVE] Extracted ${toSave.length} item(s): ${kinds || '(none)'}`);
             if (toSave.length < memories.length) {
@@ -253,7 +276,7 @@ Extract memories to save.`
 
             if (toSave.length === 0) {
                 console.log("[MemorySave] No high/medium confidence memories to save");
-                return {};
+                return { memoryStats: { phase: 'save', savedFacts: 0, savedRules: 0, episodeCaptured: false } };
             }
 
             if (reconcileEnabled()) {
@@ -269,6 +292,10 @@ Extract memories to save.`
                     sourceThreadId: threadId,
                 });
                 console.log(`🧠 [MEMORY SAVE] Reconcile: ${summary.added} added, ${summary.updated} updated, ${summary.superseded} superseded, ${summary.reinforced} reinforced, ${summary.noop} noop, ${summary.failed} failed`);
+                reconcileActions = {
+                    added: summary.added, updated: summary.updated, superseded: summary.superseded,
+                    reinforced: summary.reinforced, noop: summary.noop, failed: summary.failed,
+                };
             } else {
                 console.log(`🧠 [MEMORY SAVE] Saving ${toSave.length} memories (reconcile disabled)...`);
                 for (const mem of toSave) {
@@ -299,7 +326,8 @@ Extract memories to save.`
         // ── Episodic capture — independent of fact extraction; never blocks END ──
         const { plan, toolResults, errors, reflection, isComplete, iterationCount } = state;
         const threadIdForEpisode = runtimeConfig?.configurable?.thread_id as string | undefined;
-        if (episodicMemoryEnabled() && threadIdForEpisode && toolResults.length > 0) {
+        const shouldCapture = episodicMemoryEnabled() && !!threadIdForEpisode && toolResults.length > 0;
+        if (shouldCapture) {
             await captureEpisode({
                 tenantId, userId, threadId: threadIdForEpisode,
                 distillerModel: reflectorModel,
@@ -312,6 +340,11 @@ Extract memories to save.`
             await synthesizeDomainSkills({ tenantId, threadId: threadIdForEpisode, distillerModel: reflectorModel });
         }
 
-        return {};
+        return {
+            memoryStats: {
+                phase: 'save', savedFacts, savedRules,
+                episodeCaptured: shouldCapture, reconcileActions,
+            },
+        };
     };
 }

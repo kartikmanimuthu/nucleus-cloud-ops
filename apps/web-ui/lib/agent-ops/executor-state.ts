@@ -1,5 +1,6 @@
 import { BaseMessage } from "@langchain/core/messages";
 import { StateGraphArgs } from "@langchain/langgraph";
+import type { MemoryStats } from "@/lib/agent/memory/types";
 
 export interface RequestEvaluation {
     mode: 'plan' | 'fast' | 'end' | null;
@@ -39,6 +40,7 @@ export interface ReflectionState {
     isComplete: boolean;
     toolResults: ToolResultEntry[];
     memoryContext: string; // Formatted memories injected by the shared memory_recall node
+    memoryStats: MemoryStats | null;
     evaluation: RequestEvaluation | null;
     clarificationQuestion: string | null;
     approvalStatus: 'pending' | 'approved' | 'rejected' | null;
@@ -88,6 +90,10 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     memoryContext: {
         reducer: (x: string, y: string) => y || x,
         default: () => "",
+    },
+    memoryStats: {
+        reducer: (x: MemoryStats | null, y: MemoryStats | null) => y ?? x,
+        default: () => null,
     },
     evaluation: {
         reducer: (x: RequestEvaluation | null, y: RequestEvaluation | null) => y || x,
