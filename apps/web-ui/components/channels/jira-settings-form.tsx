@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useChannelSettings, useSaveChannelSettings, revealChannelSecrets } from '@/lib/queries/channel-settings';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Eye, EyeOff, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Eye, EyeOff, Loader2, PlugZap, RefreshCw, Save } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { SetupSteps } from '@/components/channels/setup-steps';
 
 interface JiraSettingsForm {
     webhookSecret: string;
@@ -25,6 +27,36 @@ interface JiraSettingsFormProps {
     backHref?: string;
     backLabel?: string;
 }
+
+const EXAMPLE_PAYLOAD = {
+    taskDescription: 'Check Lambda memory usage in prod',
+    accountId: '123456789012',
+    selectedSkill: 'aws-cost-optimization',
+    issue: {
+        key: 'OPS-42',
+        fields: {
+            summary: 'High Lambda costs detected',
+            project: { key: 'OPS' },
+            reporter: { displayName: 'Jane Doe' },
+            issuetype: { name: 'Task' },
+        },
+    },
+};
+
+// Template using Jira Automation smart values — paste directly into the
+// "Send web request" action's custom body so the payload fills itself per issue.
+const SMART_VALUE_PAYLOAD = `{
+  "taskDescription": "{{issue.summary}}",
+  "issue": {
+    "key": "{{issue.key}}",
+    "fields": {
+      "summary": "{{issue.summary}}",
+      "project": { "key": "{{project.key}}" },
+      "reporter": { "displayName": "{{issue.reporter.displayName}}" },
+      "issuetype": { "name": "{{issue.issueType.name}}" }
+    }
+  }
+}`;
 
 export function JiraSettingsForm(props: JiraSettingsFormProps) {
     const { data, isLoading } = useChannelSettings('jira');
@@ -71,6 +103,7 @@ function JiraSettingsFormInner({
     const [showSecret, setShowSecret] = useState(false);
     const [showApiToken, setShowApiToken] = useState(false);
     const [revealed, setRevealed] = useState(false);
+    const [testing, setTesting] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
 
     // Lazily pull the stored plaintext secrets into the form the first time the
@@ -100,6 +133,15 @@ function JiraSettingsFormInner({
             ? `${window.location.origin}/api/v1/trigger/jira`
             : '/api/v1/trigger/jira';
 
+    const generateSecret = () => {
+        const bytes = new Uint8Array(32);
+        crypto.getRandomValues(bytes);
+        const secret = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+        setForm(prev => ({ ...prev, webhookSecret: secret }));
+        setShowSecret(true);
+        toast.success('Webhook secret generated — save it here, then use the same value in your Jira Automation rule header');
+    };
+
     const handleSave = async () => {
         if (!configured && !form.webhookSecret.trim()) {
             setErrorMessage('Webhook Secret is required');
@@ -126,6 +168,35 @@ function JiraSettingsFormInner({
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
             setSaveStatus('error');
+        }
+    };
+
+    const handleTestConnection = async () => {
+        setTesting(true);
+        try {
+            const res = await fetch('/api/agent-ops/settings/jira/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    baseUrl: form.baseUrl.trim() || undefined,
+                    userEmail: form.userEmail.trim() || undefined,
+                    apiToken: form.apiToken.trim() || undefined,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+                toast.success(`Connected to Jira as ${data.data.displayName}`);
+                if (!form.botAccountId.trim() && data.data.accountId) {
+                    setForm(prev => ({ ...prev, botAccountId: data.data.accountId }));
+                    toast.info('Bot Account ID auto-filled from the authenticated account — remember to save.');
+                }
+            } else {
+                toast.error(data.error || 'Connection test failed');
+            }
+        } catch {
+            toast.error('Connection test failed — network error');
+        } finally {
+            setTesting(false);
         }
     };
 
@@ -202,7 +273,7 @@ function JiraSettingsFormInner({
                     <CardDescription>
                         {configured
                             ? 'Enter new values to update stored credentials. Leave blank to keep existing values.'
-                            : 'Configure your Jira integration credentials. These are stored securely in DynamoDB.'}
+                            : 'Configure your Jira integration credentials. These are stored securely for your organization.'}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
@@ -211,37 +282,47 @@ function JiraSettingsFormInner({
                         <Label htmlFor="webhookSecret">
                             Webhook Secret <span className="text-destructive">*</span>
                         </Label>
-                        <div className="relative">
-                            <Input
-                                id="webhookSecret"
-                                type={showSecret ? 'text' : 'password'}
-                                placeholder={configured ? '••••••••••••' : 'Enter shared secret'}
-                                value={form.webhookSecret}
-                                onChange={e => setForm(prev => ({ ...prev, webhookSecret: e.target.value }))}
-                                className="pr-10 font-mono"
-                            />
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={async () => {
-                                    if (!showSecret) await revealSecrets();
-                                    setShowSecret(v => !v);
-                                }}
-                            >
-                                {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        <div className="flex items-center gap-2">
+                            <div className="relative flex-1">
+                                <Input
+                                    id="webhookSecret"
+                                    type={showSecret ? 'text' : 'password'}
+                                    placeholder={configured ? '••••••••••••' : 'Enter or generate a shared secret'}
+                                    value={form.webhookSecret}
+                                    onChange={e => setForm(prev => ({ ...prev, webhookSecret: e.target.value }))}
+                                    className="pr-10 font-mono"
+                                />
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                                    onClick={async () => {
+                                        if (!showSecret) await revealSecrets();
+                                        setShowSecret(v => !v);
+                                    }}
+                                >
+                                    {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                </Button>
+                            </div>
+                            <Button type="button" variant="outline" size="sm" onClick={generateSecret}>
+                                <RefreshCw className="h-3.5 w-3.5 mr-2" />
+                                Generate
                             </Button>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                            A secret you generate and then set as a custom header in your Jira Automation rule.
+                            A shared secret that authenticates incoming webhooks. Click{' '}
+                            <strong>Generate</strong> to create a strong one, then use the <em>same value</em> as the{' '}
+                            <code className="bg-muted px-1 rounded">Authorization: Bearer &lt;secret&gt;</code> header in
+                            your Jira Automation rule.
                         </p>
                     </div>
 
                     {/* Base URL */}
                     <div className="space-y-2">
                         <Label htmlFor="baseUrl">
-                            Jira Base URL <span className="text-muted-foreground text-xs">(optional)</span>
+                            Jira Base URL{' '}
+                            <span className="text-muted-foreground text-xs">(required to post results back)</span>
                         </Label>
                         <Input
                             id="baseUrl"
@@ -252,14 +333,16 @@ function JiraSettingsFormInner({
                             className="font-mono text-sm"
                         />
                         <p className="text-xs text-muted-foreground">
-                            Required to post run results back to Jira issues as comments.
+                            Your Jira Cloud site URL — the part before <code className="bg-muted px-1 rounded">/browse/…</code>{' '}
+                            when viewing any issue. Needed to post run results back to issues as comments.
                         </p>
                     </div>
 
                     {/* User Email */}
                     <div className="space-y-2">
                         <Label htmlFor="userEmail">
-                            User Email <span className="text-muted-foreground text-xs">(optional)</span>
+                            User Email{' '}
+                            <span className="text-muted-foreground text-xs">(required to post results back)</span>
                         </Label>
                         <Input
                             id="userEmail"
@@ -269,14 +352,16 @@ function JiraSettingsFormInner({
                             onChange={e => setForm(prev => ({ ...prev, userEmail: e.target.value }))}
                         />
                         <p className="text-xs text-muted-foreground">
-                            Atlassian account email used for API authentication.
+                            Email of the Atlassian account that owns the API token below. Comments will appear as this
+                            user — a dedicated bot/service account is recommended.
                         </p>
                     </div>
 
                     {/* API Token */}
                     <div className="space-y-2">
                         <Label htmlFor="apiToken">
-                            API Token <span className="text-muted-foreground text-xs">(optional)</span>
+                            API Token{' '}
+                            <span className="text-muted-foreground text-xs">(required to post results back)</span>
                         </Label>
                         <div className="relative">
                             <Input
@@ -300,15 +385,19 @@ function JiraSettingsFormInner({
                                 {showApiToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>
                         </div>
-                        <a
-                            href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"
-                        >
-                            Generate an Atlassian API token
-                            <ExternalLink className="h-3 w-3" />
-                        </a>
+                        <p className="text-xs text-muted-foreground">
+                            Sign in as the account above, then create a token at{' '}
+                            <a
+                                href="https://id.atlassian.com/manage-profile/security/api-tokens"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-blue-500 hover:underline"
+                            >
+                                id.atlassian.com → Security → API tokens
+                                <ExternalLink className="h-3 w-3" />
+                            </a>{' '}
+                            → <strong>Create API token</strong>. Copy it immediately — Atlassian shows it only once.
+                        </p>
                     </div>
 
                     {/* Bot Account ID */}
@@ -326,8 +415,10 @@ function JiraSettingsFormInner({
                         />
                         <p className="text-xs text-muted-foreground">
                             Jira account ID of the bot user. Used to detect <code className="bg-muted px-1 rounded">@bot</code> mentions
-                            and prevent the bot from triggering itself on its own comments.
-                            Find it at <code className="bg-muted px-1 rounded">Jira → Profile → Account ID</code>.
+                            and prevent the bot from triggering itself on its own comments. Easiest way to fill it: enter
+                            the credentials above and click <strong>Test Connection</strong> — it is detected
+                            automatically. (Manual: open the bot user&apos;s profile in Jira; the ID is the last part of
+                            the profile URL after <code className="bg-muted px-1 rounded">/people/</code>.)
                         </p>
                     </div>
 
@@ -353,21 +444,43 @@ function JiraSettingsFormInner({
                         </Alert>
                     )}
 
-                    {/* Save button */}
-                    <Button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className={saveStatus === 'saved' ? 'bg-green-600 hover:bg-green-700' : ''}
-                    >
-                        {saving ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        ) : saveStatus === 'saved' ? (
-                            <CheckCircle2 className="h-4 w-4 mr-2" />
-                        ) : (
-                            <Save className="h-4 w-4 mr-2" />
-                        )}
-                        {saveStatus === 'saved' ? 'Saved' : 'Save Settings'}
-                    </Button>
+                    {/* Actions */}
+                    <div className="flex items-center gap-2">
+                        <Button
+                            onClick={handleSave}
+                            disabled={saving || testing}
+                            className={saveStatus === 'saved' ? 'bg-green-600 hover:bg-green-700' : ''}
+                        >
+                            {saving ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : saveStatus === 'saved' ? (
+                                <CheckCircle2 className="h-4 w-4 mr-2" />
+                            ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                            )}
+                            {saveStatus === 'saved' ? 'Saved' : 'Save Settings'}
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={handleTestConnection}
+                            disabled={
+                                saving ||
+                                testing ||
+                                (!configured && !(form.baseUrl.trim() && form.userEmail.trim() && form.apiToken.trim()))
+                            }
+                        >
+                            {testing ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <PlugZap className="h-4 w-4 mr-2" />
+                            )}
+                            Test Connection
+                        </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        Test Connection verifies Base URL, User Email, and API Token against Jira and auto-fills the Bot
+                        Account ID on success.
+                    </p>
                 </CardContent>
             </Card>
 
@@ -380,88 +493,196 @@ function JiraSettingsFormInner({
                         <code className="bg-muted px-1 rounded">taskDescription</code> are optional.
                     </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                    <pre className="bg-muted rounded-md p-4 text-xs overflow-x-auto">
-{`{
-  "taskDescription": "Check Lambda memory usage in prod",
-  "accountId": "123456789012",
-  "selectedSkill": "aws-cost-optimization",
-  "mode": "fast",
-  "issue": {
-    "key": "OPS-42",
-    "fields": {
-      "summary": "High Lambda costs detected",
-      "project": { "key": "OPS" },
-      "reporter": { "displayName": "Jane Doe" },
-      "issuetype": { "name": "Task" }
-    }
-  }
-}`}
-                    </pre>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                            copyToClipboard(
-                                JSON.stringify(
-                                    {
-                                        taskDescription: 'Check Lambda memory usage in prod',
-                                        accountId: '123456789012',
-                                        selectedSkill: 'aws-cost-optimization',
-                                        mode: 'fast',
-                                        issue: {
-                                            key: 'OPS-42',
-                                            fields: {
-                                                summary: 'High Lambda costs detected',
-                                                project: { key: 'OPS' },
-                                                reporter: { displayName: 'Jane Doe' },
-                                                issuetype: { name: 'Task' },
-                                            },
-                                        },
-                                    },
-                                    null,
-                                    2
-                                ),
-                                'payload'
-                            )
-                        }
-                    >
-                        {copied === 'payload' ? (
-                            <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
-                        ) : (
-                            <Copy className="h-4 w-4 mr-2" />
-                        )}
-                        Copy example payload
-                    </Button>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <p className="text-sm font-medium text-foreground">
+                            Automation template{' '}
+                            <span className="text-xs font-normal text-muted-foreground">
+                                — uses Jira smart values; paste as-is into the &quot;Send web request&quot; custom body
+                            </span>
+                        </p>
+                        <pre className="bg-muted rounded-md p-4 text-xs overflow-x-auto">{SMART_VALUE_PAYLOAD}</pre>
+                        <Button variant="outline" size="sm" onClick={() => copyToClipboard(SMART_VALUE_PAYLOAD, 'smart')}>
+                            {copied === 'smart' ? (
+                                <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
+                            ) : (
+                                <Copy className="h-4 w-4 mr-2" />
+                            )}
+                            Copy automation template
+                        </Button>
+                    </div>
+                    <div className="space-y-2">
+                        <p className="text-sm font-medium text-foreground">
+                            Example resolved payload{' '}
+                            <span className="text-xs font-normal text-muted-foreground">
+                                — what the webhook receives; useful for testing with curl
+                            </span>
+                        </p>
+                        <pre className="bg-muted rounded-md p-4 text-xs overflow-x-auto">
+                            {JSON.stringify(EXAMPLE_PAYLOAD, null, 2)}
+                        </pre>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => copyToClipboard(JSON.stringify(EXAMPLE_PAYLOAD, null, 2), 'payload')}
+                        >
+                            {copied === 'payload' ? (
+                                <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
+                            ) : (
+                                <Copy className="h-4 w-4 mr-2" />
+                            )}
+                            Copy example payload
+                        </Button>
+                    </div>
                 </CardContent>
             </Card>
 
             {/* Setup Guide */}
             <Card>
                 <CardHeader>
-                    <CardTitle className="text-base">Setup Guide</CardTitle>
+                    <CardTitle className="text-base">Step-by-step Setup Guide</CardTitle>
+                    <CardDescription>
+                        Part 1 wires Jira → Agent Ops (trigger runs). Part 2 wires Agent Ops → Jira (result comments).
+                    </CardDescription>
                 </CardHeader>
-                <CardContent>
-                    <ol className="space-y-3 text-sm text-muted-foreground list-decimal list-inside">
-                        <li>Generate a random secret and enter it as the <strong className="text-foreground">Webhook Secret</strong> above.</li>
-                        <li>
-                            In Jira, go to <strong className="text-foreground">Project Settings → Automation</strong> and create a new rule.
-                        </li>
-                        <li>Add a trigger (e.g. "Issue created" or "Issue transitioned").</li>
-                        <li>
-                            Add a <strong className="text-foreground">Send web request</strong> action with the webhook URL above,
-                            method POST, and the JSON payload.
-                        </li>
-                        <li>
-                            Add a custom header <code className="bg-muted px-1 rounded text-foreground">Authorization</code> with value{' '}
-                            <code className="bg-muted px-1 rounded text-foreground">Bearer {'<your-secret>'}</code>.
-                        </li>
-                        <li>
-                            Optionally fill in <strong className="text-foreground">Base URL</strong>, <strong className="text-foreground">User Email</strong>,
-                            and <strong className="text-foreground">API Token</strong> above to enable result comments on Jira issues.
-                        </li>
-                        <li>Save and test the rule — results appear in Agent Ops and as issue comments.</li>
-                    </ol>
+                <CardContent className="space-y-6">
+                    <div className="space-y-4">
+                        <p className="text-sm font-semibold text-foreground">Part 1 — Trigger runs from Jira (required)</p>
+                        <SetupSteps
+                            steps={[
+                                {
+                                    title: 'Generate and save the Webhook Secret',
+                                    detail: (
+                                        <>
+                                            Click <strong className="text-foreground">Generate</strong> next to the
+                                            Webhook Secret field above, copy the value somewhere safe, and click{' '}
+                                            <strong className="text-foreground">Save Settings</strong>.
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Create a Jira Automation rule',
+                                    detail: (
+                                        <>
+                                            In Jira, open{' '}
+                                            <strong className="text-foreground">Project settings → Automation</strong>{' '}
+                                            (or <strong className="text-foreground">Settings → System → Automation</strong>{' '}
+                                            for a global rule) and click{' '}
+                                            <strong className="text-foreground">Create rule</strong>.
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Choose a trigger',
+                                    detail: (
+                                        <>
+                                            For example <strong className="text-foreground">Issue created</strong>,{' '}
+                                            <strong className="text-foreground">Issue transitioned</strong>, or{' '}
+                                            <strong className="text-foreground">Manually triggered</strong>. Optionally add
+                                            a condition (e.g. label = <code className="bg-muted px-1 rounded">agent-ops</code>)
+                                            so only selected issues trigger runs.
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Add a "Send web request" action',
+                                    detail: (
+                                        <ul className="list-disc list-inside space-y-1">
+                                            <li>
+                                                <strong className="text-foreground">Web request URL</strong>: the Webhook
+                                                Endpoint shown at the top of this page
+                                            </li>
+                                            <li>
+                                                <strong className="text-foreground">HTTP method</strong>:{' '}
+                                                <code className="bg-muted px-1 rounded">POST</code>
+                                            </li>
+                                            <li>
+                                                <strong className="text-foreground">Web request body</strong>: Custom data →
+                                                paste the <em>Automation template</em> from the Webhook Payload card
+                                            </li>
+                                            <li>
+                                                <strong className="text-foreground">Headers</strong>: add{' '}
+                                                <code className="bg-muted px-1 rounded">Authorization</code> ={' '}
+                                                <code className="bg-muted px-1 rounded">Bearer &lt;your-secret&gt;</code>{' '}
+                                                (the Webhook Secret from step 1)
+                                            </li>
+                                        </ul>
+                                    ),
+                                },
+                                {
+                                    title: 'Publish and test the rule',
+                                    detail: (
+                                        <>
+                                            Use the rule&apos;s <strong className="text-foreground">Validate</strong>{' '}
+                                            button or create a test issue — the run appears under{' '}
+                                            <strong className="text-foreground">Agent Ops → Runs</strong> with source{' '}
+                                            <code className="bg-muted px-1 rounded">jira</code>.
+                                        </>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </div>
+                    <div className="space-y-4">
+                        <p className="text-sm font-semibold text-foreground">
+                            Part 2 — Post results back to issues (recommended)
+                        </p>
+                        <SetupSteps
+                            startAt={6}
+                            steps={[
+                                {
+                                    title: 'Pick the bot account',
+                                    detail: (
+                                        <>
+                                            Use a dedicated Atlassian service account (recommended) or your own — run
+                                            results are posted as comments by this user.
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Create an API token',
+                                    detail: (
+                                        <>
+                                            Signed in as that account, open{' '}
+                                            <a
+                                                href="https://id.atlassian.com/manage-profile/security/api-tokens"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 text-blue-500 hover:underline"
+                                            >
+                                                Atlassian account → Security → API tokens
+                                                <ExternalLink className="h-3 w-3" />
+                                            </a>{' '}
+                                            and click <strong className="text-foreground">Create API token</strong>. Copy
+                                            it right away — it is shown only once.
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Fill in Base URL, User Email, and API Token',
+                                    detail: (
+                                        <>
+                                            Base URL is your site, e.g.{' '}
+                                            <code className="bg-muted px-1 rounded">https://your-org.atlassian.net</code>;
+                                            User Email is the bot account&apos;s email; API Token is the value from the
+                                            previous step.
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Test and save',
+                                    detail: (
+                                        <>
+                                            Click <strong className="text-foreground">Test Connection</strong> — on
+                                            success the <strong className="text-foreground">Bot Account ID</strong> is
+                                            auto-filled (it prevents the bot from reacting to its own comments). Then
+                                            click <strong className="text-foreground">Save Settings</strong>.
+                                        </>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </div>
                 </CardContent>
             </Card>
         </div>

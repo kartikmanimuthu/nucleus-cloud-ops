@@ -57,3 +57,30 @@ export function useSaveChannelSettings(channel: string) {
         },
     });
 }
+
+/**
+ * Activate/deactivate a configured channel without touching its credentials.
+ * Safe because every settings PUT merges the body over the stored config, so
+ * an `{ enabled }`-only body keeps all existing secrets. Only call this for
+ * channels that are already configured (otherwise the PUT 400s on the
+ * required-credential check).
+ */
+export function useToggleChannelEnabled() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ channel, enabled }: { channel: string; enabled: boolean }) => {
+            const res = await fetch(`/api/agent-ops/settings/${channel}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || `Failed to ${enabled ? 'activate' : 'deactivate'} channel`);
+            return data;
+        },
+        onSuccess: (_data, { channel }) => {
+            qc.invalidateQueries({ queryKey: ['channel-settings', channel] });
+            qc.invalidateQueries({ queryKey: ['channels', 'status'] });
+        },
+    });
+}
