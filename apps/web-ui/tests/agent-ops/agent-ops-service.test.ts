@@ -102,7 +102,9 @@ describe('createRun', () => {
         expect(run.tenantId).toBe('T0001');
         expect(run.source).toBe('slack');
         expect(run.taskDescription).toBe('Check Lambda configs');
-        expect(run.mode).toBe('fast');
+        // Agent Ops is plan-mode only — createRun coerces whatever the channel
+        // payload carried (here legacy 'fast') so every run is planned.
+        expect(run.mode).toBe('plan');
         expect(run.createdAt).toBeTruthy();
         expect(run.updatedAt).toBeTruthy();
     });

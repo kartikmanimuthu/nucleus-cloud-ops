@@ -30,6 +30,14 @@ export async function registerTask(task: ScheduledTask): Promise<void> {
     const boss = await getBoss();
     const queue = queueName(task.taskId);
 
+    // Interval tasks have no cron expression — the workers sweeper fires them
+    // off nextRunAt. Drop any stale pg-boss schedule (e.g. a task switched from
+    // cron to interval) and skip registration.
+    if (task.scheduleType === 'interval') {
+        try { await boss.unschedule(queue); } catch { /* no existing schedule */ }
+        return;
+    }
+
     await boss.createQueue(queue);
 
     // Remove existing schedule before re-registering (idempotent)

@@ -11,11 +11,14 @@
  *   - agent-shared.ts      → sanitizeMessagesForBedrock, getRecentMessages, truncateOutput, llmAuditLog
  *   - persistence.ts       → PostgreSQL checkpointer (short-term), PostgreSQL store (long-term memory)
  *
- * Graph flow:
+ * Graph flow (plan-mode only — fast mode retired for Agent Ops):
  *   evaluator → clarify (end)
- *             → generate (fast mode) → tools → reflect → generate | __end__
- *             → planner (plan mode)  → generate → tools → reflect → revise → tools | reflect
- *                                                                  → final → __end__
+ *             → planner → generate → tools → reflect → revise → tools | reflect
+ *                                                    → final → memory_save → __end__
+ *
+ * Every non-clarification run takes the planner path, so the terminal edge
+ * always passes through memory_save — autonomous runs reliably persist their
+ * outcome to long-term memory.
  */
 
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
@@ -56,7 +59,9 @@ import { env } from "@/env";
 // iteration budget — the interactive chat agents keep the shared MAX_ITERATIONS=30.
 // A multi-step unattended task (AWS auth → cost query → Slack report) needs more
 // headroom, especially when it must resolve the target account first.
-const AGENT_OPS_MAX_ITERATIONS = Number(env.AGENT_OPS_MAX_ITERATIONS) || 150;
+// This env value is now only the fallback default: the effective per-run budget
+// comes from the tenant's Agent Ops defaults, passed in via config.maxIterations.
+const AGENT_OPS_FALLBACK_MAX_ITERATIONS = Number(env.AGENT_OPS_MAX_ITERATIONS) || 150;
 
 // ============================================================================
 // AGENT OPS DYNAMIC EXECUTOR GRAPH
@@ -64,6 +69,10 @@ const AGENT_OPS_MAX_ITERATIONS = Number(env.AGENT_OPS_MAX_ITERATIONS) || 150;
 
 export async function createDynamicExecutorGraph(config: GraphConfig) {
     const { model: modelId, autoApprove, accounts, accountId, mcpServerIds, tenantId, userId, knowledgeBaseIds } = config as any;
+
+    // Per-tenant graph iteration budget (Settings → Agent Defaults), clamped by
+    // the caller; falls back to the env default when a run doesn't carry one.
+    const AGENT_OPS_MAX_ITERATIONS = Number(config.maxIterations) || AGENT_OPS_FALLBACK_MAX_ITERATIONS;
 
     // ── Persistence (PostgreSQL checkpointer + long-term memory store) ────────
     const checkpointer = await getCheckpointer();
@@ -162,7 +171,7 @@ ${skillsContext}
 
 Return a JSON object with this exact schema:
 {
-    "mode": "plan" | "fast" | "end",
+    "mode": "plan" | "end",
     "skillId": string | null,
     "accountId": string | null,
     "requiresApproval": boolean,
@@ -172,8 +181,7 @@ Return a JSON object with this exact schema:
 }
 
 Rules:
-- "plan" for complex multi-step tasks, infrastructure mutations, security audits
-- "fast" for simple read queries, status checks, how-to questions
+- "plan" for every executable task — all runs are planned, executed, and reflected on
 - "end" ONLY when genuinely ambiguous — always set clarificationQuestion in this case
 - requiresApproval=true for any create/update/delete/start/stop operations
 
@@ -185,8 +193,8 @@ Return only the JSON object.`);
         llmAuditLog('EVALUATOR', inputs, response, start);
 
         let evalResult: RequestEvaluation = {
-            mode: 'fast', skillId: null, accountId: null,
-            requiresApproval: false, reasoning: 'Fallback to fast mode.',
+            mode: 'plan', skillId: null, accountId: null,
+            requiresApproval: false, reasoning: 'Fallback to plan mode.',
             clarificationQuestion: null, missingInfo: null,
         };
 
@@ -196,7 +204,9 @@ Return only the JSON object.`);
             if (match) {
                 const parsed = JSON.parse(match[0]);
                 evalResult = {
-                    mode: parsed.mode || 'fast',
+                    // Plan-mode only: anything that isn't a clarification ("end")
+                    // is coerced to 'plan' — including legacy 'fast' responses.
+                    mode: parsed.mode === 'end' ? 'end' : 'plan',
                     skillId: parsed.skillId || null,
                     accountId: parsed.accountId || null,
                     requiresApproval: !!parsed.requiresApproval,
@@ -603,15 +613,11 @@ Be specific — include resource IDs, account names, and numeric values where av
     // ============================================================================
 
     function routeFromEvaluator(state: ReflectionState): 'planner' | 'generate' | 'clarify' {
-        if (!state.evaluation) return 'generate';
-        if (state.evaluation.mode === 'plan') return 'planner';
-        if (state.evaluation.mode === 'end') return 'clarify';
-        // Fast mode mutative tasks still need plan-level approval gate when autoApprove=false.
-        // Without this, "start EC2" (fast mode, requiresApproval=true) skips approval_gate entirely.
-        if (!autoApprove && state.evaluation.requiresApproval && state.approvalStatus !== 'approved') {
-            return 'planner';
-        }
-        return 'generate';
+        if (state.evaluation?.mode === 'end') return 'clarify';
+        // Plan-mode only: every executable run goes through the planner, which
+        // guarantees the terminal path is final → memory_save → END. Legacy
+        // 'fast' evaluations resumed from old checkpoints route here too.
+        return 'planner';
     }
 
     // After planner: if approval required and not yet approved, go to approval_gate; else generate

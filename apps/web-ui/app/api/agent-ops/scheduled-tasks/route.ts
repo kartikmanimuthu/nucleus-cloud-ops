@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { listScheduledTasks, createScheduledTask } from '@/lib/agent-ops/scheduled-task-service';
+import { listScheduledTasks, createScheduledTask, validateScheduleInput } from '@/lib/agent-ops/scheduled-task-service';
 import { registerTask } from '@/lib/agent-ops/scheduler-engine';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
@@ -23,13 +23,24 @@ export async function POST(req: Request) {
     try {
         const tenantId = await getSessionTenantId();
         const body = await req.json();
+
+        const scheduleError = validateScheduleInput(body);
+        if (scheduleError) {
+            return NextResponse.json({ error: scheduleError }, { status: 400 });
+        }
+        const scheduleType = body.scheduleType === 'interval' ? 'interval' as const : 'cron' as const;
+
         const task = await createScheduledTask({
             tenantId,
             name: body.name,
             description: body.description,
-            cronExpression: body.cronExpression,
+            scheduleType,
+            cronExpression: scheduleType === 'interval' ? '' : body.cronExpression,
+            intervalMinutes: scheduleType === 'interval' ? Number(body.intervalMinutes) : undefined,
             timezone: body.timezone || 'UTC',
-            mode: body.mode || 'plan',
+            // Agent Ops is plan-mode only — autonomous runs always take the
+            // planner → final → memory_save path regardless of what the client sends.
+            mode: 'plan',
             autoApprove: body.autoApprove ?? false,
             model: body.model,
             accountId: body.accountId,

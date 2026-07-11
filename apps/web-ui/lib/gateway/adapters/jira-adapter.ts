@@ -10,7 +10,7 @@ import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { env } from '@/env';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
-import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
+import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
 import type {
     ChannelAdapter,
     ChannelType,
@@ -18,12 +18,14 @@ import type {
     HilCapabilities,
     GatewayMessage,
     ReplyContext,
+    ScheduledOutcome,
 } from '@/lib/gateway/types';
 import type {
     AgentOpsRun,
     AgentOpsEvent,
     JiraIntegrationConfig,
     JiraTriggerMeta,
+    ScheduledTask,
 } from '@/lib/agent-ops/types';
 
 // ─── ADF node types ────────────────────────────────────────────────────
@@ -331,6 +333,63 @@ export class JiraAdapter implements ChannelAdapter {
         await this.postComment(issueKey, text, config);
     }
 
+    /**
+     * Scheduled-task digest → Jira issue comment. Unlike the interactive send*
+     * methods (which are best-effort), this THROWS on missing config or a
+     * failed Jira API call so the scheduled notifier can record the failure
+     * on the run instead of silently dropping the digest.
+     */
+    async sendScheduledNotification(
+        task: ScheduledTask,
+        run: AgentOpsRun,
+        outcome: ScheduledOutcome,
+    ): Promise<void> {
+        const issueKey = task.notification?.issueKey;
+        if (!issueKey) {
+            throw new Error('No Jira issueKey configured on the task notification');
+        }
+        const config = await this.loadConfig(run.tenantId);
+        if (config && config.enabled === false) {
+            throw new Error('Jira integration is deactivated — activate it under Channels → Jira');
+        }
+        const { baseUrl, userEmail, apiToken } = this.resolveApiConfig(config);
+        if (!baseUrl || !userEmail || !apiToken) {
+            throw new Error('Jira API credentials not configured (Base URL, User Email, and API Token are required)');
+        }
+
+        const dashboardUrl = buildDashboardRunUrl(run.runId);
+        const durationSec = Math.round((run.durationMs ?? 0) / 1000);
+
+        let header: string;
+        let detail: string;
+        if (outcome === 'result') {
+            header = `✅ Scheduled task "${task.name}" completed`;
+            const tools = run.result?.toolsUsed?.length
+                ? `\nTools: ${run.result.toolsUsed.join(', ')}`
+                : '';
+            detail = `${run.result?.summary ?? '(no summary)'}${tools}\nDuration: ${durationSec}s`;
+        } else if (outcome === 'failure') {
+            header = `❌ Scheduled task "${task.name}" ${run.status === 'cancelled' ? 'was cancelled' : 'failed'}`;
+            detail = run.error ?? 'Run did not complete.';
+        } else {
+            header = `⏸️ Scheduled task "${task.name}" needs your attention`;
+            detail = run.clarification?.question
+                ?? (run.approvalRequest
+                    ? `Approval required (${run.approvalRequest.approvalType}).`
+                    : `Run is ${run.status.replace('_', ' ')}.`);
+        }
+
+        const text = [
+            header,
+            '',
+            detail.slice(0, 6000),
+            '',
+            `Run ${run.runId} · ${dashboardUrl}`,
+        ].join('\n');
+
+        await this.postComment(issueKey, text, config, { strict: true });
+    }
+
     // ─── Config ───────────────────────────────────────────────────────
 
     async getConfig(tenantId: string): Promise<Record<string, unknown>> {
@@ -361,15 +420,19 @@ export class JiraAdapter implements ChannelAdapter {
 
     /**
      * Post a comment to a Jira issue using Atlassian Document Format (ADF).
+     * Best-effort by default (interactive replies must never crash a run);
+     * pass { strict: true } to surface failures to the caller (scheduled digests).
      */
     private async postComment(
         issueKey: string,
         bodyText: string,
         config: JiraIntegrationConfig | null,
+        opts?: { strict?: boolean },
     ): Promise<void> {
         const { baseUrl, userEmail, apiToken } = this.resolveApiConfig(config);
 
         if (!baseUrl || !userEmail || !apiToken) {
+            if (opts?.strict) throw new Error('Jira API credentials not configured');
             console.warn('[JiraAdapter] Jira API not configured — skipping comment post');
             return;
         }
@@ -401,9 +464,12 @@ export class JiraAdapter implements ChannelAdapter {
 
             if (!res.ok) {
                 const text = await res.text().catch(() => '');
-                console.error(`[JiraAdapter] Jira API error ${res.status}: ${text}`);
+                const message = `Jira API error ${res.status} posting comment to ${issueKey}: ${text.slice(0, 300)}`;
+                if (opts?.strict) throw new Error(message);
+                console.error(`[JiraAdapter] ${message}`);
             }
         } catch (err) {
+            if (opts?.strict) throw err;
             console.error('[JiraAdapter] Failed to post comment:', err);
         }
     }

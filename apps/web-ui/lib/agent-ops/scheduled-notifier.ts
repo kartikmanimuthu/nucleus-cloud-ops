@@ -2,13 +2,16 @@
  * Scheduled-run channel delivery — direct dispatch, unidirectional (server → channel).
  *
  * The adapter is resolved from task.notification.type; the destination comes
- * from task.notification (channelId / chatId); credentials load per-tenant
- * inside the adapter. Delivery is best-effort: nothing here ever throws.
+ * from task.notification (channelId / chatId / issueKey); credentials load
+ * per-tenant inside the adapter. Nothing here ever throws, but delivery is NOT
+ * silent: every attempt is recorded as a 'notification' event on the run, so a
+ * missing bot token or a rejected API call is visible in the run timeline.
  */
 import type { ScheduledTask, AgentOpsRun, AgentOpsStatus } from './types';
 import type { ChannelType, ScheduledOutcome } from '@/lib/gateway/types';
 import { getAdapterRegistry } from '@/lib/gateway';
 import { getScheduledTask, updateLastRun } from './scheduled-task-service';
+import { recordEvent } from './agent-ops-service';
 
 export function mapRunStatusToOutcome(status: AgentOpsStatus): ScheduledOutcome | null {
     switch (status) {
@@ -26,31 +29,52 @@ export function mapRunStatusToOutcome(status: AgentOpsStatus): ScheduledOutcome 
 }
 
 export async function notifyScheduledRunResult(task: ScheduledTask, run: AgentOpsRun): Promise<void> {
+    const type = task.notification?.type;
+    if (!type || type === 'none') return;
+
+    const outcome = mapRunStatusToOutcome(run.status);
+    if (!outcome) {
+        console.warn(`[ScheduledNotifier] Run ${run.runId} status '${run.status}' has no digest — skipping`);
+        return;
+    }
+
+    // recordEvent never throws, so these markers can't abort finalization.
+    const recordFailure = async (reason: string) => {
+        console.error(`[ScheduledNotifier] Digest delivery FAILED for run ${run.runId} via ${type}: ${reason}`);
+        await recordEvent({
+            runId: run.runId,
+            tenantId: run.tenantId,
+            eventType: 'notification',
+            node: 'scheduled_notifier',
+            content: `Scheduled digest delivery via ${type} failed: ${reason}`,
+            metadata: { channel: type, status: 'failed', outcome, error: reason, taskId: task.taskId },
+        });
+    };
+
     try {
-        const type = task.notification?.type;
-        if (!type || type === 'none') return;
-
-        const outcome = mapRunStatusToOutcome(run.status);
-        if (!outcome) {
-            console.warn(`[ScheduledNotifier] Run ${run.runId} status '${run.status}' has no digest — skipping`);
-            return;
-        }
-
         const registry = getAdapterRegistry();
         if (!registry.has(type as ChannelType)) {
-            console.warn(`[ScheduledNotifier] No adapter for notification type '${type}' — skipping`);
+            await recordFailure(`no adapter registered for channel '${type}'`);
             return;
         }
         const adapter = registry.get(type as ChannelType);
         if (!adapter.sendScheduledNotification) {
-            console.warn(`[ScheduledNotifier] Adapter '${type}' does not support scheduled notifications — skipping`);
+            await recordFailure(`channel '${type}' does not support scheduled notifications`);
             return;
         }
 
         await adapter.sendScheduledNotification(task, run, outcome);
         console.log(`[ScheduledNotifier] Delivered '${outcome}' digest for run ${run.runId} via ${type}`);
+        await recordEvent({
+            runId: run.runId,
+            tenantId: run.tenantId,
+            eventType: 'notification',
+            node: 'scheduled_notifier',
+            content: `Scheduled digest delivered via ${type}`,
+            metadata: { channel: type, status: 'sent', outcome, taskId: task.taskId },
+        });
     } catch (err) {
-        console.error('[ScheduledNotifier] Notification failed (non-fatal):', err);
+        await recordFailure(err instanceof Error ? err.message : String(err));
     }
 }
 

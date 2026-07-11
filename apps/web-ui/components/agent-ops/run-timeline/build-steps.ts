@@ -88,6 +88,15 @@ export function buildSteps(events: AgentOpsEvent[], runStatus: AgentOpsStatus): 
       case "error":
         flat.push({ kind: "error", event: e });
         break;
+      case "notification":
+        // Scheduled digest delivery marker — a failed delivery is surfaced as an
+        // error step so it's impossible to miss; successful delivery is a quiet step.
+        if ((e.metadata as { status?: string } | undefined)?.status === "failed") {
+          flat.push({ kind: "error", event: e });
+        } else {
+          flat.push({ kind: "thinking", event: e });
+        }
+        break;
       default:
         flat.push({ kind: "thinking", event: e as AgentOpsEvent });
         break;

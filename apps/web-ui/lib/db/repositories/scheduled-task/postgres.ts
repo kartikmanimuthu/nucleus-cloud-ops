@@ -29,13 +29,34 @@ function computeNextRunAt(cronExpression: string, timezone: string): Date | null
     }
 }
 
+/**
+ * Schedule-aware next-run computation. Interval tasks anchor on "now" — the
+ * caller invokes this at create/resume/run-finalize time, so the next fire is
+ * always intervalMinutes after the most recent lifecycle event. The worker
+ * sweeper fires interval tasks when nextRunAt <= now and re-advances it.
+ */
+function computeNextRun(schedule: {
+    scheduleType: string;
+    cronExpression: string;
+    timezone: string;
+    intervalMinutes?: number | null;
+}): Date | null {
+    if (schedule.scheduleType === 'interval') {
+        const minutes = schedule.intervalMinutes ?? 0;
+        return minutes > 0 ? new Date(Date.now() + minutes * 60_000) : null;
+    }
+    return computeNextRunAt(schedule.cronExpression, schedule.timezone);
+}
+
 function toScheduledTask(r: {
     id: string;
     tenantId: string;
     taskId: string;
     name: string;
     description: string;
+    scheduleType: string;
     cronExpression: string;
+    intervalMinutes: number | null;
     timezone: string;
     taskStatus: string;
     mode: string;
@@ -64,7 +85,9 @@ function toScheduledTask(r: {
         tenantId: r.tenantId,
         name: r.name,
         description: r.description,
+        scheduleType: (r.scheduleType as ScheduledTask['scheduleType']) || 'cron',
         cronExpression: r.cronExpression,
+        intervalMinutes: r.intervalMinutes ?? undefined,
         timezone: r.timezone,
         taskStatus: r.taskStatus as ScheduledTask['taskStatus'],
         mode: r.mode as ScheduledTask['mode'],
@@ -89,7 +112,13 @@ function toScheduledTask(r: {
 export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository {
     async createScheduledTask(params: CreateScheduledTaskParams): Promise<ScheduledTask> {
         const taskId = uuidv4();
-        const nextRunAt = computeNextRunAt(params.cronExpression, params.timezone);
+        const scheduleType = params.scheduleType ?? 'cron';
+        const nextRunAt = computeNextRun({
+            scheduleType,
+            cronExpression: params.cronExpression,
+            timezone: params.timezone,
+            intervalMinutes: params.intervalMinutes,
+        });
 
         const record = await getTenantClient(params.tenantId).scheduledTask.create({
             data: {
@@ -97,7 +126,9 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
                 taskId,
                 name: params.name,
                 description: params.description,
+                scheduleType,
                 cronExpression: params.cronExpression,
+                intervalMinutes: params.intervalMinutes ?? null,
                 timezone: params.timezone,
                 taskStatus: 'active',
                 mode: params.mode,
@@ -148,12 +179,22 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
     ): Promise<ScheduledTask | null> {
         const updateData: Record<string, unknown> = { ...updates };
 
-        if (updates.cronExpression || updates.timezone) {
+        const scheduleChanged =
+            updates.cronExpression !== undefined ||
+            updates.timezone !== undefined ||
+            updates.scheduleType !== undefined ||
+            updates.intervalMinutes !== undefined;
+        if (scheduleChanged) {
             const task = await this.getScheduledTask(tenantId, taskId);
             if (task) {
-                const cron = updates.cronExpression ?? task.cronExpression;
-                const tz = updates.timezone ?? task.timezone;
-                updateData.nextRunAt = computeNextRunAt(cron, tz);
+                updateData.nextRunAt = computeNextRun({
+                    scheduleType: updates.scheduleType ?? task.scheduleType,
+                    cronExpression: updates.cronExpression ?? task.cronExpression,
+                    timezone: updates.timezone ?? task.timezone,
+                    intervalMinutes: updates.intervalMinutes !== undefined
+                        ? updates.intervalMinutes
+                        : task.intervalMinutes,
+                });
             }
         }
 
@@ -178,7 +219,7 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
     async resumeScheduledTask(tenantId: string, taskId: string): Promise<ScheduledTask | null> {
         const task = await this.getScheduledTask(tenantId, taskId);
         if (!task) return null;
-        const nextRunAt = computeNextRunAt(task.cronExpression, task.timezone);
+        const nextRunAt = computeNextRun(task);
         await getTenantClient(tenantId).scheduledTask.updateMany({
             where: { tenantId, taskId },
             data: { taskStatus: 'active', nextRunAt: nextRunAt ?? null },
@@ -202,7 +243,8 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
     ): Promise<void> {
         const task = await this.getScheduledTask(tenantId, taskId);
         if (!task) return;
-        const nextRunAt = computeNextRunAt(task.cronExpression, task.timezone);
+        // Interval tasks re-anchor on run completion: next fire = run end + interval.
+        const nextRunAt = computeNextRun(task);
         const incrementRunCount = opts?.incrementRunCount ?? true;
         await getTenantClient(tenantId).scheduledTask.updateMany({
             where: { tenantId, taskId },

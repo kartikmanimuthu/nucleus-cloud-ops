@@ -10,6 +10,10 @@ export type TriggerSource = 'slack' | 'jira' | 'discord' | 'telegram' | 'webhook
 
 export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
 
+// Agent Ops is plan-mode only: every run goes planner → execute → reflect →
+// final → memory_save, so autonomous runs always persist outcome memories.
+// 'fast' remains in the union solely so legacy rows/checkpoints still type-check;
+// nothing produces it anymore and the executor coerces it to 'plan'.
 export type AgentMode = 'plan' | 'fast';
 
 export type AgentEventType =
@@ -23,7 +27,8 @@ export type AgentEventType =
     | 'error'
     | 'memory_recall'
     | 'memory_save'
-    | 'evaluation';
+    | 'evaluation'
+    | 'notification';
 
 // ─── Trigger Metadata ──────────────────────────────────────────────────
 
@@ -154,6 +159,10 @@ export interface AgentOpsEvent {
 
 export type ScheduledTaskStatus = 'active' | 'paused' | 'deleted';
 
+// 'cron' fires on a cron expression (per-task timezone); 'interval' re-fires a
+// fixed number of minutes after the previous run, anchored on nextRunAt.
+export type ScheduleType = 'cron' | 'interval';
+
 export interface ScheduledTaskNotification {
     type: 'none' | 'slack' | 'jira' | 'telegram';
     channelId?: string;      // slack
@@ -172,7 +181,9 @@ export interface ScheduledTask {
     tenantId: string;
     name: string;
     description: string;
-    cronExpression: string;
+    scheduleType: ScheduleType;
+    cronExpression: string;      // empty string when scheduleType === 'interval'
+    intervalMinutes?: number;    // set when scheduleType === 'interval'
     timezone: string;
     taskStatus: ScheduledTaskStatus;
     mode: AgentMode;
@@ -284,4 +295,19 @@ export interface WebhookIntegrationConfig {
     webhookSecret: string;
     enabled: boolean;
     autoApprove?: boolean;
+}
+
+// ─── Agent Ops Defaults ─────────────────────────────────────────────────
+
+/**
+ * Per-tenant default execution configuration for Agent Ops runs. Applied to
+ * every new run that does not carry an explicit override. Stored in
+ * TenantConfig under the key 'agent-ops-defaults'.
+ */
+export interface AgentOpsDefaultsConfig {
+    // Composite model id ({provider}:{modelId}:{recordId}) from the provider
+    // model picker; resolved via resolveModelConfig at run time.
+    defaultModel: string;
+    // Graph iteration budget — caps the executor loop AND LangGraph's recursionLimit.
+    maxIterations: number;
 }

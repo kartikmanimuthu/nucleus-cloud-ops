@@ -9,7 +9,9 @@ import {
     getScheduledTask,
     updateScheduledTask,
     deleteScheduledTask,
+    validateScheduleInput,
 } from '@/lib/agent-ops/scheduled-task-service';
+import type { UpdateScheduledTaskParams } from '@/lib/db/repositories/scheduled-task/interface';
 import { registerTask, unregisterTask } from '@/lib/agent-ops/scheduler-engine';
 import { cancelActiveRunsForTask } from '@/lib/agent-ops/agent-ops-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
@@ -39,7 +41,39 @@ export async function PATCH(req: Request, { params }: Ctx) {
         const existing = await getScheduledTask(tenantId, taskId);
         if (!existing) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 
-        const task = await updateScheduledTask(tenantId, taskId, body);
+        // Whitelist the mutable fields — a raw pass-through would let clients
+        // set lifecycle columns (runCount, taskStatus, nextRunAt, …) directly.
+        // mode is intentionally NOT accepted: Agent Ops is plan-mode only.
+        const updates: UpdateScheduledTaskParams = {};
+        if (body.name !== undefined) updates.name = body.name;
+        if (body.description !== undefined) updates.description = body.description;
+        if (body.scheduleType !== undefined) updates.scheduleType = body.scheduleType;
+        if (body.cronExpression !== undefined) updates.cronExpression = body.cronExpression;
+        if (body.intervalMinutes !== undefined) updates.intervalMinutes = body.intervalMinutes;
+        if (body.timezone !== undefined) updates.timezone = body.timezone;
+        if (body.autoApprove !== undefined) updates.autoApprove = body.autoApprove;
+        if (body.model !== undefined) updates.model = body.model;
+        if (body.accountId !== undefined) updates.accountId = body.accountId;
+        if (body.accountName !== undefined) updates.accountName = body.accountName;
+        if (body.mcpServerIds !== undefined) updates.mcpServerIds = body.mcpServerIds;
+        if (body.knowledgeBaseIds !== undefined) updates.knowledgeBaseIds = body.knowledgeBaseIds;
+        if (body.notification !== undefined) updates.notification = body.notification;
+
+        // Validate the schedule as it will look AFTER the update.
+        if (updates.scheduleType !== undefined || updates.cronExpression !== undefined || updates.intervalMinutes !== undefined) {
+            const merged = {
+                scheduleType: updates.scheduleType ?? existing.scheduleType,
+                cronExpression: updates.cronExpression ?? existing.cronExpression,
+                intervalMinutes: updates.intervalMinutes ?? existing.intervalMinutes,
+            };
+            const scheduleError = validateScheduleInput(merged);
+            if (scheduleError) {
+                return NextResponse.json({ error: scheduleError }, { status: 400 });
+            }
+            if (merged.scheduleType === 'interval') updates.cronExpression = '';
+        }
+
+        const task = await updateScheduledTask(tenantId, taskId, updates);
         if (!task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
         // Re-register with updated cron if task is active
         if (task.taskStatus === 'active') registerTask(task);
