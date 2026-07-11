@@ -30,7 +30,7 @@ export interface MemoryRow {
     supersededAt: string | null;
 }
 
-export type MemorySortField = 'category' | 'key' | 'createdAt' | 'expiresAt';
+export type MemorySortField = 'category' | 'key' | 'createdAt' | 'updatedAt' | 'expiresAt';
 
 export interface MemoryFilters {
     category?: MemoryCategory;

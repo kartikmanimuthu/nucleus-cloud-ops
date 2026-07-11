@@ -23,7 +23,7 @@ export interface AgentMemoryRecord {
 }
 
 /** Columns the list view can be sorted by (server-side). */
-export type AgentMemorySortField = 'category' | 'key' | 'createdAt' | 'expiresAt';
+export type AgentMemorySortField = 'category' | 'key' | 'createdAt' | 'updatedAt' | 'expiresAt';
 export type SortDirection = 'asc' | 'desc';
 
 export interface AgentMemoryFilters {

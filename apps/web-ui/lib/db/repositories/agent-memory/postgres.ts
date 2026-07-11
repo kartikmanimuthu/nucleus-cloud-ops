@@ -80,7 +80,7 @@ function orderByClause(
     sortBy: AgentMemorySortField | undefined,
     sortDir: 'asc' | 'desc' | undefined
 ): Record<string, 'asc' | 'desc'> {
-    if (!sortBy) return { updatedAt: 'desc' };
+    if (!sortBy) return { createdAt: 'desc' };
     const dir = sortDir ?? 'asc';
     const column = sortBy === 'category' ? 'namespace' : sortBy;
     return { [column]: dir };
