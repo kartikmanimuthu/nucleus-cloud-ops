@@ -5,6 +5,7 @@ import type { MemoryStats } from "@/lib/agent/memory/types";
 export interface RequestEvaluation {
     mode: 'plan' | 'fast' | 'end' | null;
     skillId: string | null;
+    skillName?: string | null;
     accountId: string | null;
     requiresApproval: boolean;
     reasoning: string;

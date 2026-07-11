@@ -209,6 +209,10 @@ Return only the JSON object.`);
             console.error('[EVALUATOR] Parse failed:', e);
         }
 
+        evalResult.skillName = evalResult.skillId
+            ? (availableSkills.find(s => s.id === evalResult.skillId)?.name ?? evalResult.skillId)
+            : null;
+
         // KB autonomy: manual run-level selection (config.knowledgeBaseIds) always wins;
         // otherwise a cheap reflector call (resolveKnowledgeBaseIds → autoSelectKb) matches
         // the task against the tenant's KB catalog (vectorCount > 0). Never throws.

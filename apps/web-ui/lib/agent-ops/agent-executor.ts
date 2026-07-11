@@ -400,12 +400,29 @@ async function processLangGraphEvent(
                     metadata: { stepCount: event.data.output.plan.length, steps: event.data.output.plan },
                 });
             }
+            if ((node === 'memory_recall' || node === 'memory_save') && event.data?.output?.memoryStats) {
+                const stats = event.data.output.memoryStats;
+                const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+                const content = stats.phase === 'recall'
+                    ? (stats.injected
+                        ? `Recalled ${plural(stats.facts.length, 'fact')} · ${plural(stats.rules.length, 'rule')} · ${plural(stats.episodes.length, 'episode')}`
+                        : 'No relevant memories found')
+                    : `Saved ${plural(stats.savedFacts, 'fact')} · ${plural(stats.savedRules, 'rule')}${stats.episodeCaptured ? ' · episode captured' : ''}`;
+                await agentOpsService.recordEvent({
+                    runId, tenantId, eventType: node as AgentEventType, node,
+                    content, metadata: stats,
+                });
+            }
             if (node === 'evaluator' && event.data?.output?.evaluation) {
                 const eval_ = event.data.output.evaluation;
                 await agentOpsService.recordEvent({
-                    runId, tenantId, eventType: 'planning', node,
-                    content: JSON.stringify(eval_, null, 2),
-                    metadata: { mode: eval_.mode, skillId: eval_.skillId },
+                    runId, tenantId, eventType: 'evaluation', node,
+                    content: eval_.reasoning || JSON.stringify(eval_, null, 2),
+                    metadata: {
+                        mode: eval_.mode, skillId: eval_.skillId, skillName: eval_.skillName ?? null,
+                        knowledgeBaseIds: eval_.knowledgeBaseIds ?? [],
+                        requiresApproval: !!eval_.requiresApproval,
+                    },
                 });
             }
             break;
@@ -421,6 +438,10 @@ async function processLangGraphEvent(
                 result.inputTokens = usage.input_tokens || usage.prompt_tokens || 0;
                 result.outputTokens = usage.output_tokens || usage.completion_tokens || 0;
             }
+
+            // Memory nodes' internal LLM calls (relevance filter, extraction) are implementation
+            // chatter — the structured memory_recall/memory_save events carry the signal.
+            if (node === 'memory_recall' || node === 'memory_save') break;
 
             const toolCalls = output.tool_calls || [];
             for (const tc of toolCalls) {
