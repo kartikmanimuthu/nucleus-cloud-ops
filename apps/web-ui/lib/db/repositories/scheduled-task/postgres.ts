@@ -16,6 +16,9 @@ import type {
     IScheduledTaskRepository,
     CreateScheduledTaskParams,
     UpdateScheduledTaskParams,
+    TaskListQuery,
+    TaskListResult,
+    TaskListStats,
 } from './interface';
 
 function computeNextRunAt(cronExpression: string, timezone: string): Date | null {
@@ -155,12 +158,50 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
         return record ? toScheduledTask(record) : null;
     }
 
-    async listScheduledTasks(tenantId: string): Promise<ScheduledTask[]> {
-        const records = await getTenantClient(tenantId).scheduledTask.findMany({
-            where: { tenantId, taskStatus: { not: 'deleted' } },
-            orderBy: { createdAt: 'desc' },
-        });
-        return records.map(toScheduledTask);
+    async listScheduledTasks(query: TaskListQuery): Promise<TaskListResult> {
+        const page = query.page ?? 1;
+        const limit = query.limit || 25;
+        const skip = (page - 1) * limit;
+        const where: Record<string, unknown> = { tenantId: query.tenantId, taskStatus: { not: 'deleted' } };
+        const orderBy = this.buildOrderBy(query.sortBy, query.sortDir);
+
+        const [records, total] = await Promise.all([
+            getTenantClient(query.tenantId).scheduledTask.findMany({
+                where,
+                orderBy,
+                skip,
+                take: limit,
+            }),
+            getTenantClient(query.tenantId).scheduledTask.count({ where }),
+        ]);
+
+        const tasks = records.map(toScheduledTask);
+        const stats = await this.computeStats(query.tenantId);
+        return { tasks, total, stats };
+    }
+
+    private buildOrderBy(
+        sortBy?: TaskListQuery['sortBy'],
+        sortDir?: TaskListQuery['sortDir']
+    ): Record<string, 'asc' | 'desc'> {
+        if (!sortBy) return { createdAt: 'desc' };
+        const dir = sortDir ?? 'asc';
+        return { [sortBy]: dir };
+    }
+
+    private async computeStats(tenantId: string): Promise<TaskListStats> {
+        const db = getTenantClient(tenantId);
+        const baseWhere = { tenantId, taskStatus: { not: 'deleted' } };
+        const [active, paused, aggregate] = await Promise.all([
+            db.scheduledTask.count({ where: { ...baseWhere, taskStatus: 'active' } }),
+            db.scheduledTask.count({ where: { ...baseWhere, taskStatus: 'paused' } }),
+            db.scheduledTask.aggregate({ where: baseWhere, _sum: { runCount: true } }),
+        ]);
+        return {
+            active,
+            paused,
+            totalRuns: aggregate._sum.runCount ?? 0,
+        };
     }
 
     // Cross-tenant: scheduler engine scans all active tasks

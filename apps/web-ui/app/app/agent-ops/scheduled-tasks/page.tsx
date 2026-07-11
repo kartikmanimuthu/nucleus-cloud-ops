@@ -1,17 +1,26 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { PaginationBar } from "@/components/ui/pagination-bar"
+import {
     CalendarClock, ArrowLeft, RefreshCw, Play, Pause, Trash2,
-    CheckCircle2, XCircle, Clock, Loader2, AlertCircle, Zap,
+    CheckCircle2, XCircle, Loader2, Zap, ArrowDownWideNarrow,
 } from "lucide-react"
 import type { ScheduledTask } from "@/lib/agent-ops/types"
+import type { TaskListQuery } from "@/lib/db/repositories/scheduled-task/interface"
 import { ScheduledTaskDialog } from "@/components/agent-ops/scheduled-task-dialog"
-
+import { useScheduledTasks } from "@/lib/queries/agent-ops-scheduled-tasks"
 import { formatDateTime } from "@/lib/date-utils"
 import { useTenant } from '@/lib/tenant-context'
 
@@ -21,35 +30,45 @@ function StatusBadge({ status }: { status: ScheduledTask["taskStatus"] }) {
     return <Badge variant="destructive">Deleted</Badge>
 }
 
+const SORT_OPTIONS: { label: string; value: string }[] = [
+    { label: "Created: newest first", value: "createdAt:desc" },
+    { label: "Created: oldest first", value: "createdAt:asc" },
+    { label: "Updated: newest first", value: "updatedAt:desc" },
+    { label: "Updated: oldest first", value: "updatedAt:asc" },
+    { label: "Next run", value: "nextRunAt:asc" },
+    { label: "Last run", value: "lastRunAt:desc" },
+    { label: "Name", value: "name:asc" },
+    { label: "Status", value: "taskStatus:asc" },
+    { label: "Run count", value: "runCount:desc" },
+]
+
+function parseSort(value: string): { sortBy: TaskListQuery['sortBy']; sortDir: 'asc' | 'desc' } {
+    const [sortBy, sortDir] = value.split(':') as [TaskListQuery['sortBy'], 'asc' | 'desc']
+    return { sortBy, sortDir }
+}
+
 export default function ScheduledTasksPage() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const tenantId = searchParams.get("tenantId") || "default"
     const { timezone } = useTenant()
-    const [tasks, setTasks] = useState<ScheduledTask[]>([])
-    const [loading, setLoading] = useState(true)
+    const [page, setPage] = useState(1)
+    const [pageSize, setPageSize] = useState(25)
+    const [sortValue, setSortValue] = useState<string>("createdAt:desc")
     const [actionIds, setActionIds] = useState<Set<string>>(new Set())
 
-    const fetchTasks = useCallback(async () => {
-        setLoading(true)
-        try {
-            const res = await fetch(`/api/agent-ops/scheduled-tasks?tenantId=${tenantId}`)
-            const data = await res.json()
-            setTasks(data.tasks || [])
-        } catch (err) {
-            console.error("Failed to fetch tasks:", err)
-        } finally {
-            setLoading(false)
-        }
-    }, [tenantId])
-
-    useEffect(() => { fetchTasks() }, [fetchTasks])
+    const { sortBy, sortDir } = parseSort(sortValue)
+    const tasksQuery = useScheduledTasks({ page, limit: pageSize, sortBy, sortDir })
+    const tasks = tasksQuery.data?.tasks ?? []
+    const total = tasksQuery.data?.total ?? 0
+    const stats = tasksQuery.data?.stats ?? { active: 0, paused: 0, totalRuns: 0 }
+    const loading = tasksQuery.isLoading
 
     const withAction = async (taskId: string, fn: () => Promise<void>) => {
         setActionIds(s => new Set(s).add(taskId))
         try { await fn() } finally {
             setActionIds(s => { const n = new Set(s); n.delete(taskId); return n })
-            await fetchTasks()
+            await tasksQuery.refetch()
         }
     }
 
@@ -94,12 +113,6 @@ export default function ScheduledTasksPage() {
             : `every ${t.intervalMinutes ?? "?"}m`)
         : t.cronExpression
 
-    const stats = {
-        active: tasks.filter(t => t.taskStatus === "active").length,
-        paused: tasks.filter(t => t.taskStatus === "paused").length,
-        totalRuns: tasks.reduce((s, t) => s + (t.runCount || 0), 0),
-    }
-
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -117,11 +130,11 @@ export default function ScheduledTasksPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={fetchTasks} disabled={loading}>
-                        <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                    <Button variant="outline" size="sm" onClick={() => tasksQuery.refetch()} disabled={tasksQuery.isFetching}>
+                        <RefreshCw className={`h-4 w-4 mr-2 ${tasksQuery.isFetching ? "animate-spin" : ""}`} />
                         Refresh
                     </Button>
-                    <ScheduledTaskDialog tenantId={tenantId} onSaved={fetchTasks} />
+                    <ScheduledTaskDialog tenantId={tenantId} onSaved={() => tasksQuery.refetch()} />
                 </div>
             </div>
 
@@ -145,6 +158,21 @@ export default function ScheduledTasksPage() {
                         <div className="text-xs text-muted-foreground">Total Runs</div>
                     </CardContent>
                 </Card>
+            </div>
+
+            {/* Sort */}
+            <div className="flex items-center justify-end gap-2">
+                <ArrowDownWideNarrow className="h-4 w-4 text-muted-foreground" />
+                <Select value={sortValue} onValueChange={setSortValue}>
+                    <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {SORT_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
             </div>
 
             {/* Task List */}
@@ -213,7 +241,7 @@ export default function ScheduledTasksPage() {
                                             <ScheduledTaskDialog
                                                 tenantId={tenantId}
                                                 task={task}
-                                                onSaved={fetchTasks}
+                                                onSaved={() => tasksQuery.refetch()}
                                                 trigger={
                                                     <Button variant="ghost" size="sm" className="h-7 px-2" title="Edit">
                                                         <Zap className="h-3 w-3" />
@@ -230,6 +258,16 @@ export default function ScheduledTasksPage() {
                             })}
                         </div>
                     )}
+                    <div className="mt-4">
+                        <PaginationBar
+                            currentPage={page}
+                            totalItems={total}
+                            pageSize={pageSize}
+                            onPageChange={setPage}
+                            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+                            itemLabel="tasks"
+                        />
+                    </div>
                 </CardContent>
             </Card>
         </div>

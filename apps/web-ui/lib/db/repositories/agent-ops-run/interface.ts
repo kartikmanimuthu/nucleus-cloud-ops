@@ -15,6 +15,7 @@ import type {
     TriggerMetadata,
     AgentMode,
     RunListQuery,
+    RunListResult,
 } from '@/lib/agent-ops/types';
 
 export type { RunListQuery };
@@ -47,7 +48,7 @@ export interface IAgentOpsRunRepository {
     updateRunTrigger(tenantId: string, runId: string, trigger: TriggerMetadata): Promise<void>;
     updateApprovalMessageTs(tenantId: string, runId: string, slackMessageTs: string): Promise<void>;
     getRun(tenantId: string, runId: string): Promise<AgentOpsRun | null>;
-    listRuns(query: RunListQuery): Promise<{ runs: AgentOpsRun[]; lastKey?: Record<string, unknown> }>;
+    listRuns(query: RunListQuery): Promise<RunListResult>;
     listRunsBySource(source: TriggerSource, limit?: number): Promise<AgentOpsRun[]>;
     /** Non-terminal (queued/in_progress/awaiting_*) scheduled runs for a task, so
      *  pausing/deleting a task can cancel whatever it already launched. */

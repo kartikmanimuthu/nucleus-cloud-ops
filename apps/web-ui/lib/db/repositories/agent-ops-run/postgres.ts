@@ -12,7 +12,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
-import type { AgentOpsRun, AgentOpsStatus, TriggerMetadata, TriggerSource } from '@/lib/agent-ops/types';
+import type { AgentOpsRun, AgentOpsStatus, TriggerMetadata, TriggerSource, RunListResult } from '@/lib/agent-ops/types';
 import type {
     IAgentOpsRunRepository,
     CreateRunParams,
@@ -165,21 +165,53 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         return record ? toAgentOpsRun(record) : null;
     }
 
-    async listRuns(query: RunListQuery): Promise<{ runs: AgentOpsRun[]; lastKey?: Record<string, unknown> }> {
+    async listRuns(query: RunListQuery): Promise<RunListResult> {
+        const page = query.page ?? 1;
         const limit = query.limit || 25;
+        const skip = (page - 1) * limit;
         if (!query.tenantId) throw new Error('listRuns: tenantId is required');
         const where: Record<string, unknown> = { tenantId: query.tenantId };
 
         if (query.source) where.source = query.source;
         if (query.status) where.status = query.status;
 
-        const records = await getTenantClient(query.tenantId).agentOpsRun.findMany({
-            where,
-            orderBy: { createdAt: 'desc' },
-            take: limit,
-        });
+        const orderBy = this.buildOrderBy(query.sortBy, query.sortDir);
 
-        return { runs: records.map(toAgentOpsRun) };
+        const [records, total] = await Promise.all([
+            getTenantClient(query.tenantId).agentOpsRun.findMany({
+                where,
+                orderBy,
+                skip,
+                take: limit,
+            }),
+            getTenantClient(query.tenantId).agentOpsRun.count({ where }),
+        ]);
+
+        const runs = records.map(toAgentOpsRun);
+        const stats = await this.computeStats(query.tenantId, where);
+
+        return { runs, total, stats };
+    }
+
+    private buildOrderBy(
+        sortBy?: RunListQuery['sortBy'],
+        sortDir?: RunListQuery['sortDir']
+    ): Record<string, 'asc' | 'desc'> {
+        if (!sortBy) return { createdAt: 'desc' };
+        const dir = sortDir ?? 'desc';
+        const column = sortBy === 'taskDescription' ? 'taskDescription' : sortBy;
+        return { [column]: dir };
+    }
+
+    private async computeStats(tenantId: string, baseWhere: Record<string, unknown>): Promise<RunListResult['stats']> {
+        const db = getTenantClient(tenantId);
+        const [total, inProgress, completed, failed] = await Promise.all([
+            db.agentOpsRun.count({ where: baseWhere }),
+            db.agentOpsRun.count({ where: { ...baseWhere, status: 'in_progress' } }),
+            db.agentOpsRun.count({ where: { ...baseWhere, status: 'completed' } }),
+            db.agentOpsRun.count({ where: { ...baseWhere, status: 'failed' } }),
+        ]);
+        return { total, inProgress, completed, failed };
     }
 
     async listActiveRunsByTask(tenantId: string, taskId: string): Promise<AgentOpsRun[]> {

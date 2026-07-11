@@ -8,14 +8,31 @@ import { listScheduledTasks, createScheduledTask, validateScheduleInput } from '
 import { registerTask } from '@/lib/agent-ops/scheduler-engine';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import type { TaskListQuery } from '@/lib/db/repositories/scheduled-task/interface';
 
-export async function GET() {
+const VALID_SORT_FIELDS: TaskListQuery['sortBy'][] = ['name', 'taskStatus', 'nextRunAt', 'lastRunAt', 'createdAt', 'updatedAt', 'runCount'];
+
+export async function GET(req: Request) {
     try {
         const tenantId = await getSessionTenantId();
-        const tasks = await listScheduledTasks(tenantId);
-        return NextResponse.json({ tasks });
+        const url = new URL(req.url);
+        const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
+        const limit = Math.max(1, Math.min(100, parseInt(url.searchParams.get('limit') || '25', 10)));
+        const sortByParam = url.searchParams.get('sortBy') as TaskListQuery['sortBy'] | null;
+        const sortBy = sortByParam && VALID_SORT_FIELDS.includes(sortByParam) ? sortByParam : 'createdAt';
+        const sortDir = url.searchParams.get('sortDir') === 'asc' ? 'asc' : 'desc';
+
+        const { tasks, total, stats } = await listScheduledTasks({
+            tenantId,
+            page,
+            limit,
+            sortBy,
+            sortDir,
+        });
+
+        return NextResponse.json({ success: true, data: tasks, total, stats });
     } catch (err) {
-        return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 });
+        return NextResponse.json({ success: false, error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 });
     }
 }
 
