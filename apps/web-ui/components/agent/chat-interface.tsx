@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +26,7 @@ import {
   Flag,
   ListChecks,
   Sparkles,
+  CalendarPlus,
   Zap,
   Cloud,
   Copy,
@@ -46,6 +48,8 @@ import {
 } from "@/lib/chat-export";
 import { toast } from "sonner";
 import { useDistillSkill } from "@/lib/queries/skills";
+import { useDistillScheduledTask } from "@/lib/queries/agent-ops-scheduled-tasks";
+import { SCHEDULED_TASK_PREFILL_KEY } from "@/components/agent-ops/scheduled-task-dialog";
 import { SkillFormDialog } from "@/components/skills/skill-form-dialog";
 
 // Available modes — must stay in sync with the modes the server accepts in
@@ -581,6 +585,8 @@ export function ChatInterface({
 
   // Save-as-skill state
   const distillSkill = useDistillSkill();
+  const router = useRouter();
+  const distillScheduledTask = useDistillScheduledTask();
   const [skillDialogOpen, setSkillDialogOpen] = useState(false);
   const [skillDraft, setSkillDraft] = useState<{ name: string; description: string; tier: string; content: string } | null>(null);
 
@@ -885,6 +891,21 @@ export function ChatInterface({
       setSkillDialogOpen(true);
     } catch (e) {
       toast.error("Could not create skill from chat", { description: e instanceof Error ? e.message : "Try again" });
+    }
+  };
+
+  const handleConvertToScheduledTask = async () => {
+    if (messages.length === 0) return;
+    const transcript = buildChatTranscript(messages as any);
+    try {
+      const draft = await distillScheduledTask.mutateAsync(transcript);
+      sessionStorage.setItem(
+        SCHEDULED_TASK_PREFILL_KEY,
+        JSON.stringify({ name: draft.name, description: draft.prompt, cronExpression: draft.suggestedCron })
+      );
+      router.push("/app/agent-ops/scheduled-tasks?prefill=1");
+    } catch (e) {
+      toast.error("Could not convert chat to a scheduled task", { description: e instanceof Error ? e.message : "Try again" });
     }
   };
 
@@ -2182,6 +2203,19 @@ export function ChatInterface({
                 disabled={messages.length === 0 || distillSkill.isPending}
               >
                 <Sparkles className="w-3.5 h-3.5" />
+              </Button>
+
+              {/* Convert to scheduled task */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
+                onClick={handleConvertToScheduledTask}
+                title="Convert chat into a recurring scheduled task"
+                aria-label="Convert to scheduled task"
+                disabled={messages.length === 0 || distillScheduledTask.isPending}
+              >
+                <CalendarPlus className="w-3.5 h-3.5" />
               </Button>
 
               {/* Clear conversation */}
