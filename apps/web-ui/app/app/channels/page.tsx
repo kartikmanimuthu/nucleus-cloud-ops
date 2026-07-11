@@ -2,7 +2,7 @@
 
 import { useChannelStatus } from '@/lib/queries/channels';
 import Link from 'next/link';
-import { Cable, CheckCircle2, Globe, Loader2, Settings2, Server, Send, Webhook } from 'lucide-react';
+import { Cable, CheckCircle2, Loader2, Settings2, Webhook } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -116,19 +116,6 @@ export default function ChannelsPage() {
                     : <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>
                 : null,
         },
-        {
-            id: 'mcp',
-            name: 'MCP Servers',
-            description: 'Configure external Model Context Protocol servers to extend agent capabilities with custom tools.',
-            href: '/app/channels/mcp-settings',
-            icon: <Globe className="h-8 w-8 text-primary" />,
-            statusBadge: status.mcp
-                ? <Badge variant="secondary" className="gap-1 text-xs">
-                    <CheckCircle2 className="h-3 w-3 text-green-500" />
-                    {status.mcp.serverCount} server{status.mcp.serverCount !== 1 ? 's' : ''}
-                  </Badge>
-                : null,
-        },
     ];
 
     return (
@@ -147,7 +134,6 @@ export default function ChannelsPage() {
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                     </div>
                 ) : (
-                    <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {channels.map(channel => (
                             <Card key={channel.id} className="flex flex-col hover:border-primary/50 transition-colors">
@@ -174,50 +160,6 @@ export default function ChannelsPage() {
                             </Card>
                         ))}
                     </div>
-
-                    {/* Separator */}
-                    <div className="border-t pt-6">
-                        <div className="flex items-center gap-3 mb-4">
-                            <Server className="h-5 w-5 text-primary" />
-                            <div>
-                                <h2 className="text-lg font-semibold">Model Providers</h2>
-                                <p className="text-muted-foreground text-sm">
-                                    Connect Ollama, LM Studio, LiteLLM, Anthropic, or other LLM endpoints to use alongside AWS Bedrock.
-                                </p>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            <Link href="/app/settings/providers">
-                                <Card className="flex flex-col hover:border-primary/50 transition-colors cursor-pointer h-full">
-                                    <CardHeader className="pb-3">
-                                        <div className="flex items-start justify-between">
-                                            <div className="p-2 rounded-lg bg-muted/50">
-                                                <Server className="h-8 w-8 text-primary" />
-                                            </div>
-                                            {status.providers && status.providers.count > 0
-                                                ? <Badge variant="secondary" className="gap-1 text-xs">
-                                                    <CheckCircle2 className="h-3 w-3 text-green-500" />
-                                                    {status.providers.count} provider{status.providers.count !== 1 ? 's' : ''}
-                                                  </Badge>
-                                                : <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>
-                                            }
-                                        </div>
-                                        <CardTitle className="text-base mt-3">LLM Providers</CardTitle>
-                                        <CardDescription className="text-sm leading-relaxed">
-                                            Configure LLM endpoints (Ollama, LM Studio, LiteLLM, Anthropic, vLLM) to use in AI Ops.
-                                        </CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="mt-auto pt-0">
-                                        <Button variant="outline" size="sm" className="w-full gap-2">
-                                            <Settings2 className="h-3.5 w-3.5" />
-                                            Configure
-                                        </Button>
-                                    </CardContent>
-                                </Card>
-                            </Link>
-                        </div>
-                    </div>
-                    </>
                 )}
             </div>
         </div>
