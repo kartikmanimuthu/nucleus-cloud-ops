@@ -11,6 +11,7 @@ import {
     deleteScheduledTask,
 } from '@/lib/agent-ops/scheduled-task-service';
 import { registerTask, unregisterTask } from '@/lib/agent-ops/scheduler-engine';
+import { cancelActiveRunsForTask } from '@/lib/agent-ops/agent-ops-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 
@@ -77,6 +78,10 @@ export async function DELETE(req: Request, { params }: Ctx) {
 
         unregisterTask(taskId);
         await deleteScheduledTask(tenantId, taskId);
+        // A deleted task must not keep executing a run it already launched.
+        await cancelActiveRunsForTask(tenantId, taskId).catch((err) => {
+            console.error(`[delete] Failed to cancel active runs for task ${taskId}:`, err);
+        });
 
         const session = await getAuthSession();
         AuditService.logUserAction({

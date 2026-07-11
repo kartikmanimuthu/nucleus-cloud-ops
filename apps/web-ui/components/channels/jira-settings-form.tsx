@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
+import { useChannelSettings, useSaveChannelSettings, revealChannelSecrets } from '@/lib/queries/channel-settings';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -70,7 +70,21 @@ function JiraSettingsFormInner({
     const [errorMessage, setErrorMessage] = useState('');
     const [showSecret, setShowSecret] = useState(false);
     const [showApiToken, setShowApiToken] = useState(false);
+    const [revealed, setRevealed] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
+
+    // Lazily pull the stored plaintext secrets into the form the first time the
+    // user reveals a field (only when already configured and untouched).
+    const revealSecrets = async () => {
+        if (revealed || !configured) return;
+        setRevealed(true);
+        const data = await revealChannelSecrets('jira');
+        setForm(prev => ({
+            ...prev,
+            webhookSecret: prev.webhookSecret || (data.webhookSecret as string) || '',
+            apiToken: prev.apiToken || (data.apiToken as string) || '',
+        }));
+    };
 
     const [form, setForm] = useState<JiraSettingsForm>({
         webhookSecret: '',
@@ -87,7 +101,7 @@ function JiraSettingsFormInner({
             : '/api/v1/trigger/jira';
 
     const handleSave = async () => {
-        if (!form.webhookSecret.trim()) {
+        if (!configured && !form.webhookSecret.trim()) {
             setErrorMessage('Webhook Secret is required');
             setSaveStatus('error');
             return;
@@ -105,6 +119,9 @@ function JiraSettingsFormInner({
             setConfigured(true);
             setSaveStatus('saved');
             setForm(prev => ({ ...prev, webhookSecret: '', apiToken: '' }));
+            setRevealed(false);
+            setShowSecret(false);
+            setShowApiToken(false);
             setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
@@ -208,7 +225,10 @@ function JiraSettingsFormInner({
                                 variant="ghost"
                                 size="icon"
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={() => setShowSecret(v => !v)}
+                                onClick={async () => {
+                                    if (!showSecret) await revealSecrets();
+                                    setShowSecret(v => !v);
+                                }}
                             >
                                 {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>
@@ -272,7 +292,10 @@ function JiraSettingsFormInner({
                                 variant="ghost"
                                 size="icon"
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={() => setShowApiToken(v => !v)}
+                                onClick={async () => {
+                                    if (!showApiToken) await revealSecrets();
+                                    setShowApiToken(v => !v);
+                                }}
                             >
                                 {showApiToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>

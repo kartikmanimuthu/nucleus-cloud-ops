@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
+import { useChannelSettings, useSaveChannelSettings, revealChannelSecrets } from '@/lib/queries/channel-settings';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,7 +55,21 @@ function SlackSettingsFormInner({
     const [errorMessage, setErrorMessage] = useState('');
     const [showSigningSecret, setShowSigningSecret] = useState(false);
     const [showBotToken, setShowBotToken] = useState(false);
+    const [revealed, setRevealed] = useState(false);
     const [copied, setCopied] = useState(false);
+
+    // Lazily pull the stored plaintext secrets into the form the first time the
+    // user reveals a field (only when already configured and untouched).
+    const revealSecrets = async () => {
+        if (revealed || !configured) return;
+        setRevealed(true);
+        const data = await revealChannelSecrets('slack');
+        setForm(prev => ({
+            ...prev,
+            signingSecret: prev.signingSecret || (data.signingSecret as string) || '',
+            botToken: prev.botToken || (data.botToken as string) || '',
+        }));
+    };
 
     const [form, setForm] = useState<SlackSettingsState>({
         signingSecret: '',
@@ -69,7 +83,7 @@ function SlackSettingsFormInner({
             : '/api/v1/trigger/slack';
 
     const handleSave = async () => {
-        if (!form.signingSecret.trim()) {
+        if (!configured && !form.signingSecret.trim()) {
             setErrorMessage('Signing Secret is required');
             setSaveStatus('error');
             return;
@@ -84,6 +98,9 @@ function SlackSettingsFormInner({
             setConfigured(true);
             setSaveStatus('saved');
             setForm(prev => ({ ...prev, signingSecret: '', botToken: '' }));
+            setRevealed(false);
+            setShowSigningSecret(false);
+            setShowBotToken(false);
             setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
@@ -177,7 +194,10 @@ function SlackSettingsFormInner({
                                 variant="ghost"
                                 size="icon"
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={() => setShowSigningSecret(v => !v)}
+                                onClick={async () => {
+                                    if (!showSigningSecret) await revealSecrets();
+                                    setShowSigningSecret(v => !v);
+                                }}
                             >
                                 {showSigningSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>
@@ -206,7 +226,10 @@ function SlackSettingsFormInner({
                                 variant="ghost"
                                 size="icon"
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={() => setShowBotToken(v => !v)}
+                                onClick={async () => {
+                                    if (!showBotToken) await revealSecrets();
+                                    setShowBotToken(v => !v);
+                                }}
                             >
                                 {showBotToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>

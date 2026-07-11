@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useChannelSettings, useSaveChannelSettings } from '@/lib/queries/channel-settings';
+import { useChannelSettings, useSaveChannelSettings, revealChannelSecrets } from '@/lib/queries/channel-settings';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -61,6 +61,7 @@ function WebhookSettingsFormInner({
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [showSecret, setShowSecret] = useState(false);
+    const [revealed, setRevealed] = useState(false);
     const [copiedEndpoint, setCopiedEndpoint] = useState(false);
     const [copiedPayload, setCopiedPayload] = useState(false);
 
@@ -74,8 +75,20 @@ function WebhookSettingsFormInner({
             ? `${window.location.origin}/api/v1/gateway/webhook`
             : '/api/v1/gateway/webhook';
 
+    // Lazily pull the stored plaintext secret into the form the first time the
+    // user reveals the field (only when already configured and untouched).
+    const revealSecrets = async () => {
+        if (revealed || !configured) return;
+        setRevealed(true);
+        const data = await revealChannelSecrets('webhook');
+        setForm(prev => ({
+            ...prev,
+            webhookSecret: prev.webhookSecret || (data.webhookSecret as string) || '',
+        }));
+    };
+
     const handleSave = async () => {
-        if (!form.webhookSecret.trim()) {
+        if (!configured && !form.webhookSecret.trim()) {
             setErrorMessage('Webhook Secret is required');
             setSaveStatus('error');
             return;
@@ -89,6 +102,8 @@ function WebhookSettingsFormInner({
             setConfigured(true);
             setSaveStatus('saved');
             setForm(prev => ({ ...prev, webhookSecret: '' }));
+            setRevealed(false);
+            setShowSecret(false);
             setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (error: any) {
             setErrorMessage(error.message || 'Failed to save');
@@ -182,7 +197,10 @@ function WebhookSettingsFormInner({
                                 variant="ghost"
                                 size="icon"
                                 className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                                onClick={() => setShowSecret(v => !v)}
+                                onClick={async () => {
+                                    if (!showSecret) await revealSecrets();
+                                    setShowSecret(v => !v);
+                                }}
                             >
                                 {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </Button>

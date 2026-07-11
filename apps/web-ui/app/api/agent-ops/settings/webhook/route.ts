@@ -19,7 +19,7 @@ function maskSecret(value: string | undefined): string {
     return value.slice(0, 4) + '****' + value.slice(-4);
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
         const tenantId = await getSessionTenantId();
         const config = await TenantConfigService.getConfig<WebhookIntegrationConfig>(CONFIG_KEY, tenantId);
@@ -28,10 +28,15 @@ export async function GET() {
             return NextResponse.json({ configured: false, enabled: false });
         }
 
+        // Plaintext secrets are only returned when explicitly revealed by the
+        // authenticated tenant admin (eye toggle), never on the default load.
+        const reveal = new URL(req.url).searchParams.get('reveal') === '1';
+        const show = (value: string | undefined) => (reveal ? value ?? '' : maskSecret(value));
+
         return NextResponse.json({
             configured: true,
             enabled: config.enabled,
-            webhookSecret: maskSecret(config.webhookSecret),
+            webhookSecret: show(config.webhookSecret),
         });
     } catch (error: any) {
         console.error('[API /agent-ops/settings/webhook] GET error:', error);
@@ -47,7 +52,12 @@ export async function PUT(req: Request) {
         const tenantId = await getSessionTenantId();
         const body = await req.json() as Partial<WebhookIntegrationConfig>;
 
-        if (!body.webhookSecret?.trim()) {
+        // "Leave blank to keep existing values": merge the incoming body over the
+        // stored config so a blank secret retains what's already saved.
+        const existing = await TenantConfigService.getConfig<WebhookIntegrationConfig>(CONFIG_KEY, tenantId);
+
+        const webhookSecret = body.webhookSecret?.trim() || existing?.webhookSecret;
+        if (!webhookSecret) {
             return NextResponse.json(
                 { error: 'webhookSecret is required' },
                 { status: 400 }
@@ -55,8 +65,8 @@ export async function PUT(req: Request) {
         }
 
         const config: WebhookIntegrationConfig = {
-            webhookSecret: body.webhookSecret.trim(),
-            enabled: body.enabled !== false,
+            webhookSecret,
+            enabled: body.enabled ?? existing?.enabled ?? true,
         };
 
         await TenantConfigService.saveConfig(CONFIG_KEY, config, tenantId);

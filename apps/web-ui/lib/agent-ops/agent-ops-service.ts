@@ -6,6 +6,7 @@
  */
 
 import { getAgentOpsRunRepository, getAgentOpsEventRepository } from '@/lib/db/repository-factory';
+import { cancelRun as abortInProcessRun } from '@/lib/agent-ops/run-manager';
 import type {
     AgentOpsRun,
     AgentOpsEvent,
@@ -102,6 +103,45 @@ export async function listRunsBySource(
     return getAgentOpsRunRepository().listRunsBySource(source, limit);
 }
 
+/**
+ * Cancel every non-terminal run a scheduled task has already launched.
+ *
+ * Called when a task is paused or deleted: the sweeper stops creating NEW runs,
+ * but a run kicked off by the on-time cron tick moments earlier keeps executing.
+ * For each active run we (a) abort the in-process AbortController — stops execution
+ * immediately when this replica happens to own the run — and (b) flip the DB status
+ * to 'cancelled', which both reflects reality in the UI and is the signal the
+ * executor's status poll picks up to stop a run owned by a DIFFERENT replica.
+ *
+ * Never throws — a failure on one run must not block cancelling the rest, nor
+ * abort the pause/delete that triggered it. Returns the runIds actually cancelled.
+ */
+export async function cancelActiveRunsForTask(tenantId: string, taskId: string): Promise<string[]> {
+    const runs = await getAgentOpsRunRepository().listActiveRunsByTask(tenantId, taskId);
+    const cancelled: string[] = [];
+    for (const run of runs) {
+        try {
+            abortInProcessRun(run.runId);
+            await getAgentOpsRunRepository().updateRunStatus(tenantId, run.runId, 'cancelled');
+            await recordEvent({
+                runId: run.runId,
+                tenantId,
+                eventType: 'final',
+                node: '__cancelled__',
+                content: 'Run cancelled because its scheduled task was paused or deleted.',
+                metadata: { reason: 'task_paused_or_deleted', taskId },
+            });
+            cancelled.push(run.runId);
+        } catch (err) {
+            console.error(`[AgentOpsService] Failed to cancel run ${run.runId} for task ${taskId}:`, err);
+        }
+    }
+    if (cancelled.length) {
+        console.log(`[AgentOpsService] Cancelled ${cancelled.length} active run(s) for task ${taskId}`);
+    }
+    return cancelled;
+}
+
 // ─── Event Operations ──────────────────────────────────────────────────
 
 /**
@@ -188,6 +228,7 @@ export const agentOpsService = {
     getRun,
     listRuns,
     listRunsBySource,
+    cancelActiveRunsForTask,
     recordEvent,
     getRunEvents,
     findAwaitingRunByJiraIssue,

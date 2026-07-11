@@ -22,6 +22,11 @@ import type { GatewayEventBus } from '@/lib/gateway/event-bus';
 
 const SANDBOX_BASE = '/tmp/agent-ops';
 
+// How often the executor re-reads its run's DB status mid-stream to honour a
+// cancellation issued on a different web-ui replica (in-process AbortController
+// only reaches the replica that owns the run). Throttled to keep it cheap.
+const CANCEL_POLL_INTERVAL_MS = 5_000;
+
 // ─── Node → EventType mapping ────────────────────────────────────────────────
 
 function mapNodeToEventType(node: string): AgentEventType {
@@ -133,8 +138,21 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
             signal: abortController.signal,
         }) as AsyncIterable<any>;
 
+        let lastCancelPoll = 0; // 0 → poll on the first event, then throttled
+
         for await (const event of eventStream) {
-            // Check for cancellation on every event
+            // Cross-replica cancellation: pause/delete/cancel handled on another
+            // replica only flips the run's DB status. Poll it (throttled) so this
+            // replica — which owns the AbortController — actually stops execution.
+            if (Date.now() - lastCancelPoll >= CANCEL_POLL_INTERVAL_MS) {
+                lastCancelPoll = Date.now();
+                try {
+                    const fresh = await agentOpsService.getRun(tenantId, runId);
+                    if (fresh?.status === 'cancelled') abortController.abort();
+                } catch { /* never let a status poll abort an otherwise healthy run */ }
+            }
+
+            // Check for cancellation on every event (in-process abort or DB poll above)
             if (isAborted(runId)) {
                 console.log(`[AgentExecutor] 🛑 Run ${runId} cancelled`);
                 break;
