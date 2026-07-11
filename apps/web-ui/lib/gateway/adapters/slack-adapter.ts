@@ -268,6 +268,11 @@ export class SlackAdapter implements ChannelAdapter {
         }
     }
 
+    /**
+     * Scheduled-task digest → Slack channel. THROWS on missing config or a
+     * failed Slack API call so the scheduled notifier can record the failure
+     * on the run instead of silently dropping the digest.
+     */
     async sendScheduledNotification(
         task: ScheduledTask,
         run: AgentOpsRun,
@@ -275,13 +280,14 @@ export class SlackAdapter implements ChannelAdapter {
     ): Promise<void> {
         const channelId = task.notification?.channelId;
         if (!channelId) {
-            console.warn('[SlackAdapter] sendScheduledNotification: no channelId on task notification');
-            return;
+            throw new Error('No Slack channelId configured on the task notification');
         }
         const config = await this.loadConfig(run.tenantId);
+        if (config && config.enabled === false) {
+            throw new Error('Slack integration is deactivated — activate it under Channels → Slack');
+        }
         if (!config?.botToken) {
-            console.warn('[SlackAdapter] sendScheduledNotification: no botToken configured');
-            return;
+            throw new Error('No Slack Bot Token configured — set it under Channels → Slack');
         }
 
         const dashboardUrl = buildDashboardRunUrl(run.runId);
@@ -317,21 +323,17 @@ export class SlackAdapter implements ChannelAdapter {
             },
         ];
 
-        try {
-            const res = await fetch('https://slack.com/api/chat.postMessage', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${config.botToken}`,
-                },
-                body: JSON.stringify({ channel: channelId, blocks, text: header }),
-            });
-            const data = await res.json();
-            if (!data.ok) {
-                console.warn('[SlackAdapter] sendScheduledNotification post failed:', data.error);
-            }
-        } catch (err) {
-            console.error('[SlackAdapter] sendScheduledNotification error:', err);
+        const res = await fetch('https://slack.com/api/chat.postMessage', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${config.botToken}`,
+            },
+            body: JSON.stringify({ channel: channelId, blocks, text: header }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!data.ok) {
+            throw new Error(`Slack chat.postMessage failed: ${data.error || `HTTP ${res.status}`}`);
         }
     }
 

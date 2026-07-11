@@ -40,7 +40,10 @@ export async function createRun(params: {
     autoApprove?: boolean;
     model?: string;
 }): Promise<AgentOpsRun> {
-    const run = await getAgentOpsRunRepository().createRun(params);
+    // Agent Ops is plan-mode only — coerce whatever the channel payload carried
+    // ('fast' from old Jira Automation bodies, etc.) so every run is planned and
+    // its terminal path persists outcome memories.
+    const run = await getAgentOpsRunRepository().createRun({ ...params, mode: 'plan' });
     console.log(`[AgentOpsService] Created run: ${run.runId} (source: ${params.source})`);
     return run;
 }

@@ -14,6 +14,29 @@ import * as path from 'path';
 import { HumanMessage } from '@langchain/core/messages';
 import { createDynamicExecutorGraph } from './executor-graphs';
 import { resolveModelConfig, resolveDefaultModelConfig } from '../agent/model-resolver';
+import { getAgentOpsDefaults, resolveMaxIterations } from './agent-ops-defaults';
+import type { ResolvedModelConfig } from '../agent/agent-shared';
+
+/**
+ * Resolve the model for a run, honoring the Agent Ops per-tenant default:
+ *   1. explicit run.model (scheduled task / New Run dialog) — always wins
+ *   2. tenant Agent Ops default model (Settings → Agent Defaults)
+ *   3. tenant default provider's chat model (legacy fallback)
+ */
+async function resolveRunModel(runModel: string | undefined, tenantId: string): Promise<ResolvedModelConfig> {
+    if (runModel) return resolveModelConfig(runModel, tenantId);
+    const defaults = await getAgentOpsDefaults(tenantId);
+    if (defaults?.defaultModel) {
+        // A stale/removed default model would throw ProviderConfigError here; fall
+        // back to the provider default rather than failing the whole run.
+        try {
+            return await resolveModelConfig(defaults.defaultModel, tenantId);
+        } catch (err) {
+            console.warn(`[AgentExecutor] Agent Ops default model "${defaults.defaultModel}" failed to resolve — falling back to provider default:`, err);
+        }
+    }
+    return resolveDefaultModelConfig(tenantId);
+}
 import { agentOpsService } from './agent-ops-service';
 import { getMCPManager } from '../agent/mcp-manager';
 import { registerRun, cleanupRun, isAborted } from './run-manager';
@@ -98,11 +121,11 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
         });
 
         // ── Build graph ───────────────────────────────────────────────────────
-        // Resolve the configured provider — no hardcoded Bedrock default.
+        // Model + graph iteration limit come from the run override or the
+        // tenant's Agent Ops defaults (Settings → Agent Defaults).
         const modelString = (run as any).model as string | undefined;
-        const resolvedModel = modelString
-            ? await resolveModelConfig(modelString, tenantId)
-            : await resolveDefaultModelConfig(tenantId);
+        const resolvedModel = await resolveRunModel(modelString, tenantId);
+        const maxIterations = await resolveMaxIterations(tenantId);
         const graphConfig = {
             model: resolvedModel,
             autoApprove,
@@ -113,6 +136,7 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
             knowledgeBaseIds,
             tenantId,
             userId: deriveUserId(run),
+            maxIterations,
         };
 
         const graph = await createDynamicExecutorGraph(graphConfig);
@@ -122,7 +146,7 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
         } catch { /* non-fatal */ }
 
         const graphInput = { messages: [new HumanMessage(taskDescription)] };
-        const graphRunConfig = { configurable: { thread_id: threadId }, recursionLimit: 150 };
+        const graphRunConfig = { configurable: { thread_id: threadId }, recursionLimit: maxIterations };
 
         // ── Event tracking ────────────────────────────────────────────────────
         const toolsUsed = new Set<string>();
@@ -562,9 +586,8 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
         }
 
         const modelString = (run as any).model as string | undefined;
-        const resolvedModel = modelString
-            ? await resolveModelConfig(modelString, tenantId)
-            : await resolveDefaultModelConfig(tenantId);
+        const resolvedModel = await resolveRunModel(modelString, tenantId);
+        const maxIterations = await resolveMaxIterations(tenantId);
         const graphConfig = {
             model: resolvedModel,
             autoApprove: false, // keep approval mode — tools still need approval
@@ -575,12 +598,14 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
             knowledgeBaseIds,
             tenantId,
             userId: deriveUserId(run),
+            maxIterations,
         };
 
         const graph = await createDynamicExecutorGraph(graphConfig);
-        // Match the initial-run recursionLimit; otherwise a resumed run would fall
-        // back to LangGraph's default of 25 (tighter than the initial 150).
-        const graphRunConfig = { configurable: { thread_id: threadId }, recursionLimit: 150 };
+        // Match the initial-run recursionLimit (the tenant's configured graph
+        // limit); otherwise a resumed run would fall back to LangGraph's default
+        // of 25, tighter than what the initial run used.
+        const graphRunConfig = { configurable: { thread_id: threadId }, recursionLimit: maxIterations };
 
         // Inject approvalStatus='approved' so routing skips both gates on resume
         await (graph as any).updateState(graphRunConfig, {

@@ -59,7 +59,8 @@ export class ApiAdapter implements ChannelAdapter {
             channelType: 'api',
             tenantId,
             taskDescription: payload.taskDescription?.trim() || '',
-            mode: payload.mode || 'fast',
+            // Agent Ops is plan-mode only; createRun coerces regardless.
+            mode: 'plan',
             autoApprove: payload.autoApprove ?? false,
             accountId: payload.accountId,
             accountName: payload.accountName,

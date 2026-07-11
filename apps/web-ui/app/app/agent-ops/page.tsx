@@ -132,6 +132,9 @@ export default function AgentOpsPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => router.push("/app/agent-ops/settings")}>
+                  <Settings2 className="h-4 w-4 mr-2" /> Agent Defaults
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push("/app/agent-ops/slack-settings")}>
                   <MessageSquare className="h-4 w-4 mr-2" /> Slack
                 </DropdownMenuItem>

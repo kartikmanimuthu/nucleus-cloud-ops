@@ -36,15 +36,26 @@ interface ScheduledTaskDialogProps {
 const DEFAULT_FORM = {
     name: "",
     description: "",
+    scheduleType: "cron" as "cron" | "interval",
     cronExpression: "0 9 * * *",
+    intervalValue: 4,
+    intervalUnit: "hours" as "minutes" | "hours",
     timezone: "UTC",
-    mode: "plan" as const,
     autoApprove: false,
     notificationType: "none" as "none" | "slack" | "jira" | "telegram",
     channelId: "",
     channelName: "",
     chatId: "",
     issueKey: "",
+}
+
+const MIN_INTERVAL_MINUTES = 5
+
+function splitIntervalMinutes(minutes: number | undefined): { intervalValue: number; intervalUnit: "minutes" | "hours" } {
+    const m = minutes ?? 240
+    return m >= 60 && m % 60 === 0
+        ? { intervalValue: m / 60, intervalUnit: "hours" }
+        : { intervalValue: m, intervalUnit: "minutes" }
 }
 
 export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigger }: ScheduledTaskDialogProps) {
@@ -54,9 +65,10 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
     const [form, setForm] = useState(() => task ? {
         name: task.name,
         description: task.description,
-        cronExpression: task.cronExpression,
+        scheduleType: task.scheduleType ?? "cron",
+        cronExpression: task.cronExpression || DEFAULT_FORM.cronExpression,
+        ...splitIntervalMinutes(task.intervalMinutes),
         timezone: task.timezone,
-        mode: task.mode,
         autoApprove: task.autoApprove,
         notificationType: task.notification.type,
         channelId: task.notification.channelId || "",
@@ -67,9 +79,15 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
 
     const set = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))
 
+    const intervalMinutes = form.intervalUnit === "hours" ? form.intervalValue * 60 : form.intervalValue
+
     const handleSave = async () => {
         if (!form.name.trim() || !form.description.trim()) {
             setError("Name and description are required")
+            return
+        }
+        if (form.scheduleType === "interval" && (!Number.isInteger(intervalMinutes) || intervalMinutes < MIN_INTERVAL_MINUTES)) {
+            setError(`Interval must be at least ${MIN_INTERVAL_MINUTES} minutes`)
             return
         }
         setError(null)
@@ -77,12 +95,14 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
         try {
             // tenantId is resolved server-side from the session — never sent by the
             // client (a stale/placeholder value here would re-home the task's tenant).
+            // Mode is not sent: Agent Ops runs are always plan-mode.
             const body = {
                 name: form.name.trim(),
                 description: form.description.trim(),
-                cronExpression: form.cronExpression,
+                scheduleType: form.scheduleType,
+                cronExpression: form.scheduleType === "cron" ? form.cronExpression : "",
+                intervalMinutes: form.scheduleType === "interval" ? intervalMinutes : undefined,
                 timezone: form.timezone,
-                mode: form.mode,
                 autoApprove: form.autoApprove,
                 notification: {
                     type: form.notificationType,
@@ -154,41 +174,63 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
 
                     <div className="space-y-1.5">
                         <Label>Schedule</Label>
-                        <CronPicker
-                            value={form.cronExpression}
-                            timezone={form.timezone}
-                            onValueChange={v => set("cronExpression", v)}
-                            onTimezoneChange={v => set("timezone", v)}
-                        />
+                        <Select value={form.scheduleType} onValueChange={v => set("scheduleType", v)}>
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="cron">Cron schedule (specific times)</SelectItem>
+                                <SelectItem value="interval">Fixed interval (every N minutes/hours)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        {form.scheduleType === "cron" ? (
+                            <CronPicker
+                                value={form.cronExpression}
+                                timezone={form.timezone}
+                                onValueChange={v => set("cronExpression", v)}
+                                onTimezoneChange={v => set("timezone", v)}
+                            />
+                        ) : (
+                            <div className="space-y-1.5 pt-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-muted-foreground">Every</span>
+                                    <Input
+                                        type="number"
+                                        min={1}
+                                        className="w-24"
+                                        value={form.intervalValue}
+                                        onChange={e => set("intervalValue", Number(e.target.value))}
+                                    />
+                                    <Select value={form.intervalUnit} onValueChange={v => set("intervalUnit", v)}>
+                                        <SelectTrigger className="w-32">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="minutes">minutes</SelectItem>
+                                            <SelectItem value="hours">hours</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    The next run fires this long after the previous run finishes. Minimum {MIN_INTERVAL_MINUTES} minutes.
+                                </p>
+                            </div>
+                        )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                            <Label>Mode</Label>
-                            <Select value={form.mode} onValueChange={v => set("mode", v)}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="plan">Plan (with approval)</SelectItem>
-                                    <SelectItem value="fast">Fast (direct execution)</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-1.5">
-                            <Label>Notification</Label>
-                            <Select value={form.notificationType} onValueChange={v => set("notificationType", v)}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="none">None (web UI only)</SelectItem>
-                                    <SelectItem value="slack">Slack channel</SelectItem>
-                                    <SelectItem value="telegram">Telegram chat</SelectItem>
-                                    <SelectItem value="jira">Jira issue comment</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
+                    <div className="space-y-1.5">
+                        <Label>Notification</Label>
+                        <Select value={form.notificationType} onValueChange={v => set("notificationType", v)}>
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">None (web UI only)</SelectItem>
+                                <SelectItem value="slack">Slack channel</SelectItem>
+                                <SelectItem value="telegram">Telegram chat</SelectItem>
+                                <SelectItem value="jira">Jira issue comment</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
 
                     {form.notificationType === "slack" && (

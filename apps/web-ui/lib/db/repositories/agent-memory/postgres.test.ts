@@ -146,12 +146,12 @@ describe('AgentMemoryPostgresRepository', () => {
         ]);
     });
 
-    it('listByTenant defaults to updatedAt desc when no sort is requested', async () => {
+    it('listByTenant defaults to createdAt desc when no sort is requested', async () => {
         const repo = new AgentMemoryPostgresRepository();
         await repo.listByTenant({ tenantId: 't1' });
 
         const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
-        expect(arg.orderBy).toEqual({ updatedAt: 'desc' });
+        expect(arg.orderBy).toEqual({ createdAt: 'desc' });
     });
 
     it('listByTenant maps a sort field + direction to orderBy', async () => {
@@ -160,6 +160,14 @@ describe('AgentMemoryPostgresRepository', () => {
 
         const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
         expect(arg.orderBy).toEqual({ createdAt: 'asc' });
+    });
+
+    it('listByTenant maps updatedAt sort to the updatedAt column', async () => {
+        const repo = new AgentMemoryPostgresRepository();
+        await repo.listByTenant({ tenantId: 't1', sortBy: 'updatedAt', sortDir: 'desc' });
+
+        const arg = mockPrisma.agentMemory.findMany.mock.calls[0][0];
+        expect(arg.orderBy).toEqual({ updatedAt: 'desc' });
     });
 
     it('listByTenant sorts category by the derived namespace column', async () => {

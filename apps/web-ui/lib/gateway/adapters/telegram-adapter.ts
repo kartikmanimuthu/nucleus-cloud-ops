@@ -279,6 +279,11 @@ export class TelegramAdapter implements ChannelAdapter {
         }
     }
 
+    /**
+     * Scheduled-task digest → Telegram chat. THROWS on missing config or a
+     * failed Telegram API call so the scheduled notifier can record the
+     * failure on the run instead of silently dropping the digest.
+     */
     async sendScheduledNotification(
         task: ScheduledTask,
         run: AgentOpsRun,
@@ -286,8 +291,11 @@ export class TelegramAdapter implements ChannelAdapter {
     ): Promise<void> {
         const chatIdRaw = task.notification?.chatId;
         if (!chatIdRaw) {
-            console.warn('[TelegramAdapter] sendScheduledNotification: no chatId on task notification');
-            return;
+            throw new Error('No Telegram chatId configured on the task notification');
+        }
+        const config = await this.loadConfig(run.tenantId);
+        if (config && config.enabled === false) {
+            throw new Error('Telegram integration is deactivated — activate it under Channels → Telegram');
         }
         const chatId = Number(chatIdRaw);
         const dashboardUrl = buildDashboardRunUrl(run.runId);
@@ -339,7 +347,7 @@ export class TelegramAdapter implements ChannelAdapter {
             text = buildLines(`${rawDetail.slice(0, 1000)}…`).join('\n');
         }
 
-        await this.sendMessage(run, chatId, text);
+        await this.sendMessage(run, chatId, text, undefined, { strict: true });
     }
 
     // ─── Config ───────────────────────────────────────────────────────
@@ -454,16 +462,22 @@ export class TelegramAdapter implements ChannelAdapter {
         };
     }
 
+    /**
+     * Best-effort by default (interactive replies must never crash a run);
+     * pass { strict: true } to surface failures to the caller (scheduled digests).
+     */
     private async sendMessage(
         run: AgentOpsRun,
         chatId: number,
         text: string,
         replyMarkup?: Record<string, unknown>,
+        opts?: { strict?: boolean },
     ): Promise<void> {
         const config = await this.loadConfig(run.tenantId);
         const botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || '';
 
         if (!botToken) {
+            if (opts?.strict) throw new Error('No Telegram Bot Token configured — set it under Channels → Telegram');
             console.warn('[TelegramAdapter] Bot token not configured');
             return;
         }
@@ -486,9 +500,13 @@ export class TelegramAdapter implements ChannelAdapter {
 
             if (!res.ok) {
                 const responseText = await res.text();
+                if (opts?.strict) {
+                    throw new Error(`Telegram sendMessage failed (${res.status}): ${responseText.slice(0, 300)}`);
+                }
                 console.warn(`[TelegramAdapter] sendMessage failed (${res.status}):`, responseText);
             }
         } catch (err) {
+            if (opts?.strict) throw err;
             console.error('[TelegramAdapter] sendMessage error:', err);
         }
     }

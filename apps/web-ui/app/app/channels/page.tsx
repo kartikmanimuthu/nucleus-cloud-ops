@@ -1,8 +1,10 @@
 'use client';
 
 import { useChannelStatus } from '@/lib/queries/channels';
+import { useToggleChannelEnabled } from '@/lib/queries/channel-settings';
 import Link from 'next/link';
-import { Cable, CheckCircle2, Loader2, Settings2, Webhook } from 'lucide-react';
+import { Cable, CheckCircle2, Loader2, PauseCircle, Power, PowerOff, Settings2, Webhook } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -48,12 +50,43 @@ function TelegramIcon({ className }: { className?: string }) {
 }
 
 
+function channelBadge(status: { configured: boolean; enabled: boolean } | null) {
+    if (!status) return null;
+    if (!status.configured) {
+        return <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>;
+    }
+    if (!status.enabled) {
+        return (
+            <Badge variant="outline" className="gap-1 text-xs text-amber-600 dark:text-amber-500 border-amber-500/40">
+                <PauseCircle className="h-3 w-3" />
+                Deactivated
+            </Badge>
+        );
+    }
+    return (
+        <Badge variant="secondary" className="gap-1 text-xs">
+            <CheckCircle2 className="h-3 w-3 text-green-500" />
+            Active
+        </Badge>
+    );
+}
+
 export default function ChannelsPage() {
     const channelQuery = useChannelStatus();
     const status = channelQuery.data ?? {
         slack: null, jira: null, discord: null, telegram: null, webhook: null, mcp: null, providers: null,
     };
     const loading = channelQuery.isLoading;
+    const toggleMutation = useToggleChannelEnabled();
+
+    const handleToggle = async (channel: { id: string; name: string }, enabled: boolean) => {
+        try {
+            await toggleMutation.mutateAsync({ channel: channel.id, enabled });
+            toast.success(`${channel.name} integration ${enabled ? 'activated' : 'deactivated'}`);
+        } catch (error: any) {
+            toast.error(error.message || `Failed to ${enabled ? 'activate' : 'deactivate'} ${channel.name}`);
+        }
+    };
 
     const channels = [
         {
@@ -62,11 +95,7 @@ export default function ChannelsPage() {
             description: 'Receive Agent Ops commands via Slack slash commands and get results posted back to your channels.',
             href: '/app/channels/slack-settings',
             icon: <SlackIcon className="h-8 w-8 text-[#4A154B] dark:text-[#E8B4E8]" />,
-            statusBadge: status.slack
-                ? status.slack.configured
-                    ? <Badge variant="secondary" className="gap-1 text-xs"><CheckCircle2 className="h-3 w-3 text-green-500" />Configured</Badge>
-                    : <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>
-                : null,
+            status: status.slack,
         },
         {
             id: 'jira',
@@ -74,11 +103,7 @@ export default function ChannelsPage() {
             description: 'Trigger agent runs from Jira Automation rules and receive results as issue comments.',
             href: '/app/channels/jira-settings',
             icon: <JiraIcon className="h-8 w-8" />,
-            statusBadge: status.jira
-                ? status.jira.configured
-                    ? <Badge variant="secondary" className="gap-1 text-xs"><CheckCircle2 className="h-3 w-3 text-green-500" />Configured</Badge>
-                    : <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>
-                : null,
+            status: status.jira,
         },
         {
             id: 'discord',
@@ -86,11 +111,7 @@ export default function ChannelsPage() {
             description: 'Run agent commands via Discord slash commands with rich embeds and real-time streaming updates.',
             href: '/app/channels/discord-settings',
             icon: <DiscordIcon className="h-8 w-8 text-[#5865F2]" />,
-            statusBadge: status.discord
-                ? status.discord.configured
-                    ? <Badge variant="secondary" className="gap-1 text-xs"><CheckCircle2 className="h-3 w-3 text-green-500" />Configured</Badge>
-                    : <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>
-                : null,
+            status: status.discord,
         },
         {
             id: 'telegram',
@@ -98,11 +119,7 @@ export default function ChannelsPage() {
             description: 'Trigger agent runs from Telegram bot commands with inline keyboard approvals and streaming.',
             href: '/app/channels/telegram-settings',
             icon: <TelegramIcon className="h-8 w-8 text-[#26A5E4]" />,
-            statusBadge: status.telegram
-                ? status.telegram.configured
-                    ? <Badge variant="secondary" className="gap-1 text-xs"><CheckCircle2 className="h-3 w-3 text-green-500" />Configured</Badge>
-                    : <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>
-                : null,
+            status: status.telegram,
         },
         {
             id: 'webhook',
@@ -110,11 +127,7 @@ export default function ChannelsPage() {
             description: 'Generic HTTP webhook for any external system. Send tasks via POST and receive results at your callback URL.',
             href: '/app/channels/webhook-settings',
             icon: <Webhook className="h-8 w-8 text-orange-500" />,
-            statusBadge: status.webhook
-                ? status.webhook.configured
-                    ? <Badge variant="secondary" className="gap-1 text-xs"><CheckCircle2 className="h-3 w-3 text-green-500" />Configured</Badge>
-                    : <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>
-                : null,
+            status: status.webhook,
         },
     ];
 
@@ -135,30 +148,59 @@ export default function ChannelsPage() {
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {channels.map(channel => (
-                            <Card key={channel.id} className="flex flex-col hover:border-primary/50 transition-colors">
-                                <CardHeader className="pb-3">
-                                    <div className="flex items-start justify-between">
-                                        <div className="p-2 rounded-lg bg-muted/50">
-                                            {channel.icon}
+                        {channels.map(channel => {
+                            const configured = channel.status?.configured ?? false;
+                            const enabled = channel.status?.enabled ?? false;
+                            const toggling =
+                                toggleMutation.isPending && toggleMutation.variables?.channel === channel.id;
+                            return (
+                                <Card key={channel.id} className="flex flex-col hover:border-primary/50 transition-colors">
+                                    <CardHeader className="pb-3">
+                                        <div className="flex items-start justify-between">
+                                            <div className="p-2 rounded-lg bg-muted/50">
+                                                {channel.icon}
+                                            </div>
+                                            {channelBadge(channel.status)}
                                         </div>
-                                        {channel.statusBadge}
-                                    </div>
-                                    <CardTitle className="text-base mt-3">{channel.name}</CardTitle>
-                                    <CardDescription className="text-sm leading-relaxed">
-                                        {channel.description}
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent className="mt-auto pt-0">
-                                    <Link href={channel.href}>
-                                        <Button variant="outline" size="sm" className="w-full gap-2">
-                                            <Settings2 className="h-3.5 w-3.5" />
-                                            Configure
-                                        </Button>
-                                    </Link>
-                                </CardContent>
-                            </Card>
-                        ))}
+                                        <CardTitle className="text-base mt-3">{channel.name}</CardTitle>
+                                        <CardDescription className="text-sm leading-relaxed">
+                                            {channel.description}
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="mt-auto pt-0">
+                                        <div className="flex items-center gap-2">
+                                            <Link href={channel.href} className="flex-1">
+                                                <Button variant="outline" size="sm" className="w-full gap-2">
+                                                    <Settings2 className="h-3.5 w-3.5" />
+                                                    {configured ? 'Reconfigure' : 'Configure'}
+                                                </Button>
+                                            </Link>
+                                            {configured && (
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className={`gap-2 ${enabled ? 'text-amber-600 dark:text-amber-500' : 'text-green-600 dark:text-green-500'}`}
+                                                    disabled={toggling}
+                                                    onClick={() => handleToggle(channel, !enabled)}
+                                                    title={enabled
+                                                        ? 'Deactivate — incoming requests and outgoing notifications stop; credentials are kept'
+                                                        : 'Activate — resume the integration with the stored credentials'}
+                                                >
+                                                    {toggling ? (
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : enabled ? (
+                                                        <PowerOff className="h-3.5 w-3.5" />
+                                                    ) : (
+                                                        <Power className="h-3.5 w-3.5" />
+                                                    )}
+                                                    {enabled ? 'Deactivate' : 'Activate'}
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })}
                     </div>
                 )}
             </div>

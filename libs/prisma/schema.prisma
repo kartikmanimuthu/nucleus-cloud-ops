@@ -454,10 +454,12 @@ model ScheduledTask {
   taskId         String
   name           String
   description    String
-  cronExpression String
+  scheduleType   String    @default("cron") // cron|interval
+  cronExpression String // empty string when scheduleType=interval
+  intervalMinutes Int? // set when scheduleType=interval
   timezone       String
   taskStatus     String    @default("active") // active|paused|deleted — CHECK in migration SQL
-  mode           String    @default("plan") // plan|fast
+  mode           String    @default("plan") // always "plan" — fast mode retired for Agent Ops; legacy rows may still hold "fast"
   autoApprove    Boolean   @default(false)
   model          String?
   accountId      String?

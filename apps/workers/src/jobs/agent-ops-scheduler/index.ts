@@ -9,8 +9,11 @@ import { env } from '../../env.js';
 export interface ActiveTaskRow {
     taskId: string;
     tenantId: string;
-    cronExpression: string;
+    scheduleType: string;          // 'cron' | 'interval'
+    cronExpression: string;        // empty string for interval tasks
+    intervalMinutes: number | null; // set for interval tasks
     timezone: string;
+    nextRunAt: Date | null;        // fire anchor for interval tasks
 }
 
 const log = createLogger('agent-ops-scheduler');
@@ -100,18 +103,41 @@ async function loadActiveTasks(): Promise<ActiveTaskRow[]> {
     const prisma = await getPrisma();
     return prisma.scheduledTask.findMany({
         where: { taskStatus: 'active' },
-        select: { taskId: true, tenantId: true, cronExpression: true, timezone: true },
+        select: {
+            taskId: true,
+            tenantId: true,
+            scheduleType: true,
+            cronExpression: true,
+            intervalMinutes: true,
+            timezone: true,
+            nextRunAt: true,
+        },
     });
 }
 
 /**
- * Pure selection of which active tasks are due at `nowMs`. A task is due if its
- * most recent scheduled occurrence (per its cron + timezone) falls within
- * `windowMs` before now. A malformed cron expression is skipped (never throws).
+ * Pure selection of which active tasks are due at `nowMs`.
+ *
+ * Cron tasks: due if the most recent scheduled occurrence (per cron + timezone)
+ * falls within `windowMs` before now. A malformed cron is skipped (never throws).
+ *
+ * Interval tasks: due when their `nextRunAt` anchor has passed. The sweep
+ * advances the anchor by `intervalMinutes` immediately after enqueueing (see
+ * advanceIntervalAnchor) so subsequent sweeps don't re-fire while the run is
+ * still executing; run finalization re-anchors it again to run-end + interval.
+ * A null anchor (legacy row / just switched to interval) fires once and is then
+ * advanced normally.
  */
 export function selectDueTasks(tasks: ActiveTaskRow[], nowMs: number, windowMs: number): ActiveTaskRow[] {
     const ref = new Date(nowMs);
     return tasks.filter((t) => {
+        if (t.scheduleType === 'interval') {
+            if (!t.intervalMinutes || t.intervalMinutes <= 0) {
+                log.warn('Interval task without intervalMinutes — skipping', { taskId: t.taskId });
+                return false;
+            }
+            return t.nextRunAt === null || t.nextRunAt.getTime() <= nowMs;
+        }
         try {
             const cron = new Cron(t.cronExpression, { timezone: t.timezone });
             const prev = cron.previousRuns(1, ref)[0];
@@ -124,6 +150,21 @@ export function selectDueTasks(tasks: ActiveTaskRow[], nowMs: number, windowMs: 
             });
             return false;
         }
+    });
+}
+
+/**
+ * Push an interval task's nextRunAt forward so the next sweep doesn't re-fire
+ * it while its run is still executing. Concurrent sweeps racing here are
+ * harmless: the enqueue is de-duped by singletonKey, and both racers write
+ * approximately the same anchor.
+ */
+async function advanceIntervalAnchor(task: ActiveTaskRow, nowMs: number): Promise<void> {
+    if (task.scheduleType !== 'interval' || !task.intervalMinutes) return;
+    const prisma = await getPrisma();
+    await prisma.scheduledTask.updateMany({
+        where: { tenantId: task.tenantId, taskId: task.taskId },
+        data: { nextRunAt: new Date(nowMs + task.intervalMinutes * 60_000) },
     });
 }
 
@@ -212,8 +253,9 @@ export async function sweep(boss: PgBoss): Promise<void> {
     }
     sweepInFlight = true;
     try {
+        const nowMs = Date.now();
         const active = await loadActiveTasks();
-        const due = selectDueTasks(active, Date.now(), DUE_WINDOW_MS);
+        const due = selectDueTasks(active, nowMs, DUE_WINDOW_MS);
         for (const task of due) {
             try {
                 await boss.send(
@@ -229,6 +271,9 @@ export async function sweep(boss: PgBoss): Promise<void> {
                         expireInSeconds: 300,
                     },
                 );
+                // Interval tasks stay "due" until their anchor moves — advance it
+                // now so the next sweep (30s away) doesn't enqueue again.
+                await advanceIntervalAnchor(task, nowMs);
             } catch (err) {
                 log.error(`Failed to enqueue tick for task ${task.taskId}`, { error: String(err) });
             }

@@ -171,7 +171,11 @@ export default function ScheduledTaskDetailPage() {
                         </div>
                         <div>
                             <dt className="text-muted-foreground text-xs">Schedule</dt>
-                            <dd className="mt-0.5 font-mono text-xs">{task.cronExpression}</dd>
+                            <dd className="mt-0.5 font-mono text-xs">
+                                {task.scheduleType === "interval"
+                                    ? `every ${task.intervalMinutes ?? "?"} min`
+                                    : task.cronExpression}
+                            </dd>
                         </div>
                         <div>
                             <dt className="text-muted-foreground text-xs">Timezone</dt>

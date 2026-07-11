@@ -559,6 +559,7 @@ export interface GraphConfig {
     tenantId?: string;
     userId?: string;  // For long-term memory store scoping
     knowledgeBaseIds?: string[] | null;
+    maxIterations?: number;  // Agent Ops per-tenant graph iteration limit (executor loop + recursionLimit)
 }
 
 // --- MCP Integration ---

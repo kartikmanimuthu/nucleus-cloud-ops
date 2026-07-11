@@ -88,6 +88,12 @@ export default function ScheduledTasksPage() {
         ? formatDateTime(iso, 'shortDateTime', timezone)
         : "—"
 
+    const formatSchedule = (t: ScheduledTask) => t.scheduleType === "interval"
+        ? (t.intervalMinutes && t.intervalMinutes % 60 === 0
+            ? `every ${t.intervalMinutes / 60}h`
+            : `every ${t.intervalMinutes ?? "?"}m`)
+        : t.cronExpression
+
     const stats = {
         active: tasks.filter(t => t.taskStatus === "active").length,
         paused: tasks.filter(t => t.taskStatus === "paused").length,
@@ -176,7 +182,7 @@ export default function ScheduledTasksPage() {
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium text-sm truncate">{task.name}</p>
                                                 <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
-                                                    <span className="font-mono">{task.cronExpression}</span>
+                                                    <span className="font-mono">{formatSchedule(task)}</span>
                                                     <span>•</span>
                                                     <span>{task.timezone}</span>
                                                     <span>•</span>

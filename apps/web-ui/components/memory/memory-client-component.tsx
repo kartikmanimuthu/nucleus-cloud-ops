@@ -41,9 +41,19 @@ function confidenceVariant(c: string | null): "default" | "secondary" | "outline
     return "outline";
 }
 
+function formatDateTime(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
 export function MemoryClientComponent() {
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
-    const [sorting, setSorting] = useState<SortingState>([]);
+    const [sorting, setSorting] = useState<SortingState>([{ id: 'createdAt', desc: true }]);
     const [searchInput, setSearchInput] = useState("");
     const search = useDebounce(searchInput, 300);
     const [categories, setCategories] = useState<MemoryCategory[]>([]);
@@ -147,7 +157,16 @@ export function MemoryClientComponent() {
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap text-sm text-muted-foreground">
-                        {new Date(row.original.createdAt).toLocaleDateString()}
+                        {formatDateTime(row.original.createdAt)}
+                    </span>
+                ),
+            },
+            {
+                accessorKey: "updatedAt",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Updated" />,
+                cell: ({ row }) => (
+                    <span className="whitespace-nowrap text-sm text-muted-foreground">
+                        {formatDateTime(row.original.updatedAt)}
                     </span>
                 ),
             },
@@ -156,7 +175,7 @@ export function MemoryClientComponent() {
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Expires" />,
                 cell: ({ row }) => (
                     <span className="whitespace-nowrap text-sm text-muted-foreground">
-                        {new Date(row.original.expiresAt).toLocaleDateString()}
+                        {formatDateTime(row.original.expiresAt)}
                     </span>
                 ),
             },

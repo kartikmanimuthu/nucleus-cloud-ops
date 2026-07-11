@@ -5,13 +5,15 @@
  * Implemented by ScheduledTaskDynamoRepository and ScheduledTaskPostgresRepository.
  * The feature flag USE_PG_AGENT_OPS controls which implementation is active.
  */
-import type { ScheduledTask, AgentOpsStatus, AgentMode } from '@/lib/agent-ops/types';
+import type { ScheduledTask, AgentOpsStatus, AgentMode, ScheduleType } from '@/lib/agent-ops/types';
 
 export interface CreateScheduledTaskParams {
     tenantId: string;
     name: string;
     description: string;
-    cronExpression: string;
+    scheduleType?: ScheduleType;   // default 'cron'
+    cronExpression: string;        // empty string for interval tasks
+    intervalMinutes?: number;      // required when scheduleType === 'interval'
     timezone: string;
     mode: AgentMode;
     autoApprove: boolean;
@@ -27,7 +29,9 @@ export interface CreateScheduledTaskParams {
 export interface UpdateScheduledTaskParams {
     name?: string;
     description?: string;
+    scheduleType?: ScheduleType;
     cronExpression?: string;
+    intervalMinutes?: number | null;
     timezone?: string;
     mode?: AgentMode;
     autoApprove?: boolean;

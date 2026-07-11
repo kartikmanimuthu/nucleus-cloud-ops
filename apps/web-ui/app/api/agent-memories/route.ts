@@ -6,7 +6,7 @@ import type { MemoryCategory } from '@/lib/agent-memory/category';
 import type { AgentMemorySortField, SortDirection } from '@/lib/db/repositories/agent-memory/interface';
 
 const VALID_CATEGORIES = new Set<MemoryCategory>(['infra', 'user', 'patterns', 'errors', 'other']);
-const VALID_SORT_FIELDS = new Set<AgentMemorySortField>(['category', 'key', 'createdAt', 'expiresAt']);
+const VALID_SORT_FIELDS = new Set<AgentMemorySortField>(['category', 'key', 'createdAt', 'updatedAt', 'expiresAt']);
 
 export async function GET(request: NextRequest) {
     try {
