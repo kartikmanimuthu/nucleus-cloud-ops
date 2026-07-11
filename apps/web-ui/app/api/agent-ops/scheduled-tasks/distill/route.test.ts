@@ -62,6 +62,12 @@ describe('POST /api/agent-ops/scheduled-tasks/distill', () => {
         expect((res as any)._data.success).toBe(false);
     });
 
+    it('400s when the JSON body is null', async () => {
+        const res = await POST({ json: vi.fn().mockResolvedValue(null) } as any);
+        expect((res as any)._status).toBe(400);
+        expect((res as any)._data.success).toBe(false);
+    });
+
     it('413s when transcript exceeds the size guard, without calling the model', async () => {
         const invoke = vi.fn();
         vi.mocked(createAgentModels).mockReturnValue({ main: { invoke }, reflector: {} } as any);

@@ -37,6 +37,11 @@ CRITICAL — this is the OPPOSITE of writing a reusable template:
 - KEEP every concrete target from the transcript verbatim: real account IDs,
   regions, resource names/ARNs, numeric thresholds, channel names, ticket
   projects. Do NOT replace them with placeholders — this is one specific job.
+- Distinguish STABLE identifiers (account IDs, ARNs, resource names, channels,
+  thresholds — keep verbatim) from TIME-BOUND references. Never hard-code an
+  absolute date, month, or phrase like "since our chat" from the transcript.
+  Rewrite any time window as relative to run time (e.g. "in the trailing 24
+  hours", "the current calendar month", "since the previous run").
 - The prompt must be fully standalone: assume fresh context on every run. Never
   refer to "the previous chat", "as we discussed", or the user. Never ask a
   clarifying question — decide and act.
@@ -49,7 +54,12 @@ Return ONLY a JSON object (no markdown fences) with keys:
      in the transcript (grounded in the actual TOOL_CALL blocks), with the
      concrete targets retained.
   3. End with the deliverable: what to check/compute and exactly what to include
-     in the run summary each time.
+     in the run summary each time. State the pass/no-op case explicitly (e.g.
+     "Report: no anomalies over $50 found this run") so every run produces an
+     unambiguous summary.
+  If the conversation is a one-off answer with no genuinely repeatable
+  objective, still produce the best-effort recurring framing of the
+  underlying check rather than inventing unrelated work.
 - "suggestedCron": a 5-field cron expression inferred from the chat's intent
   (e.g. a daily audit -> "0 9 * * *"). If the chat gives no cadence signal, use
   "${DEFAULT_CRON}".
@@ -64,6 +74,12 @@ export async function POST(request: NextRequest) {
     try {
         const tenantId = await getSessionTenantId();
         const body = await request.json();
+        if (!body || typeof body !== 'object') {
+            return NextResponse.json(
+                { success: false, error: 'Missing transcript' },
+                { status: 400 }
+            );
+        }
         const { transcript } = body;
         if (!transcript || typeof transcript !== 'string') {
             return NextResponse.json(

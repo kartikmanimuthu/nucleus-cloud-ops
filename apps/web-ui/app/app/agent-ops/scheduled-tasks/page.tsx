@@ -69,8 +69,11 @@ export default function ScheduledTasksPage() {
             }
         } catch { /* ignore malformed draft */ }
         sessionStorage.removeItem(SCHEDULED_TASK_PREFILL_KEY)
-        // strip the query param so a refresh doesn't re-open the dialog
-        router.replace("/app/agent-ops/scheduled-tasks")
+        // strip only the prefill query param so a refresh doesn't re-open the
+        // dialog, while preserving any other params (e.g. tenantId)
+        const params = new URLSearchParams(searchParams.toString())
+        params.delete("prefill")
+        router.replace(`/app/agent-ops/scheduled-tasks${params.size ? `?${params}` : ""}`)
     }, [searchParams, router])
 
     const { sortBy, sortDir } = parseSort(sortValue)

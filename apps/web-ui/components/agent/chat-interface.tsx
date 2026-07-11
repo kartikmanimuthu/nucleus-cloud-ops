@@ -2215,7 +2215,9 @@ export function ChatInterface({
                 aria-label="Convert to scheduled task"
                 disabled={messages.length === 0 || distillScheduledTask.isPending}
               >
-                <CalendarPlus className="w-3.5 h-3.5" />
+                {distillScheduledTask.isPending
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <CalendarPlus className="w-3.5 h-3.5" />}
               </Button>
 
               {/* Clear conversation */}
