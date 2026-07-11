@@ -18,8 +18,8 @@ describe('autoSelectKb', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockResolvedValue([
-            { id: 'kb-runbooks', name: 'Runbooks', description: 'ops runbooks', vectorCount: 5 },
-            { id: 'kb-hr', name: 'HR', description: 'people policies', vectorCount: 3 },
+            { id: 'kb-runbooks', name: 'Runbooks', description: 'ops runbooks', vectorCount: 5, status: 'active' },
+            { id: 'kb-hr', name: 'HR', description: 'people policies', vectorCount: 3, status: 'active' },
         ] as any);
     });
 
@@ -49,12 +49,21 @@ describe('autoSelectKb', () => {
 
     it('excludes empty KBs (vectorCount 0) from the catalog even if the reflector picks them', async () => {
         vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockResolvedValue([
-            { id: 'kb-runbooks', name: 'Runbooks', description: 'ops runbooks', vectorCount: 5 },
-            { id: 'kb-empty', name: 'Empty', description: 'no synced docs yet', vectorCount: 0 },
+            { id: 'kb-runbooks', name: 'Runbooks', description: 'ops runbooks', vectorCount: 5, status: 'active' },
+            { id: 'kb-empty', name: 'Empty', description: 'no synced docs yet', vectorCount: 0, status: 'active' },
         ] as any);
         mockReflector('{"kbIds":["kb-runbooks","kb-empty"],"reasoning":"x"}');
         const r = await autoSelectKb({ tenantId: 't1', message: 'q', model });
         expect(r.kbIds).toEqual(['kb-runbooks']);
+    });
+
+    it('never selects an inactive KB even if the model names it', async () => {
+        vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockResolvedValue([
+            { id: 'kb-runbooks', name: 'Runbooks', description: 'ops runbooks', vectorCount: 5, status: 'inactive' },
+        ] as any);
+        mockReflector('{"kbIds":["kb-runbooks"],"reasoning":"ops"}');
+        const r = await autoSelectKb({ tenantId: 't1', message: 'restart pipeline', model });
+        expect(r.kbIds).toEqual([]);
     });
 });
 
@@ -62,7 +71,7 @@ describe('resolveKnowledgeBaseIds', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockResolvedValue([
-            { id: 'kb-runbooks', name: 'R', description: 'ops', vectorCount: 5 },
+            { id: 'kb-runbooks', name: 'R', description: 'ops', vectorCount: 5, status: 'active' },
         ] as any);
     });
 
