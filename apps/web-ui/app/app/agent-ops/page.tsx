@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
+import {
   Zap,
   Bot,
   MessageSquare,
@@ -34,9 +41,9 @@ import {
   StopCircle,
   ShieldCheck,
   CalendarClock,
+  Settings2,
 } from "lucide-react";
 import type {
-  AgentOpsRun,
   TriggerSource,
   AgentOpsStatus,
 } from "@/lib/agent-ops/types";
@@ -44,6 +51,7 @@ import { NewRunDialog } from "@/components/agent-ops/new-run-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { formatDateTime } from "@/lib/date-utils";
 import { useTenant } from '@/lib/tenant-context';
+import { useAgentOpsRuns, useCancelRun } from "@/lib/queries/agent-ops";
 
 const SOURCE_ICONS: Record<TriggerSource, typeof Zap> = {
   slack: MessageSquare,
@@ -74,50 +82,13 @@ export default function AgentOpsPage() {
   const searchParams = useSearchParams();
   const tenantId = searchParams.get("tenantId") || "default";
   const { timezone } = useTenant();
-  const [runs, setRuns] = useState<AgentOpsRun[]>([]);
-  const [loading, setLoading] = useState(true);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [cancellingIds, setCancellingIds] = useState<Set<string>>(new Set());
 
-  const handleCancel = useCallback(async (e: React.MouseEvent, run: AgentOpsRun) => {
-    e.stopPropagation();
-    setCancellingIds(prev => new Set(prev).add(run.runId));
-    try {
-      await fetch(`/api/agent-ops/${run.runId}/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId: run.tenantId }),
-      });
-      await fetchRuns();
-    } finally {
-      setCancellingIds(prev => { const s = new Set(prev); s.delete(run.runId); return s; });
-    }
-  }, []);
-
-  const fetchRuns = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ tenantId, limit: "50" });
-      if (sourceFilter !== "all") params.set("source", sourceFilter);
-      if (statusFilter !== "all") params.set("status", statusFilter);
-
-      const res = await fetch(`/api/agent-ops?${params}`);
-      const data = await res.json();
-      setRuns(data.runs || []);
-    } catch (error) {
-      console.error("Failed to fetch runs:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [sourceFilter, statusFilter, tenantId]);
-
-  useEffect(() => {
-    fetchRuns();
-    // Auto-refresh every 10 seconds
-    const interval = setInterval(fetchRuns, 10000);
-    return () => clearInterval(interval);
-  }, [fetchRuns]);
+  const runsQuery = useAgentOpsRuns({ source: sourceFilter, status: statusFilter });
+  const runs = runsQuery.data ?? [];
+  const loading = runsQuery.isLoading;
+  const cancelRun = useCancelRun();
 
   const formatDuration = (ms?: number) => {
     if (!ms) return "—";
@@ -145,49 +116,33 @@ export default function AgentOpsPage() {
         description="Background agent executions triggered by Slack, Jira, API, or schedule"
         actions={
           <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={fetchRuns}
-              disabled={loading}
-            >
-              <RefreshCw
-                className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
-              />
+            <Button variant="outline" size="sm" onClick={() => runsQuery.refetch()} disabled={runsQuery.isFetching}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${runsQuery.isFetching ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push("/app/agent-ops/scheduled-tasks")}
-            >
+            <Button variant="outline" size="sm" onClick={() => router.push("/app/agent-ops/scheduled-tasks")}>
               <CalendarClock className="h-4 w-4 mr-2" />
               Scheduled Tasks
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push("/app/agent-ops/slack-settings")}
-            >
-              <MessageSquare className="h-4 w-4 mr-2" />
-              Slack Settings
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push("/app/agent-ops/jira-settings")}
-            >
-              <AlertCircle className="h-4 w-4 mr-2" />
-              Jira Settings
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push("/app/agent-ops/mcp-settings")}
-            >
-              <Plug className="h-4 w-4 mr-2" />
-              MCP Servers
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Settings2 className="h-4 w-4 mr-2" />
+                  Settings
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => router.push("/app/agent-ops/slack-settings")}>
+                  <MessageSquare className="h-4 w-4 mr-2" /> Slack
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => router.push("/app/agent-ops/jira-settings")}>
+                  <AlertCircle className="h-4 w-4 mr-2" /> Jira
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => router.push("/app/agent-ops/mcp-settings")}>
+                  <Plug className="h-4 w-4 mr-2" /> MCP Servers
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <NewRunDialog tenantId={tenantId} />
           </>
         }
@@ -267,7 +222,7 @@ export default function AgentOpsPage() {
         <CardContent>
           {loading && runs.length === 0 ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              <Spinner size="sm" className="mr-2" />
               Loading runs...
             </div>
           ) : runs.length === 0 ? (
@@ -288,41 +243,38 @@ export default function AgentOpsPage() {
                 return (
                   <div
                     key={run.runId}
-                    className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/50 cursor-pointer transition-colors"
-                    onClick={() =>
-                      router.push(
-                        `/app/agent-ops/${run.runId}?tenantId=${run.tenantId}`,
-                      )
-                    }
+                    className={`relative flex items-center justify-between overflow-hidden rounded-lg border p-3 pl-4 hover:bg-accent/50 cursor-pointer transition-colors`}
+                    onClick={() => router.push(`/app/agent-ops/${run.runId}?tenantId=${run.tenantId}`)}
                   >
+                    <span
+                      className={`absolute inset-y-0 left-0 w-1 ${
+                        run.status === "completed" ? "bg-green-500/70"
+                        : run.status === "failed" ? "bg-red-500/70"
+                        : run.status === "in_progress" ? "bg-primary animate-pulse"
+                        : run.status === "awaiting_approval" || run.status === "awaiting_input" ? "bg-amber-400/80"
+                        : "bg-muted-foreground/30"
+                      }`}
+                    />
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center">
                         <SourceIcon className="h-4 w-4" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">
-                          {run.taskDescription}
-                        </p>
+                        <p className="font-medium text-sm line-clamp-2">{run.taskDescription}</p>
                         <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
                           <span className="capitalize">{run.source}</span>
                           <span>•</span>
                           <span>{run.mode} mode</span>
+                          {run.selectedSkill && (<><span>•</span><span>skill: {run.selectedSkill}</span></>)}
                           <span>•</span>
                           <span>{formatTime(run.createdAt)}</span>
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-xs text-muted-foreground">
-                        {formatDuration(run.durationMs)}
-                      </span>
-                      <Badge
-                        variant={statusConfig.variant}
-                        className="flex items-center gap-1"
-                      >
-                        <StatusIcon
-                          className={`h-3 w-3 ${run.status === "in_progress" ? "animate-spin" : ""}`}
-                        />
+                      <span className="text-xs text-muted-foreground">{formatDuration(run.durationMs)}</span>
+                      <Badge variant={statusConfig.variant} className="flex items-center gap-1">
+                        <StatusIcon className={`h-3 w-3 ${run.status === "in_progress" ? "animate-spin" : ""}`} />
                         {statusConfig.label}
                       </Badge>
                       {(run.status === "in_progress" || run.status === "queued") && (
@@ -330,14 +282,14 @@ export default function AgentOpsPage() {
                           variant="ghost"
                           size="sm"
                           className="h-7 px-2 text-destructive hover:text-destructive"
-                          onClick={(e) => handleCancel(e, run)}
-                          disabled={cancellingIds.has(run.runId)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            cancelRun.mutate({ runId: run.runId, body: { tenantId: run.tenantId } });
+                          }}
+                          disabled={cancelRun.isPending}
                           title="Cancel run"
                         >
-                          {cancellingIds.has(run.runId)
-                            ? <Loader2 className="h-3 w-3 animate-spin" />
-                            : <StopCircle className="h-3 w-3" />
-                          }
+                          {cancelRun.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <StopCircle className="h-3 w-3" />}
                         </Button>
                       )}
                     </div>
