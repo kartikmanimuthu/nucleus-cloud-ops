@@ -4,10 +4,9 @@
 // Clones the discovery fan-out structure: daily fan-out → one stately scan job per tenant
 // (singleton per tenant). Each scan: read inventory → AssumeRole per account → collect +
 // summarize CloudWatch metrics → run the rule engine → upsert recommendations → run record
-// + audit. Gated by RIGHT_SIZING_ENABLED.
+// + audit.
 import type PgBoss from 'pg-boss';
 import { createLogger } from '../../lib/logger.js';
-import { env } from '../../env.js';
 import type { JobExecutor } from '../../executor/index.js';
 import { getAllTenants, getTenantAccounts } from '../discovery/services/account-service.js';
 import { assumeRole } from '../discovery/services/sts-service.js';
@@ -33,10 +32,6 @@ const log = createLogger('right-sizing');
 const FAN_OUT = 'right-sizing-fan-out';
 const SCAN = 'right-sizing-scan';
 
-export function isRightSizingEnabled(): boolean {
-    return env.RIGHT_SIZING_ENABLED === 'true';
-}
-
 export interface RightSizingScanJob {
     tenantId: string;
     trigger: 'schedule' | 'manual';
@@ -56,10 +51,6 @@ function groupBy<T>(items: T[], key: (t: T) => string): Map<string, T[]> {
 /** Run the full analysis for one tenant. */
 export async function handleScan(jobData: unknown): Promise<void> {
     const { tenantId, trigger, runId: providedRunId } = jobData as RightSizingScanJob;
-    if (!isRightSizingEnabled()) {
-        log.info('RIGHT_SIZING_ENABLED not true — skipping scan', { tenantId });
-        return;
-    }
     const lookbackDays = RIGHT_SIZING_CONFIG.lookbackDays;
     // Reuse the run the API pre-created (if any), else create one (scheduled path).
     const runId = providedRunId ?? (await createRun(tenantId, trigger, lookbackDays));
@@ -163,10 +154,6 @@ export async function register(boss: PgBoss, executor: JobExecutor): Promise<voi
     await boss.schedule(FAN_OUT, '13 1 * * *', {}, { tz: 'UTC' });
 
     await boss.work(FAN_OUT, { batchSize: 1 }, async () => {
-        if (!isRightSizingEnabled()) {
-            log.info('RIGHT_SIZING_ENABLED not true — fan-out is a no-op');
-            return;
-        }
         const tenants = await getAllTenants();
         let dispatched = 0;
         for (const tenant of tenants) {

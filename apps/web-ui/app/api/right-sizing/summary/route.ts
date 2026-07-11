@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId } from '@/lib/auth-session';
-import { isRightSizingEnabled } from '@/lib/right-sizing/feature-flag';
 import { RightSizingService } from '@/lib/right-sizing-service';
 
 // GET /api/right-sizing/summary — aggregates for KPI cards
@@ -9,20 +8,6 @@ export async function GET() {
     const authError = await authorize('read', 'RightSizing');
     if (authError) return authError;
     try {
-        if (!isRightSizingEnabled()) {
-            return NextResponse.json({
-                success: true,
-                data: {
-                    totalPotentialMonthlySavings: 0,
-                    byFinding: {},
-                    byStatus: {},
-                    savingsByResourceType: {},
-                    savingsByAccount: {},
-                    accountIds: [],
-                    lastRunAt: null,
-                },
-            });
-        }
         const summary = await RightSizingService.getSummary(await getSessionTenantId());
         return NextResponse.json({ success: true, data: summary });
     } catch (error: unknown) {

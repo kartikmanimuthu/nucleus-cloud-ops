@@ -8,7 +8,6 @@ import {
 } from "lucide-react"
 
 import type { NavItem } from "@/components/nav-main"
-import { env } from "@/env"
 
 /**
  * Single source of truth for the sidebar information architecture: a two-level
@@ -54,10 +53,7 @@ export const navMenus: NavItem[] = [
     title: "Cost Optimization",
     icon: Gauge,
     items: [
-      // Right Sizing — hidden unless the feature flag is enabled (NEXT_PUBLIC_ inlined at build).
-      ...(env.NEXT_PUBLIC_RIGHT_SIZING_ENABLED === "true"
-        ? [{ title: "Right Sizing", href: "/app/right-sizing" }]
-        : []),
+      { title: "Right Sizing", href: "/app/right-sizing" },
       { title: "Cost Scheduler", href: "/app/schedules" },
     ],
   },
