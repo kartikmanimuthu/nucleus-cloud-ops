@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { classifyTool, type ToolClassification } from './tool-classifier';
 import type { GuardVerdict, ReflectionState } from './agent-shared';
 
@@ -33,7 +33,7 @@ export function pendingToolCallsOf(state: Pick<ReflectionState, 'messages'>): Pe
         .map(c => ({ id: c.id!, name: c.name, args: (c.args ?? {}) as Record<string, unknown> }));
 }
 
-interface RiskModel { invoke(msgs: unknown[]): Promise<{ content: unknown }> }
+interface RiskModel { invoke(msgs: BaseMessage[]): Promise<{ content: unknown }> }
 
 const RISK_SYSTEM_PROMPT = `You are a cloud-operations safety reviewer. For each proposed tool call below, produce a risk assessment.
 Each call is labeled either "known-mutative" (already confirmed to change state — assess its risk) or "unknown" (its name matched no known pattern — first judge for yourself whether the call actually mutates state; if it is clearly read-only, report mutative:false).

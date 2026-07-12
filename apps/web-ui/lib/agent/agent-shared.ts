@@ -564,6 +564,48 @@ export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage
     return result;
 }
 
+/**
+ * Build a state VIEW for ToolNode whose last AIMessage carries only the tool
+ * calls that do not yet have a ToolMessage result (per-tool reject / ask_user
+ * answers write results BEFORE the tools node runs). ToolNode executes every
+ * tool_call on the last AI message — without this filter, a rejected call
+ * would execute anyway. Returns null when nothing is left to execute.
+ * The underlying graph state is never mutated.
+ */
+export function withUnresolvedToolCallsOnly(
+    state: { messages: BaseMessage[] },
+): { messages: BaseMessage[] } | null {
+    const messages = state.messages ?? [];
+    let lastAiIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i]._getType() === 'ai') { lastAiIdx = i; break; }
+    }
+    if (lastAiIdx === -1) return null;
+    const ai = messages[lastAiIdx] as AIMessage;
+    const calls = ai.tool_calls ?? [];
+    if (calls.length === 0) return null;
+
+    const resolved = new Set<string>();
+    for (let i = lastAiIdx + 1; i < messages.length; i++) {
+        const m = messages[i] as unknown as { tool_call_id?: string };
+        if (messages[i]._getType() === 'tool' && m.tool_call_id) resolved.add(m.tool_call_id);
+    }
+    const unresolved = calls.filter(c => c.id && !resolved.has(c.id));
+    if (unresolved.length === 0) return null;
+    if (unresolved.length === calls.length) return { messages: messages.slice(0, lastAiIdx + 1) };
+
+    const filteredAi = new AIMessage({
+        content: ai.content,
+        tool_calls: unresolved,
+        additional_kwargs: ai.additional_kwargs,
+        response_metadata: ai.response_metadata,
+        id: ai.id,
+    });
+    const view = messages.slice(0, lastAiIdx + 1);
+    view[lastAiIdx] = filteredAi;
+    return { messages: view };
+}
+
 // Configuration for graph creation
 export interface AccountContext {
     accountId: string;

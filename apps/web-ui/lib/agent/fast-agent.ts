@@ -10,6 +10,7 @@ import {
     MAX_ITERATIONS,
     truncateOutput,
     sanitizeMessagesForBedrock,
+    withUnresolvedToolCallsOnly,
     tagMessagePhase,
     getCheckpointer,
     getStore,
@@ -76,11 +77,7 @@ export async function createFastGraph(config: GraphConfig) {
     const memoryRecallNode = createMemoryRecallNode(memoryDeps);
     const memorySaveNode = createMemorySaveNode(memoryDeps);
 
-    // Cast: guard.ts's RiskModel interface intentionally types `invoke` as
-    // (msgs: unknown[]) to stay decoupled from LangChain's BaseChatModel types;
-    // reflectorModel satisfies it structurally at runtime (invoke(BaseMessage[])),
-    // but the narrower unknown[] param fails strict structural assignability.
-    const guardNode = createGuardNode({ riskModel: reflectorModel as any });
+    const guardNode = createGuardNode({ riskModel: reflectorModel });
     // approval_gate is a no-op marker node: the interrupt BEFORE it is the pause.
     async function approvalGateNode(): Promise<Partial<ReflectionState>> {
         console.log('⏸️ [APPROVAL GATE] resuming after human decision');
@@ -159,7 +156,12 @@ Review the full conversation history before responding:
     // ---------------------------------------------------------------------------
     async function collectingToolNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         console.log(`\n⚙️ [FAST TOOLS] Executing tool calls...`);
-        const result = await toolNode.invoke(state);
+        const view = withUnresolvedToolCallsOnly(state);
+        if (!view) {
+            console.log('⚙️ [FAST TOOLS] All tool calls already resolved (rejected/answered) — skipping execution.');
+            return {};
+        }
+        const result = await toolNode.invoke({ ...state, messages: view.messages });
         console.log(`⚙️ [FAST TOOLS] Execution complete. Result messages: ${result.messages?.length || 0}`);
 
         const newToolResults: ToolResultEntry[] = [];
