@@ -101,12 +101,13 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
 
         try {
             const { TenantConfigService } = await import('../tenant-config-service');
-            const { mergeConfigs } = await import('../agent/mcp-config');
+            const { mergeConfigs, resolveEnabledServerIds } = await import('../agent/mcp-config');
             const savedJson = await TenantConfigService.getConfig('mcp-servers', tenantId);
             const allConfigs = mergeConfigs(savedJson);
-            if (activeMcpServerIds.length === 0) {
-                activeMcpServerIds = allConfigs.filter(c => c.enabled).map(c => c.id);
-            }
+            // Hard-enforce: intersect the task's selected ids with enabled configs
+            // (empty ⇒ all enabled). A server disabled after the task was saved
+            // is never reconnected.
+            activeMcpServerIds = resolveEnabledServerIds(mcpServerIds, allConfigs);
             if (activeMcpServerIds.length > 0) {
                 await mcpManager.connectServers(activeMcpServerIds, allConfigs);
             }
@@ -572,12 +573,10 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
         let activeMcpServerIds: string[] = mcpServerIds || [];
         try {
             const { TenantConfigService } = await import('../tenant-config-service');
-            const { mergeConfigs } = await import('../agent/mcp-config');
+            const { mergeConfigs, resolveEnabledServerIds } = await import('../agent/mcp-config');
             const savedJson = await TenantConfigService.getConfig('mcp-servers', tenantId);
             const allConfigs = mergeConfigs(savedJson);
-            if (activeMcpServerIds.length === 0) {
-                activeMcpServerIds = allConfigs.filter((c: any) => c.enabled).map((c: any) => c.id);
-            }
+            activeMcpServerIds = resolveEnabledServerIds(mcpServerIds, allConfigs);
             if (activeMcpServerIds.length > 0) {
                 await mcpManager.connectServers(activeMcpServerIds, allConfigs);
             }

@@ -19,6 +19,7 @@ import type {
     TriggerMetadata,
     AgentMode,
     RunListQuery,
+    RunListResult,
 } from './types';
 
 // ─── Run Operations ────────────────────────────────────────────────────
@@ -87,12 +88,9 @@ export async function getRun(tenantId: string, runId: string): Promise<AgentOpsR
 }
 
 /**
- * List runs with optional filtering and pagination.
+ * List runs with optional filtering, sorting, and pagination.
  */
-export async function listRuns(query: RunListQuery): Promise<{
-    runs: AgentOpsRun[];
-    lastKey?: Record<string, unknown>;
-}> {
+export async function listRuns(query: RunListQuery): Promise<RunListResult> {
     return getAgentOpsRunRepository().listRuns(query);
 }
 

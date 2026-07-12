@@ -4,7 +4,7 @@
  * Contract for knowledge base persistence.
  * Implemented by KnowledgeBasePostgresRepository.
  */
-import type { KnowledgeBase, CreateKBInput } from '@/lib/knowledge-base/types';
+import type { KnowledgeBase, CreateKBInput, KnowledgeBaseStatus } from '@/lib/knowledge-base/types';
 
 export interface IKnowledgeBaseRepository {
     listKnowledgeBases(tenantId: string): Promise<KnowledgeBase[]>;
@@ -14,4 +14,5 @@ export interface IKnowledgeBaseRepository {
     deleteKnowledgeBase(kbId: string, tenantId: string): Promise<void>;
     updateDataSourceCount(kbId: string, delta: number, tenantId: string): Promise<void>;
     updateVectorCount(kbId: string, delta: number, tenantId: string): Promise<void>;
+    setKnowledgeBaseStatus(kbId: string, tenantId: string, status: KnowledgeBaseStatus): Promise<void>;
 }

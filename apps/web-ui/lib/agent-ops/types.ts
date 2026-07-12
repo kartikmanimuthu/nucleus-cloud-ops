@@ -234,8 +234,24 @@ export interface RunListQuery {
     tenantId?: string;
     source?: TriggerSource;
     status?: AgentOpsStatus;
+    page?: number;
     limit?: number;
+    sortBy?: 'createdAt' | 'updatedAt' | 'status' | 'source' | 'taskDescription' | 'durationMs';
+    sortDir?: 'asc' | 'desc';
     lastKey?: Record<string, unknown>;
+}
+
+export interface RunListStats {
+    total: number;
+    inProgress: number;
+    completed: number;
+    failed: number;
+}
+
+export interface RunListResult {
+    runs: AgentOpsRun[];
+    total: number;
+    stats: RunListStats;
 }
 
 // ─── Integration Config ─────────────────────────────────────────────────

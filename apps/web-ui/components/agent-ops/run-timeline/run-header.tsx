@@ -63,7 +63,7 @@ export function RunHeader({
           </span>
         )}
         <span className="ml-auto flex items-center gap-2">
-          {run.status === "completed" && (
+          {run.status !== "queued" && run.status !== "in_progress" && (
             <Button variant="outline" size="sm" onClick={onExportPdf} disabled={exporting}>
               {exporting ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Download className="mr-1.5 size-3.5" />}
               PDF

@@ -149,6 +149,22 @@ describe('KnowledgeBasePostgresRepository', () => {
         });
     });
 
+    describe('setKnowledgeBaseStatus', () => {
+        it('calls updateMany with status and tenant-scoped where', async () => {
+            mockPrisma.knowledgeBase.updateMany.mockResolvedValue({ count: 1 });
+
+            const repo = new KnowledgeBasePostgresRepository();
+            await repo.setKnowledgeBaseStatus('kb-1', 'tenant-1', 'inactive');
+
+            expect(mockPrisma.knowledgeBase.updateMany).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    where: expect.objectContaining({ id: 'kb-1', tenantId: 'tenant-1' }),
+                    data: expect.objectContaining({ status: 'inactive' }),
+                })
+            );
+        });
+    });
+
     describe('deleteKnowledgeBase', () => {
         it('calls deleteMany with tenantId and kbId in where', async () => {
             mockPrisma.knowledgeBase.deleteMany.mockResolvedValue({ count: 1 });

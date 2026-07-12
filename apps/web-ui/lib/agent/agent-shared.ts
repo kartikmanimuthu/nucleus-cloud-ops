@@ -579,7 +579,7 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
 
     const { getMCPManager: getManager, tenantScopedKey } = await import('./mcp-manager');
     const { createMCPTools: createTools } = await import('./mcp-tools');
-    const { mergeConfigs } = await import('./mcp-config');
+    const { mergeConfigs, resolveEnabledServerIds } = await import('./mcp-config');
     const manager = getManager();
 
     // MCP connections are cached per tenant so no tenant reuses another's live
@@ -598,7 +598,8 @@ export async function getActiveMCPTools(serverIds?: string[], tenantId?: string,
         allConfigs = DEFAULT_MCP_SERVERS;
     }
 
-    const requestedConfigs = allConfigs.filter(c => serverIds.includes(c.id));
+    const enabledIds = resolveEnabledServerIds(serverIds, allConfigs);
+    const requestedConfigs = allConfigs.filter(c => enabledIds.includes(c.id));
     const credentialServerConfigs = requestedConfigs.filter(c => c.requiresAwsCredentials);
     const regularServerIds = requestedConfigs.filter(c => !c.requiresAwsCredentials).map(c => c.id);
 

@@ -46,6 +46,7 @@ describe('AgentOpsRunPostgresRepository', () => {
             findFirst: MockedFunction<any>;
             findMany: MockedFunction<any>;
             updateMany: MockedFunction<any>;
+            count: MockedFunction<any>;
         };
     };
 
@@ -56,6 +57,7 @@ describe('AgentOpsRunPostgresRepository', () => {
                 findFirst: vi.fn(),
                 findMany: vi.fn(),
                 updateMany: vi.fn(),
+                count: vi.fn().mockResolvedValue(0),
             },
         };
         vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);
@@ -124,21 +126,26 @@ describe('AgentOpsRunPostgresRepository', () => {
             mockPrisma.agentOpsRun.findMany.mockResolvedValue([makeRunRow()]);
 
             const repo = new AgentOpsRunPostgresRepository();
-            await repo.listRuns({ tenantId: 't1', source: 'slack', limit: 10 });
+            const result = await repo.listRuns({ tenantId: 't1', source: 'slack', limit: 10 });
 
             const callArg = mockPrisma.agentOpsRun.findMany.mock.calls[0][0];
             expect(callArg.where.source).toBe('slack');
             expect(callArg.take).toBe(10);
+            expect(callArg.skip).toBe(0);
+            expect(result.runs).toHaveLength(1);
+            expect(result.total).toBe(0);
+            expect(result.stats).toEqual({ total: 0, inProgress: 0, completed: 0, failed: 0 });
         });
 
         it('uses WHERE status= for status filter', async () => {
             mockPrisma.agentOpsRun.findMany.mockResolvedValue([]);
 
             const repo = new AgentOpsRunPostgresRepository();
-            await repo.listRuns({ tenantId: 't1', status: 'completed', limit: 5 });
+            const result = await repo.listRuns({ tenantId: 't1', status: 'completed', limit: 5 });
 
             const callArg = mockPrisma.agentOpsRun.findMany.mock.calls[0][0];
             expect(callArg.where.status).toBe('completed');
+            expect(result.runs).toEqual([]);
         });
     });
 
@@ -224,6 +231,7 @@ describe('AgentOpsRunPostgresRepository — tenant isolation', () => {
             findFirst: MockedFunction<any>;
             findMany: MockedFunction<any>;
             updateMany: MockedFunction<any>;
+            count: MockedFunction<any>;
         };
     };
 
@@ -234,6 +242,7 @@ describe('AgentOpsRunPostgresRepository — tenant isolation', () => {
                 findFirst: vi.fn().mockResolvedValue(null),
                 findMany: vi.fn().mockResolvedValue([]),
                 updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+                count: vi.fn().mockResolvedValue(0),
             },
         };
         vi.mocked(getPrismaClient).mockReturnValue(mockPrisma as any);

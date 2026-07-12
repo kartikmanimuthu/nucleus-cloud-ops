@@ -6,7 +6,12 @@
  */
 
 import { getScheduledTaskRepository } from '@/lib/db/repository-factory';
-import type { CreateScheduledTaskParams, UpdateScheduledTaskParams } from '@/lib/db/repositories/scheduled-task/interface';
+import type {
+    CreateScheduledTaskParams,
+    UpdateScheduledTaskParams,
+    TaskListQuery,
+    TaskListResult,
+} from '@/lib/db/repositories/scheduled-task/interface';
 import type { ScheduledTask, AgentOpsStatus } from './types';
 
 // ─── CRUD ──────────────────────────────────────────────────────────────
@@ -21,8 +26,8 @@ export async function getScheduledTask(tenantId: string, taskId: string): Promis
     return getScheduledTaskRepository().getScheduledTask(tenantId, taskId);
 }
 
-export async function listScheduledTasks(tenantId: string): Promise<ScheduledTask[]> {
-    return getScheduledTaskRepository().listScheduledTasks(tenantId);
+export async function listScheduledTasks(query: TaskListQuery): Promise<TaskListResult> {
+    return getScheduledTaskRepository().listScheduledTasks(query);
 }
 
 export async function listAllActiveTasks(): Promise<ScheduledTask[]> {

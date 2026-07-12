@@ -21,7 +21,7 @@ import { GET } from '@/app/api/agent-ops/route';
 describe('Agent Ops API — cross-tenant isolation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(agentOpsService.listRuns).mockResolvedValue({ runs: [], lastKey: undefined });
+        vi.mocked(agentOpsService.listRuns).mockResolvedValue({ runs: [], total: 0, stats: { total: 0, inProgress: 0, completed: 0, failed: 0 } });
         vi.mocked(getSessionTenantId).mockResolvedValue('tenant-a');
     });
 

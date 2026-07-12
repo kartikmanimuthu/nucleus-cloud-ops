@@ -11,6 +11,7 @@ import type {
   DataSource,
   CreateKBInput,
   CreateDataSourceInput,
+  KnowledgeBaseStatus,
 } from './types';
 
 export class KnowledgeBaseService {
@@ -36,6 +37,14 @@ export class KnowledgeBaseService {
     tenantId: string,
   ): Promise<void> {
     return getKnowledgeBaseRepository().updateKnowledgeBase(kbId, data, tenantId);
+  }
+
+  static async setKnowledgeBaseStatus(
+    kbId: string,
+    tenantId: string,
+    status: KnowledgeBaseStatus,
+  ): Promise<void> {
+    return getKnowledgeBaseRepository().setKnowledgeBaseStatus(kbId, tenantId, status);
   }
 
   static async deleteKnowledgeBase(kbId: string, tenantId: string): Promise<void> {

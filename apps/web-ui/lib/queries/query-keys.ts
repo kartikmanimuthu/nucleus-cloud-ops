@@ -74,6 +74,11 @@ export const queryKeys = {
         list: (filters?: unknown) => [...queryKeys.agentOps.lists(), filters ?? {}] as const,
         details: () => [...queryKeys.agentOps.all, 'detail'] as const,
         detail: (runId: string) => [...queryKeys.agentOps.details(), runId] as const,
+        scheduledTasks: {
+            all: ['agent-ops', 'scheduled-tasks'] as const,
+            lists: () => [...queryKeys.agentOps.scheduledTasks.all, 'list'] as const,
+            list: (filters?: unknown) => [...queryKeys.agentOps.scheduledTasks.lists(), filters ?? {}] as const,
+        },
     },
     agentMemories: {
         all: ['agent-memories'] as const,

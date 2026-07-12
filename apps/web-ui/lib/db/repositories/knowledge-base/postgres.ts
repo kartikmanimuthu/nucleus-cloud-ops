@@ -8,7 +8,7 @@
  * Atomic counter updates use Prisma increment/decrement (no read-modify-write).
  */
 import { getTenantClient } from '@/lib/db/pg-config';
-import type { KnowledgeBase, CreateKBInput } from '@/lib/knowledge-base/types';
+import type { KnowledgeBase, CreateKBInput, KnowledgeBaseStatus } from '@/lib/knowledge-base/types';
 import type { IKnowledgeBaseRepository } from './interface';
 
 function rowToKB(row: {
@@ -96,6 +96,18 @@ export class KnowledgeBasePostgresRepository implements IKnowledgeBaseRepository
         } catch (error: unknown) {
             console.error('[KnowledgeBasePostgresRepository] Error updating knowledge base:', error);
             throw new Error(`Failed to update knowledge base: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    async setKnowledgeBaseStatus(kbId: string, tenantId: string, status: KnowledgeBaseStatus): Promise<void> {
+        try {
+            await getTenantClient(tenantId).knowledgeBase.updateMany({
+                where: { id: kbId, tenantId },
+                data: { status },
+            });
+        } catch (error: unknown) {
+            console.error('[KnowledgeBasePostgresRepository] Error setting knowledge base status:', error);
+            throw new Error(`Failed to set knowledge base status: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 

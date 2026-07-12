@@ -43,10 +43,30 @@ export interface UpdateScheduledTaskParams {
     notification?: ScheduledTask['notification'];
 }
 
+export interface TaskListQuery {
+    tenantId: string;
+    page?: number;
+    limit?: number;
+    sortBy?: 'name' | 'taskStatus' | 'nextRunAt' | 'lastRunAt' | 'createdAt' | 'updatedAt' | 'runCount';
+    sortDir?: 'asc' | 'desc';
+}
+
+export interface TaskListStats {
+    active: number;
+    paused: number;
+    totalRuns: number;
+}
+
+export interface TaskListResult {
+    tasks: ScheduledTask[];
+    total: number;
+    stats: TaskListStats;
+}
+
 export interface IScheduledTaskRepository {
     createScheduledTask(params: CreateScheduledTaskParams): Promise<ScheduledTask>;
     getScheduledTask(tenantId: string, taskId: string): Promise<ScheduledTask | null>;
-    listScheduledTasks(tenantId: string): Promise<ScheduledTask[]>;
+    listScheduledTasks(query: TaskListQuery): Promise<TaskListResult>;
     listAllActiveTasks(): Promise<ScheduledTask[]>;
     updateScheduledTask(tenantId: string, taskId: string, updates: UpdateScheduledTaskParams): Promise<ScheduledTask | null>;
     pauseScheduledTask(tenantId: string, taskId: string): Promise<void>;

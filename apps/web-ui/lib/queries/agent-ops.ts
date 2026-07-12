@@ -1,12 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryKeys } from './query-keys';
-import type { AgentOpsRun, AgentOpsEvent } from '@/lib/agent-ops/types';
+import type { AgentOpsRun, AgentOpsEvent, RunListQuery, RunListStats } from '@/lib/agent-ops/types';
 
 export interface RunListFilters {
     source?: string;
     status?: string;
+    page?: number;
     limit?: number;
+    sortBy?: RunListQuery['sortBy'];
+    sortDir?: 'asc' | 'desc';
+}
+
+export interface RunListResponse {
+    runs: AgentOpsRun[];
+    total: number;
+    stats: RunListStats;
 }
 
 export interface RunDetail {
@@ -27,14 +36,25 @@ export function useAgentOpsRuns(filters: RunListFilters = {}) {
     return useQuery({
         queryKey: queryKeys.agentOps.list(filters),
         queryFn: async () => {
-            const params = new URLSearchParams({ limit: String(filters.limit ?? 50) });
+            const params = new URLSearchParams();
+            params.set('page', String(filters.page ?? 1));
+            params.set('limit', String(filters.limit ?? 25));
             if (filters.source && filters.source !== 'all') params.set('source', filters.source);
             if (filters.status && filters.status !== 'all') params.set('status', filters.status);
-            const data = await fetchJson<{ runs: AgentOpsRun[] }>(`/api/agent-ops?${params}`);
-            return data.runs ?? [];
+            if (filters.sortBy) {
+                params.set('sortBy', filters.sortBy);
+                params.set('sortDir', filters.sortDir ?? 'desc');
+            }
+            const data = await fetchJson<{ success: boolean; data?: AgentOpsRun[]; total?: number; stats?: RunListStats; error?: string }>(`/api/agent-ops?${params}`);
+            if (!data.success) throw new Error(data.error || 'Failed to load runs');
+            return {
+                runs: data.data ?? [],
+                total: data.total ?? 0,
+                stats: data.stats ?? { total: 0, inProgress: 0, completed: 0, failed: 0 },
+            };
         },
         refetchInterval: (query) =>
-            (query.state.data ?? []).some(r => ACTIVE.has(r.status)) ? 5000 : 30000,
+            (query.state.data?.runs ?? []).some(r => ACTIVE.has(r.status)) ? 5000 : 30000,
     });
 }
 

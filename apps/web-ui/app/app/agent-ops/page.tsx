@@ -25,27 +25,27 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 import {
   Zap,
   Bot,
   MessageSquare,
-  Globe,
   RefreshCw,
   Clock,
   CheckCircle2,
   XCircle,
   Loader2,
   AlertCircle,
-  Plug,
-  Hash,
   StopCircle,
   ShieldCheck,
   CalendarClock,
   Settings2,
+  ArrowDownWideNarrow,
 } from "lucide-react";
 import type {
   TriggerSource,
   AgentOpsStatus,
+  RunListQuery,
 } from "@/lib/agent-ops/types";
 import { NewRunDialog } from "@/components/agent-ops/new-run-dialog";
 import { PageHeader } from "@/components/shared/page-header";
@@ -56,8 +56,11 @@ import { useAgentOpsRuns, useCancelRun } from "@/lib/queries/agent-ops";
 const SOURCE_ICONS: Record<TriggerSource, typeof Zap> = {
   slack: MessageSquare,
   jira: AlertCircle,
-  api: Globe,
+  api: RefreshCw,
   scheduled: CalendarClock,
+  discord: MessageSquare,
+  telegram: MessageSquare,
+  webhook: RefreshCw,
 };
 
 const STATUS_CONFIG: Record<
@@ -77,6 +80,21 @@ const STATUS_CONFIG: Record<
   cancelled: { label: "Cancelled", variant: "outline", icon: StopCircle },
 };
 
+const SORT_OPTIONS: { label: string; value: string }[] = [
+  { label: "Created: newest first", value: "createdAt:desc" },
+  { label: "Created: oldest first", value: "createdAt:asc" },
+  { label: "Updated: newest first", value: "updatedAt:desc" },
+  { label: "Updated: oldest first", value: "updatedAt:asc" },
+  { label: "Status", value: "status:asc" },
+  { label: "Source", value: "source:asc" },
+  { label: "Duration: longest first", value: "durationMs:desc" },
+];
+
+function parseSort(value: string): { sortBy: RunListQuery['sortBy']; sortDir: 'asc' | 'desc' } {
+  const [sortBy, sortDir] = value.split(':') as [RunListQuery['sortBy'], 'asc' | 'desc'];
+  return { sortBy, sortDir };
+}
+
 export default function AgentOpsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -84,9 +102,23 @@ export default function AgentOpsPage() {
   const { timezone } = useTenant();
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [sortValue, setSortValue] = useState<string>("createdAt:desc");
 
-  const runsQuery = useAgentOpsRuns({ source: sourceFilter, status: statusFilter });
-  const runs = runsQuery.data ?? [];
+  const { sortBy, sortDir } = parseSort(sortValue);
+
+  const runsQuery = useAgentOpsRuns({
+    source: sourceFilter,
+    status: statusFilter,
+    page,
+    limit: pageSize,
+    sortBy,
+    sortDir,
+  });
+  const runs = runsQuery.data?.runs ?? [];
+  const total = runsQuery.data?.total ?? 0;
+  const stats = runsQuery.data?.stats ?? { total: 0, inProgress: 0, completed: 0, failed: 0 };
   const loading = runsQuery.isLoading;
   const cancelRun = useCancelRun();
 
@@ -99,13 +131,7 @@ export default function AgentOpsPage() {
 
   const formatTime = (iso: string) => formatDateTime(iso, "shortDateTime", timezone);
 
-  // Stats
-  const stats = {
-    total: runs.length,
-    inProgress: runs.filter((r) => r.status === "in_progress").length,
-    completed: runs.filter((r) => r.status === "completed").length,
-    failed: runs.filter((r) => r.status === "failed").length,
-  };
+  const resetPage = () => setPage(1);
 
   return (
     <div className="space-y-6">
@@ -134,15 +160,6 @@ export default function AgentOpsPage() {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => router.push("/app/agent-ops/settings")}>
                   <Settings2 className="h-4 w-4 mr-2" /> Agent Defaults
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push("/app/agent-ops/slack-settings")}>
-                  <MessageSquare className="h-4 w-4 mr-2" /> Slack
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push("/app/agent-ops/jira-settings")}>
-                  <AlertCircle className="h-4 w-4 mr-2" /> Jira
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push("/app/agent-ops/mcp-settings")}>
-                  <Plug className="h-4 w-4 mr-2" /> MCP Servers
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -185,9 +202,9 @@ export default function AgentOpsPage() {
         </Card>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-3">
-        <Select value={sourceFilter} onValueChange={setSourceFilter}>
+      {/* Filters + Sort */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={sourceFilter} onValueChange={(v) => { setSourceFilter(v); resetPage(); }}>
           <SelectTrigger className="w-[160px]">
             <SelectValue placeholder="Source" />
           </SelectTrigger>
@@ -199,7 +216,7 @@ export default function AgentOpsPage() {
             <SelectItem value="scheduled">Scheduled</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); resetPage(); }}>
           <SelectTrigger className="w-[160px]">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
@@ -212,6 +229,19 @@ export default function AgentOpsPage() {
             <SelectItem value="failed">Failed</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2 ml-auto">
+          <ArrowDownWideNarrow className="h-4 w-4 text-muted-foreground" />
+          <Select value={sortValue} onValueChange={setSortValue}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Runs List */}
@@ -302,6 +332,16 @@ export default function AgentOpsPage() {
               })}
             </div>
           )}
+          <div className="mt-4">
+            <PaginationBar
+              currentPage={page}
+              totalItems={total}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+              itemLabel="runs"
+            />
+          </div>
         </CardContent>
       </Card>
     </div>

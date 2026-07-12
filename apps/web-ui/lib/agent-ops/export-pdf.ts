@@ -246,20 +246,32 @@ export async function exportRunToPdf(run: AgentOpsRun, events: AgentOpsEvent[]):
     const html = buildRunReportHtml(run, events)
     const filename = `agent-ops-run-${run.runId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.pdf`
 
-    const iframe = document.createElement("iframe")
-    iframe.style.cssText = "position:fixed;top:0;left:0;width:794px;height:1123px;opacity:0;pointer-events:none;z-index:-9999;border:none;"
-    document.body.appendChild(iframe)
+    // html2pdf.js clones the source node (via snapdom's deepCloneBasic, which
+    // copies inline styles verbatim with cloneNode) and places the clone inside
+    // its own `height:auto` capture container, then runs html2canvas on that
+    // *container*. If the source node's inline style makes it out-of-flow
+    // (position: fixed/absolute, or off-screen coordinates), the clone is also
+    // out-of-flow and contributes zero height to the capture container — so
+    // html2canvas renders a 0-height canvas and jsPDF emits an empty PDF
+    // (verified: 1468x0 canvas → 3 KB blank PDF).
+    //
+    // Fix: keep the off-screen positioning on a WRAPPER that is never cloned,
+    // and leave the holder itself as an in-flow block carrying only the body's
+    // base styles (S.body). html2pdf clones the holder (not the wrapper), so
+    // the clone flows normally inside the capture container and the container
+    // gets the content's height (verified: 733x1161 → 1468x2324 canvas,
+    // ~1M non-white pixels → 370 KB PDF). All report styling is inline, so the
+    // clone needs no external stylesheets.
+    const wrapper = document.createElement("div")
+    wrapper.style.cssText = "position:fixed;top:0;left:-99999px;z-index:-9999;pointer-events:none;"
+    const holder = document.createElement("div")
+    holder.style.cssText = S.body
+    holder.innerHTML = new DOMParser().parseFromString(html, "text/html").body.innerHTML
+    wrapper.appendChild(holder)
+    document.body.appendChild(wrapper)
 
-    await new Promise<void>((resolve) => {
-        iframe.onload = () => resolve()
-        iframe.srcdoc = html
-    })
-
-    // Give the iframe a tick to finish layout
-    await new Promise(r => setTimeout(r, 300))
-
-    const iframeDoc = iframe.contentDocument!
-    const target = iframeDoc.body
+    // Let layout settle before capture.
+    await new Promise(r => setTimeout(r, 50))
 
     try {
         await html2pdf()
@@ -276,9 +288,9 @@ export async function exportRunToPdf(run: AgentOpsRun, events: AgentOpsEvent[]):
                 },
                 jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
             })
-            .from(target)
+            .from(holder)
             .save()
     } finally {
-        document.body.removeChild(iframe)
+        document.body.removeChild(wrapper)
     }
 }

@@ -26,11 +26,24 @@ import {
 import { CronPicker } from "./cron-picker"
 import type { ScheduledTask } from "@/lib/agent-ops/types"
 
+/** sessionStorage key for a chat->scheduled-task draft handed to the tasks page. */
+export const SCHEDULED_TASK_PREFILL_KEY = "agent-ops:scheduled-task-prefill"
+
+/** Draft values seeded into the create dialog when arriving from "Convert chat". */
+export interface ScheduledTaskPrefill {
+    name?: string
+    description?: string
+    cronExpression?: string
+}
+
 interface ScheduledTaskDialogProps {
     tenantId?: string
     task?: ScheduledTask         // if provided → edit mode
+    prefill?: ScheduledTaskPrefill  // create-mode seed values (from "Convert chat")
     onSaved?: (task: ScheduledTask) => void
     trigger?: React.ReactNode
+    open?: boolean               // controlled open (page-driven prefill)
+    onOpenChange?: (open: boolean) => void
 }
 
 const DEFAULT_FORM = {
@@ -58,8 +71,10 @@ function splitIntervalMinutes(minutes: number | undefined): { intervalValue: num
         : { intervalValue: m, intervalUnit: "minutes" }
 }
 
-export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigger }: ScheduledTaskDialogProps) {
-    const [open, setOpen] = useState(false)
+export function ScheduledTaskDialog({ tenantId = "default", task, prefill, onSaved, trigger, open: openProp, onOpenChange }: ScheduledTaskDialogProps) {
+    const [openState, setOpenState] = useState(false)
+    const open = openProp ?? openState
+    const setOpen = (v: boolean) => { onOpenChange ? onOpenChange(v) : setOpenState(v) }
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [form, setForm] = useState(() => task ? {
@@ -75,7 +90,7 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
         channelName: task.notification.channelName || "",
         chatId: task.notification.chatId || "",
         issueKey: task.notification.issueKey || "",
-    } : DEFAULT_FORM)
+    } : { ...DEFAULT_FORM, ...(prefill?.name ? { name: prefill.name } : {}), ...(prefill?.description ? { description: prefill.description } : {}), ...(prefill?.cronExpression ? { cronExpression: prefill.cronExpression } : {}) })
 
     const set = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))
 
@@ -136,14 +151,16 @@ export function ScheduledTaskDialog({ tenantId = "default", task, onSaved, trigg
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                {trigger ?? (
-                    <Button className="gap-2">
-                        <CalendarClock className="h-4 w-4" />
-                        New Scheduled Task
-                    </Button>
-                )}
-            </DialogTrigger>
+            {(trigger || openProp === undefined) && (
+                <DialogTrigger asChild>
+                    {trigger ?? (
+                        <Button className="gap-2">
+                            <CalendarClock className="h-4 w-4" />
+                            New Scheduled Task
+                        </Button>
+                    )}
+                </DialogTrigger>
+            )}
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>{task ? "Edit Scheduled Task" : "New Scheduled Task"}</DialogTitle>
