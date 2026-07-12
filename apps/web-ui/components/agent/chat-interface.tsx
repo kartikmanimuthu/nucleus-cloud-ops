@@ -121,6 +121,12 @@ import { UIAccount } from "@/lib/types";
 import { useProviderModels } from "@/lib/queries/providers";
 import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
+import { useRunState } from "@/components/agent/chat/use-run-state";
+import { useDecisions } from "@/components/agent/chat/use-decisions";
+import { ApprovalBatchCard } from "@/components/agent/chat/approval-batch-card";
+import { ClarificationCard } from "@/components/agent/chat/clarification-card";
+import { RunRail } from "@/components/agent/chat/run-rail";
+import { RunTimeline } from "@/components/agent/chat/run-timeline";
 
 // Phase types matching backend
 type AgentPhase =
@@ -277,6 +283,22 @@ function partImageUrl(part: any): string | undefined {
   return undefined;
 }
 
+// A "decision carrier" is the empty user message sent to resume a run when the
+// user decides a pending approval/clarification batch — the server acts on
+// `body.decisions` before reading the last message, so the message itself needs
+// no content. Hide it from the transcript so no empty user bubble lingers.
+function isEmptyDecisionCarrier(m: any): boolean {
+  if (m?.role !== "user") return false;
+  const parts: any[] = m.parts || [];
+  const hasText =
+    parts.some((p: any) => p.type === "text" && (p.text || "").trim().length > 0) ||
+    (typeof m.content === "string" && m.content.trim().length > 0);
+  const hasAttach =
+    (m.experimental_attachments?.length || 0) > 0 ||
+    parts.some((p: any) => typeof p.type === "string" && p.type.startsWith("file"));
+  return !hasText && !hasAttach;
+}
+
 // Render a message whose `content` has no structured `parts` (legacy / history
 // rows). If content is a JSON-encoded array of parts, render its text and image
 // portions instead of dumping the raw JSON string as markdown text.
@@ -372,59 +394,104 @@ const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isAc
           </div>
         )}
         
-        {/* Render parts */}
-        {parts.length > 0 &&
-          parts.map((part: any, index: number) => {
-            // Text part
-            if (part.type === "text") {
-              const text = part.text || "";
-              if (!text.trim()) return null;
-              // While the last part of the last message is actively streaming, skip the
-              // expensive ReactMarkdown + remarkGfm AST parse on every delta. Render as
-              // plain pre instead — markdown kicks in automatically on the next render
-              // after the stream ends and isActivelyStreaming becomes false.
-              const isLastPart = index === parts.length - 1;
-              const skipMarkdown = isLastMessage && isActivelyStreaming && isLastPart;
-              return (
-                <div key={`${message.id}-part-${index}`}>
-                  {skipMarkdown ? (
-                    <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-sans break-words m-0 p-0 bg-transparent border-none">
-                      {text}
-                    </pre>
-                  ) : (
-                    <MarkdownContent content={text} />
-                  )}
-                </div>
-              );
-            }
+        {/* Render parts.
+            Mission Control: assistant messages with structured "work" parts
+            (reasoning phases + tool calls) render those inside a threaded
+            RunTimeline, with any text parts shown full-width as the answer
+            below. Pure-text assistant messages, user messages, and legacy rows
+            fall through to the flat loop below (which also drops data-* parts). */}
+        {(() => {
+          const workParts = parts.filter(
+            (p: any) =>
+              p.type === "reasoning" ||
+              p.type?.startsWith?.("tool-") ||
+              (p.toolCallId && p.type !== "text"),
+          );
+          const textParts = parts.filter((p: any) => p.type === "text");
 
-            // Reasoning part (contains phase markers)
-            if (part.type === "reasoning") {
-              const { phase, cleanContent } = parsePhaseFromContent(
-                part.text || "",
-              );
-              const isLastReasoningPart = index === parts.map(p => p.type).lastIndexOf("reasoning");
-              const isActivePhase = isLastMessage && isActivelyStreaming && isLastReasoningPart;
-              return renderPhaseBlock(
-                phase,
-                cleanContent,
-                `${message.id}-part-${index}`,
-                isActivePhase,
-              );
-            }
+          const renderTextPart = (part: any, index: number, total: number) => {
+            const text = part.text || "";
+            if (!text.trim()) return null;
+            // While the last text part of the last message is actively streaming,
+            // skip the expensive ReactMarkdown + remarkGfm AST parse on every
+            // delta. Render as plain pre instead — markdown kicks in automatically
+            // once the stream ends and isActivelyStreaming becomes false.
+            const isLastPart = index === total - 1;
+            const skipMarkdown = isLastMessage && isActivelyStreaming && isLastPart;
+            return (
+              <div key={`${message.id}-text-${index}`}>
+                {skipMarkdown ? (
+                  <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-sans break-words m-0 p-0 bg-transparent border-none">
+                    {text}
+                  </pre>
+                ) : (
+                  <MarkdownContent content={text} />
+                )}
+              </div>
+            );
+          };
 
-            // Tool invocation
-            if (part.type === "tool-invocation" || part.toolCallId) {
-              return renderToolInvocation(part, message.id, index);
-            }
+          // Assistant message with work → threaded timeline + full-width answer.
+          if (!isUser && workParts.length > 0) {
+            return (
+              <>
+                <RunTimeline
+                  parts={workParts}
+                  messageId={message.id}
+                  isActivelyStreaming={!!isLastMessage && !!isActivelyStreaming}
+                  // parsePhaseFromContent narrows to AgentPhase; RunTimeline hands
+                  // back the widened string, so cast the phase-block renderer.
+                  renderPhaseBlock={renderPhaseBlock as (phase: string, content: string, key: string, isActive?: boolean) => React.ReactNode}
+                  renderToolInvocation={renderToolInvocation}
+                  parsePhase={parsePhaseFromContent}
+                />
+                {textParts.map((part: any, index: number) =>
+                  renderTextPart(part, index, textParts.length),
+                )}
+              </>
+            );
+          }
 
-            return null;
-          })}
+          // Fallback: flat loop (user messages, pure-text assistant, legacy).
+          return (
+            <>
+              {parts.length > 0 &&
+                parts.map((part: any, index: number) => {
+                  // Text part
+                  if (part.type === "text") {
+                    return renderTextPart(part, index, parts.length);
+                  }
 
-        {/* Fallback for simple content (legacy / history rows without parts) */}
-        {parts.length === 0 && message.content && (
-          <MessageContentFallback content={message.content} />
-        )}
+                  // Reasoning part (contains phase markers)
+                  if (part.type === "reasoning") {
+                    const { phase, cleanContent } = parsePhaseFromContent(
+                      part.text || "",
+                    );
+                    const isLastReasoningPart = index === parts.map((p: any) => p.type).lastIndexOf("reasoning");
+                    const isActivePhase = isLastMessage && isActivelyStreaming && isLastReasoningPart;
+                    return renderPhaseBlock(
+                      phase,
+                      cleanContent,
+                      `${message.id}-part-${index}`,
+                      isActivePhase,
+                    );
+                  }
+
+                  // Tool invocation
+                  if (part.type === "tool-invocation" || part.toolCallId) {
+                    return renderToolInvocation(part, message.id, index);
+                  }
+
+                  return null;
+                })}
+
+              {/* Fallback for simple content (legacy / history rows without parts) */}
+              {parts.length === 0 && message.content && (
+                <MessageContentFallback content={message.content} />
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {/* User Avatar */}
@@ -733,6 +800,73 @@ export function ChatInterface({
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
+  // ── Mission Control run state ──────────────────────────────────────────────
+  // Restored pending-interrupt parts from a reload are appended as a synthetic
+  // assistant message so deriveRunState sees them like live stream parts.
+  const [restoredParts, setRestoredParts] = useState<any[]>([]);
+  const runMessages = useMemo(
+    () =>
+      restoredParts.length > 0
+        ? [...messages, { role: "assistant", parts: restoredParts, id: "restored-interrupt" }]
+        : messages,
+    [messages, restoredParts],
+  );
+
+  // Resume a run by submitting the decided approval/clarification batch.
+  // CARRIER MESSAGE: the /api/chat resume path branches on `body.decisions`
+  // BEFORE reading the last message, so the message itself carries no content.
+  // v7 `sendMessage` accepts an empty-content message (verified in the SDK
+  // source: a plain {role,content} object with no `text`/`files` key is pushed
+  // verbatim, no rejection), so we send `content: ""` and hide the resulting
+  // empty user bubble in rendering via isEmptyDecisionCarrier().
+  const submitDecisions = useCallback(
+    async (
+      decisionBatch: Array<{ toolCallId: string; approved: boolean; reason?: string; answer?: string }>,
+    ) => {
+      setRestoredParts([]); // decided — the synthetic restore card must not linger
+      await sendMessage(
+        { role: "user", content: "" } as any, // carrier; server acts on body.decisions
+        {
+          body: {
+            threadId,
+            autoApprove,
+            model: selectedModel,
+            mode: agentMode,
+            decisions: decisionBatch,
+            accounts:
+              selectedAccounts.length > 0
+                ? selectedAccounts.map((a) => ({ accountId: a.accountId, accountName: a.name }))
+                : undefined,
+            selectedSkill: selectedSkill || undefined,
+            mcpServerIds:
+              selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+            knowledgeBaseIds:
+              selectedKbIds.length > 0 ? selectedKbIds : undefined,
+          },
+        },
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sendMessage, threadId, autoApprove, selectedModel, agentMode, selectedAccounts, selectedSkill, selectedMcpServerIds, selectedKbIds],
+  );
+
+  // Pending ids = approval tools + clarifications; derive in two passes so
+  // useDecisions' resolved ids feed back into the displayed pending state.
+  const EMPTY_RESOLVED = useMemo(() => new Set<string>(), []);
+  const runStateRaw = useRunState(runMessages, EMPTY_RESOLVED);
+  const pendingIds = useMemo(
+    () => [
+      ...(runStateRaw.pendingApproval?.tools.map((t) => t.toolCallId) ?? []),
+      ...runStateRaw.pendingClarifications.map((c) => c.toolCallId),
+    ],
+    [runStateRaw.pendingApproval, runStateRaw.pendingClarifications],
+  );
+  const { decisions, decide, decideRemaining, resolvedIds } = useDecisions({
+    pendingToolCallIds: pendingIds,
+    onComplete: submitDecisions,
+  });
+  const runState = useRunState(runMessages, resolvedIds);
+
   // Use refs so the effects below only re-run when status/messages change,
   // not when the parent re-renders and passes new inline function references.
   const onStatusChangeRef = useRef(onStatusChange);
@@ -819,6 +953,21 @@ export function ChatInterface({
             setHasStarted(true);
           } else {
             console.log("[ChatInterface] No history found for thread");
+          }
+
+          // Mission Control: restore live run-state from the history response so
+          // a reload mid-run shows the plan / parked approval card again.
+          if (data.pendingInterrupt?.parts?.length) {
+            console.log(
+              "[ChatInterface] Restoring parked interrupt:",
+              data.pendingInterrupt.parts.length,
+              "part(s)",
+            );
+            setRestoredParts(data.pendingInterrupt.parts);
+            setHasStarted(true);
+          } else if (data.plan?.length) {
+            // Reloaded threads carry the final plan even without live data-plan parts.
+            setRestoredParts([{ type: "data-plan", data: { steps: data.plan, updatedBy: "history" } }]);
           }
         } else {
           console.warn("[ChatInterface] Failed to fetch history:", res.status);
@@ -1267,8 +1416,14 @@ export function ChatInterface({
     const state = part.state;
 
     const isCall = state === "call" || !result;
-    // Show approval UI only when: not auto-approve AND tool is in "call" state without result
-    const isPending = !autoApprove && isCall && !result && !isLoading;
+    // Mission Control owns approval/clarification for tool calls in the current
+    // pending batch — suppress the legacy inline Confirmation for those so the
+    // decision lives only in the batch/clarification card (avoids double UI).
+    const ownedByBatch =
+      runState.pendingApproval?.tools.some((t) => t.toolCallId === part.toolCallId) ||
+      runState.pendingClarifications.some((c) => c.toolCallId === part.toolCallId);
+    // Show approval UI only when: not owned by a card AND not auto-approve AND tool is in "call" state without result
+    const isPending = !ownedByBatch && !autoApprove && isCall && !result && !isLoading;
 
     const hasRealResult =
       !!result && result !== "Approved" && result !== "Cancelled by user";
@@ -1375,7 +1530,7 @@ export function ChatInterface({
       </Tool>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoApprove, isLoading, handleToolApproval, showTools]);
+  }, [autoApprove, isLoading, handleToolApproval, showTools, runState]);
 
   // Sample prompts
   const samplePrompts = [
@@ -1386,7 +1541,9 @@ export function ChatInterface({
 
   return (
     <>
-    <div className="relative flex flex-col h-full w-full overflow-hidden bg-background max-w-[95%] mx-auto border rounded-xl shadow-lg">
+    <div className="relative flex h-full w-full overflow-hidden bg-background max-w-[95%] mx-auto border rounded-xl shadow-lg">
+      {/* Left: conversation column (header + messages + composer) */}
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
       {distillSkill.isPending && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl">
           <SpinnerOverlay label="Generating skill..." />
@@ -1420,12 +1577,25 @@ export function ChatInterface({
           </p>
         </div>
 
+        {/* Compact status strip — mobile only; the full rail is hidden below lg */}
+        <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground lg:hidden">
+          {runState.plan.length > 0 && (
+            <span>
+              plan {runState.plan.filter((s) => s.status === "completed").length}/
+              {runState.plan.length}
+            </span>
+          )}
+          {runState.pendingApproval && (
+            <span className="text-amber-600">⚠ {runState.pendingApproval.tools.length}</span>
+          )}
+        </div>
+
         {onToggleFullscreen && (
           <Button
             variant="ghost"
             size="icon"
             onClick={onToggleFullscreen}
-            className="ml-auto h-8 w-8 shrink-0"
+            className="h-8 w-8 shrink-0 lg:ml-auto"
             title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
           >
             {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -1471,17 +1641,39 @@ export function ChatInterface({
             </div>
           )}
 
-          {/* Render messages */}
-          {messages.map((message: any, msgIndex: number) => (
-            <MessageRow
-              key={message.id}
-              message={message}
-              isLastMessage={msgIndex === messages.length - 1}
-              isActivelyStreaming={isLoading}
-              renderPhaseBlock={renderPhaseBlock}
-              renderToolInvocation={renderToolInvocation}
+          {/* Render messages — empty decision-carrier messages are hidden */}
+          {(() => {
+            const rendered = messages.filter((m: any) => !isEmptyDecisionCarrier(m));
+            return rendered.map((message: any, msgIndex: number) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                isLastMessage={msgIndex === rendered.length - 1}
+                isActivelyStreaming={isLoading}
+                renderPhaseBlock={renderPhaseBlock}
+                renderToolInvocation={renderToolInvocation}
+              />
+            ));
+          })()}
+
+          {/* Mission Control decision cards — clarifications first, then the
+              approval batch. These own the resume decision for their tool calls
+              (the inline legacy Confirmation is suppressed for them). */}
+          {runState.pendingClarifications.map((c) => (
+            <ClarificationCard
+              key={c.toolCallId}
+              clarification={c}
+              onAnswer={(id, answer) => decide(id, { approved: true, answer })}
             />
           ))}
+          {runState.pendingApproval && (
+            <ApprovalBatchCard
+              tools={runState.pendingApproval.tools}
+              decisions={decisions}
+              onDecide={decide}
+              onDecideRemaining={decideRemaining}
+            />
+          )}
 
           {/* Loading indicator — shown for the full agent execution lifecycle */}
           {isLoading && (
@@ -2291,8 +2483,9 @@ export function ChatInterface({
                 <Label
                   htmlFor="auto-approve-chat"
                   className="text-xs font-medium cursor-pointer text-muted-foreground select-none"
+                  title="Read-only tools run without asking. Destructive actions always pause for approval."
                 >
-                  Auto-approve tools
+                  Auto-approve read-only tools
                 </Label>
               </div>
 
@@ -2359,6 +2552,25 @@ export function ChatInterface({
             </div>
           </div>
         </form>
+      </div>
+      </div>
+
+      {/* Right: run rail — hidden below lg */}
+      <div className="hidden w-72 shrink-0 lg:block xl:w-80">
+        <RunRail
+          runState={runState}
+          isStreaming={isLoading}
+          context={{
+            accountNames: selectedAccounts.map((a) => a.name),
+            modelLabel: availableModels.find((m) => m.id === selectedModel)?.label ?? selectedModel,
+            skillName: availableSkills.find((s) => s.id === selectedSkill)?.name ?? null,
+            toolCount: null,
+            kbLabel:
+              selectedKbIds.length > 0
+                ? `Knowledge: ${selectedKbIds.length} selected`
+                : "Knowledge: All (auto)",
+          }}
+        />
       </div>
     </div>
     <SkillFormDialog
