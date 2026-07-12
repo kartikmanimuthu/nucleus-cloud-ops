@@ -225,7 +225,7 @@ Background jobs run in `workers/` as a single Node.js process using pg-boss:
 ## Component Patterns
 
 - UI primitives in `apps/web-ui/components/ui/` — Radix-based, shadcn/ui style (do not modify these)
-- Feature components organized by domain: `agent/`, `agent-ops/`, `inventory/`, `schedules/`, `accounts/`, `audit/`, `knowledge-base/`, `channels/`, `deep-agent/`
+- Feature components organized by domain: `agent/` (incl. `agent/chat/` — Mission Control chat components), `agent-ops/`, `inventory/`, `schedules/`, `accounts/`, `audit/`, `knowledge-base/`, `channels/`, `deep-agent/`
 - Use `@/` path alias for all imports (maps to `apps/web-ui/`)
 - Conditional Tailwind: `cn()` utility from `@/lib/utils`
 

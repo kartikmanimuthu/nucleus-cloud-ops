@@ -624,6 +624,8 @@ export function ChatInterface({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [wasStopped, setWasStopped] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
+  // LEGACY: pre-data-part threads only — new runs render the plan rail (T5) from
+  // typed data parts, not by parsing text content here.
   const planStepCacheRef = useRef(new Map<string, string[]>());
   // rAF handle for debounced auto-scroll — cancelled if a new message arrives before the frame fires.
   const scrollRafRef = useRef<number | null>(null);
@@ -1155,6 +1157,10 @@ export function ChatInterface({
   };
 
   // Handle tool approval - makes explicit API call to resume LangGraph execution
+  // LEGACY resume contract: only reachable via the inline per-tool Confirmation
+  // below, which itself only renders when a pending tool call isn't owned by the
+  // batch/clarification cards (i.e. old parked threads without typed data parts).
+  // Current runs resolve approvals through `decide` (batch decision, T2/T7).
   const handleToolApproval = async (
     toolCallId: string,
     approved: boolean,
@@ -1224,6 +1230,8 @@ export function ChatInterface({
 
     // Parse plan steps from content - handle multiple formats
     // Use cache to avoid re-parsing identical content on every render
+    // LEGACY: pre-data-part threads only — text-parsed plan steps, superseded by
+    // the typed `plan` data part (T5 live plan rail) for current runs.
     let planSteps: string[] = [];
 
     if (phase === "planning") {
