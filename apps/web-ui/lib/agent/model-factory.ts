@@ -21,6 +21,7 @@ import {
     createListAwsAccountsTool,
     writeFileToS3Tool,
     getFileFromS3Tool,
+    askUserTool,
 } from "./tools";
 import { createGetRightSizingRecommendationsTool } from "./right-sizing-tool";
 import { createSearchKnowledgeBaseTool } from "./kb-tool";
@@ -254,6 +255,7 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
         createGetAwsCredentialsTool(effectiveTenantId),
         createListAwsAccountsTool(effectiveTenantId),
         createGetRightSizingRecommendationsTool(effectiveTenantId),
+        askUserTool,
         ...(includeS3Tools ? [writeFileToS3Tool, getFileFromS3Tool] : []),
         ...memoryTools,
         ...kbTools,

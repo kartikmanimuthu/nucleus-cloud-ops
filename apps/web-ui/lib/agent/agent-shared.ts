@@ -58,6 +58,23 @@ export interface PlanStep {
     status: 'pending' | 'in_progress' | 'completed' | 'failed';
 }
 
+/** Verdict produced by the guard node for one pending tool call. */
+export interface GuardVerdict {
+    toolCallId: string;
+    toolName: string;
+    isMutative: boolean;
+    severity: 'LOW' | 'MEDIUM' | 'HIGH';
+    /** One-sentence statement of what the call does (e.g. "Terminates EC2 instance i-0abc"). */
+    action: string;
+    /** What is affected if this runs (data loss, downstream services, cost). */
+    blastRadius: string;
+    reversible: boolean;
+    /** A less-destructive alternative, or "" when none applies. */
+    saferPath: string;
+    /** Classifier/LLM reason string for observability. */
+    reason: string;
+}
+
 export interface ToolResultEntry {
     toolName: string;
     output: string;      // truncated to 1000 chars
@@ -81,6 +98,7 @@ export interface ReflectionState {
     memoryStats: MemoryStats | null;
     runningSummary: string; // Phase 1: rolling summary of compacted turns
     scratchpad: Scratchpad; // Phase 1: structured working-memory scratchpad
+    guardVerdicts: Record<string, GuardVerdict>; // keyed by toolCallId, replaced per guard pass
 }
 
 // --- Schema for StateGraph ---
@@ -149,6 +167,10 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     scratchpad: {
         reducer: (x: Scratchpad, y: Scratchpad) => y || x,
         default: () => ({ openGoals: [], keyFindings: [], resourceIds: [], pendingSteps: [] }),
+    },
+    guardVerdicts: {
+        reducer: (x: Record<string, GuardVerdict>, y: Record<string, GuardVerdict>) => y,
+        default: () => ({}),
     },
 };
 
