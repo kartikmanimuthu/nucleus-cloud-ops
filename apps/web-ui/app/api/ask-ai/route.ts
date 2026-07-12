@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { invokeTextToSQL } from '@/lib/agent/text-to-sql';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
-import type { Message } from 'ai';
 
 // In-memory conversation store (keyed by conversationId)
 // NOTE: single-process only — needs Redis or DB-backed store before horizontal scaling
 const conversationStore = new Map<string, Array<{ role: string; content: string }>>();
 const MAX_CONVERSATION_TURNS = 10;
+
+// NOTE: this route's wire contract is a flat { role, content } shape hand-rolled by
+// components/inventory/ask-ai-dialog.tsx — it does not use the AI SDK's UIMessage/parts
+// format, so it is typed locally rather than borrowed from the `ai` package.
+type ChatMessage = { id?: string; role: string; content: string };
 
 export async function POST(req: NextRequest) {
     try {
@@ -20,7 +24,7 @@ export async function POST(req: NextRequest) {
 
         const body = await req.json();
 
-        const userMessages: Message[] = body.messages || [];
+        const userMessages: ChatMessage[] = body.messages || [];
         const prompt: string = body.prompt || body.query || (userMessages.at(-1)?.content as string) || "";
         const conversationId: string = body.id || body.conversationId || "";
         const filters = body.filters as { accountId?: string; region?: string; resourceType?: string } | undefined;

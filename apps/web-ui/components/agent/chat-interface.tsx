@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -693,34 +694,32 @@ export function ChatInterface({
   const { messages, sendMessage, status, error, reload, setMessages, addToolResult, stop, regenerate } =
     useChat({
       id: threadId,
-      api: "/api/chat",
       // Batch micro-delta SSE chunks into 50ms windows, reducing ~4000+ renders → ~80-100.
       // Without this, every 1-8 byte token fires a full React reconciliation cycle.
       experimental_throttle: 500,
-      maxSteps: 10,
-      body: {
-        threadId,
-        autoApprove,
-        model: selectedModel,
-        mode: agentMode,
-        accounts:
-          selectedAccounts.length > 0
-            ? selectedAccounts.map((a) => ({
-                accountId: a.accountId,
-                accountName: a.name,
-              }))
-            : undefined,
-        selectedSkill: selectedSkill || undefined,
-        mcpServerIds:
-          selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
-        knowledgeBaseIds:
-          selectedKbIds.length > 0 ? selectedKbIds : undefined,
-      },
-      onResponse: (response: Response) => {
-        console.log("[ChatInterface] Received response headers:", response);
-      },
-      onFinish: (message: any, options: any) => {
-        console.log("[ChatInterface] Chat finished. Final message:", message);
+      transport: new DefaultChatTransport({
+        api: "/api/chat",
+        body: {
+          threadId,
+          autoApprove,
+          model: selectedModel,
+          mode: agentMode,
+          accounts:
+            selectedAccounts.length > 0
+              ? selectedAccounts.map((a) => ({
+                  accountId: a.accountId,
+                  accountName: a.name,
+                }))
+              : undefined,
+          selectedSkill: selectedSkill || undefined,
+          mcpServerIds:
+            selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+          knowledgeBaseIds:
+            selectedKbIds.length > 0 ? selectedKbIds : undefined,
+        },
+      }),
+      onFinish: (options) => {
+        console.log("[ChatInterface] Chat finished. Final message:", options.message);
         console.log("[ChatInterface] Usage/Options:", options);
       },
       onError: (error) => {
