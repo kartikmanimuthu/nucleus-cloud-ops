@@ -146,6 +146,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
     "@types/bcryptjs": "^2.4.6",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22",
@@ -158,6 +159,7 @@
     "eslint": "^9",
     "eslint-config-next": "15.5.15",
     "fast-check": "^4.5.3",
+    "jsdom": "^29.1.1",
     "typescript": "^5",
     "vitest": "^4.0.18"
   }
