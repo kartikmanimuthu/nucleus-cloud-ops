@@ -76,7 +76,8 @@ export async function POST(req: Request) {
             accountName,    // Deprecated: single AWS account name
             selectedSkill,  // Skill ID for dynamic skill loading
             mcpServerIds,   // MCP server IDs to activate for this session
-            knowledgeBaseIds // Knowledge Base IDs manually selected in the console
+            knowledgeBaseIds, // Knowledge Base IDs manually selected in the console
+            decisions       // Per-tool approval decisions (new resume contract)
         } = await req.json();
         // Resolve userId and tenantId from session
         let resolvedUserId: string;
@@ -235,7 +236,59 @@ export async function POST(req: Request) {
             );
         }
 
-        if (lastMessage.role === 'tool') {
+        if (Array.isArray(decisions) && decisions.length > 0) {
+            // Per-tool decision resume (new contract; legacy role:'tool' path below still works)
+            const { buildDecisionToolMessages } = await import('./decisions');
+            const { pendingToolCallsOf } = await import('@/lib/agent/guard');
+
+            const interruptState = await graph.getState(config);
+            preRunMessageCount = interruptState.values?.messages?.length ?? 0;
+            const nextNodes: string[] = (interruptState.next as string[] | undefined) ?? [];
+            if (!nextNodes.includes('approval_gate')) {
+                releaseLock();
+                return new Response(JSON.stringify({ error: 'No pending approval on this thread.' }), {
+                    status: 409, headers: { 'Content-Type': 'application/json' },
+                });
+            }
+            const pending = pendingToolCallsOf(interruptState.values);
+            const result = buildDecisionToolMessages(pending, decisions);
+            if (!result.ok) {
+                releaseLock();
+                return new Response(JSON.stringify({ error: result.error }), {
+                    status: 400, headers: { 'Content-Type': 'application/json' },
+                });
+            }
+            if (result.toolMessages.length > 0) {
+                await graph.updateState(config, { messages: result.toolMessages });
+            }
+
+            // Audit every decision on a mutative call (guard verdicts live in state)
+            try {
+                const { AuditService } = await import('@/lib/audit-service');
+                const verdicts = interruptState.values?.guardVerdicts ?? {};
+                for (const call of pending) {
+                    const v = verdicts[call.id];
+                    if (!v?.isMutative) continue;
+                    const approved = result.approvedIds.includes(call.id);
+                    await AuditService.logAgentEvent({
+                        eventType: 'chat_tool_approval',
+                        action: approved ? 'approve_mutative_tool' : 'reject_mutative_tool',
+                        userId: resolvedUserId,
+                        tenantId: resolvedTenantId,
+                        status: 'success',
+                        details: `${approved ? 'Approved' : 'Rejected'} ${call.name} (severity ${v.severity}): ${v.action}`,
+                        resourceType: 'agent_tool_call',
+                        resourceId: call.id,
+                        metadata: { toolName: call.name, severity: v.severity, argsHash: JSON.stringify(call.args).slice(0, 200) },
+                        correlationId: threadId,
+                    });
+                }
+            } catch (auditErr) {
+                console.warn('[Chat API] approval audit failed (non-fatal):', auditErr);
+            }
+
+            input = null; // resume from the approval_gate interrupt
+        } else if (lastMessage.role === 'tool') {
             // Tool result (Human-in-the-Loop approval)
             console.log(`[API] Processing tool message. Full message:`, JSON.stringify(lastMessage));
             console.log(`[API] Extracted toolCallId: ${lastMessage.toolCallId}`);
