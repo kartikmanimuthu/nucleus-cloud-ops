@@ -198,7 +198,9 @@ Only return the JSON array, nothing else.`);
         return {
             plan: planSteps,
             taskDescription,
-            messages: [tagMessagePhase(new AIMessage({ content: `📋 **Plan Created:**\n${planText}` }), 'planning')],
+            // Keep a short text (with phase marker) for legacy rendering + history;
+            // the structured plan streams as data-plan parts.
+            messages: [tagMessagePhase(new AIMessage({ content: `📋 Created a ${planSteps.length}-step execution plan.` }), 'planning')],
             nextAction: "generate"
         };
     }

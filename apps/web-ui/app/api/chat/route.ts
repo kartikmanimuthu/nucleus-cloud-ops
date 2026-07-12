@@ -8,6 +8,7 @@ import { buildClientErrorText } from '@/lib/agent/stream-error';
 import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
+import { buildPlanPart, buildPhasePart, buildInterruptParts } from './stream-parts';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -679,6 +680,7 @@ function processStream(
                             const node = event.metadata?.langgraph_node;
                             currentPhase = getPhaseFromNode(node || "");
                             phaseList.push(currentPhase);
+                            safeEnqueue(buildPhasePart(currentPhase, node || '') as UIMessageChunk);
 
                             // Ensure unique IDs per chat model run to avoid index conflicts
                             partCounter++;
@@ -802,8 +804,45 @@ function processStream(
                                 if (!safeEnqueue({ type: "tool-output-available", toolCallId: toolId, output: outputContent })) break;
                             }
                         }
+                        else if (event.event === "on_chain_end") {
+                            // Graph-node completion: stream plan snapshots when a node changed the plan.
+                            // Deviation from the brief: keyed off `event.metadata?.langgraph_node` rather
+                            // than `event.name`. LangGraph sets both `runName` and `metadata.langgraph_node`
+                            // to the node id for the node's own chain run (pregel/algo.js), but metadata
+                            // propagates to every nested child run inside that node (e.g. internal
+                            // ChannelWrite steps) while `runName`/`event.name` does not — so `event.name`
+                            // would miss chain-end events whose outer runnable isn't named after the node.
+                            // The `Array.isArray(output?.plan)` guard below still ensures we only ever act
+                            // on the one chain-end whose output is actually the node's returned partial
+                            // state (internal steps have a differently-shaped output).
+                            const node = event.metadata?.langgraph_node || event.name || "";
+                            const output = event.data?.output as { plan?: Array<{ step: string; status: string }> } | undefined;
+                            if (
+                                threadId &&
+                                ["planner", "generate", "reflect", "revise", "tools"].includes(node) &&
+                                Array.isArray(output?.plan) && output!.plan.length > 0
+                            ) {
+                                safeEnqueue(buildPlanPart(threadId, output!.plan as any, node) as UIMessageChunk);
+                            }
+                        }
                     } catch (innerError) {
                         console.error("Stream event processing error:", innerError);
+                    }
+                }
+
+                // If the run parked at the approval_gate interrupt, describe the pending
+                // batch as typed parts so the client can render decision cards.
+                if (threadId && graph && config) {
+                    try {
+                        const parked = await graph.getState(config);
+                        const nextNodes: string[] = (parked?.next as string[] | undefined) ?? [];
+                        if (nextNodes.includes('approval_gate')) {
+                            for (const part of buildInterruptParts(parked.values ?? {}, threadId)) {
+                                safeEnqueue(part as UIMessageChunk);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[Chat API] interrupt part emission failed (non-fatal):', e);
                     }
                 }
 
