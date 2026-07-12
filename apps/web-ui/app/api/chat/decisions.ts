@@ -1,4 +1,5 @@
 import { ToolMessage } from '@langchain/core/messages';
+import type { PendingToolCall } from '@/lib/agent/guard';
 
 export interface ToolDecision {
     toolCallId: string;
@@ -8,8 +9,6 @@ export interface ToolDecision {
     /** Required answer text for approved ask_user calls. */
     answer?: string;
 }
-
-interface PendingCall { id: string; name: string; args: Record<string, unknown> }
 
 export type DecisionsResult =
     | { ok: true; toolMessages: ToolMessage[]; approvedIds: string[]; rejectedIds: string[] }
@@ -21,7 +20,7 @@ export type DecisionsResult =
  * the tools node executes them. Rejected tools and ask_user calls produce
  * results so withUnresolvedToolCallsOnly() excludes them from execution.
  */
-export function buildDecisionToolMessages(pending: PendingCall[], decisions: ToolDecision[]): DecisionsResult {
+export function buildDecisionToolMessages(pending: PendingToolCall[], decisions: ToolDecision[]): DecisionsResult {
     const byId = new Map(decisions.map(d => [d.toolCallId, d]));
     const pendingIds = new Set(pending.map(p => p.id));
 

@@ -236,7 +236,7 @@ export async function POST(req: Request) {
             );
         }
 
-        if (Array.isArray(decisions) && decisions.length > 0) {
+        if (Array.isArray(decisions)) {
             // Per-tool decision resume (new contract; legacy role:'tool' path below still works)
             const { buildDecisionToolMessages } = await import('./decisions');
             const { pendingToolCallsOf } = await import('@/lib/agent/guard');
@@ -262,6 +262,15 @@ export async function POST(req: Request) {
                 await graph.updateState(config, { messages: result.toolMessages });
             }
 
+            // Resume-stream coherence: emitting tool-input events for the approved
+            // executions requires the isResumedFromApproval path in processStream.
+            const firstApprovedRealTool = pending.find(
+                c => c.name !== 'ask_user' && result.approvedIds.includes(c.id),
+            );
+            if (firstApprovedRealTool) {
+                resumedToolCallId = firstApprovedRealTool.id;
+            }
+
             // Audit every decision on a mutative call (guard verdicts live in state)
             try {
                 const { AuditService } = await import('@/lib/audit-service');
@@ -279,7 +288,7 @@ export async function POST(req: Request) {
                         details: `${approved ? 'Approved' : 'Rejected'} ${call.name} (severity ${v.severity}): ${v.action}`,
                         resourceType: 'agent_tool_call',
                         resourceId: call.id,
-                        metadata: { toolName: call.name, severity: v.severity, argsHash: JSON.stringify(call.args).slice(0, 200) },
+                        metadata: { toolName: call.name, severity: v.severity, argsPreview: JSON.stringify(call.args).slice(0, 200) },
                         correlationId: threadId,
                     });
                 }

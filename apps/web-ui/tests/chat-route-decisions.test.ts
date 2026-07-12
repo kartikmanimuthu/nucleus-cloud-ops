@@ -8,6 +8,12 @@ const pending = [
 ];
 
 describe('buildDecisionToolMessages', () => {
+    it('rejects an empty decision batch when calls are pending', () => {
+        const r = buildDecisionToolMessages(pending, []);
+        expect(r.ok).toBe(false);
+        expect(!r.ok && r.error).toMatch(/undecided/i);
+    });
+
     it('rejects partial batches', () => {
         const r = buildDecisionToolMessages(pending, [{ toolCallId: 't1', approved: true }]);
         expect(r.ok).toBe(false);
