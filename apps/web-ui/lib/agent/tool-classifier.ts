@@ -163,6 +163,13 @@ export function classifyTool(toolName: string, toolArgs?: Record<string, unknown
     // Special handling for bash/shell — inspect the command string
     if (name === 'bash' || name === 'shell' || name === 'run_command' || name === 'execute_command') {
         const cmd = String(toolArgs?.command || toolArgs?.cmd || toolArgs?.input || '');
+        if (!cmd && toolArgs && Object.keys(toolArgs).length > 0) {
+            // Bash-like tool call, but the command wasn't in any of the recognized
+            // arg keys (e.g. { script: '...' }) — inspecting an empty string would
+            // silently fail open as "read-only". Route to the guard's LLM
+            // adjudication instead (fail-closed on unrecognized shapes).
+            return { isMutative: false, reason: 'bash-like tool with unrecognized args — needs LLM adjudication', matchedRule: false };
+        }
         for (const pattern of MUTATIVE_BASH_PATTERNS) {
             if (pattern.test(cmd)) {
                 return { isMutative: true, reason: `mutative bash command: ${cmd.slice(0, 80)}`, matchedRule: true };

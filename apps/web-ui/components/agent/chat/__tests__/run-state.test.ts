@@ -55,6 +55,18 @@ describe('deriveRunState', () => {
         expect(rs.plan).toEqual([]);
     });
 
+    it('mixed batch, SERVER-TRUE order (data-approval then data-clarification in the SAME message) — both survive', () => {
+        const rs = deriveRunState([
+            msg([
+                { type: 'data-approval', data: { batchId: 'b1', tools: [{ toolCallId: 't1', toolName: 'execute_command', args: {}, guard: null }] } },
+                { type: 'data-clarification', data: { toolCallId: 't2', question: 'which region?', options: ['us-east-1'] } },
+            ]),
+        ] as any, new Set());
+        expect(rs.pendingApproval!.tools.map(t => t.toolCallId)).toEqual(['t1']);
+        expect(rs.pendingClarifications).toHaveLength(1);
+        expect(rs.pendingClarifications[0].toolCallId).toBe('t2');
+    });
+
     it('only the LAST data-approval batch counts (earlier batches are history)', () => {
         const rs = deriveRunState([
             msg([{ type: 'data-approval', data: { batchId: 'b1', tools: [{ toolCallId: 't1', toolName: 'x', args: {}, guard: null }] } }]),

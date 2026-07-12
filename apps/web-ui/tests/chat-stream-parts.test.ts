@@ -27,6 +27,22 @@ describe('buildInterruptParts', () => {
         expect(clarify.data.options).toEqual(['us-east-1']);
     });
 
+    it('orders data-approval BEFORE data-clarification in a mixed batch (deriveRunState resets stale clarifications on data-approval, so approval must lead)', () => {
+        const values = {
+            messages: [ai([
+                { id: 't1', name: 'execute_command', args: { command: 'aws ec2 stop-instances' } },
+                { id: 't2', name: 'ask_user', args: { question: 'Which region?', options: ['us-east-1'] } },
+            ])],
+            guardVerdicts: {
+                t1: { toolCallId: 't1', toolName: 'execute_command', isMutative: true, severity: 'MEDIUM', action: 'Stops instance', blastRadius: 'Downtime', reversible: true, saferPath: '', reason: 'x' },
+                t2: { toolCallId: 't2', toolName: 'ask_user', isMutative: false, severity: 'LOW', action: '', blastRadius: '', reversible: true, saferPath: '', reason: 'x' },
+            },
+        };
+        const parts = buildInterruptParts(values as any, 'thread-1');
+        expect(parts[0].type).toBe('data-approval');
+        expect(parts.slice(1).every(p => p.type === 'data-clarification')).toBe(true);
+    });
+
     it('returns [] when nothing is pending', () => {
         expect(buildInterruptParts({ messages: [new AIMessage({ content: 'hi' })], guardVerdicts: {} } as any, 't')).toEqual([]);
     });

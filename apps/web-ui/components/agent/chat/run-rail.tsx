@@ -73,7 +73,8 @@ export function RunRail({
           )}
           {pendingClarifications.length > 0 && (
             <li className="flex items-center gap-1.5 text-blue-600">
-              <HelpCircle className="h-3 w-3" /> question awaiting your answer
+              <HelpCircle className="h-3 w-3" />
+              {pendingClarifications.length > 1 ? `${pendingClarifications.length} questions awaiting your answer` : 'question awaiting your answer'}
             </li>
           )}
           <li className="flex items-center gap-1.5">

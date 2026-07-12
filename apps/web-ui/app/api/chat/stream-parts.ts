@@ -23,12 +23,12 @@ export function buildInterruptParts(
     const pending = pendingToolCallsOf(values);
     if (pending.length === 0) return [];
     const verdicts: Record<string, GuardVerdict> = values.guardVerdicts ?? {};
-    const parts: DataPart[] = [];
     const approvalTools: unknown[] = [];
+    const clarificationParts: DataPart[] = [];
 
     for (const call of pending) {
         if (call.name === 'ask_user') {
-            parts.push({
+            clarificationParts.push({
                 type: 'data-clarification',
                 id: `clarify-${call.id}`,
                 data: {
@@ -46,6 +46,10 @@ export function buildInterruptParts(
             });
         }
     }
+
+    const parts: DataPart[] = [];
+    // Order matters: deriveRunState resets stale clarifications when a data-approval
+    // arrives, so the approval part must precede clarifications from the SAME interrupt.
     if (approvalTools.length > 0) {
         parts.push({
             type: 'data-approval',
@@ -53,5 +57,6 @@ export function buildInterruptParts(
             data: { batchId: `batch-${threadId}-${Date.now()}`, tools: approvalTools },
         });
     }
+    parts.push(...clarificationParts);
     return parts;
 }

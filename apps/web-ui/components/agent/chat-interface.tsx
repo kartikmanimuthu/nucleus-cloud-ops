@@ -825,28 +825,37 @@ export function ChatInterface({
     async (
       decisionBatch: Array<{ toolCallId: string; approved: boolean; reason?: string; answer?: string }>,
     ) => {
-      setRestoredParts([]); // decided — the synthetic restore card must not linger
-      await sendMessage(
-        { role: "user", content: "" } as any, // carrier; server acts on body.decisions
-        {
-          body: {
-            threadId,
-            autoApprove,
-            model: selectedModel,
-            mode: agentMode,
-            decisions: decisionBatch,
-            accounts:
-              selectedAccounts.length > 0
-                ? selectedAccounts.map((a) => ({ accountId: a.accountId, accountName: a.name }))
-                : undefined,
-            selectedSkill: selectedSkill || undefined,
-            mcpServerIds:
-              selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
-            knowledgeBaseIds:
-              selectedKbIds.length > 0 ? selectedKbIds : undefined,
+      try {
+        await sendMessage(
+          { role: "user", content: "" } as any, // carrier; server acts on body.decisions
+          {
+            body: {
+              threadId,
+              autoApprove,
+              model: selectedModel,
+              mode: agentMode,
+              decisions: decisionBatch,
+              accounts:
+                selectedAccounts.length > 0
+                  ? selectedAccounts.map((a) => ({ accountId: a.accountId, accountName: a.name }))
+                  : undefined,
+              selectedSkill: selectedSkill || undefined,
+              mcpServerIds:
+                selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+              knowledgeBaseIds:
+                selectedKbIds.length > 0 ? selectedKbIds : undefined,
+            },
           },
-        },
-      );
+        );
+        // Only clear the restored card once the submission actually succeeded —
+        // clearing it eagerly meant a failed submit left no way to retry.
+        setRestoredParts([]);
+      } catch (err) {
+        toast.error("Couldn't submit your decisions", {
+          description: err instanceof Error ? err.message : "The run may be busy — try again.",
+        });
+        decisionsResetRef.current?.();
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sendMessage, threadId, autoApprove, selectedModel, agentMode, selectedAccounts, selectedSkill, selectedMcpServerIds, selectedKbIds],
@@ -863,10 +872,14 @@ export function ChatInterface({
     ],
     [runStateRaw.pendingApproval, runStateRaw.pendingClarifications],
   );
-  const { decisions, decide, decideRemaining, resolvedIds } = useDecisions({
+  const { decisions, decide, decideRemaining, resolvedIds, reset: resetDecisions } = useDecisions({
     pendingToolCallIds: pendingIds,
     onComplete: submitDecisions,
   });
+  // submitDecisions is defined above useDecisions but needs to call reset() on
+  // failure — a ref sidesteps the circular dependency without reordering hooks.
+  const decisionsResetRef = useRef<(() => void) | null>(null);
+  decisionsResetRef.current = resetDecisions;
   const runState = useRunState(runMessages, resolvedIds);
 
   // Use refs so the effects below only re-run when status/messages change,
@@ -966,7 +979,13 @@ export function ChatInterface({
               data.pendingInterrupt.parts.length,
               "part(s)",
             );
-            setRestoredParts(data.pendingInterrupt.parts);
+            // A parked plan-mode run carries BOTH a plan and a pending interrupt —
+            // prepend the plan part so the plan rail survives the reload, not just
+            // the approval/clarification card.
+            setRestoredParts([
+              ...(data.plan?.length ? [{ type: "data-plan", data: { steps: data.plan, updatedBy: "history" } }] : []),
+              ...data.pendingInterrupt.parts,
+            ]);
             setHasStarted(true);
           } else if (data.plan?.length) {
             // Reloaded threads carry the final plan even without live data-plan parts.

@@ -62,4 +62,20 @@ describe('useDecisions', () => {
         rerender({ ids: ['t1', 't9'] });
         expect(onComplete).toHaveBeenCalledTimes(1);
     });
+
+    it('reset() re-arms a completed batch so it can be resubmitted after a failed submission', () => {
+        const onComplete = vi.fn();
+        const { result } = renderHook(() => useDecisions({ pendingToolCallIds: ['t1', 't2'], onComplete }));
+        act(() => result.current.decide('t1', { approved: true }));
+        act(() => result.current.decide('t2', { approved: false }));
+        expect(onComplete).toHaveBeenCalledTimes(1);
+
+        act(() => result.current.reset());
+        expect(result.current.decidedCount).toBe(0);
+        expect(result.current.resolvedIds.size).toBe(0);
+
+        act(() => result.current.decide('t1', { approved: true }));
+        act(() => result.current.decide('t2', { approved: true }));
+        expect(onComplete).toHaveBeenCalledTimes(2);
+    });
 });

@@ -24,4 +24,9 @@ describe('classifyTool (shared location)', () => {
     it('classifies name-pattern mutations (write_file) as mutative', () => {
         expect(classifyTool('write_file', { file_path: 'a', content: 'b' }).isMutative).toBe(true);
     });
+
+    it('routes bash-like tools with unrecognized arg keys to the unknown path', () => {
+        const r = classifyTool('run_command', { script: 'terraform destroy -auto-approve' });
+        expect(r.matchedRule).toBe(false);
+    });
 });

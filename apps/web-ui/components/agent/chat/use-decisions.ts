@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
 
@@ -44,6 +44,9 @@ export function useDecisions(opts: {
             return next;
         });
 
+    // Re-arm the batch after a failed submission so the same decisions can be resubmitted.
+    const reset = useCallback(() => { setDecisions({}); firedRef.current = false; }, []);
+
     const decidedCount = pendingToolCallIds.filter(id => decisions[id] !== undefined).length;
 
     const allDecided =
@@ -57,5 +60,5 @@ export function useDecisions(opts: {
         [allDecided, decisions],
     );
 
-    return { decisions, decide, decideRemaining, decidedCount, resolvedIds };
+    return { decisions, decide, decideRemaining, decidedCount, resolvedIds, reset };
 }

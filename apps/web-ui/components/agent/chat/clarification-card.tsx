@@ -54,7 +54,7 @@ export function ClarificationCard({
               }
             }}
           />
-          <Button size="sm" className="h-8 shrink-0" disabled={!text.trim()} onClick={() => submit(text)}>
+          <Button size="sm" className="h-8 shrink-0" disabled={!text.trim()} onClick={() => submit(text)} aria-label="Send answer">
             <Send className="h-3.5 w-3.5" />
           </Button>
         </div>
