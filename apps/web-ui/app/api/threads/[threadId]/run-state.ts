@@ -49,11 +49,21 @@ export function extractThreadRunState(
         ? channelValues!.plan!
         : null;
 
-    const parts = buildInterruptParts(
-        { messages: channelValues?.messages ?? [], guardVerdicts: channelValues?.guardVerdicts ?? {} },
-        threadId,
-    );
-    const pendingInterrupt = parts.length > 0 ? { parts } : null;
+    // Only fast/planning graphs park at approval_gate, and their guard node always
+    // populates guardVerdicts immediately beforehand. Deep-agent threads (different
+    // interrupt mechanism, not resumable via the decisions contract) and legacy
+    // threads have no guardVerdicts — never surface a pending card for them.
+    const guardVerdicts = channelValues?.guardVerdicts ?? {};
+    const isGateShaped = Object.keys(guardVerdicts).length > 0;
+
+    let pendingInterrupt: { parts: DataPart[] } | null = null;
+    if (isGateShaped) {
+        const parts = buildInterruptParts(
+            { messages: channelValues?.messages ?? [], guardVerdicts },
+            threadId,
+        );
+        pendingInterrupt = parts.length > 0 ? { parts } : null;
+    }
 
     return { plan, pendingInterrupt };
 }
