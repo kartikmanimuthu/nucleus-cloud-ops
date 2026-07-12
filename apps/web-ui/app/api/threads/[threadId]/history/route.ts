@@ -190,7 +190,7 @@ export async function GET(
             checkpoint = await checkpointer.getTuple({ configurable: { thread_id: threadId } });
             if (checkpoint?.checkpoint) {
                 const { extractThreadRunState } = await import('../run-state');
-                const channelValues = (checkpoint.checkpoint.channel_values ?? {}) as any;
+                const channelValues = (checkpoint.checkpoint.channel_values ?? {}) as Partial<import('@/lib/agent/agent-shared').ReflectionState>;
                 const rs = extractThreadRunState(channelValues, threadId);
                 plan = rs.plan;
                 pendingInterrupt = rs.pendingInterrupt;

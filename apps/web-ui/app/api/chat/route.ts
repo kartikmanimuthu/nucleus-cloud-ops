@@ -9,6 +9,7 @@ import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
 import { buildPlanPart, buildPhasePart, buildInterruptParts } from './stream-parts';
+import type { PlanStep } from '@/lib/agent/agent-shared';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -816,13 +817,13 @@ function processStream(
                             // on the one chain-end whose output is actually the node's returned partial
                             // state (internal steps have a differently-shaped output).
                             const node = event.metadata?.langgraph_node || event.name || "";
-                            const output = event.data?.output as { plan?: Array<{ step: string; status: string }> } | undefined;
+                            const output = event.data?.output as { plan?: PlanStep[] } | undefined;
                             if (
                                 threadId &&
                                 ["planner", "generate", "reflect", "revise", "tools"].includes(node) &&
                                 Array.isArray(output?.plan) && output!.plan.length > 0
                             ) {
-                                safeEnqueue(buildPlanPart(threadId, output!.plan as any, node) as UIMessageChunk);
+                                safeEnqueue(buildPlanPart(threadId, output!.plan, node) as UIMessageChunk);
                             }
                         }
                     } catch (innerError) {
