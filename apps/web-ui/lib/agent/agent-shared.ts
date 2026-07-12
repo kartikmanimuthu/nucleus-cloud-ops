@@ -592,7 +592,7 @@ export function withUnresolvedToolCallsOnly(
     }
     const unresolved = calls.filter(c => c.id && !resolved.has(c.id));
     if (unresolved.length === 0) return null;
-    if (unresolved.length === calls.length) return { messages: messages.slice(0, lastAiIdx + 1) };
+    if (unresolved.length === calls.length) return { messages };
 
     const filteredAi = new AIMessage({
         content: ai.content,
@@ -601,7 +601,8 @@ export function withUnresolvedToolCallsOnly(
         response_metadata: ai.response_metadata,
         id: ai.id,
     });
-    const view = messages.slice(0, lastAiIdx + 1);
+    // Execution-scoped clone for ToolNode only — not a general-purpose message copy (drops usage_metadata/name).
+    const view = [...messages];
     view[lastAiIdx] = filteredAi;
     return { messages: view };
 }
