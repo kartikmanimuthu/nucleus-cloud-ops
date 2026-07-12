@@ -178,28 +178,47 @@ export async function GET(
             if (!owned) return NextResponse.json({ messages: [] });
         }
 
+        // Fetch the checkpoint tuple once — used both for the live run state
+        // (plan + parked interrupt) and, if chat history is empty, as the
+        // message-history fallback below. Non-fatal: a checkpointer error here
+        // must not prevent the chat-history path from still answering.
+        let checkpoint: Awaited<ReturnType<Awaited<ReturnType<typeof getCheckpointer>>['getTuple']>> | null = null;
+        let plan: import('../run-state').ThreadRunState['plan'] = null;
+        let pendingInterrupt: import('../run-state').ThreadRunState['pendingInterrupt'] = null;
+        try {
+            const checkpointer = await getCheckpointer();
+            checkpoint = await checkpointer.getTuple({ configurable: { thread_id: threadId } });
+            if (checkpoint?.checkpoint) {
+                const { extractThreadRunState } = await import('../run-state');
+                const channelValues = (checkpoint.checkpoint.channel_values ?? {}) as any;
+                const rs = extractThreadRunState(channelValues, threadId);
+                plan = rs.plan;
+                pendingInterrupt = rs.pendingInterrupt;
+            }
+        } catch (err) {
+            console.warn('[History API] run-state extraction failed (non-fatal):', err);
+        }
+
         // Chat history lookup (tenant-scoped; intra-tenant chats are shared by design)
         try {
             const chatHistory = await getChatHistory();
             const msgs = await chatHistory.getMessages(sessionTenantId, sessionUserId, threadId);
             if (msgs.length > 0) {
                 const converted = msgs.map((m, i) => convertPlainMessage(m, i)).filter(Boolean) as HistoryMessage[];
-                return NextResponse.json({ messages: mergeToolResults(converted) });
+                return NextResponse.json({ messages: mergeToolResults(converted), plan, pendingInterrupt });
             }
         } catch (err) {
             console.warn('[History API] Chat history lookup failed, falling back to checkpoint:', err);
         }
 
         // Fallback: extract from LangGraph checkpoint (ownership already verified above)
-        const checkpointer = await getCheckpointer();
-        const checkpoint = await checkpointer.getTuple({ configurable: { thread_id: threadId } });
-        if (!checkpoint) return NextResponse.json({ messages: [] });
+        if (!checkpoint) return NextResponse.json({ messages: [], plan, pendingInterrupt });
 
         const rawMessages = (checkpoint.checkpoint.channel_values as any)?.messages as BaseMessage[] | undefined;
-        if (!rawMessages?.length) return NextResponse.json({ messages: [] });
+        if (!rawMessages?.length) return NextResponse.json({ messages: [], plan, pendingInterrupt });
 
         const converted = rawMessages.map((m, i) => convertMessage(m, i)).filter(Boolean) as HistoryMessage[];
-        return NextResponse.json({ messages: mergeToolResults(converted) });
+        return NextResponse.json({ messages: mergeToolResults(converted), plan, pendingInterrupt });
     } catch (error) {
         console.error('[History API] Error:', error);
         return NextResponse.json({ error: 'Failed to fetch conversation history' }, { status: 500 });
