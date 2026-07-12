@@ -931,6 +931,7 @@ export function ChatInterface({
         threadId,
       );
       setIsLoadingHistory(true);
+      setRestoredParts([]);
 
       try {
         const historyUrl = ownerUserId
@@ -1107,6 +1108,7 @@ export function ChatInterface({
     setAttachments([]);
     setHasStarted(true);
     setWasStopped(false);
+    setRestoredParts([]); // Stale restored run-state must not override the new run ("last part wins").
     setUserHasScrolledUp(false); // Reset scroll state on new message
     // A send has taken over this thread — an in-flight history load must not
     // overwrite the optimistic user message / streamed response.
@@ -1161,6 +1163,7 @@ export function ChatInterface({
     console.log(
       `[ChatInterface] Tool ${approved ? "approved" : "rejected"}: ${toolCallId}`,
     );
+    setRestoredParts([]); // Stale restored run-state must not override the new run ("last part wins").
 
     // First, update local state via addToolResult (for UI feedback).
     // AI SDK v5 expects { tool, toolCallId, output } — passing the legacy
