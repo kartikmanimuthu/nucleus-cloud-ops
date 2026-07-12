@@ -70,4 +70,68 @@ describe('guard node', () => {
         const out = await node(baseState([new AIMessage({ content: 'plain text' })]));
         expect(out.guardVerdicts).toEqual({});
     });
+
+    it('unknown-named tool the LLM judges read-only gets a non-mutative verdict', async () => {
+        const node = createGuardNode({
+            riskModel: {
+                invoke: async () => ({
+                    content: JSON.stringify([{ toolCallId: 't1', mutative: false }]),
+                }),
+            },
+        });
+        const msgs = [aiWithCalls([{ id: 't1', name: 'mystery_mcp_tool', args: { foo: 'bar' } }])];
+        const out = await node(baseState(msgs));
+        const v = out.guardVerdicts!['t1'];
+        expect(v.isMutative).toBe(false);
+        expect(v.severity).toBe('LOW');
+    });
+
+    it('unknown-named tool fails closed HIGH when the risk model throws', async () => {
+        const node = createGuardNode({ riskModel: { invoke: async () => { throw new Error('down'); } } });
+        const msgs = [aiWithCalls([{ id: 't1', name: 'mystery_mcp_tool', args: {} }])];
+        const out = await node(baseState(msgs));
+        const v = out.guardVerdicts!['t1'];
+        expect(v.isMutative).toBe(true);
+        expect(v.severity).toBe('HIGH');
+    });
+
+    it('unknown-named tool fails closed HIGH when omitted from the LLM response array', async () => {
+        const node = createGuardNode({ riskModel: { invoke: async () => ({ content: '[]' }) } });
+        const msgs = [aiWithCalls([{ id: 't1', name: 'mystery_mcp_tool', args: {} }])];
+        const out = await node(baseState(msgs));
+        const v = out.guardVerdicts!['t1'];
+        expect(v.isMutative).toBe(true);
+        expect(v.severity).toBe('HIGH');
+    });
+
+    it('fails closed HIGH without throwing when the classifier itself throws', async () => {
+        const node = createGuardNode({
+            riskModel: okRiskModel,
+            classifier: () => { throw new Error('boom'); },
+        });
+        const msgs = [aiWithCalls([{ id: 't1', name: 'read_file', args: {} }])];
+        const result = await node(baseState(msgs));
+        const v = result.guardVerdicts!['t1'];
+        expect(v.isMutative).toBe(true);
+        expect(v.severity).toBe('HIGH');
+    });
+
+    it('known-mutative call stays mutative even if the LLM reports mutative:false', async () => {
+        const node = createGuardNode({
+            riskModel: {
+                invoke: async () => ({
+                    content: JSON.stringify([{
+                        toolCallId: 't1', mutative: false, severity: 'HIGH',
+                        action: 'Terminates EC2 instance i-0abc', blastRadius: 'Instance destroyed',
+                        reversible: false, saferPath: 'Stop the instance instead',
+                    }]),
+                }),
+            },
+        });
+        const msgs = [aiWithCalls([{ id: 't1', name: 'execute_command', args: { command: 'aws ec2 terminate-instances --instance-ids i-0abc' } }])];
+        const out = await node(baseState(msgs));
+        const v = out.guardVerdicts!['t1'];
+        expect(v.isMutative).toBe(true);
+        expect(v.severity).toBe('HIGH');
+    });
 });

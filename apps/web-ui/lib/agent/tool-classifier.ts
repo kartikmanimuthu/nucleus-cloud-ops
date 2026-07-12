@@ -139,6 +139,14 @@ const MUTATIVE_BASH_PATTERNS = [
 export interface ToolClassification {
     isMutative: boolean;
     reason: string;
+    /**
+     * True when the classification came from an explicit rule (read-only
+     * allowlist hit, bash-command inspection, or a mutative name-pattern hit).
+     * False/absent only for the final fallback — i.e. an unknown-named tool
+     * that matched no rule at all. The guard node uses this to decide whether
+     * an unknown tool needs an LLM judgment call instead of a deterministic one.
+     */
+    matchedRule?: boolean;
 }
 
 /**
@@ -149,7 +157,7 @@ export function classifyTool(toolName: string, toolArgs?: Record<string, unknown
 
     // Explicit read-only allowlist takes priority
     if (READ_ONLY_ALLOWLIST.has(name)) {
-        return { isMutative: false, reason: 'read-only allowlist' };
+        return { isMutative: false, reason: 'read-only allowlist', matchedRule: true };
     }
 
     // Special handling for bash/shell — inspect the command string
@@ -157,20 +165,20 @@ export function classifyTool(toolName: string, toolArgs?: Record<string, unknown
         const cmd = String(toolArgs?.command || toolArgs?.cmd || toolArgs?.input || '');
         for (const pattern of MUTATIVE_BASH_PATTERNS) {
             if (pattern.test(cmd)) {
-                return { isMutative: true, reason: `mutative bash command: ${cmd.slice(0, 80)}` };
+                return { isMutative: true, reason: `mutative bash command: ${cmd.slice(0, 80)}`, matchedRule: true };
             }
         }
-        return { isMutative: false, reason: 'read-only bash command' };
+        return { isMutative: false, reason: 'read-only bash command', matchedRule: true };
     }
 
     // Check tool name against mutative patterns
     for (const pattern of MUTATIVE_PATTERNS) {
         if (pattern.test(name)) {
-            return { isMutative: true, reason: `tool name matches mutative pattern: ${pattern}` };
+            return { isMutative: true, reason: `tool name matches mutative pattern: ${pattern}`, matchedRule: true };
         }
     }
 
-    return { isMutative: false, reason: 'no mutative pattern matched' };
+    return { isMutative: false, reason: 'no mutative pattern matched', matchedRule: false };
 }
 
 /**
