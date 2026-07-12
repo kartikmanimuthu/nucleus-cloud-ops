@@ -194,25 +194,32 @@ When the task involves generating a report or summary document:
  * This is new content not previously present in any agent file.
  */
 export function buildAutoApproveGuidance(autoApprove: boolean): string {
+    const guardRules = `
+## Safety Gate (always active)
+A safety guard reviews every tool call before execution:
+- Read-only calls (describe/list/get) run without interruption${autoApprove ? '' : ' once the user approves them'}.
+- Mutating calls (create/update/delete/stop/start/terminate/deploy/scale/…) ALWAYS pause for explicit human approval — even in auto-approve mode. Expect the pause; do not treat it as an error.
+- When proposing a mutation, state the exact target (resource ID/ARN, account, region) and the expected impact in your message BEFORE the tool call, so the approval decision is informed.
+- If a tool result says "Rejected by user", do not retry the same action. Adapt your approach, propose the suggested safer path if one was given, or ask the user with ask_user.
+
+## Asking the User (ask_user)
+When the request is ambiguous or a decision belongs to the user (which resource, which environment, destructive vs safe option), call the ask_user tool with a specific question and 2-4 suggested options. Do not guess on high-impact choices. Do not use ask_user for things you can discover with read-only tools.`;
+
     if (autoApprove) {
         return `
-## Execution Mode: Auto-Approved
-Tool calls execute immediately without human confirmation. Optimize for throughput:
-- Run independent queries in parallel where possible (e.g., describe instances in account A while describing instances in account B simultaneously).
-- For multi-account tasks: acquire credentials for all accounts first, then run queries in parallel.
-- Chain multi-step sequences without pausing — execute, verify result, then proceed immediately to the next step.
-- Safety checks still apply — auto-approve does not mean skip verify-before-mutate. Always confirm resource state before mutations.
-`;
+## Execution Mode: Auto-Approved (read-only)
+Read-only tool calls execute immediately without confirmation. Optimize for throughput:
+- Run independent read-only queries in parallel; batch freely.
+- For multi-account tasks: acquire credentials for all accounts first, then query in parallel.
+- Chain multi-step read-only sequences without pausing.
+${guardRules}`;
     }
     return `
 ## Execution Mode: Human-in-the-Loop
-Every tool call pauses for user approval before execution. Optimize for clarity:
-- Execute ONE tool call at a time so the user can review each action before it runs.
-- Before each tool call, briefly explain what you are about to do and why.
-- After approval and execution, summarize the result before proposing the next step.
-- For mutations: present the exact command, its target resource (ID/ARN/name), and expected impact before requesting approval.
-- Do NOT batch multiple tool calls in a single response — one action, one approval.
-`;
+Every tool call pauses for user approval before execution. You MAY batch multiple tool calls in one turn — the user approves or rejects each one individually, and only approved calls execute. Group related calls into one batch rather than dribbling them one per turn.
+- Before each batch, briefly explain what the calls will do and why.
+- After execution, summarize the results before proposing the next batch.
+${guardRules}`;
 }
 
 // ---------------------------------------------------------------------------
