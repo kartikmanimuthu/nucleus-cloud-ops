@@ -632,6 +632,11 @@ export function ChatInterface({
   // Set once the user sends a message so a slow history fetch can't clobber the
   // optimistic conversation with a stale (or empty) server snapshot.
   const skipHistoryRef = useRef(false);
+  // ai@7.0.22's Chat.makeRequest catches HTTP errors internally, routes them to
+  // `onError` below, and RESOLVES the sendMessage promise — it never rejects.
+  // submitDecisions can't rely on try/catch to detect a failed resume; it reads
+  // this flag (set in onError, cleared right before each sendMessage call).
+  const submitErrorRef = useRef(false);
 
   // Scroll control state - track if user has manually scrolled up
   const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
@@ -797,6 +802,9 @@ export function ChatInterface({
         if (error?.message?.includes("409") || (error as any)?.status === 409) {
           console.warn("[ChatInterface] Thread is already processing — duplicate request blocked.");
         }
+        // The SDK swallows HTTP errors here and resolves sendMessage — this flag
+        // is the only way submitDecisions can observe that its resume failed.
+        submitErrorRef.current = true;
       },
     }) as any;
 
@@ -825,36 +833,44 @@ export function ChatInterface({
     async (
       decisionBatch: Array<{ toolCallId: string; approved: boolean; reason?: string; answer?: string }>,
     ) => {
-      try {
-        await sendMessage(
-          { role: "user", content: "" } as any, // carrier; server acts on body.decisions
-          {
-            body: {
-              threadId,
-              autoApprove,
-              model: selectedModel,
-              mode: agentMode,
-              decisions: decisionBatch,
-              accounts:
-                selectedAccounts.length > 0
-                  ? selectedAccounts.map((a) => ({ accountId: a.accountId, accountName: a.name }))
-                  : undefined,
-              selectedSkill: selectedSkill || undefined,
-              mcpServerIds:
-                selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
-              knowledgeBaseIds:
-                selectedKbIds.length > 0 ? selectedKbIds : undefined,
-            },
+      // ai@7.0.22's Chat.makeRequest catches HTTP errors internally and routes
+      // them to the `onError` callback above BEFORE this promise settles — it
+      // never rejects on an HTTP error, so a try/catch here would be dead code.
+      // Detect failure via the flag instead (reset just before the call, read
+      // right after `await` since `onError` fires synchronously within it).
+      submitErrorRef.current = false;
+      await sendMessage(
+        { role: "user", content: "" } as any, // carrier; server acts on body.decisions
+        {
+          body: {
+            threadId,
+            autoApprove,
+            model: selectedModel,
+            mode: agentMode,
+            decisions: decisionBatch,
+            accounts:
+              selectedAccounts.length > 0
+                ? selectedAccounts.map((a) => ({ accountId: a.accountId, accountName: a.name }))
+                : undefined,
+            selectedSkill: selectedSkill || undefined,
+            mcpServerIds:
+              selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+            knowledgeBaseIds:
+              selectedKbIds.length > 0 ? selectedKbIds : undefined,
           },
-        );
+        },
+      );
+      if (submitErrorRef.current) {
+        // The SDK swallows HTTP errors into onError and resolves sendMessage,
+        // so failure is only observable via this flag (set in onError above).
+        toast.error("Couldn't submit your decisions", {
+          description: "The run may be busy — try again.",
+        });
+        decisionsResetRef.current?.();
+      } else {
         // Only clear the restored card once the submission actually succeeded —
         // clearing it eagerly meant a failed submit left no way to retry.
         setRestoredParts([]);
-      } catch (err) {
-        toast.error("Couldn't submit your decisions", {
-          description: err instanceof Error ? err.message : "The run may be busy — try again.",
-        });
-        decisionsResetRef.current?.();
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
