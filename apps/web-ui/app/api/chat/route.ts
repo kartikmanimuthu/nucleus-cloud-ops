@@ -473,6 +473,9 @@ function getPhaseFromNode(node: string): AgentPhase {
             return 'text';        // Deep Agent main model node: same rationale
         case 'tools':
             return 'execution';   // Deep Agent tool execution
+        case 'guard':
+        case 'approval_gate':
+            return 'execution';   // Guard risk-assessment + approval pause: render under execution
         case 'memory_recall':
             return 'memory_recall';
         case 'memory_save':

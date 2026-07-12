@@ -31,6 +31,8 @@ import { createAgentModels, assembleTools } from "./model-factory";
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 import { autoSkillSelectionEnabled } from "./auto-skill-select";
 import { prepareContext, buildWorkingMemorySection } from "./memory/working-memory";
+import { createGuardNode } from "./guard";
+import { routeAfterGuard } from "./gate-routing";
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
 export async function createFastGraph(config: GraphConfig) {
@@ -73,6 +75,17 @@ export async function createFastGraph(config: GraphConfig) {
     const memoryDeps = { reflectorModel, tenantId, userId: config.userId, store };
     const memoryRecallNode = createMemoryRecallNode(memoryDeps);
     const memorySaveNode = createMemorySaveNode(memoryDeps);
+
+    // Cast: guard.ts's RiskModel interface intentionally types `invoke` as
+    // (msgs: unknown[]) to stay decoupled from LangChain's BaseChatModel types;
+    // reflectorModel satisfies it structurally at runtime (invoke(BaseMessage[])),
+    // but the narrower unknown[] param fails strict structural assignability.
+    const guardNode = createGuardNode({ riskModel: reflectorModel as any });
+    // approval_gate is a no-op marker node: the interrupt BEFORE it is the pause.
+    async function approvalGateNode(): Promise<Partial<ReflectionState>> {
+        console.log('⏸️ [APPROVAL GATE] resuming after human decision');
+        return {};
+    }
 
     // Working-memory deps — threadId is read per-node from the runtime config.
     const wmDeps = { reflectorModel, tenantId, userId: config.userId };
@@ -390,7 +403,7 @@ Please narrow the question or ask me to continue from here.`;
     // ---------------------------------------------------------------------------
     // CONDITIONAL EDGES
     // ---------------------------------------------------------------------------
-    function shouldContinue(state: ReflectionState): "tools" | "reflect" | "finalize" | "memory_save" {
+    function shouldContinue(state: ReflectionState): "guard" | "reflect" | "finalize" | "memory_save" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
@@ -409,7 +422,7 @@ Please narrow the question or ask me to continue from here.`;
         }
 
         if (hasPendingToolCalls) {
-            return "tools";
+            return "guard";
         }
 
         // Soft cap: if we've exceeded the reflection cycle limit, accept the answer as-is
@@ -434,6 +447,8 @@ Please narrow the question or ask me to continue from here.`;
     const workflow = new StateGraph<ReflectionState>({ channels: graphState })
         .addNode("memory_recall", memoryRecallNode)
         .addNode("agent", agentNode)
+        .addNode("guard", guardNode)
+        .addNode("approval_gate", approvalGateNode)
         .addNode("tools", collectingToolNode)
         .addNode("reflect", reflectNode)
         .addNode("finalize", finalizeNode)
@@ -443,11 +458,17 @@ Please narrow the question or ask me to continue from here.`;
         .addEdge("memory_recall", "agent")
 
         .addConditionalEdges("agent", shouldContinue, {
-            tools: "tools",
+            guard: "guard",
             reflect: "reflect",
             finalize: "finalize",
             memory_save: "memory_save"
         })
+
+        .addConditionalEdges("guard", (state: ReflectionState) => routeAfterGuard(state, autoApprove), {
+            approval_gate: "approval_gate",
+            tools: "tools"
+        })
+        .addEdge("approval_gate", "tools")
 
         .addConditionalEdges("reflect", shouldContinueFromReflect, {
             agent: "agent",
@@ -458,13 +479,9 @@ Please narrow the question or ask me to continue from here.`;
         .addEdge("finalize", "memory_save")
         .addEdge("memory_save", END);
 
-    if (autoApprove) {
-        return workflow.compile({ checkpointer, ...(store && { store }) });
-    } else {
-        return workflow.compile({
-            checkpointer,
-            ...(store && { store }),
-            interruptBefore: ["tools"],
-        });
-    }
+    return workflow.compile({
+        checkpointer,
+        ...(store && { store }),
+        interruptBefore: ["approval_gate"],
+    });
 }

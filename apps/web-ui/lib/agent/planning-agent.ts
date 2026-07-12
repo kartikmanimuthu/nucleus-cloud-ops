@@ -30,6 +30,8 @@ import { createAgentModels, assembleTools, deriveInputTokenBudget } from "./mode
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 import { autoSkillSelectionEnabled } from "./auto-skill-select";
 import { prepareContext, buildWorkingMemorySection, estimateTokens } from "./memory/working-memory";
+import { createGuardNode } from "./guard";
+import { routeAfterGuard } from "./gate-routing";
 
 // Factory function to create a configured reflection graph
 export async function createReflectionGraph(config: GraphConfig) {
@@ -74,6 +76,17 @@ export async function createReflectionGraph(config: GraphConfig) {
     const memoryDeps = { reflectorModel, tenantId, userId: config.userId, store };
     const memoryRecallNode = createMemoryRecallNode(memoryDeps);
     const memorySaveNode = createMemorySaveNode(memoryDeps);
+
+    // Cast: guard.ts's RiskModel interface intentionally types `invoke` as
+    // (msgs: unknown[]) to stay decoupled from LangChain's BaseChatModel types;
+    // reflectorModel satisfies it structurally at runtime (invoke(BaseMessage[])),
+    // but the narrower unknown[] param fails strict structural assignability.
+    const guardNode = createGuardNode({ riskModel: reflectorModel as any });
+    // approval_gate is a no-op marker node: the interrupt BEFORE it is the pause.
+    async function approvalGateNode(): Promise<Partial<ReflectionState>> {
+        console.log('⏸️ [APPROVAL GATE] resuming after human decision');
+        return {};
+    }
 
     // Working-memory deps — threadId is read per-node from the runtime config.
     // budgetTokens is derived from the resolved model so small/local context windows
@@ -675,7 +688,7 @@ ${summaryContent}`;
     // ---------------------------------------------------------------------------
     // CONDITIONAL EDGES
     // ---------------------------------------------------------------------------
-    function shouldContinueFromGenerate(state: ReflectionState): "tools" | "reflect" | "final" {
+    function shouldContinueFromGenerate(state: ReflectionState): "guard" | "reflect" | "final" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
@@ -687,7 +700,7 @@ ${summaryContent}`;
         }
 
         if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
-            return "tools";
+            return "guard";
         }
 
         if (iterationCount <= 1) {
@@ -707,7 +720,7 @@ ${summaryContent}`;
         return "generate";
     }
 
-    function shouldContinueFromRevise(state: ReflectionState): "tools" | "reflect" {
+    function shouldContinueFromRevise(state: ReflectionState): "guard" | "reflect" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
@@ -719,7 +732,7 @@ ${summaryContent}`;
         }
 
         if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
-            return "tools";
+            return "guard";
         }
         return "reflect";
     }
@@ -739,6 +752,8 @@ ${summaryContent}`;
         .addNode("memory_recall", memoryRecallNode)
         .addNode("planner", planNode)
         .addNode("generate", generateNode)
+        .addNode("guard", guardNode)
+        .addNode("approval_gate", approvalGateNode)
         .addNode("tools", collectingToolNode)
         .addNode("reflect", reflectNode)
         .addNode("revise", reviseNode)
@@ -750,10 +765,16 @@ ${summaryContent}`;
         .addEdge("planner", "generate")
 
         .addConditionalEdges("generate", shouldContinueFromGenerate, {
-            tools: "tools",
+            guard: "guard",
             reflect: "reflect",
             final: "final"
         })
+
+        .addConditionalEdges("guard", (state: ReflectionState) => routeAfterGuard(state, autoApprove), {
+            approval_gate: "approval_gate",
+            tools: "tools"
+        })
+        .addEdge("approval_gate", "tools")
 
         .addConditionalEdges("tools", shouldContinueFromTools, {
             generate: "generate",
@@ -766,22 +787,18 @@ ${summaryContent}`;
         })
 
         .addConditionalEdges("revise", shouldContinueFromRevise, {
-            tools: "tools",
+            guard: "guard",
             reflect: "reflect"
         })
 
         .addEdge("final", "memory_save")
         .addEdge("memory_save", END);
 
-    if (autoApprove) {
-        console.log(`[Graph] Creating graph with autoApprove=true (no interrupts)`);
-        return workflow.compile({ checkpointer, ...(store && { store }) });
-    } else {
-        console.log(`[Graph] Creating graph with autoApprove=false (interrupt before tools)`);
-        return workflow.compile({
-            checkpointer,
-            ...(store && { store }),
-            interruptBefore: ["tools"],
-        });
-    }
+    // The gate is ALWAYS compiled in; routeAfterGuard decides whether flow enters it.
+    console.log(`[Graph] Compiling with approval_gate interrupt (autoApprove=${autoApprove} affects routing only)`);
+    return workflow.compile({
+        checkpointer,
+        ...(store && { store }),
+        interruptBefore: ["approval_gate"],
+    });
 }
