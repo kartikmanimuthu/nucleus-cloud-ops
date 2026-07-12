@@ -24,7 +24,8 @@ Five confirmed gaps (file:line evidence from exploration):
 | Batch approvals | **Per-tool decisions + Approve/Reject remaining**; run resumes only when every tool in the batch is decided |
 | Guard policy | **Force approval for mutative calls even when auto-approve is on**; read-only flows freely |
 | Clarification | **`ask_user` tool available anytime** (fast + plan modes), interrupt-based resume |
-| State transport | **Typed data parts** on the existing Vercel AI SDK UI Message Stream (`data-plan`, `data-phase`, `data-approval`, `data-clarification`) — replaces text-marker smuggling |
+| State transport | **AI SDK 7** UI Message Stream: **native tool-approval parts** for the approval flow + **typed data parts** (`data-plan`, `data-phase`, `data-guard`, `data-clarification`) for everything else — replaces text-marker smuggling |
+| SDK version | **Upgrade `ai` / `@ai-sdk/*` from v5 to v7 as Phase 0** (codemod-assisted), unlocking native approvals, batch auto-resume, and fixed `useChat` stale-closure behavior |
 | Interaction cards | Amber batch-approval card, blue clarification card (chips + free text), red guard card (severity / action / blast radius / reversibility / safer path; "Approve anyway / Reject / Use safer path") — mockups approved |
 
 ## Architecture
@@ -53,11 +54,21 @@ generate/agent ──► guard ──► router ──► tools                 
 
 Otherwise flow goes straight to `tools`. This makes the destructive guard un-bypassable: auto-approve never routes mutative calls past the gate. The gate node itself is a no-op marker; the interrupt is the mechanism.
 
+### AI SDK 7 upgrade (Phase 0)
+
+The web-ui `ai` / `@ai-sdk/*` packages upgrade from v5 to **v7** before feature work (`npx @ai-sdk/codemod v7`, then manual review of stream-helper usage and part shapes). Motivation:
+
+- **Native tool approvals** — v7 makes approvals a first-class protocol primitive: tool parts stream with `state: 'approval-requested'` and an `approval.id`; the client responds via `useChat`'s `addToolApprovalResponse({id, approved})`; parts transition to `output-available` / `output-denied`. This replaces the custom `data-approval` part + bespoke decisions POST from the original draft.
+- **Batch semantics for free** — `sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses` submits the resume request only once *every* approval in the step is decided: exactly the per-tool + "run continues when all decided" card we designed.
+- **`useChat` fixes** — callbacks see current props/state (kills a class of stale-closure bugs in the 2,300-line component we're decomposing); async `sendAutomaticallyWhen`.
+
+Our server stays LangGraph (we do not adopt `ToolLoopAgent`/`WorkflowAgent` — `processStream` keeps hand-mapping `streamEvents` to UI chunks). We emit v7's native approval-request chunks from the `approval_gate` interrupt with `approval.id = toolCallId`. **Fallback:** if hand-emitting native approval chunks from a non-`streamText` server proves unsupported in practice, the custom `data-approval` part design below remains the escape hatch — same UX, more custom protocol.
+
 ### Per-tool batch approval
 
-- At the interrupt, the server emits one `data-approval` part: `{batchId, tools: [{toolCallId, name, args, guard?: GuardVerdict}]}`.
-- The client records a decision per tool; the resume request carries `decisions: {[toolCallId]: 'approved' | 'rejected'}`. The server returns 400 on partial batches.
-- On resume: each rejected id gets a `ToolMessage("Rejected by user" [+ safer-path reason])` written via `graph.updateState` (existing plumbing); then the graph resumes.
+- At the interrupt, the server emits one v7 approval-request part per pending tool call (`approval.id = toolCallId`), plus a `data-guard` part per mutative call carrying its `GuardVerdict` (rendered inside the same card).
+- The client records a decision per tool via `addToolApprovalResponse`; the SDK auto-submits the resume request when all are decided (server still validates completeness; 400 on partial batches).
+- On resume: the route reads the approval responses from the submitted message; each denied id gets a `ToolMessage("Rejected by user" [+ safer-path reason])` written via `graph.updateState` (existing plumbing); then the graph resumes.
 - **`collectingToolNode` change:** skip any `tool_call` that already has a `ToolMessage` result in state. This — not prompt text — is what prevents rejected/answered calls from executing.
 - Prompt guidance is relaxed: the agent may batch read-only calls; the "one tool at a time" HITL handcuff is removed.
 
@@ -77,16 +88,16 @@ Otherwise flow goes straight to `tools`. This makes the destructive guard un-byp
 
 ### Streaming protocol summary
 
-Existing UI Message Stream (SSE via `createUIMessageStreamResponse`) plus four typed custom parts:
+AI SDK 7 UI Message Stream (SSE via the v7 stream helpers). Approvals use the **native v7 approval protocol** (approval-requested tool parts → `addToolApprovalResponse` → `output-available`/`output-denied` states). On top of that, three typed custom parts:
 
 | Part | Payload | Reconciliation |
 |---|---|---|
 | `data-plan` | full plan snapshot + updatedBy | stable id per run — replaced in place |
 | `data-phase` | `{phase, node, ts}` | appended |
-| `data-approval` | `{batchId, tools: [{toolCallId, name, args, guard?}]}` | stable id per batch — replaced when decisions land |
+| `data-guard` | `{toolCallId, severity, action, blastRadius, reversible, saferPath}` | stable id per toolCallId |
 | `data-clarification` | `{toolCallId, question, options?}` | stable id per call |
 
-Text/reasoning/tool-* parts continue as today.
+(`ask_user` stays a custom part because its answer is free text, not a boolean approve/deny.) Text/reasoning/tool-* parts continue as today, migrated to v7 shapes.
 
 ### Persistence & resume
 
@@ -131,9 +142,10 @@ New structure under `components/agent/chat/`:
 
 ## Delivery
 
-One branch, two reviewable phases:
+One branch, three reviewable phases:
 
-1. **Backend protocol + graph changes** land first behind the existing UI — fixes the correctness bugs (batch approval, guard, plan emission, ask_user) with minimal UI wiring.
+0. **AI SDK 7 upgrade** — codemod-assisted bump of `ai`/`@ai-sdk/*`, adapt `processStream` chunk emission and `useChat` call sites, verify existing chat behavior is unchanged.
+1. **Backend protocol + graph changes** land behind the existing UI — fixes the correctness bugs (batch approval via native v7 approvals, guard, plan emission, ask_user) with minimal UI wiring.
 2. **Redesigned UI** switches over to the typed parts and new layout.
 
 ## Out of scope
