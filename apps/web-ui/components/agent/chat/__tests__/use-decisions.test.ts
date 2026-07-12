@@ -48,4 +48,18 @@ describe('useDecisions', () => {
         expect(result.current.resolvedIds.size).toBe(1);
         expect(result.current.resolvedIds.has('t1')).toBe(true);
     });
+
+    it('does not fire onComplete from stale decisions when a new batch overlaps an old id', () => {
+        const onComplete = vi.fn();
+        const { result, rerender } = renderHook(
+            ({ ids }) => useDecisions({ pendingToolCallIds: ids, onComplete }),
+            { initialProps: { ids: ['t1', 't2'] } },
+        );
+        act(() => result.current.decide('t1', { approved: true }));
+        act(() => result.current.decide('t2', { approved: true }));
+        expect(onComplete).toHaveBeenCalledTimes(1);
+        // New batch reusing t1 — stale decisions must not auto-fire for it
+        rerender({ ids: ['t1', 't9'] });
+        expect(onComplete).toHaveBeenCalledTimes(1);
+    });
 });

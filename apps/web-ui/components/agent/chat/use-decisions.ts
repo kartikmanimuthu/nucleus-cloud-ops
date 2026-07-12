@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+const EMPTY_SET: ReadonlySet<string> = new Set<string>();
+
 export interface Decision { approved: boolean; reason?: string; answer?: string }
 export interface DecisionMap { [toolCallId: string]: Decision }
 
@@ -24,6 +26,8 @@ export function useDecisions(opts: {
 
     useEffect(() => {
         if (firedRef.current || pendingToolCallIds.length === 0) return;
+        const staleEntries = Object.keys(decisions).some(id => !pendingToolCallIds.includes(id));
+        if (staleEntries) return; // decisions belong to a previous batch — reset effect will clear them
         const allDecided = pendingToolCallIds.every(id => decisions[id] !== undefined);
         if (!allDecided) return;
         firedRef.current = true;
@@ -49,7 +53,7 @@ export function useDecisions(opts: {
     // New Set instance whenever the decided batch completes — B1's useRunState
     // depends on this identity change to drop the batch from "pending" immediately.
     const resolvedIds = useMemo(
-        () => (allDecided ? new Set(Object.keys(decisions)) : new Set<string>()),
+        () => (allDecided ? new Set(Object.keys(decisions)) : (EMPTY_SET as Set<string>)),
         [allDecided, decisions],
     );
 
