@@ -125,7 +125,7 @@ const READ_ONLY_ALLOWLIST = new Set([
 // ─── Mutative bash command patterns ──────────────────────────────────────────
 
 const MUTATIVE_BASH_PATTERNS = [
-    /\baws\s+\S+\s+(create|update|delete|put|modify|start|stop|terminate|reboot|deploy|rollback|attach|detach|associate|disassociate|enable|disable|grant|revoke|register|deregister|run-instances|run-task|invoke|publish|flush|purge|rotate|apply|destroy|migrate|change|set|remove|add|import|export)\b/i,
+    /\baws\s+\S+\s+(create|update|delete|put|modify|start|stop|terminate|reboot|deploy|rollback|attach|detach|associate|disassociate|enable|disable|grant|revoke|register|deregister|run-instances|run-task|invoke|publish|flush|purge|rotate|apply|destroy|migrate|change|set|remove|rm|add|import|export)\b/i,
     /\b(kubectl\s+(apply|delete|create|patch|replace|scale|rollout|set|label|annotate|taint|cordon|uncordon|drain|exec|port-forward))\b/i,
     /\b(terraform\s+(apply|destroy|import|state\s+(mv|rm|push)))\b/i,
     /\b(git\s+(push|commit|merge|rebase|reset|checkout\s+-b|branch\s+-d|tag\s+-d|remote\s+add|remote\s+remove))\b/i,
