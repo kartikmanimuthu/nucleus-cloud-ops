@@ -34,6 +34,9 @@ import {
     getActiveMCPTools,
     getMCPToolsDescription,
     getMCPManager,
+    computeReflectionStall,
+    extractTextContent,
+    critiqueVerdict,
 } from "@/lib/agent/agent-shared";
 import {
     buildBaseIdentity,
@@ -51,7 +54,7 @@ import { resolveKnowledgeBaseIds } from "@/lib/agent/auto-kb-select";
 
 // ── Agent Ops-specific imports ────────────────────────────────────────────────
 import { GraphConfig } from "@/lib/agent/agent-shared";
-import { ReflectionState, graphState, PlanStep, RequestEvaluation, ToolResultEntry } from "./executor-state";
+import { ReflectionState, graphState, PlanStep, RequestEvaluation, ToolResultEntry, isReusableEvaluation } from "./executor-state";
 import { filterMutativeToolCalls } from "./tool-classifier";
 import { env } from "@/env";
 
@@ -151,7 +154,12 @@ export async function createDynamicExecutorGraph(config: GraphConfig) {
     // NODE: EVALUATOR — determines mode, skill, account, and whether clarification needed
     // ============================================================================
     async function evaluatorNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        if (state.evaluation) return {}; // Already evaluated (e.g. resumed from checkpoint)
+        // Reuse a checkpointed PLAN evaluation (approval resume). A stale 'end'
+        // (clarification) evaluation must be re-evaluated: on clarification resume
+        // the user's reply is in the last message, and skipping the LLM here made
+        // routeFromEvaluator replay the old mode='end' → clarify → the run
+        // re-asked the identical question forever.
+        if (isReusableEvaluation(state.evaluation)) return {};
 
         const lastMessage = state.messages[state.messages.length - 1];
         const taskDescription = typeof lastMessage.content === 'string'
@@ -199,7 +207,7 @@ Return only the JSON object.`);
         };
 
         try {
-            const content = response.content as string;
+            const content = extractTextContent(response.content);
             const match = content.match(/\{[\s\S]*\}/);
             if (match) {
                 const parsed = JSON.parse(match[0]);
@@ -296,7 +304,7 @@ Return ONLY a JSON array of step strings. Example:
 
         let planSteps: PlanStep[] = [];
         try {
-            const match = (response.content as string).match(/\[[\s\S]*\]/);
+            const match = extractTextContent(response.content).match(/\[[\s\S]*\]/);
             if (match) {
                 planSteps = JSON.parse(match[0]).map((step: string) => ({ step, status: 'pending' as const }));
             }
@@ -490,10 +498,18 @@ Otherwise list specific issues to fix. Do not generate the fixed answer.`);
         const response = await reflectorModel.invoke(inputs);
         llmAuditLog('REFLECTOR', inputs, response, start);
 
-        const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+        const content = extractTextContent(response.content);
 
         if (isComplex) {
             let analysis = '', issues = 'None', isComplete = false, updatedPlan: PlanStep[] = [];
+            // Empty reflector text (reasoning consumed the output budget) parses to
+            // nothing and would loop forever with issues='None' resetting the stall
+            // counter. Report it as a CONSTANT issue so consecutive repeats trip
+            // computeReflectionStall and the run finalizes instead of churning.
+            if (!content.trim()) {
+                analysis = 'Reflector returned no text output.';
+                issues = 'EMPTY_REFLECTION: reflector produced no text';
+            }
             try {
                 const match = content.match(/\{[\s\S]*\}/);
                 if (match) {
@@ -505,17 +521,34 @@ Otherwise list specific issues to fix. Do not generate the fixed answer.`);
                 }
             } catch { isComplete = false; }
 
-            console.log(`[REFLECTOR] Complete: ${isComplete} | Issues: ${issues !== 'None' ? issues : 'None'}`);
+            // Stall detection: if the reflector keeps reporting the SAME blocking
+            // issue, the revise loop isn't making progress. Bail to final rather
+            // than churning to AGENT_OPS_MAX_ITERATIONS (the Jira run burned 1.4M
+            // tokens repeating a single tool-arg error before the user cancelled).
+            const prevIssues = state.errors?.[0];
+            const { stallCount, stalled } = computeReflectionStall(
+                issues === 'None' ? '' : issues,
+                prevIssues,
+                state.reflectionStallCount ?? 0,
+            );
+            const analysisOut = stalled
+                ? `${analysis}\n\n⚠️ Reflection stalled: the issue "${issues}" persisted across multiple reflections without resolution — finalizing with current findings instead of retrying further.`
+                : analysis;
+
+            console.log(`[REFLECTOR] Complete: ${isComplete} | Issues: ${issues !== 'None' ? issues : 'None'}${stalled ? ` | STALLED (count=${stallCount})` : ''}`);
 
             return {
-                messages: [new AIMessage({ content: `🔍 **Reflection:**\n${analysis}${issues !== 'None' ? `\n⚠️ Issues: ${issues}` : ''}` })],
-                reflection: analysis,
+                messages: [new AIMessage({ content: `🔍 **Reflection:**\n${analysisOut}${issues !== 'None' ? `\n⚠️ Issues: ${issues}` : ''}` })],
+                reflection: analysisOut,
                 errors: issues !== 'None' ? [issues] : [],
-                isComplete: isComplete || iterationCount >= AGENT_OPS_MAX_ITERATIONS,
+                isComplete: isComplete || iterationCount >= AGENT_OPS_MAX_ITERATIONS || stalled,
                 plan: updatedPlan.length > 0 ? updatedPlan : plan,
+                reflectionStallCount: stallCount,
             };
         } else {
-            if (content.includes('COMPLETE') || iterationCount >= AGENT_OPS_MAX_ITERATIONS) {
+            // critiqueVerdict also accepts on an EMPTY critique — looping on empty
+            // reflector feedback burns iterations with nothing to fix.
+            if (critiqueVerdict(content) === 'accept' || iterationCount >= AGENT_OPS_MAX_ITERATIONS) {
                 return { messages: [response], isComplete: true };
             }
             return {
@@ -602,7 +635,7 @@ Be specific — include resource IDs, account names, and numeric values where av
         const response = await model.invoke(inputs);
         llmAuditLog('FINAL', inputs, response, start);
 
-        const summaryContent = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+        const summaryContent = extractTextContent(response.content);
         const finalMessage = `✅ **Task Complete**\n\n**Original Task:** ${taskDescription}\n**Iterations:** ${iterationCount}\n\n---\n\n${summaryContent}`;
 
         return { messages: [new AIMessage({ content: finalMessage })], isComplete: true };

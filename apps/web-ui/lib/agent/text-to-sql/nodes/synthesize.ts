@@ -1,4 +1,5 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { extractTextContent } from '@/lib/agent/agent-shared';
 import { buildSynthesisPrompt } from '../prompts';
 import { type TextToSQLState, requireModelConfig } from '../state';
 import { createAgentModels } from '@/lib/agent/model-factory';
@@ -28,9 +29,7 @@ export async function synthesizeNode(state: TextToSQLState): Promise<Partial<Tex
             new HumanMessage(prompt),
         ]);
 
-        const finalAnswer = typeof response.content === 'string'
-            ? response.content
-            : JSON.stringify(response.content);
+        const finalAnswer = extractTextContent(response.content);
 
         console.log(`[TextToSQL] Synthesized answer: ${finalAnswer.length} chars`);
         return { finalAnswer };

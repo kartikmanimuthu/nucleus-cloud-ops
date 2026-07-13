@@ -1,4 +1,5 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { extractTextContent } from '@/lib/agent/agent-shared';
 import { buildReflectionPrompt } from '../prompts';
 import { type TextToSQLState, requireModelConfig } from '../state';
 import { createAgentModels } from '@/lib/agent/model-factory';
@@ -33,9 +34,7 @@ export async function reflectNode(state: TextToSQLState): Promise<Partial<TextTo
         new HumanMessage(prompt),
     ]);
 
-    const content = typeof response.content === 'string'
-        ? response.content
-        : JSON.stringify(response.content);
+    const content = extractTextContent(response.content);
 
     // Parse JSON response
     let satisfied = true;

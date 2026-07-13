@@ -16,6 +16,7 @@ import { RunTimeline } from "@/components/agent-ops/run-timeline/timeline"
 import { useRunStream } from "@/components/agent-ops/run-timeline/use-run-stream"
 import { useAgentOpsRunDetail, useApproveRun, useCancelRun, useResumeRun } from "@/lib/queries/agent-ops"
 import { exportRunToPdf } from "@/lib/agent-ops/export-pdf"
+import { exportRunToMarkdown } from "@/lib/agent-ops/export-markdown"
 import { useTenant } from "@/lib/tenant-context"
 import { toast } from "sonner"
 
@@ -51,13 +52,22 @@ export default function RunDetailPage() {
     if (!run) return
     setExporting(true)
     try {
-      await exportRunToPdf(run, events)
+      await exportRunToPdf(run, events, timezone)
     } catch (err) {
       toast.error("PDF export failed", { description: (err as Error).message })
     } finally {
       setExporting(false)
     }
-  }, [run, events])
+  }, [run, events, timezone])
+
+  const handleExportMarkdown = useCallback(() => {
+    if (!run) return
+    try {
+      exportRunToMarkdown(run, events, timezone)
+    } catch (err) {
+      toast.error("Markdown export failed", { description: (err as Error).message })
+    }
+  }, [run, events, timezone])
 
   if (detail.isLoading) {
     return <div className="flex flex-1 items-center justify-center py-24"><Spinner /></div>
@@ -93,6 +103,7 @@ export default function RunDetailPage() {
         onCancel={() => cancelRun.mutate({ runId, body: { tenantId: run.tenantId } })}
         cancelling={cancelRun.isPending}
         onExportPdf={handleExportPdf}
+        onExportMarkdown={handleExportMarkdown}
         exporting={exporting}
         onBack={() => router.push("/app/agent-ops")}
       />

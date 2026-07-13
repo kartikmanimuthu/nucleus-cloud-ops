@@ -13,6 +13,9 @@ import {
     tagMessagePhase,
     getCheckpointer,
     getStore,
+    extractTextContent,
+    critiqueVerdict,
+    buildToolExecutionLog,
 } from "./agent-shared";
 
 // Maximum number of reflection cycles before accepting the answer as-is.
@@ -177,15 +180,12 @@ Review the full conversation history before responding:
         const { messages, toolResults } = state;
         const lastMessage = messages[messages.length - 1];
 
-        // Build tool execution summary from the CURRENT iteration only (not stale prior iterations)
-        const currentIterationResults = toolResults?.filter(tr => tr.iterationIndex === state.iterationCount) ?? [];
-        let toolExecutionLog = '';
-        if (currentIterationResults.length > 0) {
-            const entries = currentIterationResults.map(tr =>
-                `- ${tr.toolName}: ${tr.isError ? 'ERROR' : 'OK'}\n  Output: ${tr.output}`
-            ).join('\n');
-            toolExecutionLog = `\n<TOOL_EXECUTION_LOG>\nThe following tools were executed:\n${entries}\n</TOOL_EXECUTION_LOG>\n`;
-        }
+        // Ground-truth evidence for the reflector: ALL of the run's tool results
+        // (reducer-capped at 10). Reflection typically runs an iteration or two
+        // AFTER the tool calls, so a current-iteration-only filter handed the
+        // reflector an empty log and it falsely accused the agent of fabricating
+        // data it had genuinely fetched.
+        const toolExecutionLog = buildToolExecutionLog(toolResults);
 
         // If only tool calls, skip reflection (need an answer to reflect on)
         if ((lastMessage as AIMessage).tool_calls && ((lastMessage as AIMessage).tool_calls?.length ?? 0) > 0) {
@@ -261,7 +261,7 @@ Please provide your critique.`
             console.warn(`⚠️ [FAST REFLECTOR] Skipping reflection due to model error: ${err?.message ?? err}`);
             return { isComplete: true };
         }
-        const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+        const content = extractTextContent(response.content);
 
         if (!content) {
             console.log(`⚠️ [FAST REFLECTOR] Empty content received!`);
@@ -272,7 +272,11 @@ Please provide your critique.`
 
         console.log(`   Critique: ${truncateOutput(content, 200)}`);
 
-        if (content.includes("COMPLETE")) {
+        if (critiqueVerdict(content) === 'accept') {
+            // COMPLETE — or an EMPTY critique (reflector spent its whole budget on a
+            // reasoning block, stopReason max_tokens): looping on empty feedback gives
+            // the agent nothing to fix, so accept the answer.
+            if (!content.trim()) console.warn(`⚠️ [FAST REFLECTOR] Empty critique — accepting answer instead of looping.`);
             // Do NOT add the reflector's message to state — the agent's answer is already there.
             // Adding "COMPLETE" would overwrite the last message and leak to the UI.
             return { isComplete: true };
@@ -288,14 +292,9 @@ Please provide your critique.`
         };
     }
 
-    // Helper to safely extract string content
-    function getStringContent(content: string | any[]): string {
-        if (typeof content === 'string') return content;
-        if (Array.isArray(content)) {
-            return content.map(c => c.text || JSON.stringify(c)).join('');
-        }
-        return JSON.stringify(content);
-    }
+    // Kept as a thin alias — the canonical implementation is extractTextContent()
+    // in agent-shared.ts, which every graph now shares.
+    const getStringContent = extractTextContent;
 
     // ---------------------------------------------------------------------------
     // FINALIZE NODE
