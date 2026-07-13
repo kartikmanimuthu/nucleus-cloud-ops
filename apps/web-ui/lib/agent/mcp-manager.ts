@@ -13,16 +13,35 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { execFileSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 import { MCPServerConfig, DEFAULT_MCP_SERVERS } from './mcp-config';
 
 /**
  * Check if a command binary is available on the system PATH.
+ *
+ * Resolved by walking PATH directly rather than shelling out to `which`: if
+ * `which` itself is missing from a slim base image, the spawn throws and every
+ * stdio MCP server is reported as unavailable — a total, silent outage.
  */
-function isCommandAvailable(command: string): boolean {
+export function isCommandAvailable(command: string, searchPath: string = process.env.PATH || ''): boolean {
+    if (!command) return false;
+
+    // An explicit path (absolute or relative) is not a PATH lookup.
+    if (command.includes('/')) {
+        return isExecutable(path.resolve(command));
+    }
+
+    return searchPath
+        .split(path.delimiter)
+        .filter(Boolean)
+        .some(dir => isExecutable(path.join(dir, command)));
+}
+
+function isExecutable(candidate: string): boolean {
     try {
-        execFileSync('which', [command], { stdio: 'ignore' });
-        return true;
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return fs.statSync(candidate).isFile();
     } catch {
         return false;
     }

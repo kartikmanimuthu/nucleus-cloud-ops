@@ -7,7 +7,7 @@ RETRY_DELAY=3
 echo "Waiting for database connectivity..."
 retries=0
 while [ $retries -lt $MAX_RETRIES ]; do
-    if bunx prisma@5 migrate deploy --schema=./libs/prisma/schema.prisma 2>&1; then
+    if npx --yes prisma@5 migrate deploy --schema=./libs/prisma/schema.prisma 2>&1; then
         echo "Prisma migrations applied successfully."
         break
     fi
@@ -24,4 +24,4 @@ while [ $retries -lt $MAX_RETRIES ]; do
 done
 
 echo "Starting Next.js server..."
-exec bun run server.js
+exec node server.js
