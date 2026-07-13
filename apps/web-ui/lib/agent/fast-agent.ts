@@ -9,6 +9,7 @@ import {
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
+    contentToText,
     sanitizeMessagesForBedrock,
     withUnresolvedToolCallsOnly,
     tagMessagePhase,
@@ -276,7 +277,10 @@ Please provide your critique.`
             console.warn(`⚠️ [FAST REFLECTOR] Skipping reflection due to model error: ${err?.message ?? err}`);
             return { isComplete: true };
         }
-        const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+        // contentToText normalizes Claude Sonnet 5's block-array content — JSON.stringify-ing
+        // the array instead would hide the "COMPLETE" sentinel inside escaped JSON and make
+        // the critique unreadable if forwarded as feedback.
+        const content = contentToText(response.content);
 
         if (!content) {
             console.log(`⚠️ [FAST REFLECTOR] Empty content received!`);

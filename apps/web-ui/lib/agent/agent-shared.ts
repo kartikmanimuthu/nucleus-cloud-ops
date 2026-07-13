@@ -80,6 +80,9 @@ export interface ToolResultEntry {
     output: string;      // truncated to 1000 chars
     isError: boolean;
     iterationIndex: number;
+    /** The tool call's args, when available — lets the reflector distinguish
+     *  otherwise-identical tool names (e.g. which region/resource a call targeted). */
+    args?: unknown;
 }
 
 export interface ReflectionState {
@@ -99,6 +102,9 @@ export interface ReflectionState {
     runningSummary: string; // Phase 1: rolling summary of compacted turns
     scratchpad: Scratchpad; // Phase 1: structured working-memory scratchpad
     guardVerdicts: Record<string, GuardVerdict>; // keyed by toolCallId, replaced per guard pass
+    /** Consecutive no-tool-call revisions (planning-agent only). Optional so fast-agent,
+     *  which shares this state type but has no reviser/stall logic, is unaffected. */
+    stallCount?: number;
 }
 
 // --- Schema for StateGraph ---
@@ -171,6 +177,10 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     guardVerdicts: {
         reducer: (x: Record<string, GuardVerdict>, y: Record<string, GuardVerdict>) => y,
         default: () => ({}),
+    },
+    stallCount: {
+        reducer: (x: number | undefined, y: number | undefined) => y ?? x,
+        default: () => 0,
     },
 };
 

@@ -131,7 +131,7 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
             }),
             reflector: new ChatAnthropic({
                 ...anthropicConfig,
-                maxTokens: Math.min(defaultMaxTokens, 2048),
+                maxTokens: Math.min(defaultMaxTokens, 4096),
                 streaming: false,
             }),
         };
@@ -165,7 +165,7 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
         }),
         reflector: new ChatBedrockConverse({
             ...bedrockConfig,
-            maxTokens: Math.min(defaultMaxTokens, 2048),
+            maxTokens: Math.min(defaultMaxTokens, 4096),
             streaming: false,
         }),
     };
