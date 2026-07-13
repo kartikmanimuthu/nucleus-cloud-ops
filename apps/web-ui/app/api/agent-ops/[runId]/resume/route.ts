@@ -53,7 +53,11 @@ export async function POST(
         // Mark run as in_progress again before re-triggering
         await agentOpsService.updateRunStatus(tenantId, runId, 'in_progress');
 
-        // Re-execute with the enriched task description (new threadId = same LangGraph state reset)
+        // Re-execute with the enriched task description on the SAME thread — the
+        // checkpoint state (including the stale mode='end' evaluation) survives.
+        // evaluatorNode's isReusableEvaluation() guard handles this: a stale
+        // clarification evaluation is discarded and the enriched task (with the
+        // user's reply) is re-evaluated, so the run can't loop on the old question.
         const resumedRun = {
             ...run,
             taskDescription: enrichedTask,

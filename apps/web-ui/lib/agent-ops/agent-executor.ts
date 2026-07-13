@@ -147,7 +147,17 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
         } catch { /* non-fatal */ }
 
         const graphInput = { messages: [new HumanMessage(taskDescription)] };
-        const graphRunConfig = { configurable: { thread_id: threadId }, recursionLimit: maxIterations };
+        // tenant_id/user_id MUST be in configurable: execute_command reads
+        // config.configurable.tenant_id at invoke time to point
+        // AWS_SHARED_CREDENTIALS_FILE at the tenant creds file where
+        // get_aws_credentials wrote the STS profile. Without it the AWS CLI
+        // falls back to the empty ~/.aws/credentials and every command fails
+        // with "The config profile could not be found". (Matches the AIOps
+        // chat route in app/api/chat/route.ts.)
+        const graphRunConfig = {
+            configurable: { thread_id: threadId, tenant_id: tenantId, user_id: deriveUserId(run) },
+            recursionLimit: maxIterations,
+        };
 
         // ── Event tracking ────────────────────────────────────────────────────
         const toolsUsed = new Set<string>();
@@ -486,15 +496,27 @@ async function processLangGraphEvent(
             if (typeof rawContent === 'string') {
                 textContent = rawContent.trim();
             } else if (Array.isArray(rawContent)) {
-                // Bedrock returns [{type:'text', text:'...'}, {type:'tool_use', ...}]
+                // Bedrock streaming yields content as an array of un-coalesced
+                // text deltas ([{type:'text',text:'The'},{type:'text',text:' request'}...]).
+                // Each delta carries its own leading space, so join with '' —
+                // join('\n') shatters the text one delta per line in the UI + PDF.
+                // (Matches getStringContent() in fast-agent.ts.)
                 textContent = rawContent
                     .filter((c: any) => c.type === 'text' && c.text?.trim())
                     .map((c: any) => c.text)
-                    .join('\n')
+                    .join('')
                     .trim();
             }
 
-            if (textContent) {
+            // planner/evaluator/reflect each emit a clean STRUCTURED event at
+            // on_chain_end (Plan created / evaluation / parsed reflection). Their
+            // raw model text here is a duplicate twin — recording it too double-
+            // lists every planning/reflection step in the timeline. Skip it; the
+            // token usage above is still captured. (generate/agent → execution,
+            // revise → revision, final → final have no structured twin, so keep.)
+            const STRUCTURED_TWIN_NODES = new Set(['planner', 'evaluator', 'reflect']);
+
+            if (textContent && !STRUCTURED_TWIN_NODES.has(node)) {
                 if (node === 'final' || (node === 'generate' && !toolCalls.length)) {
                     result.finalContent = textContent;
                 }
@@ -604,7 +626,12 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
         // Match the initial-run recursionLimit (the tenant's configured graph
         // limit); otherwise a resumed run would fall back to LangGraph's default
         // of 25, tighter than what the initial run used.
-        const graphRunConfig = { configurable: { thread_id: threadId }, recursionLimit: maxIterations };
+        // tenant_id/user_id in configurable are required for execute_command to
+        // resolve AWS credentials on resume too — see the initial-run comment above.
+        const graphRunConfig = {
+            configurable: { thread_id: threadId, tenant_id: tenantId, user_id: deriveUserId(run) },
+            recursionLimit: maxIterations,
+        };
 
         // Inject approvalStatus='approved' so routing skips both gates on resume
         await (graph as any).updateState(graphRunConfig, {

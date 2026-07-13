@@ -81,6 +81,7 @@ export interface ReflectionState {
     memoryStats: MemoryStats | null;
     runningSummary: string; // Phase 1: rolling summary of compacted turns
     scratchpad: Scratchpad; // Phase 1: structured working-memory scratchpad
+    reflectionStallCount?: number; // consecutive reflections with the same blocking issue (stall detector)
 }
 
 // --- Schema for StateGraph ---
@@ -150,10 +151,109 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         reducer: (x: Scratchpad, y: Scratchpad) => y || x,
         default: () => ({ openGoals: [], keyFindings: [], resourceIds: [], pendingSteps: [] }),
     },
+    reflectionStallCount: {
+        reducer: (x: number | undefined, y: number | undefined) => y ?? x ?? 0,
+        default: () => 0,
+    },
 };
+
+/**
+ * Extract the plain text of an LLM response, whatever shape it arrives in.
+ *
+ * Bedrock returns `AIMessage.content` as EITHER a string OR an array of content
+ * blocks ([{type:'text',text:'…'}, {type:'tool_use',…}]) — and under streaming
+ * the text blocks are un-coalesced per-delta. Casting that array `as string`
+ * (which several nodes used to do) is a lie TypeScript cannot catch: at runtime
+ * `content.match(...)` / `content.toLowerCase()` throw TypeError, and
+ * `String(content)` yields "[object Object],[object Object]".
+ *
+ * That crash silently broke plan parsing and, worse, made the reflector return
+ * isComplete=false forever — spinning the reflect→revise loop until
+ * MAX_ITERATIONS. ALWAYS route LLM content through this helper.
+ *
+ * Text deltas carry their own leading spaces, so blocks join with '' (never '\n',
+ * which shatters the prose one delta per line).
+ */
+export function extractTextContent(content: unknown): string {
+    if (content == null) return '';
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content
+            .map((block: any) => {
+                if (typeof block === 'string') return block;
+                if (block?.type === 'text' && typeof block.text === 'string') return block.text;
+                return '';
+            })
+            .join('');
+    }
+    return typeof content === 'object' ? JSON.stringify(content) : String(content);
+}
+
+/**
+ * Decide what to do with a reflector critique.
+ *
+ * 'accept' when the critique says COMPLETE — or when it is EMPTY. An empty
+ * critique happens for real: Claude Sonnet 5 on Bedrock emits a
+ * reasoning_content block first, and if the reflector's output budget runs out
+ * mid-reasoning (stopReason max_tokens) there is no text at all. Feeding an
+ * empty "[REFLECTION FEEDBACK]" back to the agent just burns iterations — the
+ * agent has nothing to fix, so accept the answer instead.
+ */
+export function critiqueVerdict(critique: string): 'accept' | 'revise' {
+    const trimmed = critique.trim();
+    if (!trimmed) return 'accept';
+    if (trimmed.includes('COMPLETE')) return 'accept';
+    return 'revise';
+}
+
+/**
+ * Format the run's tool results as ground-truth evidence for the reflector.
+ *
+ * Takes ALL results (already capped at 10 by the toolResults reducer), not just
+ * the current iteration's: reflection usually runs an iteration or two AFTER
+ * the tool calls (on the no-tools text turn), and a per-iteration filter hands
+ * the reflector an empty log — which it reads as "no tools were run" and then
+ * falsely accuses the agent of fabricating data it genuinely fetched.
+ */
+export function buildToolExecutionLog(
+    toolResults: ToolResultEntry[] | undefined,
+): string {
+    if (!toolResults?.length) return '';
+    const entries = toolResults
+        .map(tr => `- [iteration ${tr.iterationIndex}] ${tr.toolName}: ${tr.isError ? 'ERROR' : 'OK'}\n  Output: ${tr.output}`)
+        .join('\n');
+    return `\n<TOOL_EXECUTION_LOG>\nThe following tools were executed during this run:\n${entries}\n</TOOL_EXECUTION_LOG>\n`;
+}
 
 // --- Constants ---
 export const MAX_ITERATIONS = 30;
+
+// Reflect→revise stall detection. If the reflector reports the SAME blocking
+// issue in this many consecutive reflections, the revise step isn't making
+// progress — finalize with current findings instead of churning to
+// MAX_ITERATIONS (which wastes tokens and leaves the run looking "hung").
+export const REFLECTION_STALL_LIMIT = 2;
+
+/**
+ * Decide whether the reflect→revise loop has stalled. A stall is the SAME
+ * non-empty blocking issue repeating across consecutive reflections: the
+ * revise attempts aren't resolving it. Any change in the issue (or an issue
+ * clearing to 'None'/'') resets the counter.
+ *
+ * Heuristic by design — it matches on the reflector's verbatim issues string,
+ * so a model that rephrases the same blocker each round won't trip it; the
+ * MAX_ITERATIONS cap remains the hard backstop for those cases.
+ */
+export function computeReflectionStall(
+    currentIssues: string,
+    prevIssues: string | undefined,
+    prevStallCount: number,
+): { stallCount: number; stalled: boolean } {
+    const hasIssue = !!currentIssues && currentIssues !== 'None';
+    const repeated = hasIssue && !!prevIssues && prevIssues === currentIssues;
+    const stallCount = repeated ? prevStallCount + 1 : 0;
+    return { stallCount, stalled: stallCount >= REFLECTION_STALL_LIMIT };
+}
 
 // ---------------------------------------------------------------------------
 // LLM Audit Logger

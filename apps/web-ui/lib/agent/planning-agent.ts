@@ -15,6 +15,8 @@ import {
     llmAuditLog,
     getCheckpointer,
     getStore,
+    extractTextContent,
+    REFLECTION_STALL_LIMIT,
 } from "./agent-shared";
 import {
     buildBaseIdentity,
@@ -155,7 +157,7 @@ Only return the JSON array, nothing else.`);
 
         let planSteps: PlanStep[] = [];
         try {
-            const content = response.content as string;
+            const content = extractTextContent(response.content);
             const jsonMatch = content.match(/\[[\s\S]*\]/);
             if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
@@ -434,9 +436,14 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
         let isComplete = false;
         let updatedPlan: PlanStep[] = [];
 
+        let parseFailed = false;
         try {
-            const content = response.content as string;
+            const content = extractTextContent(response.content);
             console.log(`[Reflector] Raw content: ${truncateOutput(content, 200)}`);
+            // Empty reflector text (reasoning consumed the whole output budget,
+            // stopReason max_tokens) — route through the parse-failure path so the
+            // consecutive-failure fail-safe below can force completion.
+            if (!content.trim()) throw new Error('reflector returned no text output');
 
             // Extract outermost JSON object using balanced-brace scan to avoid
             // greedy regex capturing embedded JSON strings in large tool outputs.
@@ -479,8 +486,22 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
             }
         } catch (e) {
             console.error("[Reflector] Parsing failed:", e);
+            parseFailed = true;
             analysis = "Reflection parsing failed. Continuing with next iteration.";
             isComplete = false;
+        }
+
+        // Fail-safe (defense in depth): a reflector we cannot parse must NEVER be
+        // able to spin the reflect→revise loop. Before this guard, a parse failure
+        // left isComplete=false every round, so the loop churned all the way to
+        // MAX_ITERATIONS burning an LLM call per lap. After REFLECTION_STALL_LIMIT
+        // consecutive unparseable reflections, finalize with what we already have.
+        const priorFailures = state.reflectionStallCount ?? 0;
+        const parseFailures = parseFailed ? priorFailures + 1 : 0;
+        if (parseFailed && parseFailures >= REFLECTION_STALL_LIMIT) {
+            isComplete = true;
+            analysis = `Reflection output could not be parsed ${parseFailures} times in a row — finalizing with the results gathered so far rather than retrying further.`;
+            console.warn(`⚠️ [REFLECTOR] ${parseFailures} consecutive parse failures — forcing completion.`);
         }
 
         console.log(`\n🧐 [REFLECTOR] Analysis Complete:`);
@@ -508,7 +529,8 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
             reflection: analysis,
             errors: issues !== "None" ? [issues] : [],
             isComplete,
-            nextAction: isComplete ? "complete" : "revise"
+            nextAction: isComplete ? "complete" : "revise",
+            reflectionStallCount: parseFailures,
         };
 
         if (updatedPlan.length > 0) {
@@ -636,9 +658,7 @@ Write for an engineer audience. Be specific — include resource IDs, account na
         try {
             const summaryResponse = await model.invoke(_auditInputs_fin);
             llmAuditLog('FINAL', _auditInputs_fin, summaryResponse, _auditStart_fin);
-            summaryContent = typeof summaryResponse.content === 'string'
-                ? summaryResponse.content
-                : JSON.stringify(summaryResponse.content);
+            summaryContent = extractTextContent(summaryResponse.content);
         } catch (err: any) {
             // A finalize failure must never crash the run — assemble a best-effort summary
             // from the tool results and review notes already captured in state.

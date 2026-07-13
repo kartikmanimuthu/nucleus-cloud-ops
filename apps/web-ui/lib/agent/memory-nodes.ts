@@ -8,7 +8,7 @@
 
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { truncateOutput } from "./agent-shared";
+import { truncateOutput, extractTextContent } from "./agent-shared";
 import { saveMemory } from "./persistence";
 import { getMemoryService } from "./memory/memory-service";
 import { memoryLogVerbose } from "./memory/log";
@@ -90,9 +90,7 @@ ${memorySummary}
 Return only the relevant memories.`
                     });
                     const response = await reflectorModel.invoke([filterPrompt, filterInput]);
-                    const content = typeof response.content === "string"
-                        ? response.content
-                        : JSON.stringify(response.content);
+                    const content = extractTextContent(response.content);
                     factsSection = (content.trim() === "NONE") ? "" : content.trim();
                     console.log(`🧠 [RECALL:facts] LLM filter ${factsSection ? `kept:\n${factsSection}` : 'kept none (NONE)'}`);
                 } catch (err: any) {
@@ -248,9 +246,7 @@ Extract memories to save.`
 
         try {
             const response = await reflectorModel.invoke([extractPrompt, extractInput]);
-            const content = typeof response.content === "string"
-                ? response.content
-                : JSON.stringify(response.content);
+            const content = extractTextContent(response.content);
 
             const jsonMatch = content.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {

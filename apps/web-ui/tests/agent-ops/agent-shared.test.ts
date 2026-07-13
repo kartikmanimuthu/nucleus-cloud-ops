@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
-import { sanitizeMessagesForBedrock, getRecentMessages, graphState, tagMessagePhase } from '../../lib/agent/agent-shared';
+import { sanitizeMessagesForBedrock, getRecentMessages, graphState, tagMessagePhase, computeReflectionStall, REFLECTION_STALL_LIMIT, extractTextContent, critiqueVerdict, buildToolExecutionLog } from '../../lib/agent/agent-shared';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -247,5 +247,133 @@ describe('executionOutput graphState reducer', () => {
     it('initialises to empty string', () => {
         const defaultFn = graphState.executionOutput?.default as () => string;
         expect(defaultFn()).toBe('');
+    });
+});
+
+describe('extractTextContent', () => {
+    it('returns a plain string unchanged', () => {
+        expect(extractTextContent('hello world')).toBe('hello world');
+    });
+
+    it('joins Bedrock text-delta blocks into the original prose (not "[object Object]")', () => {
+        // The runtime bug: `response.content as string` on this array yielded
+        // "[object Object],[object Object]" and blew up .match()/.toLowerCase().
+        const blocks = [
+            { type: 'text', text: '{"analysis":' },
+            { type: 'text', text: ' "looks good",' },
+            { type: 'text', text: ' "isComplete": true}' },
+        ];
+        const out = extractTextContent(blocks);
+        expect(out).toBe('{"analysis": "looks good", "isComplete": true}');
+        expect(out).not.toContain('[object Object]');
+        expect(() => JSON.parse(out)).not.toThrow();
+    });
+
+    it('keeps only text blocks, dropping tool_use blocks', () => {
+        const blocks = [
+            { type: 'text', text: 'thinking' },
+            { type: 'tool_use', id: 't1', name: 'foo', input: {} },
+        ];
+        expect(extractTextContent(blocks)).toBe('thinking');
+    });
+
+    it('returns a usable string (never throws) for empty / null content', () => {
+        expect(extractTextContent([])).toBe('');
+        expect(extractTextContent(null)).toBe('');
+        expect(extractTextContent(undefined)).toBe('');
+    });
+
+    it('produces output that supports the string ops the reflector calls', () => {
+        const blocks = [{ type: 'text', text: 'Task Complete' }];
+        const out = extractTextContent(blocks);
+        // These are exactly the calls that threw at planning-agent.ts:476 / :159
+        expect(out.toLowerCase()).toContain('task complete');
+        expect(out.indexOf('{')).toBe(-1);
+        expect(() => out.match(/\[[\s\S]*\]/)).not.toThrow();
+    });
+});
+
+describe('critiqueVerdict', () => {
+    it('accepts when the critique contains COMPLETE', () => {
+        expect(critiqueVerdict('COMPLETE')).toBe('accept');
+        expect(critiqueVerdict('The answer is good. COMPLETE')).toBe('accept');
+    });
+
+    it('accepts when the critique is empty — an empty critique must never drive a revision loop', () => {
+        // Live failure: reflector burned its whole output budget on a
+        // reasoning_content block (stopReason max_tokens) → no text → the agent
+        // received "[REFLECTION FEEDBACK]" with an empty issue list and looped.
+        expect(critiqueVerdict('')).toBe('accept');
+        expect(critiqueVerdict('   \n  ')).toBe('accept');
+    });
+
+    it('revises when the critique lists real issues', () => {
+        expect(critiqueVerdict('- Missing --output json on the CLI call')).toBe('revise');
+    });
+});
+
+describe('buildToolExecutionLog', () => {
+    it('includes tool results from ALL iterations, not just the current one', () => {
+        // Live failure: tools ran in iterations 1-2, reflection happened at
+        // iteration 3 → the per-iteration filter produced an empty log and the
+        // reflector falsely accused the agent of fabricating tool data.
+        const results = [
+            { toolName: 'searchJiraIssuesUsingJql', output: '{"issues":[...]}', isError: false, iterationIndex: 1 },
+            { toolName: 'getJiraIssue', output: '{"key":"DEVCHNMGM-817"}', isError: false, iterationIndex: 2 },
+        ];
+        const log = buildToolExecutionLog(results);
+        expect(log).toContain('searchJiraIssuesUsingJql');
+        expect(log).toContain('getJiraIssue');
+        expect(log).toContain('<TOOL_EXECUTION_LOG>');
+    });
+
+    it('returns empty string when no tools were executed', () => {
+        expect(buildToolExecutionLog([])).toBe('');
+        expect(buildToolExecutionLog(undefined)).toBe('');
+    });
+
+    it('marks errored tool calls', () => {
+        const log = buildToolExecutionLog([
+            { toolName: 'execute_command', output: 'Command failed', isError: true, iterationIndex: 1 },
+        ]);
+        expect(log).toContain('ERROR');
+    });
+});
+
+describe('computeReflectionStall', () => {
+    it('does not stall on the first reflection with an issue', () => {
+        const r = computeReflectionStall('AWS CLI missing --output json', undefined, 0);
+        expect(r.stallCount).toBe(0);
+        expect(r.stalled).toBe(false);
+    });
+
+    it('resets the count when the issue changes between reflections', () => {
+        const r = computeReflectionStall('new different issue', 'old issue', 1);
+        expect(r.stallCount).toBe(0);
+        expect(r.stalled).toBe(false);
+    });
+
+    it('resets the count when the current reflection reports no issues', () => {
+        const r = computeReflectionStall('None', 'some issue', 1);
+        expect(r.stallCount).toBe(0);
+        expect(r.stalled).toBe(false);
+    });
+
+    it('increments the count when the same blocking issue repeats', () => {
+        const r = computeReflectionStall('same issue', 'same issue', 0);
+        expect(r.stallCount).toBe(1);
+        expect(r.stalled).toBe(false);
+    });
+
+    it('flags stalled once the same issue persists to the limit', () => {
+        const r = computeReflectionStall('same issue', 'same issue', REFLECTION_STALL_LIMIT - 1);
+        expect(r.stallCount).toBe(REFLECTION_STALL_LIMIT);
+        expect(r.stalled).toBe(true);
+    });
+
+    it('treats empty-string issues as no issue (no false stall)', () => {
+        const r = computeReflectionStall('', '', 1);
+        expect(r.stallCount).toBe(0);
+        expect(r.stalled).toBe(false);
     });
 });

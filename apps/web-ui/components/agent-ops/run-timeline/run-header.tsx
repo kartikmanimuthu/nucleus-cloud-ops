@@ -1,11 +1,14 @@
 "use client";
 
 import {
-  ArrowLeft, CalendarClock, CheckCircle2, Cpu, Download, Globe, Loader2,
+  ArrowLeft, CalendarClock, CheckCircle2, ChevronDown, Cpu, Download, FileText, Globe, Loader2,
   MessageSquare, ShieldCheck, StopCircle, Timer, Wifi, XCircle, Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { AgentOpsRun, AgentOpsStatus } from "@/lib/agent-ops/types";
 
@@ -31,7 +34,7 @@ function fmtDuration(ms?: number): string {
 }
 
 export function RunHeader({
-  run, tokens, streaming, onCancel, cancelling, onExportPdf, exporting, onBack,
+  run, tokens, streaming, onCancel, cancelling, onExportPdf, onExportMarkdown, exporting, onBack,
 }: {
   run: AgentOpsRun;
   tokens: { input: number; output: number };
@@ -39,6 +42,7 @@ export function RunHeader({
   onCancel: () => void;
   cancelling: boolean;
   onExportPdf: () => void;
+  onExportMarkdown: () => void;
   exporting: boolean;
   onBack: () => void;
 }) {
@@ -64,10 +68,23 @@ export function RunHeader({
         )}
         <span className="ml-auto flex items-center gap-2">
           {run.status !== "queued" && run.status !== "in_progress" && (
-            <Button variant="outline" size="sm" onClick={onExportPdf} disabled={exporting}>
-              {exporting ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Download className="mr-1.5 size-3.5" />}
-              PDF
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={exporting}>
+                  {exporting ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Download className="mr-1.5 size-3.5" />}
+                  Export
+                  <ChevronDown className="ml-1 size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onExportPdf}>
+                  <Download className="mr-2 size-3.5" /> PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onExportMarkdown}>
+                  <FileText className="mr-2 size-3.5" /> Markdown
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           {active && (
             <Button variant="destructive" size="sm" onClick={onCancel} disabled={cancelling}>

@@ -130,7 +130,11 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
             }),
             reflector: new ChatAnthropic({
                 ...anthropicConfig,
-                maxTokens: Math.min(defaultMaxTokens, 2048),
+                // Full budget, not min(…, 2048): Claude Sonnet 5 emits a reasoning
+                // block before its text, and a 2048 cap let reasoning consume the
+                // whole budget (stopReason max_tokens) — the reflector returned
+                // ZERO text and the reflection loop spun on empty critiques.
+                maxTokens: defaultMaxTokens,
                 streaming: false,
             }),
         };
@@ -164,7 +168,8 @@ export function createAgentModels(config: ResolvedModelConfig): AgentModels {
         }),
         reflector: new ChatBedrockConverse({
             ...bedrockConfig,
-            maxTokens: Math.min(defaultMaxTokens, 2048),
+            // Full budget, not min(…, 2048) — see the ChatAnthropic reflector note.
+            maxTokens: defaultMaxTokens,
             streaming: false,
         }),
     };
