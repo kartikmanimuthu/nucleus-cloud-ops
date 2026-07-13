@@ -286,6 +286,31 @@ export function llmAuditLog(
 }
 
 // --- Helper Functions ---
+
+/**
+ * Normalize AIMessage.content to plain text. Newer models (e.g. Claude Sonnet 5
+ * via Bedrock) return an ARRAY of content blocks instead of a string; code that
+ * parses model output (plan JSON, reflector JSON, guard risk JSON) must extract
+ * the text blocks rather than String()/JSON.stringify()-ing the array.
+ */
+export function contentToText(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content
+            .map((block) => {
+                if (typeof block === 'string') return block;
+                if (block && typeof block === 'object') {
+                    const b = block as Record<string, unknown>;
+                    if (typeof b.text === 'string') return b.text;
+                }
+                return '';
+            })
+            .join('');
+    }
+    if (content == null) return '';
+    return JSON.stringify(content);
+}
+
 export function truncateOutput(text: string, maxChars: number = 500): string {
     if (!text) return "";
     if (text.length > maxChars) {

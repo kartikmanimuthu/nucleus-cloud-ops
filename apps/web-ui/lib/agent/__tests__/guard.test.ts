@@ -134,4 +134,25 @@ describe('guard node', () => {
         expect(v.isMutative).toBe(true);
         expect(v.severity).toBe('HIGH');
     });
+
+    it('parses the LLM refinement when the risk model returns block-array content (Claude Sonnet 5 shape)', async () => {
+        const node = createGuardNode({
+            riskModel: {
+                invoke: async () => ({
+                    content: [{
+                        type: 'text',
+                        text: JSON.stringify([{
+                            toolCallId: 't1', mutative: true, severity: 'MEDIUM',
+                            action: 'Stops instance', blastRadius: 'Downtime',
+                            reversible: true, saferPath: '',
+                        }]),
+                    }],
+                }),
+            },
+        });
+        const msgs = [aiWithCalls([{ id: 't1', name: 'execute_command', args: { command: 'aws ec2 stop-instances --instance-ids i-0abc' } }])];
+        const out = await node(baseState(msgs));
+        const v = out.guardVerdicts!['t1'];
+        expect(v.severity).toBe('MEDIUM');
+    });
 });

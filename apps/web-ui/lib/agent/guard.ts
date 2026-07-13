@@ -1,6 +1,6 @@
 import { AIMessage, HumanMessage, SystemMessage, BaseMessage } from '@langchain/core/messages';
 import { classifyTool, type ToolClassification } from './tool-classifier';
-import type { GuardVerdict, ReflectionState } from './agent-shared';
+import { contentToText, type GuardVerdict, type ReflectionState } from './agent-shared';
 
 export interface PendingToolCall {
     id: string;
@@ -112,7 +112,7 @@ export function createGuardNode(deps: { riskModel: RiskModel; classifier?: typeo
                     new SystemMessage(RISK_SYSTEM_PROMPT),
                     new HumanMessage(`Assess these tool calls:\n${callList}`),
                 ]);
-                const text = typeof res.content === 'string' ? res.content : JSON.stringify(res.content);
+                const text = contentToText(res.content);
                 const jsonMatch = text.match(/\[[\s\S]*\]/);
                 const parsed: Array<Record<string, unknown>> = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
                 for (const item of parsed) {

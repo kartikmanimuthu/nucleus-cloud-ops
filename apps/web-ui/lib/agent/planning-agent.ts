@@ -10,6 +10,7 @@ import {
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
+    contentToText,
     sanitizeMessagesForBedrock,
     withUnresolvedToolCallsOnly,
     tagMessagePhase,
@@ -165,7 +166,7 @@ Only return the JSON array, nothing else.`);
 
         let planSteps: PlanStep[] = [];
         try {
-            const content = response.content as string;
+            const content = contentToText(response.content);
             const jsonMatch = content.match(/\[[\s\S]*\]/);
             if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
@@ -452,7 +453,7 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
         let updatedPlan: PlanStep[] = [];
 
         try {
-            const content = response.content as string;
+            const content = contentToText(response.content);
             console.log(`[Reflector] Raw content: ${truncateOutput(content, 200)}`);
 
             // Extract outermost JSON object using balanced-brace scan to avoid
