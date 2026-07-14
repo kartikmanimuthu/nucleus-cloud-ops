@@ -122,3 +122,21 @@ export function buildAllMemoriesMarkdown(memories: MemoryRow[]): string {
     }
     return `${header.join("\n")}\n${body.join("\n")}`;
 }
+
+/**
+ * Build a portable `.md` for a memory: YAML frontmatter (kind, namespace, key,
+ * category, confidence, created_at, updated_at) + the kind-aware `value` body.
+ * Re-importable by other AI tools that read Markdown + frontmatter. Pure.
+ */
+export function buildMemoryFile(memory: MemoryRow): string {
+    const fm: string[] = [
+        "---",
+        `kind: ${memory.kind}`,
+        `namespace: ${yamlScalar(memory.namespace)}`,
+        `key: ${yamlScalar(memory.key)}`,
+        `category: ${memory.category}`,
+    ];
+    if (memory.confidence) fm.push(`confidence: ${memory.confidence}`);
+    fm.push(`created_at: ${memory.createdAt}`, `updated_at: ${memory.updatedAt}`, "---", "");
+    return `${fm.join("\n")}\n${renderValueBody(memory)}`;
+}

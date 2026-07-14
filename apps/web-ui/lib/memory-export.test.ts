@@ -4,7 +4,7 @@
  * wrappers are thin DOM code identical to skill-export's.
  */
 import { describe, it, expect } from 'vitest';
-import { buildMemoryMarkdown, buildAllMemoriesMarkdown } from './memory-export';
+import { buildMemoryMarkdown, buildAllMemoriesMarkdown, buildMemoryFile } from './memory-export';
 import type { MemoryRow } from './queries/agent-memories';
 
 function makeMemory(overrides: Partial<MemoryRow> = {}): MemoryRow {
@@ -151,5 +151,53 @@ describe('buildAllMemoriesMarkdown', () => {
         const md = buildAllMemoriesMarkdown([makeMemory({ kind: 'PROCEDURAL' })]);
         expect(md).not.toContain('### SEMANTIC');
         expect(md).toContain('### PROCEDURAL');
+    });
+});
+
+describe('buildMemoryFile (portable frontmatter)', () => {
+    it('emits YAML frontmatter delimited by --- fences', () => {
+        const md = buildMemoryFile(makeMemory());
+        expect(md.startsWith('---\n')).toBe(true);
+        expect(md).toMatch(/\n---\n/);
+    });
+
+    it('places kind, namespace, key, category, created_at, updated_at in frontmatter', () => {
+        const md = buildMemoryFile(makeMemory());
+        expect(md).toContain('kind: SEMANTIC');
+        expect(md).toContain('namespace: "infra:ec2"');
+        expect(md).toContain('key: "prod-stop-schedule"');
+        expect(md).toContain('category: infra');
+        expect(md).toContain('created_at: 2026-07-13T00:00:00.000Z');
+        expect(md).toContain('updated_at: 2026-07-13T00:00:00.000Z');
+    });
+
+    it('includes confidence when present', () => {
+        const md = buildMemoryFile(makeMemory({ confidence: 'high' }));
+        expect(md).toContain('confidence: high');
+    });
+
+    it('omits the confidence line when null', () => {
+        const md = buildMemoryFile(makeMemory({ confidence: null }));
+        expect(md).not.toMatch(/^confidence:/m);
+    });
+
+    it('puts the kind-aware body after the frontmatter', () => {
+        const md = buildMemoryFile(makeMemory({ kind: 'SEMANTIC' }));
+        const bodyStart = md.indexOf('\n---\n') + '\n---\n'.length;
+        const body = md.slice(bodyStart);
+        expect(body).toContain('**Fact:** Prod EC2 stops at 7pm.');
+        expect(body).toContain('**Source:** scheduler-discovery-2026-07');
+        expect(body).toContain('**Confidence:** high');
+    });
+
+    it('escapes double quotes and backslashes in namespace/key', () => {
+        const md = buildMemoryFile(makeMemory({ namespace: 'a"b', key: 'c\\d' }));
+        expect(md).toContain('namespace: "a\\"b"');
+        expect(md).toContain('key: "c\\\\d"');
+    });
+
+    it('uses a YAML block scalar for multi-line namespaces', () => {
+        const md = buildMemoryFile(makeMemory({ namespace: 'line one\nline two' }));
+        expect(md).toContain('namespace: |-\n  line one\n  line two');
     });
 });
