@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { SetupSteps } from '@/components/channels/setup-steps';
+import { SetupGuideLink } from '@/components/channels/setup-guide-link';
 
 interface JiraSettingsForm {
     webhookSecret: string;
@@ -235,6 +235,12 @@ function JiraSettingsFormInner({
                     </Badge>
                 )}
             </div>
+
+            {/* Setup Guide */}
+            <SetupGuideLink
+                href="/docs/jira-integration"
+                description="Part 1 wires Jira → Agent Ops (trigger runs). Part 2 wires Agent Ops → Jira (result comments)."
+            />
 
             {/* Webhook URL */}
             <Card>
@@ -537,154 +543,6 @@ function JiraSettingsFormInner({
                 </CardContent>
             </Card>
 
-            {/* Setup Guide */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base">Step-by-step Setup Guide</CardTitle>
-                    <CardDescription>
-                        Part 1 wires Jira → Agent Ops (trigger runs). Part 2 wires Agent Ops → Jira (result comments).
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    <div className="space-y-4">
-                        <p className="text-sm font-semibold text-foreground">Part 1 — Trigger runs from Jira (required)</p>
-                        <SetupSteps
-                            steps={[
-                                {
-                                    title: 'Generate and save the Webhook Secret',
-                                    detail: (
-                                        <>
-                                            Click <strong className="text-foreground">Generate</strong> next to the
-                                            Webhook Secret field above, copy the value somewhere safe, and click{' '}
-                                            <strong className="text-foreground">Save Settings</strong>.
-                                        </>
-                                    ),
-                                },
-                                {
-                                    title: 'Create a Jira Automation rule',
-                                    detail: (
-                                        <>
-                                            In Jira, open{' '}
-                                            <strong className="text-foreground">Project settings → Automation</strong>{' '}
-                                            (or <strong className="text-foreground">Settings → System → Automation</strong>{' '}
-                                            for a global rule) and click{' '}
-                                            <strong className="text-foreground">Create rule</strong>.
-                                        </>
-                                    ),
-                                },
-                                {
-                                    title: 'Choose a trigger',
-                                    detail: (
-                                        <>
-                                            For example <strong className="text-foreground">Issue created</strong>,{' '}
-                                            <strong className="text-foreground">Issue transitioned</strong>, or{' '}
-                                            <strong className="text-foreground">Manually triggered</strong>. Optionally add
-                                            a condition (e.g. label = <code className="bg-muted px-1 rounded">agent-ops</code>)
-                                            so only selected issues trigger runs.
-                                        </>
-                                    ),
-                                },
-                                {
-                                    title: 'Add a "Send web request" action',
-                                    detail: (
-                                        <ul className="list-disc list-inside space-y-1">
-                                            <li>
-                                                <strong className="text-foreground">Web request URL</strong>: the Webhook
-                                                Endpoint shown at the top of this page
-                                            </li>
-                                            <li>
-                                                <strong className="text-foreground">HTTP method</strong>:{' '}
-                                                <code className="bg-muted px-1 rounded">POST</code>
-                                            </li>
-                                            <li>
-                                                <strong className="text-foreground">Web request body</strong>: Custom data →
-                                                paste the <em>Automation template</em> from the Webhook Payload card
-                                            </li>
-                                            <li>
-                                                <strong className="text-foreground">Headers</strong>: add{' '}
-                                                <code className="bg-muted px-1 rounded">Authorization</code> ={' '}
-                                                <code className="bg-muted px-1 rounded">Bearer &lt;your-secret&gt;</code>{' '}
-                                                (the Webhook Secret from step 1)
-                                            </li>
-                                        </ul>
-                                    ),
-                                },
-                                {
-                                    title: 'Publish and test the rule',
-                                    detail: (
-                                        <>
-                                            Use the rule&apos;s <strong className="text-foreground">Validate</strong>{' '}
-                                            button or create a test issue — the run appears under{' '}
-                                            <strong className="text-foreground">Agent Ops → Runs</strong> with source{' '}
-                                            <code className="bg-muted px-1 rounded">jira</code>.
-                                        </>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </div>
-                    <div className="space-y-4">
-                        <p className="text-sm font-semibold text-foreground">
-                            Part 2 — Post results back to issues (recommended)
-                        </p>
-                        <SetupSteps
-                            startAt={6}
-                            steps={[
-                                {
-                                    title: 'Pick the bot account',
-                                    detail: (
-                                        <>
-                                            Use a dedicated Atlassian service account (recommended) or your own — run
-                                            results are posted as comments by this user.
-                                        </>
-                                    ),
-                                },
-                                {
-                                    title: 'Create an API token',
-                                    detail: (
-                                        <>
-                                            Signed in as that account, open{' '}
-                                            <a
-                                                href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="inline-flex items-center gap-1 text-blue-500 hover:underline"
-                                            >
-                                                Atlassian account → Security → API tokens
-                                                <ExternalLink className="h-3 w-3" />
-                                            </a>{' '}
-                                            and click <strong className="text-foreground">Create API token</strong>. Copy
-                                            it right away — it is shown only once.
-                                        </>
-                                    ),
-                                },
-                                {
-                                    title: 'Fill in Base URL, User Email, and API Token',
-                                    detail: (
-                                        <>
-                                            Base URL is your site, e.g.{' '}
-                                            <code className="bg-muted px-1 rounded">https://your-org.atlassian.net</code>;
-                                            User Email is the bot account&apos;s email; API Token is the value from the
-                                            previous step.
-                                        </>
-                                    ),
-                                },
-                                {
-                                    title: 'Test and save',
-                                    detail: (
-                                        <>
-                                            Click <strong className="text-foreground">Test Connection</strong> — on
-                                            success the <strong className="text-foreground">Bot Account ID</strong> is
-                                            auto-filled (it prevents the bot from reacting to its own comments). Then
-                                            click <strong className="text-foreground">Save Settings</strong>.
-                                        </>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </div>
-                </CardContent>
-            </Card>
         </div>
     );
 }

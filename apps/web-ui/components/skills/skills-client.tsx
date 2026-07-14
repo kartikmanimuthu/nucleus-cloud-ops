@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Plus, Eye, Copy, Pencil, Trash2, Search, MoreHorizontal } from "lucide-react";
+import { Plus, Eye, Copy, Pencil, Trash2, Search, MoreHorizontal, Download, FileDown, FileCode, FileArchive, ChevronDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,8 @@ import { useSkills, useDeleteSkill, useUpdateSkill } from "@/lib/queries/skills"
 import { SkillFormDialog } from "./skill-form-dialog";
 import { SkillDetailDialog } from "./skill-detail-dialog";
 import type { SkillDTO } from "@/lib/client-skill-service";
+import { ClientSkillService } from "@/lib/client-skill-service";
+import { exportSkillToMarkdown, exportAllSkillsToMarkdown, exportSkillToFile, exportAllSkillsToZip } from "@/lib/skill-export";
 
 function formatDate(value: string) {
   const d = new Date(value);
@@ -32,6 +34,7 @@ export function SkillsClient() {
   const [viewOpen, setViewOpen] = useState(false);
   const [viewing, setViewing] = useState<SkillDTO | null>(null);
   const [search, setSearch] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const openCreate = () => { setEditing(null); setCloning(null); setDialogOpen(true); };
   const openEdit = (s: SkillDTO) => { setEditing(s); setCloning(null); setDialogOpen(true); };
@@ -48,6 +51,61 @@ export function SkillsClient() {
       toast.success(next ? "Skill enabled" : "Skill disabled", { description: s.name });
     } catch (e) {
       toast.error("Update failed", { description: e instanceof Error ? e.message : "Try again" });
+    }
+  };
+  const onExportSkill = async (s: SkillDTO) => {
+    try {
+      // List DTOs omit content — fetch the full skill before exporting.
+      const full = await ClientSkillService.getSkill(s.id);
+      exportSkillToMarkdown(full);
+      toast.success("Skill exported", { description: `${s.name}.md downloaded` });
+    } catch (e) {
+      toast.error("Export failed", { description: e instanceof Error ? e.message : "Try again" });
+    }
+  };
+  const onExportSkillFile = async (s: SkillDTO) => {
+    try {
+      const full = await ClientSkillService.getSkill(s.id);
+      exportSkillToFile(full);
+      toast.success("SKILL.md exported", { description: `${s.id}.md downloaded` });
+    } catch (e) {
+      toast.error("Export failed", { description: e instanceof Error ? e.message : "Try again" });
+    }
+  };
+  const fetchAllWithContent = async (): Promise<SkillDTO[] | null> => {
+    const all = await ClientSkillService.listSkillsWithContent(true);
+    if (all.length === 0) {
+      toast.error("Nothing to export", { description: "No skills found." });
+      return null;
+    }
+    return all;
+  };
+  const onExportAll = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const all = await fetchAllWithContent();
+      if (!all) return;
+      exportAllSkillsToMarkdown(all);
+      toast.success("Skills exported", { description: `${all.length} skill(s) downloaded` });
+    } catch (e) {
+      toast.error("Export failed", { description: e instanceof Error ? e.message : "Try again" });
+    } finally {
+      setExporting(false);
+    }
+  };
+  const onExportAllZip = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const all = await fetchAllWithContent();
+      if (!all) return;
+      await exportAllSkillsToZip(all);
+      toast.success("Skills exported", { description: `${all.length} SKILL.md files zipped` });
+    } catch (e) {
+      toast.error("Export failed", { description: e instanceof Error ? e.message : "Try again" });
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -124,6 +182,8 @@ export function SkillsClient() {
                 <DropdownMenuItem onClick={() => openView(s)}><Eye className="mr-2 h-4 w-4" /> View</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openEdit(s)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openClone(s)}><Copy className="mr-2 h-4 w-4" /> Clone</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onExportSkill(s)}><FileDown className="mr-2 h-4 w-4" /> Export markdown</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onExportSkillFile(s)}><FileCode className="mr-2 h-4 w-4" /> Export SKILL.md</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => onDelete(s)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
               </DropdownMenuContent>
@@ -142,7 +202,22 @@ export function SkillsClient() {
           <h1 className="text-2xl font-semibold">Skills</h1>
           <p className="text-sm text-muted-foreground">Reusable agent skills for AI Ops and Agent Ops.</p>
         </div>
-        <Button onClick={openCreate}><Plus className="w-4 h-4 mr-1" /> Create skill</Button>
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={exporting || isLoading || rows.length === 0}>
+                {exporting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Download className="w-4 h-4 mr-1" />}
+                Export all
+                <ChevronDown className="w-4 h-4 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onExportAll}><FileDown className="mr-2 h-4 w-4" /> Markdown (one file)</DropdownMenuItem>
+              <DropdownMenuItem onClick={onExportAllZip}><FileArchive className="mr-2 h-4 w-4" /> SKILL.md files (zip)</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button onClick={openCreate}><Plus className="w-4 h-4 mr-1" /> Create skill</Button>
+        </div>
       </div>
 
       <DataTable

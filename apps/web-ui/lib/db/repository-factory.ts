@@ -27,6 +27,7 @@ import type { IRightSizingRepository } from './repositories/right-sizing/interfa
 import type { IPricingCatalogRepository } from './repositories/pricing/interface';
 import type { IAgentMemoryRepository } from './repositories/agent-memory/interface';
 import type { ISkillRepository } from './repositories/skill/interface';
+import type { ISlackWorkspaceLinkRepository } from './repositories/slack-workspace-link/interface';
 
 export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -128,6 +129,12 @@ export function getSkillRepository(): ISkillRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { SkillPostgresRepository } = require('./repositories/skill/postgres');
     return new SkillPostgresRepository();
+}
+
+export function getSlackWorkspaceLinkRepository(): ISlackWorkspaceLinkRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { SlackWorkspaceLinkPostgresRepository } = require('./repositories/slack-workspace-link/postgres');
+    return new SlackWorkspaceLinkPostgresRepository();
 }
 
 /**

@@ -31,6 +31,7 @@ model Tenant {
 
   configs TenantConfig[]
   providerModels ProviderModel[]
+  slackWorkspaceLinks SlackWorkspaceLink[]
 
   @@index([status])
   @@map("tenants")
@@ -51,6 +52,26 @@ model TenantConfig {
   @@unique([tenantId, configKey])
   @@index([tenantId])
   @@map("tenant_configs")
+}
+
+// SlackWorkspaceLink — reverse index from a Slack workspace (team_id) to the
+// tenant that registered it. Inbound slash-command/interaction payloads carry
+// only the Slack team_id, never our internal tenantId, so signature
+// verification needs this lookup before it can find the right signing secret
+// in TenantConfig. teamId is globally unique: one Slack workspace maps to
+// exactly one tenant.
+model SlackWorkspaceLink {
+  id        String   @id @default(cuid())
+  teamId    String   @unique
+  tenantId  String
+  botUserId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("slack_workspace_links")
 }
 
 // ProviderModel — tenant-scoped self-hosted LLM provider configurations

@@ -1,0 +1,46 @@
+---
+title: Slack Integration
+description: Trigger Agent Ops runs via Slack slash commands and receive results, scheduled digests, and approval requests back in your channels.
+---
+
+**Goal:** from zero to a working Slack integration in about five minutes.
+
+![Channels](/screenshots/channels.png)
+
+## 1. Create the Slack app
+
+Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**.
+Pick your workspace, choose JSON, and paste the App Manifest shown on the **Channels → Slack**
+settings page in Nucleus Ops — this auto-configures the slash command, bot scopes, and
+interactivity endpoint in one step, so you don't have to wire each of those up by hand.
+
+## 2. Copy the Signing Secret
+
+In the app's settings, open **Basic Information**, scroll to **App Credentials**, click **Show**
+next to Signing Secret, and paste it into the **Signing Secret** field on the Slack settings page.
+This is what lets Nucleus Ops verify that incoming requests really came from Slack.
+
+## 3. Install the app to your workspace
+
+Open **Install App** in the sidebar and click **Install to Workspace**, then authorize the
+requested scopes (`commands`, `chat:write`, `chat:write.public`).
+
+## 4. Copy the Bot Token
+
+After installation, go to **OAuth & Permissions** and copy the **Bot User OAuth Token** (starts
+with `xoxb-`) into the **Bot Token** field. Without it, only ephemeral replies to slash commands
+work — you need this token for Nucleus Ops to post run results, scheduled-task digests, and
+approval buttons back into Slack.
+
+## 5. Invite the bot to your channel
+
+In the Slack channel that should receive results or scheduled digests, run
+`/invite @nucleus-cloud-ops`. To get the **Channel ID** (needed when configuring a scheduled
+task's Slack notification): click the channel name → scroll to the bottom of the About tab →
+copy the ID starting with `C`.
+
+## 6. Save, test, and run
+
+Click **Save Settings**, then **Test Connection** to verify the bot token against Slack's
+`auth.test` API. Finally, try `/cloud-ops check EC2 costs in prod` in Slack — the run appears
+under **Agent Ops → Runs** with source `slack`, and results stream back to the channel.

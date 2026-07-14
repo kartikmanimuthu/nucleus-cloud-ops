@@ -213,6 +213,11 @@ It checks `hilCapabilities` first and falls back to a dashboard URL when the cha
 ### Discord / Jira
 Same pattern — set the platform's interaction/webhook URL to `/api/v1/gateway/{discord|jira}` and paste credentials into the matching settings page.
 
+Note: this is the **Jira gateway channel** (triggers runs from Jira Automation, posts results as issue
+comments — webhook + API token, see the `Jira` row above). It's separate from adding **Atlassian/Jira
+as an MCP tool source** (giving the agent read/write access to Jira issues via the Atlassian Rovo MCP
+server) — for headless auth to that server, see `apps/web-ui/content/docs/jira-integration.mdx`.
+
 ---
 
 ## Adding a brand-new channel (e.g. MS Teams, WhatsApp)
