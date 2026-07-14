@@ -19,6 +19,15 @@ export const ClientSkillService = {
         const body = await jsonOrThrow(res);
         return body.skills as SkillDTO[];
     },
+    /** List skills with their full `content` (used for markdown export). */
+    async listSkillsWithContent(all = true): Promise<SkillDTO[]> {
+        const params = new URLSearchParams();
+        if (all) params.set('all', '1');
+        params.set('withContent', '1');
+        const res = await fetch(`/api/skills?${params.toString()}`);
+        const body = await jsonOrThrow(res);
+        return body.skills as SkillDTO[];
+    },
     async getSkill(id: string): Promise<SkillDTO> {
         return (await jsonOrThrow(await fetch(`/api/skills/${id}`))).data;
     },
