@@ -69,7 +69,6 @@ export const env = createEnv({
         DATA_DIR: z.string().optional(),
 
         // Integrations
-        SLACK_SIGNING_SECRET: z.string().optional(),
         JIRA_WEBHOOK_SECRET: z.string().optional(),
         JIRA_BASE_URL: z.string().optional(),
         JIRA_USER_EMAIL: z.string().optional(),
