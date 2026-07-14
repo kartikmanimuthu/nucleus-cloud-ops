@@ -172,7 +172,7 @@ export default function ChannelsPage() {
                                             <Link href={channel.href} className="flex-1">
                                                 <Button variant="outline" size="sm" className="w-full gap-2">
                                                     <Settings2 className="h-3.5 w-3.5" />
-                                                    {configured ? 'Reconfigure' : 'Configure'}
+                                                    Configure
                                                 </Button>
                                             </Link>
                                             {configured && (

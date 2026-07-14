@@ -59,6 +59,27 @@ export function useSaveChannelSettings(channel: string) {
 }
 
 /**
+ * Reset a channel: deletes its stored configuration so it returns to the
+ * unconfigured state. Destructive — the secrets are not recoverable from the UI
+ * afterwards — so call sites must confirm first (see ChannelResetCard).
+ */
+export function useResetChannelSettings(channel: string) {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async () => {
+            const res = await fetch(`/api/agent-ops/settings/${channel}`, { method: 'DELETE' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'Failed to reset channel');
+            return data;
+        },
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['channel-settings', channel] });
+            qc.invalidateQueries({ queryKey: ['channels', 'status'] });
+        },
+    });
+}
+
+/**
  * Activate/deactivate a configured channel without touching its credentials.
  * Safe because every settings PUT merges the body over the stored config, so
  * an `{ enabled }`-only body keeps all existing secrets. Only call this for

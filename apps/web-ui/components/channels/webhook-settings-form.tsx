@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { ChannelResetCard } from '@/components/channels/channel-reset-card';
 
 interface WebhookSettingsState {
     webhookSecret: string;
@@ -315,6 +316,19 @@ Header: x-webhook-signature: <hex digest>`}</code>
                     </ol>
                 </CardContent>
             </Card>
+
+            <ChannelResetCard
+                channel="webhook"
+                name="Webhook"
+                clears="webhook secret"
+                configured={configured}
+                onReset={() => {
+                    setConfigured(false);
+                    setRevealed(false);
+                    setSaveStatus('idle');
+                    setForm({ webhookSecret: '', enabled: true });
+                }}
+            />
         </div>
     );
 }

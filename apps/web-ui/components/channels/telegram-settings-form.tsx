@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { SetupSteps } from '@/components/channels/setup-steps';
+import { ChannelResetCard } from '@/components/channels/channel-reset-card';
 
 interface TelegramSettingsState {
     botToken: string;
@@ -508,6 +509,19 @@ function TelegramSettingsFormInner({
                     />
                 </CardContent>
             </Card>
+
+            <ChannelResetCard
+                channel="telegram"
+                name="Telegram"
+                clears="bot token and secret token"
+                configured={configured}
+                onReset={() => {
+                    setConfigured(false);
+                    setRevealed(false);
+                    setSaveStatus('idle');
+                    setForm({ botToken: '', secretToken: '', enabled: true });
+                }}
+            />
         </div>
     );
 }

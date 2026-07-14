@@ -38,4 +38,13 @@ export interface ISlackWorkspaceLinkRepository {
      * Look up the current link for a tenant, if any.
      */
     getLinkForTenant(tenantId: string): Promise<SlackWorkspaceLinkRecord | null>;
+
+    /**
+     * Drop a tenant's workspace link. Called when the tenant resets its Slack
+     * configuration: a link left behind would keep routing inbound team_ids to a
+     * tenant that no longer holds a signing secret, so every slash command would
+     * fail signature verification instead of being cleanly rejected as unlinked.
+     * Returns the number of rows removed (0 when the tenant had no link).
+     */
+    deleteLinkForTenant(tenantId: string): Promise<number>;
 }
