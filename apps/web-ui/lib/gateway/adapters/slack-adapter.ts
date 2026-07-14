@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 import type { NextRequest } from 'next/server';
 import { env } from '@/env';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getSlackWorkspaceLinkRepository } from '@/lib/db/repository-factory';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
 import type {
@@ -45,6 +46,21 @@ async function readBody(req: NextRequest): Promise<string> {
     return text;
 }
 
+/**
+ * Cache the team_id → tenantId resolution across validateRequest → parseInbound
+ * so both use the same (correct) internal tenantId without a duplicate lookup.
+ * Value is `null` when resolution was attempted but no link exists.
+ */
+const tenantIdCache = new WeakMap<NextRequest, string | null>();
+
+async function resolveTenantId(req: NextRequest, teamId: string): Promise<string | null> {
+    if (!teamId) return null;
+    if (tenantIdCache.has(req)) return tenantIdCache.get(req) ?? null;
+    const tenantId = await getSlackWorkspaceLinkRepository().findTenantIdByTeamId(teamId).catch(() => null);
+    tenantIdCache.set(req, tenantId);
+    return tenantId;
+}
+
 export class SlackAdapter implements ChannelAdapter {
     readonly channelType: ChannelType = 'slack';
     readonly deliveryMode: DeliveryMode = 'callback';
@@ -63,18 +79,21 @@ export class SlackAdapter implements ChannelAdapter {
 
         if (!timestamp || !signature) return false;
 
-        // Try to resolve tenantId from the body (team_id in slash commands or interaction payloads)
+        // Resolve the Slack team_id from the body (slash commands or interaction payloads).
+        // team_id is Slack's workspace identifier — NOT our internal tenantId — so it must
+        // be translated via SlackWorkspaceLink before it can be used to look up config.
         const params = new URLSearchParams(body);
-        let tenantId = params.get('team_id') || '';
-        if (!tenantId && params.has('payload')) {
+        let teamId = params.get('team_id') || '';
+        if (!teamId && params.has('payload')) {
             try {
                 const payload = JSON.parse(params.get('payload')!);
-                tenantId = payload.team?.id || '';
+                teamId = payload.team?.id || '';
             } catch { /* ignore */ }
         }
 
-        // Load signing secret: tenant config first, env var fallback
+        // Load signing secret: resolve tenant from team_id, then tenant config, env var fallback
         let signingSecret = '';
+        const tenantId = await resolveTenantId(req, teamId);
         if (tenantId) {
             const config = await TenantConfigService.getConfig<SlackIntegrationConfig>(
                 'agent-ops-slack',
@@ -124,7 +143,7 @@ export class SlackAdapter implements ChannelAdapter {
         }
 
         // ── Slash command ────────────────────────────────────────────
-        return this.parseSlashCommand(params);
+        return this.parseSlashCommand(params, req);
     }
 
     async sendAck(_req: NextRequest, runId: string): Promise<Response> {
@@ -353,7 +372,7 @@ export class SlackAdapter implements ChannelAdapter {
         ).catch(() => null);
     }
 
-    private async parseSlashCommand(params: URLSearchParams): Promise<GatewayMessage> {
+    private async parseSlashCommand(params: URLSearchParams, req: NextRequest): Promise<GatewayMessage> {
         const text = params.get('text') || '';
         const userId = params.get('user_id') || '';
         const channelId = params.get('channel_id') || '';
@@ -362,6 +381,16 @@ export class SlackAdapter implements ChannelAdapter {
         const threadTs = params.get('thread_ts') || undefined;
         const userName = params.get('user_name') || undefined;
         const channelName = params.get('channel_name') || undefined;
+
+        // team_id is Slack's workspace identifier, not our internal tenantId — resolve it
+        // via the same SlackWorkspaceLink lookup validateRequest already did (cached on req).
+        // Falls back to the raw team_id only if no link exists (e.g. env-var-only setups),
+        // matching prior (already-broken) behavior rather than silently dropping the run.
+        const resolvedTenantId = await resolveTenantId(req, teamId);
+        if (!resolvedTenantId) {
+            console.warn('[SlackAdapter] No tenant linked for Slack team_id, falling back to raw team_id:', teamId);
+        }
+        const tenantId = resolvedTenantId || teamId;
 
         // If this is a threaded reply, check for an awaiting_input run
         let replyContext: ReplyContext | undefined;
@@ -382,7 +411,7 @@ export class SlackAdapter implements ChannelAdapter {
 
         return {
             channelType: 'slack',
-            tenantId: teamId,
+            tenantId,
             taskDescription: text,
             userId,
             replyContext,
