@@ -37,11 +37,25 @@ export function RunRail({
 
   return (
     <aside data-testid="run-rail" className="flex h-full w-full flex-col gap-4 overflow-y-auto border-l bg-muted/20 p-3">
-      {/* Phase */}
+      {/* Phase — a run paused on a decision is NOT executing, whatever the last phase was */}
       <RailSection icon={Activity} title="Status">
         <div className="flex items-center gap-2 text-sm">
-          <span className={cn("h-2 w-2 rounded-full", isStreaming ? "animate-pulse bg-blue-500" : "bg-muted-foreground/40")} />
-          {PHASE_LABELS[currentPhase] ?? currentPhase}
+          {pendingApproval ? (
+            <>
+              <span className="h-2 w-2 rounded-full animate-pulse bg-amber-500" />
+              Awaiting approval
+            </>
+          ) : pendingClarifications.length > 0 ? (
+            <>
+              <span className="h-2 w-2 rounded-full animate-pulse bg-blue-500" />
+              Awaiting your answer
+            </>
+          ) : (
+            <>
+              <span className={cn("h-2 w-2 rounded-full", isStreaming ? "animate-pulse bg-blue-500" : "bg-muted-foreground/40")} />
+              {PHASE_LABELS[currentPhase] ?? currentPhase}
+            </>
+          )}
         </div>
       </RailSection>
 

@@ -21,10 +21,13 @@ export interface RunState {
     pendingApproval: { batchId: string; tools: PendingApprovalTool[] } | null;
     pendingClarifications: PendingClarification[];
     hasStructuredData: boolean;
+    /** True when ANY data-approval part was seen in the thread — such threads use
+     *  Mission Control batch cards, never the legacy inline per-tool Confirmation. */
+    hasApprovalData: boolean;
 }
 
 interface LoosePart { type: string; data?: any; text?: string }
-interface LooseMessage { role: string; parts?: LoosePart[] }
+interface LooseMessage { role: string; id?: string; parts?: LoosePart[] }
 
 export function deriveRunState(
     messages: LooseMessage[],
@@ -36,6 +39,7 @@ export function deriveRunState(
     let lastApproval: { batchId: string; tools: PendingApprovalTool[] } | null = null;
     const clarifications: PendingClarification[] = [];
     let hasStructuredData = false;
+    let hasApprovalData = false;
 
     for (const message of messages) {
         if (message.role !== 'assistant') continue;
@@ -54,6 +58,7 @@ export function deriveRunState(
                 }
                 case 'data-approval': {
                     hasStructuredData = true;
+                    hasApprovalData = true;
                     const tools = Array.isArray(part.data?.tools) ? part.data.tools : [];
                     lastApproval = { batchId: String(part.data?.batchId ?? ''), tools };
                     // Answering a clarification from an earlier turn means older
@@ -90,5 +95,49 @@ export function deriveRunState(
         pendingApproval,
         pendingClarifications,
         hasStructuredData,
+        hasApprovalData,
     };
+}
+
+/**
+ * Cross-message tool-part dedupe. After an approval resume, the resumed stream
+ * re-emits tool parts with the ORIGINAL tool_call_ids in a NEW assistant
+ * message, leaving the pre-pause message with an input-only twin. Per
+ * toolCallId, the winner is the LAST part that carries a result/output; if none
+ * has output, the LAST part overall.
+ *
+ * Returns Map<toolCallId, winning messageId>. The winner is identified by its
+ * containing message id (NOT a part index) because the AI SDK merges tool parts
+ * by toolCallId within a single message, so a toolCallId appears at most once
+ * per message — and the index the timeline hands to renderToolInvocation is the
+ * index within the filtered work-parts array, not message.parts, so an index
+ * key could never be matched reliably at render time.
+ */
+export function computeToolPartVisibility(messages: LooseMessage[]): Map<string, string> {
+    const winner = new Map<string, string>();
+    const winnerHasOutput = new Set<string>();
+
+    for (const message of messages) {
+        if (message.role !== 'assistant') continue;
+        const messageId = String(message.id ?? '');
+        for (const part of message.parts ?? []) {
+            const p = part as any;
+            const toolCallId = p?.toolCallId;
+            // Mirror the render predicate (MessageRow workParts / flat loop):
+            // a tool part carries a toolCallId and is not a text part.
+            if (!toolCallId || p.type === 'text') continue;
+            const hasOutput =
+                (p.result !== undefined && p.result !== null) ||
+                (p.output !== undefined && p.output !== null) ||
+                p.state === 'output-available' ||
+                p.state === 'output-error';
+            if (hasOutput) {
+                winner.set(toolCallId, messageId);
+                winnerHasOutput.add(toolCallId);
+            } else if (!winnerHasOutput.has(toolCallId)) {
+                winner.set(toolCallId, messageId);
+            }
+        }
+    }
+    return winner;
 }

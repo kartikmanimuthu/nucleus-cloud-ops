@@ -64,9 +64,11 @@ export function RunTimeline({
           );
         }
         if (part.type?.startsWith?.("tool-") || part.toolCallId) {
+          const rendered = renderToolInvocation(part, messageId, index);
+          if (!rendered) return null; // suppressed duplicate — no dangling spine dot
           return (
             <TimelineNode key={key} color="bg-foreground/60" active={isActivelyStreaming && index === parts.length - 1}>
-              {renderToolInvocation(part, messageId, index)}
+              {rendered}
             </TimelineNode>
           );
         }

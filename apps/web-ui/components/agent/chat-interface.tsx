@@ -122,6 +122,7 @@ import { useProviderModels } from "@/lib/queries/providers";
 import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
 import { useRunState } from "@/components/agent/chat/use-run-state";
+import { computeToolPartVisibility } from "@/components/agent/chat/run-state";
 import { useDecisions } from "@/components/agent/chat/use-decisions";
 import { ApprovalBatchCard } from "@/components/agent/chat/approval-batch-card";
 import { ClarificationCard } from "@/components/agent/chat/clarification-card";
@@ -822,6 +823,13 @@ export function ChatInterface({
     [messages, restoredParts],
   );
 
+  // Tool calls the user has decided on via the batch/clarification cards,
+  // toolCallId → approved. A decided-but-resultless part must render its
+  // decision (approved/rejected), never the legacy inline pending card and
+  // never the interrupted-error state — this covers the window before the
+  // resume stream starts and the failure case where the resume never starts.
+  const [decidedToolCalls, setDecidedToolCalls] = useState<Map<string, boolean>>(new Map());
+
   // Resume a run by submitting the decided approval/clarification batch.
   // CARRIER MESSAGE: the /api/chat resume path branches on `body.decisions`
   // BEFORE reading the last message, so the message itself carries no content.
@@ -838,6 +846,13 @@ export function ChatInterface({
       // never rejects on an HTTP error, so a try/catch here would be dead code.
       // Detect failure via the flag instead (reset just before the call, read
       // right after `await` since `onError` fires synchronously within it).
+      // Record every decision so the timeline's tool cards render the outcome
+      // immediately (and never resurrect a pending/interrupted state).
+      setDecidedToolCalls((prev) => {
+        const next = new Map(prev);
+        for (const d of decisionBatch) next.set(d.toolCallId, d.approved);
+        return next;
+      });
       submitErrorRef.current = false;
       await sendMessage(
         { role: "user", content: "" } as any, // carrier; server acts on body.decisions
@@ -897,6 +912,14 @@ export function ChatInterface({
   const decisionsResetRef = useRef<(() => void) | null>(null);
   decisionsResetRef.current = resetDecisions;
   const runState = useRunState(runMessages, resolvedIds);
+
+  // Cross-message tool-card dedupe: after an approval resume the server re-emits
+  // tool parts under their original tool_call_ids in a NEW assistant message.
+  // Per toolCallId only the winning part (last with output, else last overall)
+  // renders; renderToolInvocation suppresses the rest. Keyed off the live
+  // messages array — renderToolInvocation's identity changes with this map and
+  // is a MessageRow prop, so suppressed rows re-render.
+  const toolPartVisibility = useMemo(() => computeToolPartVisibility(messages), [messages]);
 
   // Use refs so the effects below only re-run when status/messages change,
   // not when the parent re-renders and passes new inline function references.
@@ -1461,6 +1484,16 @@ export function ChatInterface({
     const result = part.result || part.output;
     const state = part.state;
 
+    // Cross-message dedupe: after an approval resume the same toolCallId exists
+    // in two messages (pre-pause input-only twin + resumed part with output).
+    // Only the winning part renders. Parts without a toolCallId never suppress.
+    if (part.toolCallId) {
+      const winnerMessageId = toolPartVisibility.get(part.toolCallId);
+      if (winnerMessageId !== undefined && winnerMessageId !== messageId) {
+        return null;
+      }
+    }
+
     const isCall = state === "call" || !result;
     // Mission Control owns approval/clarification for tool calls in the current
     // pending batch — suppress the legacy inline Confirmation for those so the
@@ -1468,16 +1501,27 @@ export function ChatInterface({
     const ownedByBatch =
       runState.pendingApproval?.tools.some((t) => t.toolCallId === part.toolCallId) ||
       runState.pendingClarifications.some((c) => c.toolCallId === part.toolCallId);
-    // Show approval UI only when: not owned by a card AND not auto-approve AND tool is in "call" state without result
-    const isPending = !ownedByBatch && !autoApprove && isCall && !result && !isLoading;
+    // Decision already made via the batch/clarification cards for this call?
+    const decision = part.toolCallId ? decidedToolCalls.get(part.toolCallId) : undefined;
+    const isDecided = decision !== undefined;
+    // Owned by the batch and awaiting the user's decision — render an awaiting
+    // state (never error) and point at the decision card below.
+    const isAwaitingDecision = !!ownedByBatch && !result;
+    // Legacy inline approval UI: only for pre-Mission-Control threads (no
+    // data-approval part ever seen) — otherwise the batch card owns decisions.
+    const isPending =
+      !runState.hasApprovalData && !ownedByBatch && !isDecided &&
+      !autoApprove && isCall && !result && !isLoading;
 
     const hasRealResult =
       !!result && result !== "Approved" && result !== "Cancelled by user";
 
     // A tool part with no result that is no longer streaming and is not awaiting
-    // approval means the run was aborted mid-tool. Surface a terminal state
-    // instead of a perpetual "pending" that never resolves (even after reload).
-    const isInterrupted = isCall && !result && !isLoading && !isPending;
+    // approval (nor already decided via a batch card) means the run was aborted
+    // mid-tool. Surface a terminal state instead of a perpetual "pending" that
+    // never resolves (even after reload).
+    const isInterrupted =
+      isCall && !result && !isLoading && !isPending && !ownedByBatch && !isDecided;
 
     // Determine tool state for new component
     const toolState =
@@ -1489,15 +1533,21 @@ export function ChatInterface({
             ? "error"
             : "pending";
 
-    // Determine approval state for Confirmation component
+    // Determine approval state for Confirmation component. Batch-card decisions
+    // (decidedToolCalls) surface here for result-less parts so the outcome is
+    // visible even before the resume stream starts (or if it never does).
     const approvalState =
       result === "Approved"
         ? "approved"
         : result === "Cancelled by user"
           ? "rejected"
-          : isPending
-            ? "pending"
-            : undefined;
+          : isDecided && !result
+            ? decision
+              ? "approved"
+              : "rejected"
+            : isPending
+              ? "pending"
+              : undefined;
 
     return (
       <Tool
@@ -1559,8 +1609,13 @@ export function ChatInterface({
           )}
 
           {/* Output with loading state — truncated to TOOL_OUTPUT_TRUNCATE_BYTES if large.
+              Awaiting a batch decision → point at the approval card (never an error).
               If the run was aborted mid-tool, show a terminal interrupted note. */}
-          {isInterrupted ? (
+          {isAwaitingDecision ? (
+            <div className="px-3 py-2 text-xs italic text-muted-foreground">
+              Awaiting your decision in the approval card below.
+            </div>
+          ) : isInterrupted ? (
             <ToolOutput
               errorText="Execution interrupted — the run was stopped before this tool returned a result."
               label="Output"
@@ -1576,7 +1631,7 @@ export function ChatInterface({
       </Tool>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoApprove, isLoading, handleToolApproval, showTools, runState]);
+  }, [autoApprove, isLoading, handleToolApproval, showTools, runState, decidedToolCalls, toolPartVisibility]);
 
   // Sample prompts
   const samplePrompts = [
