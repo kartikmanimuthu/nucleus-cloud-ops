@@ -81,3 +81,44 @@ export function buildMemoryMarkdown(memory: MemoryRow): string {
     ];
     return lines.join("\n");
 }
+
+/** Build the combined human-readable Markdown report for all memories (TOC + each memory). Pure. */
+export function buildAllMemoriesMarkdown(memories: MemoryRow[]): string {
+    const header: string[] = [
+        "# Memory export",
+        "",
+        `Exported ${memories.length} memory record(s).`,
+        "",
+    ];
+    if (memories.length === 0) {
+        header.push("_No memories to export._", "");
+        return header.join("\n");
+    }
+    const byKind = new Map<MemoryKind, MemoryRow[]>();
+    for (const m of memories) {
+        const arr = byKind.get(m.kind) ?? [];
+        arr.push(m);
+        byKind.set(m.kind, arr);
+    }
+    for (const arr of byKind.values()) {
+        arr.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    header.push("## Table of contents", "");
+    for (const kind of KIND_ORDER) {
+        const arr = byKind.get(kind);
+        if (!arr || arr.length === 0) continue;
+        header.push(`### ${kind}`, "");
+        for (const m of arr) header.push(`- [${m.key}](#${anchor(m.key)})`);
+        header.push("");
+    }
+    header.push("---", "");
+    const body: string[] = [];
+    for (const kind of KIND_ORDER) {
+        const arr = byKind.get(kind);
+        if (!arr || arr.length === 0) continue;
+        for (const m of arr) {
+            body.push(buildMemoryMarkdown(m), "---", "");
+        }
+    }
+    return `${header.join("\n")}\n${body.join("\n")}`;
+}

@@ -4,7 +4,7 @@
  * wrappers are thin DOM code identical to skill-export's.
  */
 import { describe, it, expect } from 'vitest';
-import { buildMemoryMarkdown } from './memory-export';
+import { buildMemoryMarkdown, buildAllMemoriesMarkdown } from './memory-export';
 import type { MemoryRow } from './queries/agent-memories';
 
 function makeMemory(overrides: Partial<MemoryRow> = {}): MemoryRow {
@@ -95,5 +95,61 @@ describe('buildMemoryMarkdown', () => {
         expect(md).toContain('**Reasoning:** —');
         expect(md).toContain('**Action:** —');
         expect(md).toContain('**Outcome:** —');
+    });
+});
+
+describe('buildAllMemoriesMarkdown', () => {
+    it('renders a header with the record count', () => {
+        const md = buildAllMemoriesMarkdown([makeMemory(), makeMemory({ id: 'b', key: 'second' })]);
+        expect(md).toContain('# Memory export');
+        expect(md).toContain('Exported 2 memory record(s).');
+    });
+
+    it('renders an empty-state message when there are no memories', () => {
+        const md = buildAllMemoriesMarkdown([]);
+        expect(md).toContain('Exported 0 memory record(s).');
+        expect(md).toContain('_No memories to export._');
+    });
+
+    it('groups the table of contents by kind in enum order', () => {
+        const md = buildAllMemoriesMarkdown([
+            makeMemory({ id: 'p', key: 'proc', kind: 'PROCEDURAL' }),
+            makeMemory({ id: 's', key: 'sem', kind: 'SEMANTIC' }),
+            makeMemory({ id: 'e', key: 'ep', kind: 'EPISODIC' }),
+        ]);
+        expect(md).toContain('### SEMANTIC');
+        expect(md).toContain('### EPISODIC');
+        expect(md).toContain('### PROCEDURAL');
+        expect(md.indexOf('### SEMANTIC')).toBeLessThan(md.indexOf('### EPISODIC'));
+        expect(md.indexOf('### EPISODIC')).toBeLessThan(md.indexOf('### PROCEDURAL'));
+    });
+
+    it('links TOC entries to key anchors', () => {
+        const md = buildAllMemoriesMarkdown([makeMemory({ key: 'prod-stop-schedule' })]);
+        expect(md).toContain('- [prod-stop-schedule](#prod-stop-schedule)');
+    });
+
+    it('sorts memories within a kind by createdAt descending', () => {
+        const md = buildAllMemoriesMarkdown([
+            makeMemory({ id: 'old', key: 'old', kind: 'SEMANTIC', createdAt: '2026-01-01T00:00:00.000Z' }),
+            makeMemory({ id: 'new', key: 'new', kind: 'SEMANTIC', createdAt: '2026-07-01T00:00:00.000Z' }),
+        ]);
+        expect(md.indexOf('# new')).toBeLessThan(md.indexOf('# old'));
+    });
+
+    it('separates each memory with a horizontal rule and includes bodies', () => {
+        const md = buildAllMemoriesMarkdown([
+            makeMemory({ id: 'a', key: 'alpha' }),
+            makeMemory({ id: 'b', key: 'beta' }),
+        ]);
+        expect(md).toContain('# alpha');
+        expect(md).toContain('# beta');
+        expect(md).toContain('\n---\n');
+    });
+
+    it('omits a kind group entirely when no memories of that kind exist', () => {
+        const md = buildAllMemoriesMarkdown([makeMemory({ kind: 'PROCEDURAL' })]);
+        expect(md).not.toContain('### SEMANTIC');
+        expect(md).toContain('### PROCEDURAL');
     });
 });
