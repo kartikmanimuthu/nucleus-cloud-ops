@@ -174,6 +174,8 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
 
         if (query.source) where.source = query.source;
         if (query.status) where.status = query.status;
+        // JSON-path filter on the trigger payload — same shape listActiveRunsByTask uses.
+        if (query.taskId) where.trigger = { path: ['taskId'], equals: query.taskId };
 
         const orderBy = this.buildOrderBy(query.sortBy, query.sortDir);
 
