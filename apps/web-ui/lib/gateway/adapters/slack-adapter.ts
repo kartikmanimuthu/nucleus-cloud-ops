@@ -8,7 +8,6 @@
 
 import * as crypto from 'crypto';
 import type { NextRequest } from 'next/server';
-import { env } from '@/env';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSlackWorkspaceLinkRepository } from '@/lib/db/repository-factory';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
@@ -91,7 +90,7 @@ export class SlackAdapter implements ChannelAdapter {
             } catch { /* ignore */ }
         }
 
-        // Load signing secret: resolve tenant from team_id, then tenant config, env var fallback
+        // Load signing secret: resolve tenant from team_id, then tenant config.
         let signingSecret = '';
         const tenantId = await resolveTenantId(req, teamId);
         if (tenantId) {
@@ -102,10 +101,7 @@ export class SlackAdapter implements ChannelAdapter {
             signingSecret = config?.signingSecret || '';
         }
         if (!signingSecret) {
-            signingSecret = env.SLACK_SIGNING_SECRET || '';
-        }
-        if (!signingSecret) {
-            console.error('[SlackAdapter] Signing secret not configured');
+            console.error('[SlackAdapter] Signing secret not configured for tenant');
             return false;
         }
 

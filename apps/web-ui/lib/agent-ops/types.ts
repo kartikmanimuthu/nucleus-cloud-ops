@@ -234,6 +234,12 @@ export interface RunListQuery {
     tenantId?: string;
     source?: TriggerSource;
     status?: AgentOpsStatus;
+    /**
+     * Scheduled-task filter, matched against trigger->>'taskId'. Applied in SQL so
+     * a task's run history can be paginated and counted; filtering in JS after a
+     * tenant-wide fetch silently drops older runs once other tasks fill the window.
+     */
+    taskId?: string;
     page?: number;
     limit?: number;
     sortBy?: 'createdAt' | 'updatedAt' | 'status' | 'source' | 'taskDescription' | 'durationMs';

@@ -147,6 +147,45 @@ describe('AgentOpsRunPostgresRepository', () => {
             expect(callArg.where.status).toBe('completed');
             expect(result.runs).toEqual([]);
         });
+
+        // Scheduled-task run history used to fetch a tenant-wide page of scheduled runs
+        // and filter by taskId in JS, which silently dropped a task's older runs once
+        // other tasks filled the window — and made `total` a tenant-wide count. The
+        // filter must reach SQL.
+        it('filters by taskId in the query (trigger JSON path), not in memory', async () => {
+            mockPrisma.agentOpsRun.findMany.mockResolvedValue([makeRunRow({ source: 'scheduled' })]);
+            mockPrisma.agentOpsRun.count.mockResolvedValue(7);
+
+            const repo = new AgentOpsRunPostgresRepository();
+            const result = await repo.listRuns({
+                tenantId: 't1',
+                source: 'scheduled',
+                taskId: 'task-42',
+                page: 2,
+                limit: 25,
+            });
+
+            const callArg = mockPrisma.agentOpsRun.findMany.mock.calls[0][0];
+            expect(callArg.where.trigger).toEqual({ path: ['taskId'], equals: 'task-42' });
+            expect(callArg.where.source).toBe('scheduled');
+            expect(callArg.skip).toBe(25);
+            expect(callArg.take).toBe(25);
+
+            // The same where-clause must drive the count, or the pagination bar lies.
+            const countArg = mockPrisma.agentOpsRun.count.mock.calls[0][0];
+            expect(countArg.where.trigger).toEqual({ path: ['taskId'], equals: 'task-42' });
+            expect(result.total).toBe(7);
+        });
+
+        it('omits the trigger filter when no taskId is given', async () => {
+            mockPrisma.agentOpsRun.findMany.mockResolvedValue([]);
+
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.listRuns({ tenantId: 't1', source: 'scheduled' });
+
+            const callArg = mockPrisma.agentOpsRun.findMany.mock.calls[0][0];
+            expect(callArg.where.trigger).toBeUndefined();
+        });
     });
 
     describe('findAwaitingApprovalRun', () => {

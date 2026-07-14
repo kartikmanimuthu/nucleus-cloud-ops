@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { SetupGuideLink } from '@/components/channels/setup-guide-link';
+import { ChannelResetCard } from '@/components/channels/channel-reset-card';
 
 interface JiraSettingsForm {
     webhookSecret: string;
@@ -543,6 +544,18 @@ function JiraSettingsFormInner({
                 </CardContent>
             </Card>
 
+            <ChannelResetCard
+                channel="jira"
+                name="Jira"
+                clears="webhook secret, API token and site details"
+                configured={configured}
+                onReset={() => {
+                    setConfigured(false);
+                    setRevealed(false);
+                    setSaveStatus('idle');
+                    setForm({ webhookSecret: '', baseUrl: '', userEmail: '', apiToken: '', botAccountId: '', enabled: true });
+                }}
+            />
         </div>
     );
 }

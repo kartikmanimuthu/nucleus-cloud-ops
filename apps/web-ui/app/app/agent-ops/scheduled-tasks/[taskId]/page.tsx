@@ -10,9 +10,11 @@ import {
     CheckCircle2, XCircle, Loader2, Clock, AlertCircle,
     MessageSquare, Globe, StopCircle, ShieldCheck,
 } from "lucide-react"
-import type { ScheduledTask, AgentOpsRun, AgentOpsStatus } from "@/lib/agent-ops/types"
+import type { ScheduledTask, AgentOpsStatus } from "@/lib/agent-ops/types"
 import { ScheduledTaskDialog } from "@/components/agent-ops/scheduled-task-dialog"
+import { PaginationBar } from "@/components/ui/pagination-bar"
 import { formatDateTime } from "@/lib/date-utils"
+import { useScheduledTaskRuns } from "@/lib/queries/agent-ops-scheduled-tasks"
 import { useTenant } from '@/lib/tenant-context'
 
 const STATUS_CONFIG: Record<AgentOpsStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; icon: typeof Clock }> = {
@@ -33,26 +35,32 @@ export default function ScheduledTaskDetailPage() {
     const { timezone } = useTenant()
 
     const [task, setTask] = useState<ScheduledTask | null>(null)
-    const [runs, setRuns] = useState<AgentOpsRun[]>([])
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
     const [promptExpanded, setPromptExpanded] = useState(false)
+    const [page, setPage] = useState(1)
+    const [pageSize, setPageSize] = useState(25)
+
+    // Run history is paginated server-side (filtered on trigger->>'taskId'), so
+    // `total` counts this task's runs rather than whatever slice was fetched.
+    const runsQuery = useScheduledTaskRuns(taskId, { page, limit: pageSize })
+    const runs = runsQuery.data?.runs ?? []
+    const totalRuns = runsQuery.data?.total ?? 0
 
     const fetchData = useCallback(async () => {
         setLoading(true)
         try {
-            const [taskRes, runsRes] = await Promise.all([
-                fetch(`/api/agent-ops/scheduled-tasks/${taskId}?tenantId=${tenantId}`),
-                fetch(`/api/agent-ops/scheduled-tasks/${taskId}/runs?tenantId=${tenantId}&limit=50`),
-            ])
-            const [taskData, runsData] = await Promise.all([taskRes.json(), runsRes.json()])
+            const taskRes = await fetch(`/api/agent-ops/scheduled-tasks/${taskId}?tenantId=${tenantId}`)
+            const taskData = await taskRes.json()
             setTask(taskData.task || null)
-            setRuns(runsData.runs || [])
+            await runsQuery.refetch()
         } catch (err) {
             console.error("Failed to fetch:", err)
         } finally {
             setLoading(false)
         }
+        // runsQuery.refetch is stable across renders; excluded to keep fetchData stable
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [taskId, tenantId])
 
     useEffect(() => { fetchData() }, [fetchData])
@@ -232,7 +240,11 @@ export default function ScheduledTaskDetailPage() {
                     <CardTitle className="text-base">Run History</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    {runs.length === 0 ? (
+                    {runsQuery.isLoading ? (
+                        <div className="flex items-center justify-center py-8 text-muted-foreground">
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                        </div>
+                    ) : runs.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">
                             <Clock className="h-8 w-8 mx-auto mb-2 opacity-30" />
                             <p className="text-sm">No runs yet</p>
@@ -262,6 +274,15 @@ export default function ScheduledTaskDetailPage() {
                                     </div>
                                 )
                             })}
+
+                            <PaginationBar
+                                currentPage={page}
+                                totalItems={totalRuns}
+                                pageSize={pageSize}
+                                onPageChange={setPage}
+                                onPageSizeChange={size => { setPageSize(size); setPage(1) }}
+                                itemLabel="runs"
+                            />
                         </div>
                     )}
                 </CardContent>

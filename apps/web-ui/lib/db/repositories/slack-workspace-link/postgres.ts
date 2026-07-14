@@ -68,4 +68,20 @@ export class SlackWorkspaceLinkPostgresRepository implements ISlackWorkspaceLink
             throw new Error(`Failed to get Slack workspace link: ${msg}`);
         }
     }
+
+    async deleteLinkForTenant(tenantId: string): Promise<number> {
+        try {
+            const { count } = await getPrismaClient().slackWorkspaceLink.deleteMany({
+                where: { tenantId },
+            });
+            if (count > 0) {
+                console.log(`[SlackWorkspaceLinkPostgresRepository] Unlinked Slack workspace for tenant "${tenantId}"`);
+            }
+            return count;
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.error('[SlackWorkspaceLinkPostgresRepository] Error deleting link for tenant:', error);
+            throw new Error(`Failed to unlink Slack workspace: ${msg}`);
+        }
+    }
 }

@@ -1,17 +1,40 @@
+/**
+ * GET /api/agent-ops/scheduled-tasks/[taskId]/runs
+ *
+ * Paginated run history for one scheduled task. The taskId filter is pushed into
+ * the query (trigger->>'taskId') rather than applied in JS over a tenant-wide
+ * page of runs — the latter silently drops this task's older runs as soon as
+ * other tasks' runs fill the fetch window, and makes `total` meaningless.
+ */
 import { NextResponse } from 'next/server';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { getSessionTenantId } from '@/lib/auth-session';
+
+const DEFAULT_LIMIT = 25;
+const MAX_LIMIT = 100;
 
 export async function GET(req: Request, { params }: { params: Promise<{ taskId: string }> }) {
     try {
         const { taskId } = await params;
         const tenantId = await getSessionTenantId();
         const url = new URL(req.url);
-        const limit = parseInt(url.searchParams.get('limit') || '25', 10);
 
-        const { runs } = await agentOpsService.listRuns({ tenantId, source: 'scheduled', limit });
-        const taskRuns = runs.filter(r => (r.trigger as any)?.taskId === taskId);
-        return NextResponse.json({ runs: taskRuns });
+        const parsedPage = parseInt(url.searchParams.get('page') || '1', 10);
+        const parsedLimit = parseInt(url.searchParams.get('limit') || String(DEFAULT_LIMIT), 10);
+        const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+        const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+            ? Math.min(parsedLimit, MAX_LIMIT)
+            : DEFAULT_LIMIT;
+
+        const { runs, total } = await agentOpsService.listRuns({
+            tenantId,
+            source: 'scheduled',
+            taskId,
+            page,
+            limit,
+        });
+
+        return NextResponse.json({ runs, total, page, limit });
     } catch (err) {
         return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 });
     }

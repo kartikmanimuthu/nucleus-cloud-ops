@@ -2,6 +2,7 @@
  * AgentOps Slack Settings API Route
  *
  * GET /api/agent-ops/settings/slack — Returns Slack config (secrets masked)
+ * DELETE /api/agent-ops/settings/slack — Resets (deletes) the stored config
  * PUT /api/agent-ops/settings/slack — Validates and saves Slack config to PostgreSQL
  */
 
@@ -226,6 +227,55 @@ export async function PUT(req: Request) {
         console.error('[API /agent-ops/settings/slack] PUT error:', error);
         return NextResponse.json(
             { error: error.message || 'Failed to save Slack settings' },
+            { status: 500 }
+        );
+    }
+}
+
+/**
+ * DELETE — reset the Slack integration: removes the stored credentials so the
+ * channel returns to its unconfigured state. Destructive and irreversible from
+ * the UI (secrets are never echoed back), hence the explicit RBAC gate and a
+ * high-severity audit record.
+ *
+ * Also drops the tenant's SlackWorkspaceLink. A link left behind would keep
+ * mapping the workspace's team_id to a tenant that no longer holds a signing
+ * secret, so inbound slash commands would fail signature verification instead
+ * of being cleanly rejected as unlinked.
+ */
+export async function DELETE() {
+    try {
+        const authError = await authorize('delete', 'Agent');
+        if (authError) return authError;
+
+        const tenantId = await getSessionTenantId();
+        await TenantConfigService.deleteConfig(CONFIG_KEY, tenantId);
+        await getSlackWorkspaceLinkRepository().deleteLinkForTenant(tenantId);
+
+        console.log('[API /agent-ops/settings/slack] Reset Slack config for tenant:', tenantId);
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.settings.slack_reset',
+            severity: 'high',
+            apiRoute: 'DELETE /api/agent-ops/settings/slack',
+            httpMethod: 'DELETE',
+            action: 'Reset Slack Settings',
+            resourceType: 'agent',
+            resourceId: 'slack-integration',
+            resourceName: 'Slack Integration',
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: 'Reset Slack integration settings — stored credentials deleted',
+            metadata: { tenantId },
+        }).catch(() => {});
+
+        return NextResponse.json({ success: true, configured: false, enabled: false });
+    } catch (error: any) {
+        console.error('[API /agent-ops/settings/slack] DELETE error:', error);
+        return NextResponse.json(
+            { error: error.message || 'Failed to reset Slack settings' },
             { status: 500 }
         );
     }

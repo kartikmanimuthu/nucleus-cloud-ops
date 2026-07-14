@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { ChannelResetCard } from '@/components/channels/channel-reset-card';
 
 interface DiscordSettingsState {
     applicationId: string;
@@ -336,6 +337,19 @@ function DiscordSettingsFormInner({
                     </ol>
                 </CardContent>
             </Card>
+
+            <ChannelResetCard
+                channel="discord"
+                name="Discord"
+                clears="application ID, public key and bot token"
+                configured={configured}
+                onReset={() => {
+                    setConfigured(false);
+                    setRevealed(false);
+                    setSaveStatus('idle');
+                    setForm({ applicationId: '', publicKey: '', botToken: '', enabled: true });
+                }}
+            />
         </div>
     );
 }

@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { SetupGuideLink } from '@/components/channels/setup-guide-link';
+import { ChannelResetCard } from '@/components/channels/channel-reset-card';
 
 interface SlackSettingsState {
     signingSecret: string;
@@ -421,6 +422,19 @@ function SlackSettingsFormInner({
                     </Button>
                 </CardContent>
             </Card>
+
+            <ChannelResetCard
+                channel="slack"
+                name="Slack"
+                clears="signing secret, bot token and workspace link"
+                configured={configured}
+                onReset={() => {
+                    setConfigured(false);
+                    setRevealed(false);
+                    setSaveStatus('idle');
+                    setForm({ signingSecret: '', botToken: '', teamId: '', enabled: true });
+                }}
+            />
         </div>
     );
 }
