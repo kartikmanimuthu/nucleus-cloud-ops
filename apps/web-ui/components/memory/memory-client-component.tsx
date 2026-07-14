@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ColumnDef, PaginationState, SortingState } from "@tanstack/react-table";
-import { Brain, MoreHorizontal, Eye, Trash2, Search, X, Sparkles } from "lucide-react";
+import { Brain, MoreHorizontal, Eye, Trash2, Search, X, Sparkles, Download, FileDown, FileCode, FileArchive, ChevronDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,13 @@ import {
     type MemoryRow,
     type MemorySortField,
 } from "@/lib/queries/agent-memories";
+import { fetchAllAgentMemories } from "@/lib/queries/agent-memories";
+import {
+    exportMemoryToMarkdown,
+    exportMemoryToFile,
+    exportAllMemoriesToMarkdown,
+    exportAllMemoriesToZip,
+} from "@/lib/memory-export";
 import { useDebounce } from "@/hooks/use-debounce";
 import { MemoryDetailDialog } from "./memory-detail-dialog";
 import { DeleteMemoryDialog } from "./delete-memory-dialog";
@@ -60,6 +67,7 @@ export function MemoryClientComponent() {
     const [detail, setDetail] = useState<MemoryRow | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<MemoryRow | null>(null);
     const [promote, setPromote] = useState<{ draft: SkillDraft; sourceRunId: string | null } | null>(null);
+    const [exporting, setExporting] = useState(false);
 
     const sort = sorting[0];
     const { data, isLoading } = useAgentMemories({
@@ -109,6 +117,34 @@ export function MemoryClientComponent() {
                 });
             },
         });
+    };
+
+    const runExportAll = async (mode: "report" | "zip") => {
+        if (exporting) return;
+        setExporting(true);
+        try {
+            const { memories, total } = await fetchAllAgentMemories();
+            if (memories.length === 0) {
+                toast.error("Nothing to export", { description: "No memories found." });
+                return;
+            }
+            if (memories.length < total) {
+                toast.warning("Export truncated", {
+                    description: `Exported ${memories.length} of ${total} records (safety cap).`,
+                });
+            }
+            if (mode === "report") {
+                exportAllMemoriesToMarkdown(memories);
+                toast.success("Memories exported", { description: `${memories.length} record(s) downloaded` });
+            } else {
+                await exportAllMemoriesToZip(memories);
+                toast.success("Memories exported", { description: `${memories.length} file(s) zipped` });
+            }
+        } catch (e) {
+            toast.error("Export failed", { description: e instanceof Error ? e.message : "Try again" });
+        } finally {
+            setExporting(false);
+        }
     };
 
     const columns = useMemo<ColumnDef<MemoryRow>[]>(
@@ -215,6 +251,32 @@ export function MemoryClientComponent() {
                                         </DropdownMenuItem>
                                     ) : null}
                                     <DropdownMenuItem
+                                        onClick={() => {
+                                            try {
+                                                exportMemoryToMarkdown(m);
+                                                toast.success("Memory exported", { description: `${m.key}.md downloaded` });
+                                            } catch (e) {
+                                                toast.error("Export failed", { description: e instanceof Error ? e.message : "Try again" });
+                                            }
+                                        }}
+                                    >
+                                        <FileDown className="mr-2 h-4 w-4" />
+                                        Export markdown
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        onClick={() => {
+                                            try {
+                                                exportMemoryToFile(m);
+                                                toast.success("Memory file exported", { description: `${m.key}.md downloaded` });
+                                            } catch (e) {
+                                                toast.error("Export failed", { description: e instanceof Error ? e.message : "Try again" });
+                                            }
+                                        }}
+                                    >
+                                        <FileCode className="mr-2 h-4 w-4" />
+                                        Export memory (.md)
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
                                         onClick={() => setDeleteTarget(m)}
                                         className="text-destructive"
                                     >
@@ -286,6 +348,29 @@ export function MemoryClientComponent() {
                                 <X className="ml-2 h-4 w-4" />
                             </Button>
                         )}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" disabled={exporting || total === 0} className="h-9">
+                                    {exporting ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Download className="mr-2 h-4 w-4" />
+                                    )}
+                                    Export all
+                                    <ChevronDown className="ml-1 h-4 w-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => runExportAll("report")}>
+                                    <FileDown className="mr-2 h-4 w-4" />
+                                    Markdown (one file)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => runExportAll("zip")}>
+                                    <FileArchive className="mr-2 h-4 w-4" />
+                                    Portable .md (zip)
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 }
             />
