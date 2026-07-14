@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Cpu, Gauge, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAgentOpsDefaults, useSaveAgentOpsDefaults } from '@/lib/queries/agent-ops-settings';
-import { useProviderModels } from '@/lib/queries/providers';
+import { useProviderModels, defaultModelId } from '@/lib/queries/providers';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -44,13 +44,15 @@ export function AgentOpsSettingsForm({
     const [saved, setSaved] = useState(false);
     const [error, setError] = useState('');
 
-    // Hydrate the form once the stored config arrives.
+    // Hydrate the form once the stored config arrives. With nothing stored yet,
+    // fall back to the LLM provider's default chat model rather than showing an
+    // empty picker — the same model the executor would resolve at runtime.
     useEffect(() => {
         if (data) {
-            setDefaultModel(data.defaultModel || '');
+            setDefaultModel((prev) => prev || data.defaultModel || defaultModelId(models ?? []));
             setMaxIterations(data.maxIterations || 150);
         }
-    }, [data]);
+    }, [data, models]);
 
     if (isLoading) {
         return (

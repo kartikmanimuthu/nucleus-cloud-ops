@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/date-utils';
 import { useTenant } from '@/lib/tenant-context';
-import { useProviderModels } from '@/lib/queries/providers';
+import { useProviderModels, defaultModelId } from '@/lib/queries/providers';
 import { ThreadSidebar } from './thread-sidebar';
 import { TodoPanel } from './todo-panel';
 import { ApprovalDialog } from './approval-dialog';
@@ -92,7 +92,7 @@ export function DeepAgentChat() {
 
   useEffect(() => {
     setSelectedModel((prev) =>
-      prev && models.some((m) => m.id === prev) ? prev : models[0]?.id ?? '',
+      prev && models.some((m) => m.id === prev) ? prev : defaultModelId(models),
     );
   }, [models]);
   const [selectedMcpServers, setSelectedMcpServers] = useState<string[]>([]);

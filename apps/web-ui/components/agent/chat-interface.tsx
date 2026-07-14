@@ -117,7 +117,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ClientAccountService } from "@/lib/client-account-service";
 import { UIAccount } from "@/lib/types";
-import { useProviderModels } from "@/lib/queries/providers";
+import { useProviderModels, defaultModelId } from "@/lib/queries/providers";
 import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
 
@@ -541,13 +541,13 @@ export function ChatInterface({
   const [showTools, setShowTools] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   // Models are sourced ONLY from tenant-configured providers (shared TanStack
-  // Query hook — no hardcoded Bedrock baseline). Auto-select the first available
-  // model so a configured tenant has a sensible default without picking one.
+  // Query hook — no hardcoded Bedrock baseline). Preselect the default provider's
+  // chat model; a user's explicit pick is preserved across refetches.
   const { data: availableModels = [] } = useProviderModels();
 
   useEffect(() => {
     setSelectedModel((prev) =>
-      prev && availableModels.some((m) => m.id === prev) ? prev : availableModels[0]?.id ?? "",
+      prev && availableModels.some((m) => m.id === prev) ? prev : defaultModelId(availableModels),
     );
   }, [availableModels]);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);

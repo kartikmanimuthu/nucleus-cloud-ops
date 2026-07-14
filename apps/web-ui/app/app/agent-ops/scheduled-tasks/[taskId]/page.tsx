@@ -36,6 +36,7 @@ export default function ScheduledTaskDetailPage() {
     const [runs, setRuns] = useState<AgentOpsRun[]>([])
     const [loading, setLoading] = useState(true)
     const [busy, setBusy] = useState(false)
+    const [promptExpanded, setPromptExpanded] = useState(false)
 
     const fetchData = useCallback(async () => {
         setLoading(true)
@@ -117,20 +118,20 @@ export default function ScheduledTaskDetailPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <Button variant="ghost" size="sm" onClick={() => router.push(`/app/agent-ops/scheduled-tasks?tenantId=${tenantId}`)}>
+            <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3 min-w-0">
+                    <Button variant="ghost" size="sm" className="flex-shrink-0" onClick={() => router.push(`/app/agent-ops/scheduled-tasks?tenantId=${tenantId}`)}>
                         <ArrowLeft className="h-4 w-4 mr-1" /> Back
                     </Button>
-                    <div>
+                    <div className="min-w-0">
                         <h1 className="text-xl font-bold flex items-center gap-2">
-                            <CalendarClock className="h-5 w-5 text-blue-500" />
-                            {task.name}
+                            <CalendarClock className="h-5 w-5 flex-shrink-0 text-blue-500" />
+                            <span className="truncate">{task.name}</span>
                         </h1>
-                        <p className="text-muted-foreground text-sm mt-0.5">{task.description}</p>
+                        <p className="text-muted-foreground text-sm mt-0.5 line-clamp-2 break-words">{task.description}</p>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-shrink-0 items-center gap-2">
                     <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
                         <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Refresh
                     </Button>
@@ -152,6 +153,26 @@ export default function ScheduledTaskDetailPage() {
                     </Button>
                 </div>
             </div>
+
+            {/* Prompt */}
+            <Card>
+                <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Prompt</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className={`text-sm text-muted-foreground whitespace-pre-wrap break-words ${promptExpanded ? "" : "line-clamp-6"}`}>
+                        {task.description}
+                    </p>
+                    <Button
+                        variant="link"
+                        size="sm"
+                        className="mt-1 h-auto p-0 text-xs"
+                        onClick={() => setPromptExpanded(v => !v)}
+                    >
+                        {promptExpanded ? "Show less" : "Show full prompt"}
+                    </Button>
+                </CardContent>
+            </Card>
 
             {/* Task Info */}
             <Card>

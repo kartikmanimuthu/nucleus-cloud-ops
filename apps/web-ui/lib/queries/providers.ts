@@ -87,6 +87,17 @@ export interface ProviderModelOption {
     id: string;
     label: string;
     provider: string;
+    /** True for the default provider's selected chat model. At most one entry. */
+    isDefault?: boolean;
+}
+
+/**
+ * The model a picker should land on with no explicit user choice: the default
+ * provider's chat model, else the first configured model. Keeps every dropdown
+ * (AI Ops, Agent Ops, KB, deep agent) agreeing on the same initial selection.
+ */
+export function defaultModelId(models: ProviderModelOption[]): string {
+    return (models.find((m) => m.isDefault) ?? models[0])?.id ?? '';
 }
 
 export function useProviders() {
