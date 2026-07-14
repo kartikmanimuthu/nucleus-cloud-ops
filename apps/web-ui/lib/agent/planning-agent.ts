@@ -10,7 +10,9 @@ import {
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
+    truncateForReview,
     contentToText,
+    isToolResultError,
     sanitizeMessagesForBedrock,
     withUnresolvedToolCallsOnly,
     tagMessagePhase,
@@ -251,9 +253,7 @@ export async function createReflectionGraph(config: GraphConfig) {
                 : null,
         );
         const lastMessage = messages[messages.length - 1];
-        const taskDescription = typeof lastMessage.content === 'string'
-            ? lastMessage.content
-            : JSON.stringify(lastMessage.content);
+        const taskDescription = contentToText(lastMessage.content);
 
         console.log(`\n================================================================================`);
         console.log(`🤖 [PLANNER] Initiating planning phase`);
@@ -469,8 +469,11 @@ ${accountContext}
         if (result.messages) {
             for (const msg of result.messages) {
                 if (msg._getType() === 'tool') {
-                    const rawContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-                    const isError = rawContent.toLowerCase().includes('error') || rawContent.toLowerCase().includes('exception');
+                    const rawContent = contentToText(msg.content);
+                    // Precise classifier (status flag / error-prefix / success:false JSON) —
+                    // the old substring match flagged ANY output mentioning "error", e.g. a
+                    // successful CloudWatch query for the "Errors" metric.
+                    const isError = isToolResultError((msg as ToolMessage).status, rawContent);
                     const toolCallId = (msg as ToolMessage).tool_call_id;
                     const entry: ToolResultEntry = {
                         toolName: (msg as any).name || 'unknown_tool',
@@ -535,6 +538,11 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 
 Iteration: ${iterationCount}/${MAX_ITERATIONS}
 
+## Input Notes
+
+- The "Recent Assistant Output" you receive may be truncated FOR REVIEW ONLY. A "[TRUNCATED FOR REVIEW ONLY …]" marker means the real message continued past the cutoff — do NOT report it as an incomplete or truncated deliverable.
+- The Plan Status block reflects YOUR OWN last updatedPlan and may lag the assistant's narrative by one cycle — such lag is expected bookkeeping, not an error to flag.
+
 ## Review Criteria
 
 Evaluate the execution against these five dimensions:
@@ -583,7 +591,7 @@ Respond with exactly this JSON object — no markdown, no commentary outside the
             content: `Please analyze the following execution and provide your feedback in JSON format.
 
 Recent Assistant Output:
-${truncateOutput(lastAiText, 4000)}
+${truncateForReview(lastAiText, 4000)}
 
 Tool Results (most recent):
 ${toolResults.slice(-8).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}(${truncateOutput(JSON.stringify(e.args ?? {}), 160)})] ${truncateOutput(e.output, 600)}`).join('\n---\n')}
@@ -775,9 +783,7 @@ Write for an engineer audience. Be specific — include resource IDs, account na
         try {
             const summaryResponse = await model.invoke(_auditInputs_fin);
             llmAuditLog('FINAL', _auditInputs_fin, summaryResponse, _auditStart_fin);
-            summaryContent = typeof summaryResponse.content === 'string'
-                ? summaryResponse.content
-                : JSON.stringify(summaryResponse.content);
+            summaryContent = contentToText(summaryResponse.content);
         } catch (err: any) {
             // A finalize failure must never crash the run — assemble a best-effort summary
             // from the tool results and review notes already captured in state.

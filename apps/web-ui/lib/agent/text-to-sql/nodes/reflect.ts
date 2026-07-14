@@ -2,6 +2,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { buildReflectionPrompt } from '../prompts';
 import { type TextToSQLState, requireModelConfig } from '../state';
 import { createAgentModels } from '@/lib/agent/model-factory';
+import { contentToText } from '@/lib/agent/agent-shared';
 
 export async function reflectNode(state: TextToSQLState): Promise<Partial<TextToSQLState>> {
     const newIteration = state.iteration + 1;
@@ -33,9 +34,7 @@ export async function reflectNode(state: TextToSQLState): Promise<Partial<TextTo
         new HumanMessage(prompt),
     ]);
 
-    const content = typeof response.content === 'string'
-        ? response.content
-        : JSON.stringify(response.content);
+    const content = contentToText(response.content);
 
     // Parse JSON response
     let satisfied = true;

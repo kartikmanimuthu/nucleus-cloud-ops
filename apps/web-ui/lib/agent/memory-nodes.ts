@@ -8,7 +8,7 @@
 
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { truncateOutput } from "./agent-shared";
+import { truncateOutput, contentToText } from "./agent-shared";
 import { saveMemory } from "./persistence";
 import { getMemoryService } from "./memory/memory-service";
 import { memoryLogVerbose } from "./memory/log";
@@ -50,9 +50,7 @@ export function createMemoryRecallNode(deps: MemoryNodeDeps) {
             return { memoryContext: "", memoryStats: null };
         }
 
-        const query = typeof lastHuman.content === "string"
-            ? lastHuman.content
-            : JSON.stringify(lastHuman.content);
+        const query = contentToText(lastHuman.content);
 
         console.log(`\n🧠 [MEMORY RECALL] Searching memories for: "${truncateOutput(query, 100)}"`);
 
@@ -90,9 +88,7 @@ ${memorySummary}
 Return only the relevant memories.`
                     });
                     const response = await reflectorModel.invoke([filterPrompt, filterInput]);
-                    const content = typeof response.content === "string"
-                        ? response.content
-                        : JSON.stringify(response.content);
+                    const content = contentToText(response.content);
                     factsSection = (content.trim() === "NONE") ? "" : content.trim();
                     console.log(`🧠 [RECALL:facts] LLM filter ${factsSection ? `kept:\n${factsSection}` : 'kept none (NONE)'}`);
                 } catch (err: any) {
@@ -197,9 +193,7 @@ export function createMemorySaveNode(deps: MemoryNodeDeps) {
         const recentMessages = messages.slice(-20);
         const conversationSummary = recentMessages.map(m => {
             const role = m._getType();
-            const content = typeof m.content === "string"
-                ? m.content
-                : JSON.stringify(m.content);
+            const content = contentToText(m.content);
             return `[${role}] ${truncateOutput(content, 500)}`;
         }).join("\n\n");
 
@@ -248,9 +242,10 @@ Extract memories to save.`
 
         try {
             const response = await reflectorModel.invoke([extractPrompt, extractInput]);
-            const content = typeof response.content === "string"
-                ? response.content
-                : JSON.stringify(response.content);
+            // contentToText, NOT JSON.stringify: Sonnet 5 returns a block ARRAY here, and
+            // stringifying it made /\[[\s\S]*\]/ match the array of ~140 content blocks —
+            // every "memory" then failed validation and all learnings were silently lost.
+            const content = contentToText(response.content);
 
             const jsonMatch = content.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {

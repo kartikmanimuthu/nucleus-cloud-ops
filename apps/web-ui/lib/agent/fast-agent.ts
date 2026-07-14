@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { getSkillContent, getSkillSummaries } from "@/lib/skill-service";
@@ -10,6 +10,7 @@ import {
     MAX_ITERATIONS,
     truncateOutput,
     contentToText,
+    isToolResultError,
     sanitizeMessagesForBedrock,
     withUnresolvedToolCallsOnly,
     tagMessagePhase,
@@ -169,8 +170,11 @@ Review the full conversation history before responding:
         if (result.messages) {
             for (const msg of result.messages) {
                 if (msg._getType() === 'tool') {
-                    const rawContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-                    const isError = rawContent.toLowerCase().includes('error') || rawContent.toLowerCase().includes('exception');
+                    const rawContent = contentToText(msg.content);
+                    // Precise classifier (status flag / error-prefix / success:false JSON) —
+                    // the old substring match flagged ANY output mentioning "error", e.g. a
+                    // successful CloudWatch query for the "Errors" metric.
+                    const isError = isToolResultError((msg as ToolMessage).status, rawContent);
                     newToolResults.push({
                         toolName: (msg as any).name || 'unknown_tool',
                         output: truncateOutput(rawContent, 1000),

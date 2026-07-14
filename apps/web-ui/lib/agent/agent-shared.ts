@@ -243,9 +243,14 @@ function formatMessageForAudit(msg: BaseMessage, depth: AuditDepth): string {
 
         body = parts.join('\n') || '(empty)';
     } else {
+        // Audit output is meant to be human-readable text. contentToText flattens
+        // Sonnet 5-style block arrays; fall back to JSON.stringify only when the
+        // content is a non-string shape with no extractable text (keeps fidelity
+        // for exotic block types rather than logging an empty line).
+        const text = contentToText(msg.content);
         const raw = typeof msg.content === 'string'
             ? msg.content
-            : JSON.stringify(msg.content);
+            : (text || JSON.stringify(msg.content));
         body = depth === 'compact' ? truncateOutput(raw, 200) : raw;
     }
 
@@ -327,6 +332,57 @@ export function truncateOutput(text: string, maxChars: number = 500): string {
         return text.slice(0, maxChars) + "...";
     }
     return text;
+}
+
+/**
+ * Truncation variant for text shown to a REVIEWER model (e.g. the reflector's
+ * "Recent Assistant Output" slot). truncateOutput()'s bare "..." made the
+ * reflector read its own input truncation as a truncated DELIVERABLE ("the
+ * final report was cut off mid-sentence") and force a redundant re-render
+ * cycle. This marker states explicitly that only the review copy is cut.
+ */
+export function truncateForReview(text: string, maxChars: number): string {
+    if (!text) return "";
+    if (text.length <= maxChars) return text;
+    return text.slice(0, maxChars)
+        + `\n…[TRUNCATED FOR REVIEW ONLY — the actual message is ${text.length} characters and continues past this cutoff; do NOT treat this cutoff as an incomplete or truncated deliverable]`;
+}
+
+/**
+ * Precise tool-result error classifier shared by the fast and planning agents.
+ *
+ * Replaces the old substring heuristic (`content includes "error"/"exception"`),
+ * which false-flagged successful outputs that merely MENTION errors — e.g. a
+ * CloudWatch query for the "Errors" metric returning {"Label": "Errors", ...}.
+ *
+ * Failure contracts (see tools.ts / mcp-tools.ts / aws-credentials-tool.ts):
+ *  - LangChain sets ToolMessage.status === 'error' when a tool throws.
+ *  - execute_command failures return output starting with "Command failed:".
+ *  - File/S3/jail/MCP/ToolNode errors return strings starting with "Error:" or
+ *    "Error <doing X>:" — i.e. an "Error"-prefixed string.
+ *  - glob/grep/web_search return "Glob error:" / "Grep error:" / "Web search error:".
+ *  - JSON tools (get_aws_credentials, list_aws_accounts) return {"success": false, ...}.
+ * All checks are trimmed-prefix (case-sensitive) or parsed-JSON — never
+ * substring-anywhere.
+ */
+export function isToolResultError(status: string | undefined, rawContent: string): boolean {
+    if (status === 'error') return true;
+    if (!rawContent) return false;
+    const text = rawContent.trimStart();
+    if (text.startsWith('Command failed:')) return true;
+    if (text.startsWith('Error:') || text.startsWith('Error ')) return true;
+    if (text.startsWith('Glob error:') || text.startsWith('Grep error:') || text.startsWith('Web search error:')) return true;
+    if (text.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(text);
+            if (parsed && typeof parsed === 'object' && (parsed as { success?: unknown }).success === false) {
+                return true;
+            }
+        } catch {
+            // Not valid JSON (e.g. truncated tool output) — fall through to non-error.
+        }
+    }
+    return false;
 }
 
 /**

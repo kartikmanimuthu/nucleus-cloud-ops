@@ -12,6 +12,7 @@
 
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { contentToText } from '../agent-shared';
 import { getMemoryService } from './memory-service';
 import { compressToolOutput } from './working-memory';
 import type { EpisodicValue } from './types';
@@ -76,7 +77,7 @@ export async function captureEpisode(p: CaptureEpisodeParams): Promise<boolean> 
         );
 
         const resp = await p.distillerModel.invoke([DISTILLER_SYSTEM, input]);
-        const content = typeof resp.content === 'string' ? resp.content : JSON.stringify(resp.content);
+        const content = contentToText(resp.content);
         if (content.trim() === 'SKIP') {
             console.log('🧠 [EPISODE] Distiller skipped — routine run');
             return false;

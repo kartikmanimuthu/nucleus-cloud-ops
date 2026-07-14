@@ -2,6 +2,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { buildSynthesisPrompt } from '../prompts';
 import { type TextToSQLState, requireModelConfig } from '../state';
 import { createAgentModels } from '@/lib/agent/model-factory';
+import { contentToText } from '@/lib/agent/agent-shared';
 
 export async function synthesizeNode(state: TextToSQLState): Promise<Partial<TextToSQLState>> {
     // If no results (all retries failed), return error message
@@ -28,9 +29,7 @@ export async function synthesizeNode(state: TextToSQLState): Promise<Partial<Tex
             new HumanMessage(prompt),
         ]);
 
-        const finalAnswer = typeof response.content === 'string'
-            ? response.content
-            : JSON.stringify(response.content);
+        const finalAnswer = contentToText(response.content);
 
         console.log(`[TextToSQL] Synthesized answer: ${finalAnswer.length} chars`);
         return { finalAnswer };
