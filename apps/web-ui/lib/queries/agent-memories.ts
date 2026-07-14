@@ -101,3 +101,29 @@ export function useDeleteAgentMemory() {
         },
     });
 }
+
+/**
+ * Fetch every memory in the tenant for export-all, paging through
+ * GET /api/agent-memories until the known `total` is reached. Safety-capped at
+ * MAX_PAGES so an unexpected runaway cannot loop forever; callers compare
+ * `memories.length < total` to detect truncation and warn. Not a hook — call
+ * from an event handler, not render.
+ */
+export async function fetchAllAgentMemories(): Promise<{ memories: MemoryRow[]; total: number }> {
+    const LIMIT = 500;
+    const MAX_PAGES = 100;
+    const memories: MemoryRow[] = [];
+    let total = 0;
+    for (let page = 1; page <= MAX_PAGES; page++) {
+        const res = await fetch(`/api/agent-memories?limit=${LIMIT}&page=${page}&sort=createdAt&dir=asc`);
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+            throw new Error(json.error || 'Failed to load memories');
+        }
+        const rows = json.data as MemoryRow[];
+        total = json.total ?? 0;
+        memories.push(...rows);
+        if (rows.length < LIMIT || memories.length >= total) break;
+    }
+    return { memories, total };
+}

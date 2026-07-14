@@ -1,0 +1,174 @@
+/**
+ * Memory → Markdown export.
+ *
+ * Mirrors lib/skill-export.ts: buildMemoryMarkdown()/buildAllMemoriesMarkdown()
+ * are the pure cores of the human-readable "report" export;
+ * buildMemoryFile() is the pure core of the portable frontmatter export (for
+ * reuse with other AI tools). export*ToMarkdown()/exportAllMemoriesToZip() wrap
+ * them in Blob/zip downloads. Embeddings are never in the MemoryRow DTO, so
+ * there is nothing to strip.
+ */
+
+import type { MemoryRow } from "@/lib/queries/agent-memories";
+import type { MemoryKind } from "@/lib/agent/memory/types";
+// `fence` is intentionally NOT imported: memory bodies are prose, never fenced.
+// The other helpers come online in later tasks (anchor in Task 3, yamlScalar in
+// Task 4, the download/fileSafe trio in Task 5). Unused-import warnings are
+// non-failing (noUnusedLocals=false; lint no-unused-vars is a warning), so
+// importing them all up front is safe and avoids repeated edits to this line.
+import { anchor, downloadBlob, downloadText, fileSafe, yamlScalar } from "@/lib/export-utils";
+
+const KIND_ORDER: MemoryKind[] = ["SEMANTIC", "EPISODIC", "PROCEDURAL"];
+
+/** Read a string field from the raw `value` JSON, or "—" if absent/empty. */
+function field(value: Record<string, unknown>, key: string): string {
+    const v = value?.[key];
+    return typeof v === "string" && v.length ? v : "—";
+}
+
+/**
+ * Render the kind-specific `value` fields as labeled Markdown prose. Shared by
+ * the report and portable builders so they never drift. Pure.
+ */
+function renderValueBody(memory: MemoryRow): string {
+    const v = memory.value ?? {};
+    switch (memory.kind) {
+        case "SEMANTIC":
+            return [
+                `**Fact:** ${field(v, "fact")}`,
+                `**Source:** ${field(v, "source")}`,
+                `**Confidence:** ${memory.confidence ?? "—"}`,
+                "",
+            ].join("\n");
+        case "EPISODIC":
+            return [
+                `**Context:** ${field(v, "context")}`,
+                `**Reasoning:** ${field(v, "reasoning")}`,
+                `**Action:** ${field(v, "action")}`,
+                `**Outcome:** ${field(v, "outcome")}`,
+                "",
+            ].join("\n");
+        case "PROCEDURAL":
+            return [
+                `**Instruction:** ${field(v, "instruction")}`,
+                `**Trigger:** ${field(v, "trigger")}`,
+                `**Evidence:** ${field(v, "evidence")}`,
+                `**Confidence:** ${memory.confidence ?? "—"}`,
+                "",
+            ].join("\n");
+        default:
+            return "";
+    }
+}
+
+/** Build the human-readable Markdown report for a single memory. Pure. */
+export function buildMemoryMarkdown(memory: MemoryRow): string {
+    const lines: string[] = [
+        `# ${memory.key}`,
+        "",
+        "| Field | Value |",
+        "| --- | --- |",
+        `| Kind | ${memory.kind} |`,
+        `| Namespace | ${memory.namespace} |`,
+        `| Category | ${memory.category} |`,
+        `| Confidence | ${memory.confidence ?? "—"} |`,
+        `| Source | ${memory.source ?? "—"} |`,
+        `| Created | ${memory.createdAt} |`,
+        `| Updated | ${memory.updatedAt} |`,
+        `| Superseded by | ${memory.supersededById ?? "—"} |`,
+        "",
+        renderValueBody(memory),
+    ];
+    return lines.join("\n");
+}
+
+/** Build the combined human-readable Markdown report for all memories (TOC + each memory). Pure. */
+export function buildAllMemoriesMarkdown(memories: MemoryRow[]): string {
+    const header: string[] = [
+        "# Memory export",
+        "",
+        `Exported ${memories.length} memory record(s).`,
+        "",
+    ];
+    if (memories.length === 0) {
+        header.push("_No memories to export._", "");
+        return header.join("\n");
+    }
+    const byKind = new Map<MemoryKind, MemoryRow[]>();
+    for (const m of memories) {
+        const arr = byKind.get(m.kind) ?? [];
+        arr.push(m);
+        byKind.set(m.kind, arr);
+    }
+    for (const arr of byKind.values()) {
+        arr.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    header.push("## Table of contents", "");
+    for (const kind of KIND_ORDER) {
+        const arr = byKind.get(kind);
+        if (!arr || arr.length === 0) continue;
+        header.push(`### ${kind}`, "");
+        for (const m of arr) header.push(`- [${m.key}](#${anchor(m.key)})`);
+        header.push("");
+    }
+    header.push("---", "");
+    const body: string[] = [];
+    for (const kind of KIND_ORDER) {
+        const arr = byKind.get(kind);
+        if (!arr || arr.length === 0) continue;
+        for (const m of arr) {
+            body.push(buildMemoryMarkdown(m), "---", "");
+        }
+    }
+    return `${header.join("\n")}\n${body.join("\n")}`;
+}
+
+/**
+ * Build a portable `.md` for a memory: YAML frontmatter (kind, namespace, key,
+ * category, confidence, created_at, updated_at) + the kind-aware `value` body.
+ * Re-importable by other AI tools that read Markdown + frontmatter. Pure.
+ */
+export function buildMemoryFile(memory: MemoryRow): string {
+    const fm: string[] = [
+        "---",
+        `kind: ${memory.kind}`,
+        `namespace: ${yamlScalar(memory.namespace)}`,
+        `key: ${yamlScalar(memory.key)}`,
+        `category: ${memory.category}`,
+    ];
+    if (memory.confidence) fm.push(`confidence: ${memory.confidence}`);
+    fm.push(`created_at: ${memory.createdAt}`, `updated_at: ${memory.updatedAt}`, "---", "");
+    return `${fm.join("\n")}\n${renderValueBody(memory)}`;
+}
+
+/** Download a single memory as a human-readable `.md` report. Impure (DOM + Blob). */
+export function exportMemoryToMarkdown(memory: MemoryRow): void {
+    downloadText(buildMemoryMarkdown(memory), `${fileSafe(memory.key, memory.id)}.md`);
+}
+
+/** Download all memories as a single combined `.md` report. Impure (DOM + Blob). */
+export function exportAllMemoriesToMarkdown(memories: MemoryRow[]): void {
+    downloadText(buildAllMemoriesMarkdown(memories), `memory-export-${new Date().toISOString().slice(0, 10)}.md`);
+}
+
+/** Download a single memory as a portable frontmatter `.md` file. Impure (DOM + Blob). */
+export function exportMemoryToFile(memory: MemoryRow): void {
+    downloadText(buildMemoryFile(memory), `${fileSafe(memory.key, memory.id)}.md`);
+}
+
+/**
+ * Download all memories as a `.zip` of portable frontmatter files, one per memory
+ * at `memories/<KIND>/<id>.md`, grouped into per-kind folders so a consuming
+ * tool can ingest by kind. jszip is dynamically imported so it stays out of the
+ * main bundle. Impure (DOM + Blob + dynamic import).
+ */
+export async function exportAllMemoriesToZip(memories: MemoryRow[]): Promise<void> {
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+    const root = zip.folder("memories");
+    if (!root) throw new Error("Failed to create memories folder in zip");
+    const ordered = KIND_ORDER.flatMap((kind) => memories.filter((m) => m.kind === kind));
+    for (const m of ordered) root.file(`${m.kind}/${m.id}.md`, buildMemoryFile(m));
+    const blob = await zip.generateAsync({ type: "blob" });
+    downloadBlob(blob, `memories-export-${new Date().toISOString().slice(0, 10)}.zip`);
+}
