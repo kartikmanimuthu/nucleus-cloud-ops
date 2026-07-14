@@ -105,7 +105,7 @@ Ensure your execution role has:
 
 ### MCP Servers
 
-Add custom MCP servers under **Channels** → **MCP Servers** to extend the agent's capabilities. 16 MCP servers are supported out of the box.
+Add custom MCP servers under **Channels** → **MCP Servers** to extend the agent's capabilities. 16 MCP servers are supported out of the box. For connecting Atlassian's Jira/Confluence MCP server — including headless auth for Docker/ECS deployments — see the dedicated [Jira / Atlassian Integration](/docs/jira-integration) guide.
 
 ---
 
@@ -115,19 +115,14 @@ Add custom MCP servers under **Channels** → **MCP Servers** to extend the agen
 
 ### Slack Integration
 
-1. Go to **Channels** → **Slack** → **Configure**
-2. Create a Slack app and add the Bot Token
-3. Configure the webhook URL for notifications
-4. Test the connection
-
-Once configured, use Slack slash commands to trigger agent runs and receive results directly in your channels.
+See the dedicated [Slack Integration](/docs/slack-integration) guide for full setup steps —
+from creating the Slack app through inviting the bot and testing the connection.
 
 ### Jira Integration
 
-1. Go to **Channels** → **Jira** → **Configure**
-2. Enter your Jira base URL and API token
-3. Trigger agent runs from Jira Automation rules
-4. Receive results as issue comments
+See the dedicated [Jira / Atlassian Integration](/docs/jira-integration) guide — covers both the
+Jira Automation trigger channel and connecting Jira/Confluence as an MCP tool source (including
+headless auth for Docker/ECS deployments).
 
 ### MCP Servers
 
