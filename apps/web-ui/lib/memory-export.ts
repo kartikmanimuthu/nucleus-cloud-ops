@@ -140,3 +140,35 @@ export function buildMemoryFile(memory: MemoryRow): string {
     fm.push(`created_at: ${memory.createdAt}`, `updated_at: ${memory.updatedAt}`, "---", "");
     return `${fm.join("\n")}\n${renderValueBody(memory)}`;
 }
+
+/** Download a single memory as a human-readable `.md` report. Impure (DOM + Blob). */
+export function exportMemoryToMarkdown(memory: MemoryRow): void {
+    downloadText(buildMemoryMarkdown(memory), `${fileSafe(memory.key, memory.id)}.md`);
+}
+
+/** Download all memories as a single combined `.md` report. Impure (DOM + Blob). */
+export function exportAllMemoriesToMarkdown(memories: MemoryRow[]): void {
+    downloadText(buildAllMemoriesMarkdown(memories), `memory-export-${new Date().toISOString().slice(0, 10)}.md`);
+}
+
+/** Download a single memory as a portable frontmatter `.md` file. Impure (DOM + Blob). */
+export function exportMemoryToFile(memory: MemoryRow): void {
+    downloadText(buildMemoryFile(memory), `${fileSafe(memory.key, memory.id)}.md`);
+}
+
+/**
+ * Download all memories as a `.zip` of portable frontmatter files, one per memory
+ * at `memories/<KIND>/<id>.md`, grouped into per-kind folders so a consuming
+ * tool can ingest by kind. jszip is dynamically imported so it stays out of the
+ * main bundle. Impure (DOM + Blob + dynamic import).
+ */
+export async function exportAllMemoriesToZip(memories: MemoryRow[]): Promise<void> {
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+    const root = zip.folder("memories");
+    if (!root) throw new Error("Failed to create memories folder in zip");
+    const ordered = KIND_ORDER.flatMap((kind) => memories.filter((m) => m.kind === kind));
+    for (const m of ordered) root.file(`${m.kind}/${m.id}.md`, buildMemoryFile(m));
+    const blob = await zip.generateAsync({ type: "blob" });
+    downloadBlob(blob, `memories-export-${new Date().toISOString().slice(0, 10)}.zip`);
+}
