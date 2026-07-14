@@ -62,8 +62,8 @@ export const navMenus: NavItem[] = [
     icon: Cable,
     items: [
       { title: "Channels", href: "/app/channels" },
-      { title: "Jira", href: "/app/agent-ops/jira-settings" },
       { title: "Slack", href: "/app/agent-ops/slack-settings" },
+      { title: "Telegram", href: "/app/channels/telegram-settings" },
     ],
   },
   {

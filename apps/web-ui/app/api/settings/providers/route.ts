@@ -22,6 +22,8 @@ export async function GET(_request: NextRequest) {
         // hardcoded Bedrock baseline. Each model id is the composite
         // `{providerType}:{modelId}:{providerRecordId}` so model-resolver routes
         // it to the right transport (bedrock record / anthropic / openai-family).
+        // `isDefault` marks the default provider's selected chat model so every
+        // picker can preselect it instead of whatever happens to sort first.
         const configuredModels = providers
             .filter((p) => p.isEnabled)
             .flatMap((p) => {
@@ -33,6 +35,7 @@ export async function GET(_request: NextRequest) {
                     id: `${providerType}:${m.id}:${p.id}`,
                     label: `${m.label} (${p.name})`,
                     provider: providerType,
+                    isDefault: p.isDefault && p.chatModel === m.id,
                 }));
             });
 
