@@ -80,13 +80,13 @@ export function buildSkillFile(skill: SkillDTO): string {
 
 /** Download a single skill as a portable SKILL.md-formatted `.md` file. Impure (DOM + Blob). */
 export function exportSkillToFile(skill: SkillDTO): void {
-    downloadText(buildSkillFile(skill), `${skill.id || fileSafe(skill.name)}.md`);
+    downloadText(buildSkillFile(skill), `${skill.id || fileSafe(skill.name, "skill")}.md`);
 }
 
 /** Download a single skill as a `.md` file (human-readable report). Impure (DOM + Blob). */
 export function exportSkillToMarkdown(skill: SkillDTO): void {
     const markdown = buildSkillMarkdown(skill);
-    downloadText(markdown, `skill-${fileSafe(skill.name)}.md`);
+    downloadText(markdown, `skill-${fileSafe(skill.name, "skill")}.md`);
 }
 
 /** Download all skills as a single `.md` file (human-readable report). Impure (DOM + Blob). */
