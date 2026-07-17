@@ -11,6 +11,8 @@ import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { authorize } from '@/lib/rbac/authorize';
+import { getTelegramBotLinkRepository } from '@/lib/db/repository-factory';
+import { TelegramBotLinkConflictError } from '@/lib/db/repositories/telegram-bot-link/interface';
 import type { TelegramIntegrationConfig } from '@/lib/agent-ops/types';
 
 const CONFIG_KEY = 'agent-ops-telegram';
@@ -93,6 +95,24 @@ export async function PUT(req: Request) {
             );
         }
 
+        // Inbound Telegram updates carry no tenant-identifying field — the secret
+        // token is the only value that can resolve which tenant a request belongs
+        // to (see TelegramBotLink), so keep the reverse-index in sync with every save.
+        const linkRepo = getTelegramBotLinkRepository();
+        if (secretToken !== existing?.secretToken) {
+            // Secret is new or rotating — drop any previous link for this tenant so a
+            // stale row from the old secret doesn't linger in the lookup table.
+            await linkRepo.deleteLinkForTenant(tenantId);
+        }
+        try {
+            await linkRepo.upsertLink({ secretToken, tenantId });
+        } catch (error) {
+            if (error instanceof TelegramBotLinkConflictError) {
+                return NextResponse.json({ error: error.message }, { status: 409 });
+            }
+            throw error;
+        }
+
         const config: TelegramIntegrationConfig = {
             botToken,
             secretToken,
@@ -149,6 +169,7 @@ export async function DELETE() {
 
         const tenantId = await getSessionTenantId();
         await TenantConfigService.deleteConfig(CONFIG_KEY, tenantId);
+        await getTelegramBotLinkRepository().deleteLinkForTenant(tenantId);
 
         console.log('[API /agent-ops/settings/telegram] Reset Telegram config for tenant:', tenantId);
 

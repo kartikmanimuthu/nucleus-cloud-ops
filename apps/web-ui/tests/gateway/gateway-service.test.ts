@@ -98,6 +98,20 @@ describe('GatewayService', () => {
         expect(res.status).toBe(400);
     });
 
+    it('acks with 200 (not 400) when task description is empty on a streaming channel', async () => {
+        // 'streaming' channels (Telegram, Discord) push updates async and retry
+        // forever on a non-2xx — e.g. Telegram's automatic /start handshake has
+        // no text. A 400 here would jam the whole channel behind an endless retry.
+        (adapter as any).deliveryMode = 'streaming';
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '', channelMeta: {},
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'text=' });
+        const res = await service.handleInbound('slack', req as any);
+        expect(res.status).toBe(200);
+        expect(adapter.sendAck).not.toHaveBeenCalled();
+    });
+
     it('routes HIL resume when replyContext is present (approve)', async () => {
         (adapter.parseInbound as any).mockResolvedValue({
             channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',

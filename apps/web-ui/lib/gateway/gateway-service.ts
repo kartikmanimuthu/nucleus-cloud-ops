@@ -42,8 +42,17 @@ export class GatewayService {
             return this.handleResume(adapter, message, req);
         }
 
-        // 4. If no taskDescription → 400
+        // 4. If no taskDescription → ack or 400, depending on delivery semantics.
+        // 'streaming' channels (Telegram, Discord) push updates async and retry
+        // forever on a non-2xx response — e.g. Telegram's automatic /start
+        // handshake has no text, and a 400 there would jam that channel's entire
+        // queue behind an endless retry. 'callback' channels (Slack, Jira,
+        // webhook) get a synchronous reply the caller displays immediately, so
+        // the 400 there is a normal validation response, not a delivery signal.
         if (!message.taskDescription || message.taskDescription.trim() === '') {
+            if (adapter.deliveryMode === 'streaming') {
+                return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            }
             return new Response(
                 JSON.stringify({ error: 'Missing task description' }),
                 { status: 400 },

@@ -8,6 +8,7 @@
 
 import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getTelegramBotLinkRepository } from '@/lib/db/repository-factory';
 import { env } from '@/env';
 import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
 import { ChannelRateLimiter } from '@/lib/gateway/utils/rate-limiter';
@@ -56,6 +57,22 @@ async function readBody(req: NextRequest): Promise<string> {
     return text;
 }
 
+/**
+ * Cache the secretToken → tenantId resolution across validateRequest →
+ * parseInbound so both use the same (correct) internal tenantId without a
+ * duplicate lookup. Value is `null` when resolution was attempted but no
+ * link exists.
+ */
+const tenantIdCache = new WeakMap<NextRequest, string | null>();
+
+async function resolveTenantId(req: NextRequest, secretToken: string): Promise<string | null> {
+    if (!secretToken) return null;
+    if (tenantIdCache.has(req)) return tenantIdCache.get(req) ?? null;
+    const tenantId = await getTelegramBotLinkRepository().findTenantIdBySecretToken(secretToken).catch(() => null);
+    tenantIdCache.set(req, tenantId);
+    return tenantId;
+}
+
 // ─── Markdown Helpers ─────────────────────────────────────────────────
 
 /**
@@ -90,28 +107,21 @@ export class TelegramAdapter implements ChannelAdapter {
         // Read body to cache it for parseInbound
         await readBody(req);
 
-        // Try to resolve tenant from x-tenant-id header or body
-        let tenantId = req.headers.get('x-tenant-id') || '';
-        if (!tenantId) {
-            try {
-                const body = await readBody(req);
-                const payload = JSON.parse(body);
-                tenantId = String(
-                    payload.message?.chat?.id ??
-                    payload.callback_query?.message?.chat?.id ??
-                    '',
-                );
-            } catch { /* ignore parse errors */ }
-        }
+        // Telegram updates carry no tenant-identifying field at all — the secret
+        // token echoed back in this header is the only value that ties a request
+        // back to the tenant who registered this bot's webhook (see TelegramBotLink).
+        const tenantId = await resolveTenantId(req, secretHeader);
 
-        // Load secret: tenant config first, env var fallback
+        // Load secret: tenant config first, env var fallback (single-tenant setups)
         let expectedSecret = '';
+        let enabled = true;
         if (tenantId) {
             const config = await TenantConfigService.getConfig<TelegramIntegrationConfig>(
                 'agent-ops-telegram',
                 tenantId,
             ).catch(() => null);
             expectedSecret = config?.secretToken || '';
+            enabled = config?.enabled ?? true;
         }
         if (!expectedSecret) {
             expectedSecret = env.TELEGRAM_SECRET_TOKEN || '';
@@ -121,28 +131,31 @@ export class TelegramAdapter implements ChannelAdapter {
             return false;
         }
 
-        return secretHeader === expectedSecret;
+        return enabled && secretHeader === expectedSecret;
     }
 
     async parseInbound(req: NextRequest): Promise<GatewayMessage> {
         const body = await readBody(req);
         const payload = JSON.parse(body);
-        const tenantId = req.headers.get('x-tenant-id') || '';
+        const secretHeader = req.headers.get('x-telegram-bot-api-secret-token') || '';
+        // Resolve via the same TelegramBotLink lookup validateRequest already did
+        // (cached on req) — falls back to null, handled per-branch below.
+        const resolvedTenantId = await resolveTenantId(req, secretHeader);
 
         // ── Callback query (inline keyboard button press) ───────────
         if (payload.callback_query) {
-            return this.parseCallbackQuery(payload.callback_query, tenantId);
+            return this.parseCallbackQuery(payload.callback_query, resolvedTenantId);
         }
 
         // ── Message ─────────────────────────────────────────────────
         if (payload.message) {
-            return this.parseMessage(payload.message, tenantId);
+            return this.parseMessage(payload.message, resolvedTenantId);
         }
 
         // Fallback for unsupported update types
         return {
             channelType: 'telegram',
-            tenantId,
+            tenantId: resolvedTenantId || '',
             taskDescription: '',
             channelMeta: {},
         };
@@ -158,9 +171,9 @@ export class TelegramAdapter implements ChannelAdapter {
 
         if (chatId) {
             try {
-                const config = await this.loadConfig(
-                    req.headers.get('x-tenant-id') || String(chatId),
-                );
+                const secretHeader = req.headers.get('x-telegram-bot-api-secret-token') || '';
+                const tenantId = (await resolveTenantId(req, secretHeader)) || String(chatId);
+                const config = await this.loadConfig(tenantId);
                 const botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || '';
                 if (botToken) {
                     const res = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/sendMessage`, {
@@ -368,7 +381,7 @@ export class TelegramAdapter implements ChannelAdapter {
 
     private parseMessage(
         message: Record<string, unknown>,
-        headerTenantId: string,
+        resolvedTenantId: string | null,
     ): GatewayMessage {
         const from = message.from as Record<string, unknown> | undefined;
         const chat = message.chat as Record<string, unknown> | undefined;
@@ -377,7 +390,13 @@ export class TelegramAdapter implements ChannelAdapter {
         const messageId = message.message_id as number | undefined;
         const text = (message.text as string) || '';
         const entities = (message.entities as Array<Record<string, unknown>>) ?? [];
-        const tenantId = headerTenantId || String(chatId);
+        // chat.id is Telegram's own bookkeeping, not our tenantId — only fall back
+        // to it if no TelegramBotLink exists (e.g. env-var-only setups), matching
+        // prior (already-broken) behavior rather than silently dropping the run.
+        if (!resolvedTenantId) {
+            console.warn('[TelegramAdapter] No tenant linked for this bot, falling back to raw chat.id:', chatId);
+        }
+        const tenantId = resolvedTenantId || String(chatId);
 
         // Check for bot command entity
         const botCommandEntity = entities.find(e => e.type === 'bot_command');
@@ -430,7 +449,7 @@ export class TelegramAdapter implements ChannelAdapter {
 
     private parseCallbackQuery(
         callbackQuery: Record<string, unknown>,
-        headerTenantId: string,
+        resolvedTenantId: string | null,
     ): GatewayMessage {
         const from = callbackQuery.from as Record<string, unknown> | undefined;
         const message = callbackQuery.message as Record<string, unknown> | undefined;
@@ -444,7 +463,7 @@ export class TelegramAdapter implements ChannelAdapter {
 
         // Parse callback_data format: "action:runId:tenantId"
         const [action, runId, tenantIdFromData] = data.split(':');
-        const tenantId = headerTenantId || tenantIdFromData || String(chatId);
+        const tenantId = resolvedTenantId || tenantIdFromData || String(chatId);
 
         const replyContext: ReplyContext = {
             runId: runId || '',

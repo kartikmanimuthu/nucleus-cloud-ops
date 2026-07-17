@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TelegramAdapter } from '@/lib/gateway/adapters/telegram-adapter';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getTelegramBotLinkRepository } from '@/lib/db/repository-factory';
 import type { ScheduledTask, AgentOpsRun } from '@/lib/agent-ops/types';
 
 vi.mock('@/lib/tenant-config-service', () => ({
@@ -13,12 +14,30 @@ vi.mock('@/lib/tenant-config-service', () => ({
     },
 }));
 
+// chat.id is Telegram's own bookkeeping, never our tenantId — it must be
+// translated via TelegramBotLink (the secret token is the only tenant-identifying
+// value Telegram ever sends back), so every test needs this mocked.
+vi.mock('@/lib/db/repository-factory', () => ({
+    getTelegramBotLinkRepository: vi.fn().mockReturnValue({
+        findTenantIdBySecretToken: vi.fn().mockResolvedValue('tenant-1'),
+        upsertLink: vi.fn().mockResolvedValue(undefined),
+        getLinkForTenant: vi.fn().mockResolvedValue(null),
+        deleteLinkForTenant: vi.fn().mockResolvedValue(0),
+    }),
+}));
+
 describe('TelegramAdapter', () => {
     let adapter: TelegramAdapter;
 
     beforeEach(() => {
         adapter = new TelegramAdapter();
         vi.restoreAllMocks();
+        vi.mocked(getTelegramBotLinkRepository).mockReturnValue({
+            findTenantIdBySecretToken: vi.fn().mockResolvedValue('tenant-1'),
+            upsertLink: vi.fn().mockResolvedValue(undefined),
+            getLinkForTenant: vi.fn().mockResolvedValue(null),
+            deleteLinkForTenant: vi.fn().mockResolvedValue(0),
+        } as any);
     });
 
     it('has correct channel metadata', () => {
@@ -70,6 +89,42 @@ describe('TelegramAdapter', () => {
         expect(msg.channelType).toBe('telegram');
         expect(msg.taskDescription).toBe('Check Lambda configs');
         expect(msg.channelMeta).toMatchObject({ userId: 12345, chatId: 67890 });
+    });
+
+    it('parseInbound resolves tenantId from the secret token link, not chat.id', async () => {
+        const payload = {
+            message: {
+                message_id: 100,
+                from: { id: 12345 },
+                chat: { id: 67890 }, // Telegram's own id — must NOT leak through as tenantId
+                text: 'hello',
+            },
+        };
+        const req = new Request('http://localhost/api/v1/gateway/telegram', {
+            method: 'POST',
+            headers: { 'x-telegram-bot-api-secret-token': 'tg-secret', 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const msg = await adapter.parseInbound(req as any);
+        expect(msg.tenantId).toBe('tenant-1');
+        expect(msg.tenantId).not.toBe(String(payload.message.chat.id));
+    });
+
+    it('parseInbound falls back to raw chat.id when no bot link exists', async () => {
+        vi.mocked(getTelegramBotLinkRepository).mockReturnValue({
+            findTenantIdBySecretToken: vi.fn().mockResolvedValue(null),
+            upsertLink: vi.fn().mockResolvedValue(undefined),
+            getLinkForTenant: vi.fn().mockResolvedValue(null),
+            deleteLinkForTenant: vi.fn().mockResolvedValue(0),
+        } as any);
+        const payload = { message: { message_id: 1, from: { id: 1 }, chat: { id: 67890 }, text: 'hello' } };
+        const req = new Request('http://localhost/api/v1/gateway/telegram', {
+            method: 'POST',
+            headers: { 'x-telegram-bot-api-secret-token': 'tg-secret', 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const msg = await adapter.parseInbound(req as any);
+        expect(msg.tenantId).toBe('67890');
     });
 
     it('parseInbound detects callback query as ReplyContext', async () => {
