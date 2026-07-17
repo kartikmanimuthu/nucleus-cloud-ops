@@ -86,6 +86,60 @@ describe('deriveRunState', () => {
         expect(rs.hasApprovalData).toBe(true);
     });
 
+    it('an empty-tools data-approval (ask_user-only interrupt) supersedes the previous batch — no ghost approval, clarification pending (round-5 regression)', () => {
+        const rs = deriveRunState([
+            // Turn N: real batch (its tool was rejected server-side; parts may lack output pre-fix)
+            msg([{ type: 'data-approval', data: { batchId: 'b1', tools: [{ toolCallId: 't1', toolName: 'execute_command', args: {}, guard: null }] } }]),
+            // Turn N+1: ask_user-only interrupt → empty-tools batch + clarification
+            msg([
+                { type: 'data-approval', data: { batchId: 'b2', tools: [] } },
+                { type: 'data-clarification', data: { toolCallId: 't9', question: 'Proceed how?', options: ['a', 'b'] } },
+            ]),
+        ] as any, new Set());
+        expect(rs.pendingApproval).toBeNull();
+        expect(rs.pendingClarifications.map(c => c.toolCallId)).toEqual(['t9']);
+    });
+
+    it('a data-approval tool with an output-bearing tool part ANYWHERE is not pending (executed-id defense)', () => {
+        const rs = deriveRunState([
+            msgWithId('m1', [
+                { type: 'data-approval', data: { batchId: 'b1', tools: [
+                    { toolCallId: 't1', toolName: 'execute_command', args: {}, guard: null },
+                    { toolCallId: 't2', toolName: 'write_file', args: {}, guard: null },
+                ] } },
+            ]),
+            // t1 already produced a result (e.g. synthetic rejection part on resume)
+            msgWithId('m2', [{ type: 'tool-execute_command', toolCallId: 't1', input: {}, output: 'Rejected by user.', state: 'output-available' }]),
+        ] as any, new Set());
+        expect(rs.pendingApproval!.tools.map(t => t.toolCallId)).toEqual(['t2']);
+    });
+
+    it('pendingApproval clears entirely when ALL its tools have output-bearing parts', () => {
+        const rs = deriveRunState([
+            msgWithId('m1', [{ type: 'data-approval', data: { batchId: 'b1', tools: [{ toolCallId: 't1', toolName: 'x', args: {}, guard: null }] } }]),
+            msgWithId('m2', [{ type: 'tool-x', toolCallId: 't1', input: {}, result: 'done' }]),
+        ] as any, new Set());
+        expect(rs.pendingApproval).toBeNull();
+    });
+
+    it('a clarification whose toolCallId has an output-bearing part is filtered (answered ask_user cannot resurrect)', () => {
+        const rs = deriveRunState([
+            msgWithId('m1', [{ type: 'data-clarification', data: { toolCallId: 't3', question: 'which?', options: [] } }]),
+            msgWithId('m2', [{ type: 'tool-ask_user', toolCallId: 't3', input: { question: 'which?' }, output: 'us-east-1', state: 'output-available' }]),
+        ] as any, new Set());
+        expect(rs.pendingClarifications).toEqual([]);
+    });
+
+    it('an input-only tool part (state input-available, no output) does NOT mark its id executed', () => {
+        const rs = deriveRunState([
+            msgWithId('m1', [
+                { type: 'data-approval', data: { batchId: 'b1', tools: [{ toolCallId: 't1', toolName: 'x', args: {}, guard: null }] } },
+                { type: 'tool-x', toolCallId: 't1', input: {}, state: 'input-available' },
+            ]),
+        ] as any, new Set());
+        expect(rs.pendingApproval!.tools.map(t => t.toolCallId)).toEqual(['t1']);
+    });
+
     it('hasApprovalData is false without any data-approval part (other data parts do not count)', () => {
         const rs = deriveRunState([
             msg([

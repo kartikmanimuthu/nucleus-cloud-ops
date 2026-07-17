@@ -50,13 +50,19 @@ export function buildInterruptParts(
     const parts: DataPart[] = [];
     // Order matters: deriveRunState resets stale clarifications when a data-approval
     // arrives, so the approval part must precede clarifications from the SAME interrupt.
-    if (approvalTools.length > 0) {
-        parts.push({
-            type: 'data-approval',
-            id: `approval-${threadId}`,
-            data: { batchId: `batch-${threadId}-${Date.now()}`, tools: approvalTools },
-        });
-    }
+    //
+    // The data-approval part is ALWAYS emitted while anything is pending — even for
+    // an ask_user-only interrupt (`tools: []`). Without it, the PREVIOUS turn's
+    // data-approval would remain the last batch in deriveRunState and its
+    // already-decided tools would resurrect as pendingApproval, deadlocking the
+    // clarification submit (every pending id needs a decision). An empty-tools
+    // batch renders nothing (pendingApproval requires unresolved tools) but resets
+    // both the stale batch and stale clarification ordering.
+    parts.push({
+        type: 'data-approval',
+        id: `approval-${threadId}`,
+        data: { batchId: `batch-${threadId}-${Date.now()}`, tools: approvalTools },
+    });
     parts.push(...clarificationParts);
     return parts;
 }

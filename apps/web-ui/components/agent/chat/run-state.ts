@@ -40,10 +40,25 @@ export function deriveRunState(
     const clarifications: PendingClarification[] = [];
     let hasStructuredData = false;
     let hasApprovalData = false;
+    // Tool calls with an output-bearing tool part ANYWHERE in the thread. An
+    // executed / rejected / answered tool can never be pending again, no matter
+    // what a stale data-approval or data-clarification part claims (defense
+    // against pre-fix history and stream races). Mirrors the hasOutput
+    // predicate in computeToolPartVisibility below.
+    const executedIds = new Set<string>();
 
     for (const message of messages) {
         if (message.role !== 'assistant') continue;
         for (const part of message.parts ?? []) {
+            const p = part as any;
+            if (p?.toolCallId && p.type !== 'text') {
+                const hasOutput =
+                    (p.result !== undefined && p.result !== null) ||
+                    (p.output !== undefined && p.output !== null) ||
+                    p.state === 'output-available' ||
+                    p.state === 'output-error';
+                if (hasOutput) executedIds.add(String(p.toolCallId));
+            }
             switch (part.type) {
                 case 'data-plan': {
                     hasStructuredData = true;
@@ -81,11 +96,12 @@ export function deriveRunState(
         }
     }
 
-    const unresolvedTools = (lastApproval?.tools ?? []).filter(t => !resolvedToolCallIds.has(t.toolCallId));
+    const isResolved = (id: string) => resolvedToolCallIds.has(id) || executedIds.has(id);
+    const unresolvedTools = (lastApproval?.tools ?? []).filter(t => !isResolved(t.toolCallId));
     const pendingApproval = lastApproval && unresolvedTools.length > 0
         ? { batchId: lastApproval.batchId, tools: unresolvedTools }
         : null;
-    const pendingClarifications = clarifications.filter(c => !resolvedToolCallIds.has(c.toolCallId));
+    const pendingClarifications = clarifications.filter(c => !isResolved(c.toolCallId));
 
     return {
         plan,

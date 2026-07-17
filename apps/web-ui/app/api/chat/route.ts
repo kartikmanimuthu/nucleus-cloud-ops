@@ -232,6 +232,14 @@ export async function POST(req: Request) {
         // so the client can pair the resumed output with the existing cards.
         let resumedPendingCalls: ResumedPendingCall[] = [];
 
+        // Decisions that produced ToolMessages directly (rejected tools + ask_user
+        // answers/declines) never execute in the tools node, so the resumed stream
+        // emits no on_tool_start/on_tool_end for them — without help their cards
+        // would stay pending forever (and read as "interrupted" after reload).
+        // processStream re-emits these as synthetic tool input+output parts under
+        // their ORIGINAL tool_call_ids at resume-stream start.
+        let syntheticDecisionResults: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown>; output: string }> = [];
+
         // Track pre-run message count so we only persist NEW messages from this turn
         let preRunMessageCount = 0;
 
@@ -284,6 +292,24 @@ export async function POST(req: Request) {
             resumedPendingCalls = pending
                 .filter(c => c.name !== 'ask_user' && result.approvedIds.includes(c.id))
                 .map(c => ({ id: c.id, name: c.name, args: c.args }));
+
+            // Rejected tools + ask_user calls got their ToolMessages written above;
+            // mirror those results into the response stream as synthetic tool parts
+            // so their cards resolve durably (live AND after reload).
+            const decidedContentById = new Map(
+                result.toolMessages.map(tm => [
+                    tm.tool_call_id,
+                    typeof tm.content === 'string' ? tm.content : JSON.stringify(tm.content),
+                ]),
+            );
+            syntheticDecisionResults = pending
+                .filter(c => decidedContentById.has(c.id))
+                .map(c => ({
+                    toolCallId: c.id,
+                    toolName: c.name,
+                    args: c.args,
+                    output: decidedContentById.get(c.id)!,
+                }));
 
             // Audit every decision on a mutative call (guard verdicts live in state)
             try {
@@ -468,7 +494,8 @@ export async function POST(req: Request) {
                     resolvedUserId,
                     resolvedTenantId,
                     preRunMessageCount,
-                    resumedPendingCalls
+                    resumedPendingCalls,
+                    syntheticDecisionResults
                 )
             });
         } else {
@@ -632,7 +659,8 @@ function processStream(
     resolvedUserId?: string,
     resolvedTenantId?: string,
     preRunMessageCount = 0,
-    resumedPendingCalls: ResumedPendingCall[] = []
+    resumedPendingCalls: ResumedPendingCall[] = [],
+    syntheticDecisionResults: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown>; output: string }> = []
 ): ReadableStream<UIMessageChunk> {
     return new ReadableStream({
         async start(controller) {
@@ -704,6 +732,18 @@ function processStream(
                     if (!safeEnqueue({ type: 'text-delta', id: resumePartId, delta: 'Executing approved tool(s)...\n' })) return;
                     if (!safeEnqueue({ type: 'text-end', id: resumePartId })) return;
                     hasEmittedTextContent = true;
+                }
+
+                // Durable terminal cards for decision outcomes that never execute as
+                // tools (rejections + ask_user answers/declines): emit input+output
+                // parts under the ORIGINAL tool_call_ids, in the exact format the
+                // live on_tool_start/on_tool_end handlers use. The client's
+                // computeToolPartVisibility makes this output-bearing part win over
+                // the pre-pause input-only twin, so no double card renders.
+                for (const s of syntheticDecisionResults) {
+                    if (!safeEnqueue({ type: 'tool-input-start', toolCallId: s.toolCallId, toolName: s.toolName })) return;
+                    if (!safeEnqueue({ type: 'tool-input-available', toolCallId: s.toolCallId, toolName: s.toolName, input: s.args })) return;
+                    if (!safeEnqueue({ type: 'tool-output-available', toolCallId: s.toolCallId, output: s.output })) return;
                 }
 
                 for await (const event of stream) {

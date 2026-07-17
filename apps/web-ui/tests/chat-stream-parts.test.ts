@@ -46,4 +46,28 @@ describe('buildInterruptParts', () => {
     it('returns [] when nothing is pending', () => {
         expect(buildInterruptParts({ messages: [new AIMessage({ content: 'hi' })], guardVerdicts: {} } as any, 't')).toEqual([]);
     });
+
+    it('ask_user-only interrupt STILL emits a data-approval part (empty tools) before the clarification — resets any stale previous batch on the client', () => {
+        const values = {
+            messages: [ai([
+                { id: 't2', name: 'ask_user', args: { question: 'Which region?', options: ['us-east-1'] } },
+            ])],
+            guardVerdicts: {},
+        };
+        const parts = buildInterruptParts(values as any, 'thread-1');
+        expect(parts).toHaveLength(2);
+        expect(parts[0].type).toBe('data-approval');
+        expect((parts[0] as any).data.tools).toEqual([]);
+        expect(parts[1].type).toBe('data-clarification');
+        expect((parts[1] as any).data.toolCallId).toBe('t2');
+    });
+
+    it('always emits exactly one data-approval whenever anything is pending', () => {
+        const values = {
+            messages: [ai([{ id: 't1', name: 'execute_command', args: { command: 'ls' } }])],
+            guardVerdicts: {},
+        };
+        const parts = buildInterruptParts(values as any, 'thread-1');
+        expect(parts.filter(p => p.type === 'data-approval')).toHaveLength(1);
+    });
 });

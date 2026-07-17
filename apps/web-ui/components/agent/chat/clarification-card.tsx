@@ -3,21 +3,35 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { HelpCircle, Send } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Check, HelpCircle, Send } from "lucide-react";
 import type { PendingClarification } from "./run-state";
 
 export function ClarificationCard({
   clarification,
   onAnswer,
+  decidedAnswer,
 }: {
   clarification: PendingClarification;
   onAnswer: (toolCallId: string, answer: string) => void;
+  /** Already-recorded answer (from the decision maps) — renders the card read-only. */
+  decidedAnswer?: string;
 }) {
   const [text, setText] = useState("");
+  // Optimistic local echo: the click/send registers visually the moment it
+  // happens, even before the decision lands in the parent's decision maps.
+  const [localAnswer, setLocalAnswer] = useState<string | null>(null);
+
+  const recordedAnswer = decidedAnswer ?? localAnswer ?? undefined;
+  const isRecorded = recordedAnswer !== undefined;
+  const isCustomAnswer =
+    isRecorded && !clarification.options.includes(recordedAnswer);
 
   const submit = (answer: string) => {
+    if (isRecorded) return;
     const trimmed = answer.trim();
     if (!trimmed) return;
+    setLocalAnswer(trimmed);
     onAnswer(clarification.toolCallId, trimmed);
   };
 
@@ -31,33 +45,57 @@ export function ClarificationCard({
         <p>{clarification.question}</p>
         {clarification.options.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {clarification.options.map((opt) => (
-              <Button key={opt} size="sm" variant="outline"
-                className="h-7 rounded-full border-blue-500/40 text-xs text-blue-700 hover:bg-blue-500/10 dark:text-blue-400"
-                onClick={() => submit(opt)}>
-                {opt}
-              </Button>
-            ))}
+            {clarification.options.map((opt) => {
+              const isSelected = isRecorded && recordedAnswer === opt;
+              return (
+                <Button key={opt} size="sm" variant={isSelected ? "default" : "outline"}
+                  disabled={isRecorded && !isSelected}
+                  className={cn(
+                    "h-7 rounded-full text-xs",
+                    isSelected
+                      ? "bg-blue-600 text-white hover:bg-blue-600"
+                      : "border-blue-500/40 text-blue-700 hover:bg-blue-500/10 dark:text-blue-400",
+                  )}
+                  onClick={() => submit(opt)}>
+                  {isSelected && <Check className="mr-1 h-3 w-3" />}
+                  {opt}
+                </Button>
+              );
+            })}
           </div>
         )}
-        <div className="flex items-end gap-2">
-          <Textarea
-            rows={1}
-            value={text}
-            placeholder="Or type a custom answer… (Enter to send — the run resumes immediately)"
-            className="min-h-[36px] resize-none text-xs"
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit(text);
-              }
-            }}
-          />
-          <Button size="sm" className="h-8 shrink-0" disabled={!text.trim()} onClick={() => submit(text)} aria-label="Send answer">
-            <Send className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        {isCustomAnswer && (
+          <div className="flex flex-wrap gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2.5 py-1 text-xs text-blue-700 dark:text-blue-400">
+              <Check className="h-3 w-3" />
+              {recordedAnswer}
+            </span>
+          </div>
+        )}
+        {isRecorded ? (
+          <p className="text-[11px] text-muted-foreground">
+            Answer recorded — the run resumes once every pending decision is submitted.
+          </p>
+        ) : (
+          <div className="flex items-end gap-2">
+            <Textarea
+              rows={1}
+              value={text}
+              placeholder="Or type a custom answer… (Enter to send)"
+              className="min-h-[36px] resize-none text-xs"
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit(text);
+                }
+              }}
+            />
+            <Button size="sm" className="h-8 shrink-0" disabled={!text.trim()} onClick={() => submit(text)} aria-label="Send answer">
+              <Send className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

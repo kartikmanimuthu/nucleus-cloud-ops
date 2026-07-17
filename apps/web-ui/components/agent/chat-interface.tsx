@@ -36,6 +36,7 @@ import {
   Wand2,
   FileText,
   ChevronDown,
+  HelpCircle,
   Clock,
   Database,
   BookOpen,
@@ -298,6 +299,27 @@ function isEmptyDecisionCarrier(m: any): boolean {
     (m.experimental_attachments?.length || 0) > 0 ||
     parts.some((p: any) => typeof p.type === "string" && p.type.startsWith("file"));
   return !hasText && !hasAttach;
+}
+
+// The AI SDK surfaces HTTP failures as Error(message) where message is usually
+// the raw response body — our API routes return `{"error":"..."}` — sometimes
+// with surrounding text. Extract the human-readable server error when present.
+function extractServerErrorMessage(error: unknown): string | null {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (!message.trim()) return null;
+  const jsonMatch = message.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed && typeof parsed.error === "string" && parsed.error.trim()) {
+        return parsed.error.trim();
+      }
+    } catch {
+      // Not JSON — fall through to the raw message.
+    }
+  }
+  return message.trim();
 }
 
 // Render a message whose `content` has no structured `parts` (legacy / history
@@ -638,6 +660,9 @@ export function ChatInterface({
   // submitDecisions can't rely on try/catch to detect a failed resume; it reads
   // this flag (set in onError, cleared right before each sendMessage call).
   const submitErrorRef = useRef(false);
+  // Human-readable server error extracted in onError (e.g. the 400/409 body's
+  // `error` string) — used as the decision-submit failure toast description.
+  const submitErrorMessageRef = useRef<string | null>(null);
 
   // Scroll control state - track if user has manually scrolled up
   const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
@@ -805,7 +830,9 @@ export function ChatInterface({
         }
         // The SDK swallows HTTP errors here and resolves sendMessage — this flag
         // is the only way submitDecisions can observe that its resume failed.
+        // Keep the actual server error text so the failure toast can say WHY.
         submitErrorRef.current = true;
+        submitErrorMessageRef.current = extractServerErrorMessage(error);
       },
     }) as any;
 
@@ -824,11 +851,15 @@ export function ChatInterface({
   );
 
   // Tool calls the user has decided on via the batch/clarification cards,
-  // toolCallId → approved. A decided-but-resultless part must render its
-  // decision (approved/rejected), never the legacy inline pending card and
-  // never the interrupted-error state — this covers the window before the
-  // resume stream starts and the failure case where the resume never starts.
-  const [decidedToolCalls, setDecidedToolCalls] = useState<Map<string, boolean>>(new Map());
+  // toolCallId → { approved, answer? }. A decided-but-resultless part must
+  // render its decision (approved/rejected), never the legacy inline pending
+  // card and never the interrupted-error state — this covers the window before
+  // the resume stream starts and the failure case where the resume never
+  // starts. The answer text is retained so clarification cards can show the
+  // recorded answer.
+  const [decidedToolCalls, setDecidedToolCalls] = useState<
+    Map<string, { approved: boolean; answer?: string }>
+  >(new Map());
 
   // Resume a run by submitting the decided approval/clarification batch.
   // CARRIER MESSAGE: the /api/chat resume path branches on `body.decisions`
@@ -850,10 +881,11 @@ export function ChatInterface({
       // immediately (and never resurrect a pending/interrupted state).
       setDecidedToolCalls((prev) => {
         const next = new Map(prev);
-        for (const d of decisionBatch) next.set(d.toolCallId, d.approved);
+        for (const d of decisionBatch) next.set(d.toolCallId, { approved: d.approved, answer: d.answer });
         return next;
       });
       submitErrorRef.current = false;
+      submitErrorMessageRef.current = null;
       await sendMessage(
         { role: "user", content: "" } as any, // carrier; server acts on body.decisions
         {
@@ -878,8 +910,19 @@ export function ChatInterface({
       if (submitErrorRef.current) {
         // The SDK swallows HTTP errors into onError and resolves sendMessage,
         // so failure is only observable via this flag (set in onError above).
+        // Prefer the actual server error (e.g. "Undecided tool call(s): …",
+        // "Thread is already processing…") over the generic copy.
         toast.error("Couldn't submit your decisions", {
-          description: "The run may be busy — try again.",
+          description:
+            submitErrorMessageRef.current || "The run may be busy — try again.",
+        });
+        // Roll back the recorded decisions — decidedToolCalls feeds the
+        // pending-state derivation, so leaving them in would drop the batch
+        // from the cards and make retry impossible.
+        setDecidedToolCalls((prev) => {
+          const next = new Map(prev);
+          for (const d of decisionBatch) next.delete(d.toolCallId);
+          return next;
         });
         decisionsResetRef.current?.();
       } else {
@@ -894,8 +937,17 @@ export function ChatInterface({
 
   // Pending ids = approval tools + clarifications; derive in two passes so
   // useDecisions' resolved ids feed back into the displayed pending state.
-  const EMPTY_RESOLVED = useMemo(() => new Set<string>(), []);
-  const runStateRaw = useRunState(runMessages, EMPTY_RESOLVED);
+  // Both passes exclude ids whose decision was already SUBMITTED (recorded in
+  // decidedToolCalls at submit time), so a decided tool from a previous batch
+  // can never resurrect after a reload or stream race. In-progress decisions
+  // of the LIVE batch are NOT in decidedToolCalls yet, so the first pass still
+  // lists them as pending — preserving the old EMPTY_RESOLVED behavior for the
+  // current batch (the approval card keeps showing undecided tools).
+  const decidedIdSet = useMemo(
+    () => new Set(decidedToolCalls.keys()),
+    [decidedToolCalls],
+  );
+  const runStateRaw = useRunState(runMessages, decidedIdSet);
   const pendingIds = useMemo(
     () => [
       ...(runStateRaw.pendingApproval?.tools.map((t) => t.toolCallId) ?? []),
@@ -911,7 +963,13 @@ export function ChatInterface({
   // failure — a ref sidesteps the circular dependency without reordering hooks.
   const decisionsResetRef = useRef<(() => void) | null>(null);
   decisionsResetRef.current = resetDecisions;
-  const runState = useRunState(runMessages, resolvedIds);
+  const mergedResolvedIds = useMemo(() => {
+    if (decidedIdSet.size === 0) return resolvedIds;
+    const merged = new Set(resolvedIds);
+    for (const id of decidedIdSet) merged.add(id);
+    return merged;
+  }, [resolvedIds, decidedIdSet]);
+  const runState = useRunState(runMessages, mergedResolvedIds);
 
   // Cross-message tool-card dedupe: after an approval resume the server re-emits
   // tool parts under their original tool_call_ids in a NEW assistant message.
@@ -1494,6 +1552,44 @@ export function ChatInterface({
       }
     }
 
+    // ask_user never renders the generic Tool card. While pending, the
+    // ClarificationCard owns the UI entirely — suppress the raw invocation
+    // (the timeline skips the spine dot on null). Once answered/declined
+    // (output present, incl. after reload — or decided locally before the
+    // resume stream lands), render a compact Q&A card consistent with the
+    // clarification-card styling.
+    if (rawToolName === "ask_user") {
+      const askDecision = part.toolCallId
+        ? decidedToolCalls.get(part.toolCallId)
+        : undefined;
+      const answerText =
+        result != null
+          ? typeof result === "string"
+            ? result
+            : JSON.stringify(result)
+          : askDecision !== undefined
+            ? askDecision.answer ?? "Declined to answer."
+            : undefined;
+      if (answerText === undefined) return null;
+      const question =
+        typeof args?.question === "string" ? args.question : "";
+      return (
+        <div
+          key={part.toolCallId || `${messageId}-tool-${index}`}
+          className="mt-2 overflow-hidden rounded-lg border border-blue-500/30 bg-background shadow-sm"
+        >
+          <div className="flex items-center gap-2 border-b border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400">
+            <HelpCircle className="h-3.5 w-3.5" />
+            Clarification
+          </div>
+          <div className="space-y-1 px-3 py-2 text-xs min-w-0">
+            {question && <p className="font-medium break-words">{question}</p>}
+            <p className="text-muted-foreground break-words">{answerText}</p>
+          </div>
+        </div>
+      );
+    }
+
     const isCall = state === "call" || !result;
     // Mission Control owns approval/clarification for tool calls in the current
     // pending batch — suppress the legacy inline Confirmation for those so the
@@ -1542,7 +1638,7 @@ export function ChatInterface({
         : result === "Cancelled by user"
           ? "rejected"
           : isDecided && !result
-            ? decision
+            ? decision?.approved
               ? "approved"
               : "rejected"
             : isPending
@@ -1705,8 +1801,20 @@ export function ChatInterface({
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4" onScrollCapture={handleScroll}>
-        <div id={`chat-messages-container-${threadId}`} data-testid="chat-messages-container" className="space-y-4">
+      {/* Radix ScrollArea wraps children in an inline-styled `display: table;
+          min-width: 100%` div, which sizes to max-content — a wide tool INPUT
+          JSON or phase paragraph forces intrinsic width up the chain, giving
+          the column a horizontal scrollbar and clipping content at the right
+          edge instead of wrapping. Force that wrapper back to block (so normal
+          width constraints + break-words apply) and hard-hide horizontal
+          overflow on the viewport so a stray wide element can never produce a
+          column-level horizontal scrollbar. Markdown tables still scroll in
+          their own overflow-x-auto wrapper. */}
+      <ScrollArea
+        className="flex-1 p-4 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden [&_[data-radix-scroll-area-viewport]>div]:!block"
+        onScrollCapture={handleScroll}
+      >
+        <div id={`chat-messages-container-${threadId}`} data-testid="chat-messages-container" className="space-y-4 min-w-0">
           {/* Loading history indicator */}
           {isLoadingHistory && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -1764,6 +1872,12 @@ export function ChatInterface({
             <ClarificationCard
               key={c.toolCallId}
               clarification={c}
+              // Recorded answer: in-progress batch decision first (recorded by
+              // decide() before the batch completes), then the submitted map.
+              decidedAnswer={
+                decisions[c.toolCallId]?.answer ??
+                decidedToolCalls.get(c.toolCallId)?.answer
+              }
               onAnswer={(id, answer) => decide(id, { approved: true, answer })}
             />
           ))}
