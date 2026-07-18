@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { Suspense, useCallback, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ChatInterface } from '@/components/agent/chat-interface';
 import { ChatTabBar, ChatTab } from '@/components/agent/chat-tab-bar';
+import { AgentWorkspace } from '@/components/agent/workspace/agent-workspace';
 import { cn } from '@/lib/utils';
 
 const MAX_TABS = 8;
@@ -15,7 +17,28 @@ function makeTab(threadId?: string): ChatTab {
   };
 }
 
+// Flag gate: `?workspace=1` (per-visit) OR NEXT_PUBLIC_AGENT_WORKSPACE=1
+// (deploy-wide) renders the redesigned AgentWorkspace shell; otherwise the
+// legacy tabs UI (LegacyAgentTabs) stays exactly as-is. useSearchParams needs a
+// Suspense boundary under Next 15's static-rendering rules.
 export default function AgentPage() {
+  return (
+    <Suspense fallback={null}>
+      <AgentPageRouter />
+    </Suspense>
+  );
+}
+
+function AgentPageRouter() {
+  const searchParams = useSearchParams();
+  const workspaceEnabled =
+    searchParams.get('workspace') === '1' || process.env.NEXT_PUBLIC_AGENT_WORKSPACE === '1';
+
+  if (workspaceEnabled) return <AgentWorkspace />;
+  return <LegacyAgentTabs />;
+}
+
+function LegacyAgentTabs() {
   const [tabs, setTabs] = useState<ChatTab[]>(() => [makeTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(tabs[0].threadId);
   const [isFullscreen, setIsFullscreen] = useState(false);

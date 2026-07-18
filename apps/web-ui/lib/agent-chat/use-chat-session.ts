@@ -55,6 +55,13 @@ export interface UseChatSessionResult {
   decideRemaining: (approved: boolean) => void;
   handleToolApproval: (toolCallId: string, approved: boolean, toolName: string) => Promise<void>;
   isLoadingHistory: boolean;
+  /**
+   * Reset this session's in-memory conversation (transcript, restored
+   * interrupt parts, and recorded decisions) — mirrors the monolith's
+   * `handleClear` (setMessages([]) + reset local run-state). Does NOT delete
+   * server-side history; a subsequent send starts the thread fresh.
+   */
+  clear: () => void;
 }
 
 export function useChatSession(opts: UseChatSessionOptions): UseChatSessionResult {
@@ -205,6 +212,15 @@ export function useChatSession(opts: UseChatSessionOptions): UseChatSessionResul
   // assistant message. Keyed off the live (raw) messages array. (L997)
   const toolVisibility = useMemo(() => computeToolPartVisibility(messages), [messages]);
 
+  // Local reset (monolith handleClear parity, L1143-1147). A send has NOT
+  // taken over the thread here, so skipHistoryRef is intentionally left as-is:
+  // clearing is a user action on the current thread, not a thread switch.
+  const clear = useCallback(() => {
+    setMessages([]);
+    setRestoredParts([]);
+    setDecidedToolCalls(new Map());
+  }, [setMessages]);
+
   // ── History fetch + restore (L1053-1125) ──────────────────────────────────
   // Guarded so a stale load (thread switch / unmount) or a send that races
   // the fetch cannot setState late or clobber the optimistic conversation.
@@ -335,5 +351,6 @@ export function useChatSession(opts: UseChatSessionOptions): UseChatSessionResul
     decideRemaining,
     handleToolApproval,
     isLoadingHistory,
+    clear,
   };
 }
