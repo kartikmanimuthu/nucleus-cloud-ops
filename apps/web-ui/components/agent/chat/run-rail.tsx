@@ -2,7 +2,8 @@
 
 import { cn } from "@/lib/utils";
 import { Activity, AlertTriangle, Cloud, Cpu, HelpCircle, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
-import { Plan, PlanContent, PlanHeader, PlanStep } from "@/components/ai-elements/plan";
+import { Plan, PlanContent, PlanStep } from "@/components/ai-elements/plan";
+import { Spinner } from "@/components/ui/spinner";
 import type { RunState } from "./run-state";
 
 const PHASE_LABELS: Record<string, string> = {
@@ -10,6 +11,19 @@ const PHASE_LABELS: Record<string, string> = {
   revision: "Revising", final: "Finalizing", memory_recall: "Recalling memory",
   memory_save: "Saving memory", text: "Idle",
 };
+
+// First clause of a plan step, capped at 60 chars — the full text stays
+// available via the row's `title` tooltip attr (and PlanStep's own children).
+// Split on the earliest of ". " / "," / " — " so the short title reads as a
+// real clause rather than a mid-word truncation.
+export function deriveStepTitle(step: string): string {
+  const trimmed = step.trim();
+  const match = trimmed.match(/\. |,| — /);
+  let clause = (match?.index !== undefined ? trimmed.slice(0, match.index) : trimmed).trim();
+  if (clause.length === 0) clause = trimmed;
+  if (clause.length > 60) clause = `${clause.slice(0, 59).trimEnd()}…`;
+  return clause;
+}
 
 function RailSection({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
   return (
@@ -59,16 +73,30 @@ export function RunRail({
         </div>
       </RailSection>
 
-      {/* Live plan */}
+      {/* Live plan — progress bar + step status are both sourced from
+          runState.plan, so they can never disagree with each other. The
+          nested Plan card is rendered with isStreaming={false}: its own
+          "Generating..." badge is a second, independently-derived status
+          string, and this rail already shows accurate live progress above
+          (via the section title) and below (via the progress bar + each
+          step's own active/completed icon). */}
       {plan.length > 0 && (
         <RailSection icon={ListChecks} title={`Execution plan · ${done}/${plan.length}`}>
-          <Plan defaultOpen isStreaming={isStreaming}>
-            <PlanHeader title="Plan" />
+          <div className="h-1 w-full overflow-hidden rounded bg-muted">
+            <div
+              data-testid="plan-progress-fill"
+              className="h-full rounded bg-primary transition-all"
+              style={{ width: `${plan.length > 0 ? (done / plan.length) * 100 : 0}%` }}
+            />
+          </div>
+          <Plan defaultOpen isStreaming={false}>
             <PlanContent>
               {plan.map((step, i) => (
                 <PlanStep key={i} number={i + 1}
-                  status={step.status === "in_progress" ? "active" : step.status}>
-                  {step.step}
+                  status={step.status === "in_progress" ? "active" : step.status}
+                  title={step.step}
+                  data-testid={`plan-step-${i}`}>
+                  {deriveStepTitle(step.step)}
                 </PlanStep>
               ))}
             </PlanContent>
@@ -89,6 +117,18 @@ export function RunRail({
             <li className="flex items-center gap-1.5 text-blue-600">
               <HelpCircle className="h-3 w-3" />
               {pendingClarifications.length > 1 ? `${pendingClarifications.length} questions awaiting your answer` : 'question awaiting your answer'}
+            </li>
+          )}
+          {currentPhase === "memory_recall" && (
+            <li className="flex items-center gap-1.5 text-muted-foreground">
+              <Spinner size="xs" />
+              Recalling memory…
+            </li>
+          )}
+          {currentPhase === "memory_save" && (
+            <li className="flex items-center gap-1.5 text-muted-foreground">
+              <Spinner size="xs" />
+              Saving memory…
             </li>
           )}
           <li className="flex items-center gap-1.5">
