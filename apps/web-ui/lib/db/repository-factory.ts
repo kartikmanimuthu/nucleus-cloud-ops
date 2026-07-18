@@ -28,6 +28,7 @@ import type { IPricingCatalogRepository } from './repositories/pricing/interface
 import type { IAgentMemoryRepository } from './repositories/agent-memory/interface';
 import type { ISkillRepository } from './repositories/skill/interface';
 import type { ISlackWorkspaceLinkRepository } from './repositories/slack-workspace-link/interface';
+import type { IDashboardRepository } from './repositories/dashboard/interface';
 
 export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -135,6 +136,12 @@ export function getSlackWorkspaceLinkRepository(): ISlackWorkspaceLinkRepository
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { SlackWorkspaceLinkPostgresRepository } = require('./repositories/slack-workspace-link/postgres');
     return new SlackWorkspaceLinkPostgresRepository();
+}
+
+export function getDashboardRepository(): IDashboardRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DashboardPostgresRepository } = require('./repositories/dashboard/postgres');
+    return new DashboardPostgresRepository();
 }
 
 /**

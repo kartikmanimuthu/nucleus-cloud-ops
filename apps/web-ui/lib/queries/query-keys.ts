@@ -100,4 +100,14 @@ export const queryKeys = {
         all: ['threads'] as const,
         lists: () => [...queryKeys.threads.all, 'list'] as const,
     },
+    dashboard: {
+        all: ['dashboard'] as const,
+        hero: (range: string) => [...queryKeys.dashboard.all, 'hero', range] as const,
+        actionCenter: (range: string) => [...queryKeys.dashboard.all, 'action-center', range] as const,
+        coverage: () => [...queryKeys.dashboard.all, 'coverage'] as const,
+        costAutomation: (range: string) => [...queryKeys.dashboard.all, 'cost-automation', range] as const,
+        agentActivity: (range: string) => [...queryKeys.dashboard.all, 'agent-activity', range] as const,
+        inventory: () => [...queryKeys.dashboard.all, 'inventory'] as const,
+        audit: (range: string) => [...queryKeys.dashboard.all, 'audit', range] as const,
+    },
 } as const;

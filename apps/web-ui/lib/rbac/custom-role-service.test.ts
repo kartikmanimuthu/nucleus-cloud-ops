@@ -22,6 +22,7 @@ const FULL_PERMISSIONS: PermissionSet = {
     AIOps: ['create', 'read', 'update', 'delete'],
     Inventory: ['create', 'read', 'update', 'delete'],
     Settings: ['create', 'read', 'update', 'delete'],
+    Dashboard: ['read'],
 };
 
 const MINIMAL_PERMISSIONS: PermissionSet = {
@@ -30,6 +31,7 @@ const MINIMAL_PERMISSIONS: PermissionSet = {
     AIOps: [],
     Inventory: [],
     Settings: [],
+    Dashboard: [],
 };
 
 const EMPTY_PERMISSIONS: PermissionSet = {
@@ -38,6 +40,7 @@ const EMPTY_PERMISSIONS: PermissionSet = {
     AIOps: [],
     Inventory: [],
     Settings: [],
+    Dashboard: [],
 };
 
 const MOCK_ROLE = {
@@ -143,7 +146,7 @@ describe('getCustomRoles', () => {
         expect(result).toHaveLength(1);
         expect(result[0].tenantId).toBe('tenant-1');
         expect(mockPrisma.customRole.findMany).toHaveBeenCalledWith(
-            expect.objectContaining({ where: { tenantId: 'tenant-1' } })
+            expect.objectContaining({ where: { tenantId: 'tenant-1', type: 'custom' }, orderBy: { name: 'asc' } })
         );
     });
 });
@@ -162,7 +165,7 @@ describe('updateCustomRole', () => {
             permissions: FULL_PERMISSIONS,
         });
 
-        expect(result.level).toBe(4); // FULL_PERMISSIONS = 20 actions = Owner level
+        expect(result.level).toBe(4); // FULL_PERMISSIONS = 21 actions = Owner level
         expect(mockPrisma.customRole.update).toHaveBeenCalledOnce();
         const updateCall = mockPrisma.customRole.update.mock.calls[0][0];
         expect(updateCall.data.level).toBe(4);
@@ -206,7 +209,15 @@ describe('getCustomRolePermissions', () => {
 
         expect(result).toEqual(MINIMAL_PERMISSIONS);
         expect(mockPrisma.customRole.findFirst).toHaveBeenCalledWith(
-            expect.objectContaining({ where: { tenantId: 'tenant-1', name: 'DevOps' } })
+            expect.objectContaining({
+                where: {
+                    OR: [
+                        { tenantId: 'tenant-1', name: 'DevOps', type: 'custom' },
+                        { type: 'preset', name: 'DevOps' },
+                    ],
+                },
+                orderBy: { type: 'asc' },
+            })
         );
     });
 
