@@ -156,4 +156,39 @@ describe('Transcript', () => {
     expect(screen.getByText('First answer.')).toBeTruthy()
     expect(screen.getByText('Second answer.')).toBeTruthy()
   })
+
+  it('does not duplicate a tool row after an approval resume moves toolVisibility to a later message', () => {
+    // Message N is last and owns an output-less (pending-approval) tool part —
+    // toolVisibility currently awards toolCallId 'tc1' to N.
+    const messageN: LooseMessage = {
+      id: 'n',
+      role: 'assistant',
+      parts: [{ type: 'tool-execute_command', toolCallId: 'tc1', toolName: 'execute_command', input: { command: 'aws ec2 describe-instances' } }],
+    }
+    const { rerender } = render(
+      <Transcript messages={[messageN]} {...passthrough} toolVisibility={new Map([['tc1', 'n']])} />
+    )
+    expect(screen.getAllByText('execute_command')).toHaveLength(1)
+
+    // Resume: a NEW message N+1 re-emits the SAME toolCallId with real output
+    // (the "input-only twin" pattern) — N's parts are untouched, so its part
+    // count/cache key doesn't change, but it's no longer the last message.
+    // toolVisibility now (correctly) awards 'tc1' to N+1.
+    const messageNAfterResume: LooseMessage = { ...messageN }
+    const messageNPlus1: LooseMessage = {
+      id: 'n+1',
+      role: 'assistant',
+      parts: [{ type: 'tool-execute_command', toolCallId: 'tc1', toolName: 'execute_command', input: { command: 'aws ec2 describe-instances' }, output: 'ok', state: 'output-available' }],
+    }
+    rerender(
+      <Transcript
+        messages={[messageNAfterResume, messageNPlus1]}
+        {...passthrough}
+        toolVisibility={new Map([['tc1', 'n+1']])}
+      />
+    )
+
+    // Exactly one row for tc1 — owned by N+1, not duplicated (stale) in N.
+    expect(screen.getAllByText('execute_command')).toHaveLength(1)
+  })
 })

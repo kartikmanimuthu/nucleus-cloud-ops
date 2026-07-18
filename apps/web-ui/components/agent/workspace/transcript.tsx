@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { MarkdownContent } from "@/components/ui/markdown-content"
-import { buildTranscript, isEmptyDecisionCarrier, type LooseMessage, type TranscriptEvent } from "@/lib/agent-chat/events"
+import { buildTranscript, hasOutputValue, isEmptyDecisionCarrier, type LooseMessage, type TranscriptEvent } from "@/lib/agent-chat/events"
 import type { RunState } from "@/components/agent/chat/run-state"
 import type { DecisionMap } from "@/components/agent/chat/use-decisions"
 import { AgentTurn } from "./agent-turn"
@@ -48,6 +48,22 @@ function UserBubble({ message }: { message: LooseMessage }) {
         {text && <MarkdownContent content={text} className="prose prose-sm prose-invert max-w-none" />}
       </div>
     </div>
+  )
+}
+
+// A message is only safe to cache once every tool part it owns carries
+// output. While any tool part is still output-less, toolVisibility (computed
+// per-render in the parent from the FULL, current message list) can still
+// reassign that toolCallId's "winning" message forward to a later message
+// once the resume flow re-emits it with real output there (the "input-only
+// twin" pattern — see run-state.ts's computeToolPartVisibility). Caching a
+// still-pending message would freeze its stale (pre-reassignment) tool row
+// forever, duplicating it alongside the new winner. Once every tool part has
+// output, no later message can steal it away, so the build is stable and
+// safe to reuse.
+function isMessageSettled(message: LooseMessage): boolean {
+  return (message.parts ?? []).every(
+    (part: any) => !(part?.toolCallId && part.type !== "text") || hasOutputValue(part)
   )
 }
 
@@ -137,15 +153,30 @@ export function Transcript({
   // "has this message's content changed" fingerprint (part count). During
   // streaming, `messages` gets a new array reference on every token, which
   // would otherwise re-run buildTranscript (an O(parts) reduce) across the
-  // ENTIRE visible history on every tick. Non-last messages are settled —
-  // their part count stops growing once the run moves on — so they're safe
-  // to reuse verbatim; only the last (actively streaming) message always
-  // recomputes. Known edge case: a live decision resolving a pending tool
-  // call that happens to live on a NON-last message (rather than the latest
-  // one, where pending approvals/clarifications actually surface) won't
-  // invalidate the cache until that message's part count next changes — in
-  // practice this never happens, since pending decisions are always attached
-  // to the latest message.
+  // ENTIRE visible history on every tick. Non-last messages are typically
+  // settled — their part count stops growing once the run moves on — so
+  // they're safe to reuse verbatim; only the last (actively streaming)
+  // message always recomputes.
+  //
+  // Two edge cases this interacts with, both guarded on the WRITE side (see
+  // isMessageSettled above and getMessageTranscript below), not just the
+  // `!isLastAssistantMessage` read-side check:
+  //  1. A live decision resolving a pending tool call that happens to live on
+  //     a NON-last message (rather than the latest one, where pending
+  //     approvals/clarifications actually surface) won't invalidate the
+  //     cache until that message's part count next changes. In practice this
+  //     never happens — pending decisions are always attached to the latest
+  //     message.
+  //  2. Approval-resume reassigns toolVisibility: a pending tool call's
+  //     "winning" message can shift FORWARD from message N (which owns an
+  //     output-less/pending tool part) to a later message N+1 that re-emits
+  //     the same toolCallId with real output — N's own parts never change
+  //     ("input-only twin"), so N's cache key would otherwise still match
+  //     after N stops being last, silently returning N's stale pre-shift
+  //     tool row (a permanent duplicate). Guarded by NEVER caching a message
+  //     while it still has an unresolved tool part — once every tool part it
+  //     owns has output, no later message can steal that toolCallId away, so
+  //     the cached build can no longer go stale.
   const cacheRef = React.useRef(new Map<string, { partsLength: number; events: TranscriptEvent[]; durationMs: Map<string, number> }>())
 
   React.useEffect(() => {
@@ -170,7 +201,10 @@ export function Transcript({
     })
     const durationMs = computeThinkingDurations(message, events)
     const entry = { partsLength, events, durationMs }
-    cacheRef.current.set(message.id, entry)
+    // Only settled messages are safe to cache — see isMessageSettled above.
+    if (isMessageSettled(message)) {
+      cacheRef.current.set(message.id, entry)
+    }
     return entry
   }
 

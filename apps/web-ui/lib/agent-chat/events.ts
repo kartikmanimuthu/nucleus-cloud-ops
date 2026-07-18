@@ -17,7 +17,7 @@ export type TranscriptEvent =
     | { kind: 'answer'; id: string; text: string; streaming: boolean }
     | { kind: 'image'; id: string; url: string };
 
-interface LoosePart {
+export interface LoosePart {
     type: string;
     data?: any;
     text?: string;
@@ -74,8 +74,10 @@ function deriveToolName(part: LoosePart): string {
 
 // Mirrors the hasOutput predicate in run-state.ts's computeToolPartVisibility /
 // deriveRunState — a tool part is "done" once either output field is populated,
-// or the SDK marks it output-available.
-function hasOutputValue(part: LoosePart): boolean {
+// or the SDK marks it output-available. Exported so callers outside this file
+// (e.g. transcript.tsx's cache-settledness guard) share one implementation
+// instead of re-deriving it a fourth time.
+export function hasOutputValue(part: LoosePart): boolean {
     return (part.output !== undefined && part.output !== null)
         || (part.result !== undefined && part.result !== null)
         || part.state === 'output-available';
