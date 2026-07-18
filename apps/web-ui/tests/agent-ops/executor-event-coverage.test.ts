@@ -135,4 +135,43 @@ describe('executor event coverage', () => {
         const chatter = mockRecordEvent.mock.calls.find(c => c[0].node === 'memory_recall' && c[0].eventType !== 'memory_recall');
         expect(chatter).toBeUndefined();
     });
+
+    it('joins streamed text-delta content blocks without inserting newlines', async () => {
+        // Bedrock streaming yields on_chat_model_end content as an array of
+        // un-coalesced deltas; each delta already carries its own leading space.
+        // Joining with '\n' shatters the text one delta per line — join with ''.
+        mockCreateDynamicExecutorGraph.mockResolvedValue(makeGraph([
+            {
+                event: 'on_chat_model_end', metadata: { langgraph_node: 'generate' },
+                data: {
+                    output: {
+                        content: [
+                            { type: 'text', text: 'The' },
+                            { type: 'text', text: ' request' },
+                            { type: 'text', text: ' involves' },
+                        ],
+                    },
+                },
+            },
+        ]));
+        await executeAgentRun(makeRun());
+        const call = mockRecordEvent.mock.calls.find(c => c[0].node === 'generate' && c[0].content);
+        expect(call).toBeDefined();
+        expect(call![0].content).toBe('The request involves');
+        expect(call![0].content).not.toContain('\n');
+    });
+
+    it('does NOT record raw model text for nodes that emit a structured twin', async () => {
+        // planner/evaluator/reflect each record a clean structured event at
+        // on_chain_end; their raw on_chat_model_end text is a duplicate.
+        mockCreateDynamicExecutorGraph.mockResolvedValue(makeGraph([
+            {
+                event: 'on_chat_model_end', metadata: { langgraph_node: 'reflect' },
+                data: { output: { content: 'raw reflector JSON blob' } },
+            },
+        ]));
+        await executeAgentRun(makeRun());
+        const twin = mockRecordEvent.mock.calls.find(c => c[0].node === 'reflect');
+        expect(twin).toBeUndefined();
+    });
 });

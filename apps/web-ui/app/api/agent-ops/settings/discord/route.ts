@@ -2,6 +2,7 @@
  * AgentOps Discord Settings API Route
  *
  * GET /api/agent-ops/settings/discord — Returns Discord config (secrets masked)
+ * DELETE /api/agent-ops/settings/discord — Resets (deletes) the stored config
  * PUT /api/agent-ops/settings/discord — Validates and saves Discord config to PostgreSQL
  */
 
@@ -134,6 +135,49 @@ export async function PUT(req: Request) {
         console.error('[API /agent-ops/settings/discord] PUT error:', error);
         return NextResponse.json(
             { error: error.message || 'Failed to save Discord settings' },
+            { status: 500 }
+        );
+    }
+}
+
+/**
+ * DELETE — reset the Discord integration: removes the stored credentials so the
+ * channel returns to its unconfigured state. Destructive and irreversible from
+ * the UI (secrets are never echoed back), hence the explicit RBAC gate and a
+ * high-severity audit record.
+ */
+export async function DELETE() {
+    try {
+        const authError = await authorize('delete', 'Agent');
+        if (authError) return authError;
+
+        const tenantId = await getSessionTenantId();
+        await TenantConfigService.deleteConfig(CONFIG_KEY, tenantId);
+
+        console.log('[API /agent-ops/settings/discord] Reset Discord config for tenant:', tenantId);
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.settings.discord_reset',
+            severity: 'high',
+            apiRoute: 'DELETE /api/agent-ops/settings/discord',
+            httpMethod: 'DELETE',
+            action: 'Reset Discord Settings',
+            resourceType: 'agent',
+            resourceId: 'discord-integration',
+            resourceName: 'Discord Integration',
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: 'Reset Discord integration settings — stored credentials deleted',
+            metadata: { tenantId },
+        }).catch(() => {});
+
+        return NextResponse.json({ success: true, configured: false, enabled: false });
+    } catch (error: any) {
+        console.error('[API /agent-ops/settings/discord] DELETE error:', error);
+        return NextResponse.json(
+            { error: error.message || 'Failed to reset Discord settings' },
             { status: 500 }
         );
     }

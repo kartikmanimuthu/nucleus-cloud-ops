@@ -2,6 +2,7 @@
  * AgentOps Webhook Settings API Route
  *
  * GET /api/agent-ops/settings/webhook — Returns Webhook config (secrets masked)
+ * DELETE /api/agent-ops/settings/webhook — Resets (deletes) the stored config
  * PUT /api/agent-ops/settings/webhook — Validates and saves Webhook config to PostgreSQL
  */
 
@@ -126,6 +127,49 @@ export async function PUT(req: Request) {
         console.error('[API /agent-ops/settings/webhook] PUT error:', error);
         return NextResponse.json(
             { error: error.message || 'Failed to save Webhook settings' },
+            { status: 500 }
+        );
+    }
+}
+
+/**
+ * DELETE — reset the Webhook integration: removes the stored credentials so the
+ * channel returns to its unconfigured state. Destructive and irreversible from
+ * the UI (secrets are never echoed back), hence the explicit RBAC gate and a
+ * high-severity audit record.
+ */
+export async function DELETE() {
+    try {
+        const authError = await authorize('delete', 'Agent');
+        if (authError) return authError;
+
+        const tenantId = await getSessionTenantId();
+        await TenantConfigService.deleteConfig(CONFIG_KEY, tenantId);
+
+        console.log('[API /agent-ops/settings/webhook] Reset Webhook config for tenant:', tenantId);
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.settings.webhook_reset',
+            severity: 'high',
+            apiRoute: 'DELETE /api/agent-ops/settings/webhook',
+            httpMethod: 'DELETE',
+            action: 'Reset Webhook Settings',
+            resourceType: 'agent',
+            resourceId: 'webhook-integration',
+            resourceName: 'Webhook Integration',
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: 'Reset Webhook integration settings — stored credentials deleted',
+            metadata: { tenantId },
+        }).catch(() => {});
+
+        return NextResponse.json({ success: true, configured: false, enabled: false });
+    } catch (error: any) {
+        console.error('[API /agent-ops/settings/webhook] DELETE error:', error);
+        return NextResponse.json(
+            { error: error.message || 'Failed to reset Webhook settings' },
             { status: 500 }
         );
     }

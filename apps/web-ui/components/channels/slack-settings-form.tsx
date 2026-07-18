@@ -12,11 +12,13 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { SetupSteps } from '@/components/channels/setup-steps';
+import { SetupGuideLink } from '@/components/channels/setup-guide-link';
+import { ChannelResetCard } from '@/components/channels/channel-reset-card';
 
 interface SlackSettingsState {
     signingSecret: string;
     botToken: string;
+    teamId: string;
     enabled: boolean;
 }
 
@@ -39,6 +41,7 @@ export function SlackSettingsForm(props: SlackSettingsFormProps) {
             {...props}
             initialConfigured={data?.configured ?? false}
             initialEnabled={data?.enabled ?? true}
+            initialTeamId={(data?.teamId as string | null) ?? ''}
         />
     );
 }
@@ -48,7 +51,8 @@ function SlackSettingsFormInner({
     backLabel = 'Back to Agent Ops',
     initialConfigured,
     initialEnabled,
-}: SlackSettingsFormProps & { initialConfigured: boolean; initialEnabled: boolean }) {
+    initialTeamId,
+}: SlackSettingsFormProps & { initialConfigured: boolean; initialEnabled: boolean; initialTeamId: string }) {
     const router = useRouter();
     const saveMutation = useSaveChannelSettings('slack');
     const saving = saveMutation.isPending;
@@ -77,6 +81,7 @@ function SlackSettingsFormInner({
     const [form, setForm] = useState<SlackSettingsState>({
         signingSecret: '',
         botToken: '',
+        teamId: initialTeamId,
         enabled: initialEnabled,
     });
 
@@ -124,16 +129,22 @@ function SlackSettingsFormInner({
             setSaveStatus('error');
             return;
         }
+        if (!configured && !form.botToken.trim() && !form.teamId.trim()) {
+            setErrorMessage('Enter a Bot Token, or a Slack Workspace/Team ID if you\'re not using one');
+            setSaveStatus('error');
+            return;
+        }
         try {
             setErrorMessage('');
-            await saveMutation.mutateAsync({
+            const result = await saveMutation.mutateAsync({
                 signingSecret: form.signingSecret,
                 botToken: form.botToken || undefined,
+                teamId: form.teamId.trim() || undefined,
                 enabled: form.enabled,
             });
             setConfigured(true);
             setSaveStatus('saved');
-            setForm(prev => ({ ...prev, signingSecret: '', botToken: '' }));
+            setForm(prev => ({ ...prev, signingSecret: '', botToken: '', teamId: (result.teamId as string) || prev.teamId }));
             setRevealed(false);
             setShowSigningSecret(false);
             setShowBotToken(false);
@@ -201,6 +212,12 @@ function SlackSettingsFormInner({
                 )}
             </div>
 
+            {/* Setup Guide */}
+            <SetupGuideLink
+                href="/docs/slack-integration"
+                description="From zero to a working Slack integration in about five minutes."
+            />
+
             {/* Webhook URL */}
             <Card>
                 <CardHeader>
@@ -219,28 +236,6 @@ function SlackSettingsFormInner({
                     <p className="text-xs text-muted-foreground mt-2">
                         Method: <code className="bg-muted px-1 rounded">POST</code>
                     </p>
-                </CardContent>
-            </Card>
-
-            {/* App Manifest */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base">App Manifest — quick create</CardTitle>
-                    <CardDescription>
-                        The fastest way to set up: create your Slack app <strong>from this manifest</strong> and the
-                        slash command, bot scopes, and interactivity endpoint are configured automatically.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                    <pre className="bg-muted rounded-md p-4 text-xs overflow-x-auto max-h-64">{appManifest}</pre>
-                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(appManifest, 'manifest')}>
-                        {copied === 'manifest' ? (
-                            <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
-                        ) : (
-                            <Copy className="h-4 w-4 mr-2" />
-                        )}
-                        Copy app manifest
-                    </Button>
                 </CardContent>
             </Card>
 
@@ -324,6 +319,29 @@ function SlackSettingsFormInner({
                         </p>
                     </div>
 
+                    {/* Slack Workspace / Team ID — only needed when there's no Bot Token */}
+                    {!form.botToken.trim() && (
+                        <div className="space-y-2">
+                            <Label htmlFor="teamId">
+                                Slack Workspace/Team ID{' '}
+                                <span className="text-destructive">*</span>
+                            </Label>
+                            <Input
+                                id="teamId"
+                                placeholder="T0123ABCDEF"
+                                value={form.teamId}
+                                onChange={e => setForm(prev => ({ ...prev, teamId: e.target.value }))}
+                                className="font-mono"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Used to route incoming slash commands to your organization. Found in your Slack
+                                workspace URL (<code className="bg-muted px-1 rounded">app.slack.com/client/T0123.../...</code>)
+                                or under <strong>Settings &amp; administration → About this workspace</strong>. Not
+                                needed if a Bot Token is set above — it&apos;s derived automatically.
+                            </p>
+                        </div>
+                    )}
+
                     {/* Enable toggle */}
                     <div className="flex items-center justify-between rounded-lg border p-4">
                         <div className="space-y-0.5">
@@ -383,100 +401,40 @@ function SlackSettingsFormInner({
                 </CardContent>
             </Card>
 
-            {/* Setup Guide */}
+            {/* App Manifest */}
             <Card>
                 <CardHeader>
-                    <CardTitle className="text-base">Step-by-step Setup Guide</CardTitle>
-                    <CardDescription>From zero to a working Slack integration in about five minutes.</CardDescription>
+                    <CardTitle className="text-base">App Manifest — quick create</CardTitle>
+                    <CardDescription>
+                        The fastest way to set up: create your Slack app <strong>from this manifest</strong> and the
+                        slash command, bot scopes, and interactivity endpoint are configured automatically.
+                    </CardDescription>
                 </CardHeader>
-                <CardContent>
-                    <SetupSteps
-                        steps={[
-                            {
-                                title: 'Create the Slack app',
-                                detail: (
-                                    <>
-                                        Go to{' '}
-                                        <a
-                                            href="https://api.slack.com/apps"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-500 hover:underline"
-                                        >
-                                            api.slack.com/apps
-                                        </a>{' '}
-                                        → <strong className="text-foreground">Create New App</strong> →{' '}
-                                        <strong className="text-foreground">From a manifest</strong>. Pick your
-                                        workspace, choose JSON, and paste the App Manifest from the card above — this
-                                        auto-configures the slash command, bot scopes, and interactivity endpoint.
-                                    </>
-                                ),
-                            },
-                            {
-                                title: 'Copy the Signing Secret',
-                                detail: (
-                                    <>
-                                        In the app&apos;s settings, open{' '}
-                                        <strong className="text-foreground">Basic Information</strong>, scroll to{' '}
-                                        <strong className="text-foreground">App Credentials</strong>, click{' '}
-                                        <strong className="text-foreground">Show</strong> next to Signing Secret, and
-                                        paste it into the field above.
-                                    </>
-                                ),
-                            },
-                            {
-                                title: 'Install the app to your workspace',
-                                detail: (
-                                    <>
-                                        Open <strong className="text-foreground">Install App</strong> in the sidebar and
-                                        click <strong className="text-foreground">Install to Workspace</strong>, then
-                                        authorize the requested scopes (
-                                        <code className="bg-muted px-1 rounded">commands</code>,{' '}
-                                        <code className="bg-muted px-1 rounded">chat:write</code>,{' '}
-                                        <code className="bg-muted px-1 rounded">chat:write.public</code>).
-                                    </>
-                                ),
-                            },
-                            {
-                                title: 'Copy the Bot Token',
-                                detail: (
-                                    <>
-                                        After installation, go to{' '}
-                                        <strong className="text-foreground">OAuth &amp; Permissions</strong> and copy the{' '}
-                                        <strong className="text-foreground">Bot User OAuth Token</strong> (starts with{' '}
-                                        <code className="bg-muted px-1 rounded">xoxb-</code>) into the field above.
-                                    </>
-                                ),
-                            },
-                            {
-                                title: 'Invite the bot to your channel',
-                                detail: (
-                                    <>
-                                        In the Slack channel that should receive results or scheduled digests, run{' '}
-                                        <code className="bg-muted px-1 rounded">/invite @nucleus-cloud-ops</code>. To get
-                                        the <strong className="text-foreground">Channel ID</strong> (needed when
-                                        configuring a scheduled task&apos;s Slack notification): click the channel name
-                                        → scroll to the bottom of the About tab → copy the ID starting with{' '}
-                                        <code className="bg-muted px-1 rounded">C</code>.
-                                    </>
-                                ),
-                            },
-                            {
-                                title: 'Save, test, and run',
-                                detail: (
-                                    <>
-                                        Click <strong className="text-foreground">Save Settings</strong>, then{' '}
-                                        <strong className="text-foreground">Test Connection</strong> to verify the bot
-                                        token. Finally, try{' '}
-                                        <code className="bg-muted px-1 rounded">/cloud-ops check EC2 costs in prod</code>{' '}
-                                        in Slack.
-                                    </>
-                                ),
-                            },
-                        ]}
-                    />
+                <CardContent className="space-y-3">
+                    <pre className="bg-muted rounded-md p-4 text-xs overflow-x-auto max-h-64">{appManifest}</pre>
+                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(appManifest, 'manifest')}>
+                        {copied === 'manifest' ? (
+                            <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
+                        ) : (
+                            <Copy className="h-4 w-4 mr-2" />
+                        )}
+                        Copy app manifest
+                    </Button>
                 </CardContent>
             </Card>
+
+            <ChannelResetCard
+                channel="slack"
+                name="Slack"
+                clears="signing secret, bot token and workspace link"
+                configured={configured}
+                onReset={() => {
+                    setConfigured(false);
+                    setRevealed(false);
+                    setSaveStatus('idle');
+                    setForm({ signingSecret: '', botToken: '', teamId: '', enabled: true });
+                }}
+            />
         </div>
     );
 }

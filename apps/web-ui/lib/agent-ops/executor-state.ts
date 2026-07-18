@@ -46,6 +46,7 @@ export interface ReflectionState {
     clarificationQuestion: string | null;
     approvalStatus: 'pending' | 'approved' | 'rejected' | null;
     pendingToolApprovals: string[];  // tool names awaiting approval at mutative_approval_gate
+    reflectionStallCount?: number;   // consecutive unproductive reflections (stall detector)
 }
 
 export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
@@ -84,6 +85,12 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         reducer: (_x: boolean, y: boolean) => y,
         default: () => false,
     },
+    // Stall detector: without this channel LangGraph silently DROPS the value the
+    // reflect node returns, so the counter never accumulates and the bail never fires.
+    reflectionStallCount: {
+        reducer: (x: number | undefined, y: number | undefined) => y ?? x ?? 0,
+        default: () => 0,
+    },
     toolResults: {
         reducer: (x: ToolResultEntry[], y: ToolResultEntry[]) => x.concat(y),
         default: () => [],
@@ -113,3 +120,19 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
         default: () => [],
     },
 };
+
+/**
+ * Whether a checkpointed evaluation can be REUSED on a graph re-invoke.
+ *
+ * The clarification resume re-runs the graph on the SAME thread, so the
+ * previous run's evaluation survives in the checkpoint (the channel reducer
+ * keeps it). A plan-mode evaluation is a real execution decision — reusing it
+ * is correct (that's what the approval resume relies on). But a mode='end'
+ * (clarification) decision must NEVER be reused: the user's reply is now in
+ * the conversation and the evaluator has to actually read it — otherwise the
+ * stale decision routes straight back to clarify and the run re-asks the same
+ * question forever, no matter what the user answers.
+ */
+export function isReusableEvaluation(evaluation: RequestEvaluation | null | undefined): boolean {
+    return !!evaluation && evaluation.mode !== 'end';
+}

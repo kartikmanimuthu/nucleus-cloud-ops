@@ -42,6 +42,7 @@ export async function POST(
         await agentOpsService.updateRunStatus(tenantId, runId, 'cancelled');
         await agentOpsService.recordEvent({
             runId,
+            tenantId,
             eventType: 'final',
             node: '__cancelled__',
             content: 'Run cancelled by user.',

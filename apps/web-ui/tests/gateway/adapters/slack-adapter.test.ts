@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as crypto from 'crypto';
 import { SlackAdapter } from '@/lib/gateway/adapters/slack-adapter';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getSlackWorkspaceLinkRepository } from '@/lib/db/repository-factory';
 import type { ScheduledTask, AgentOpsRun } from '@/lib/agent-ops/types';
 
 vi.mock('@/lib/tenant-config-service', () => ({
@@ -20,11 +22,26 @@ vi.mock('@/lib/agent-ops/agent-ops-service', () => ({
     },
 }));
 
+// team_id (Slack's workspace id) must be translated to our internal tenantId
+// via SlackWorkspaceLink — it is never usable as a tenantId directly.
+vi.mock('@/lib/db/repository-factory', () => ({
+    getSlackWorkspaceLinkRepository: vi.fn().mockReturnValue({
+        findTenantIdByTeamId: vi.fn().mockResolvedValue('tenant-1'),
+        upsertLink: vi.fn().mockResolvedValue(undefined),
+        getLinkForTenant: vi.fn().mockResolvedValue(null),
+    }),
+}));
+
 describe('SlackAdapter', () => {
     let adapter: SlackAdapter;
 
     beforeEach(() => {
         adapter = new SlackAdapter();
+        vi.mocked(getSlackWorkspaceLinkRepository).mockReturnValue({
+            findTenantIdByTeamId: vi.fn().mockResolvedValue('tenant-1'),
+            upsertLink: vi.fn().mockResolvedValue(undefined),
+            getLinkForTenant: vi.fn().mockResolvedValue(null),
+        } as any);
     });
 
     it('has correct channel metadata', () => {
@@ -50,7 +67,47 @@ describe('SlackAdapter', () => {
         expect(result).toBe(false);
     });
 
-    it('parseInbound extracts slash command fields', async () => {
+    it('rejects requests when team_id has no linked tenant, even with a correct signature', async () => {
+        vi.mocked(getSlackWorkspaceLinkRepository).mockReturnValue({
+            findTenantIdByTeamId: vi.fn().mockResolvedValue(null),
+            upsertLink: vi.fn().mockResolvedValue(undefined),
+            getLinkForTenant: vi.fn().mockResolvedValue(null),
+        } as any);
+        const body = 'text=hello&team_id=T-UNLINKED';
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const req = new Request('http://localhost/api/v1/gateway/slack', {
+            method: 'POST',
+            headers: {
+                'x-slack-request-timestamp': timestamp,
+                'x-slack-signature': 'v0=irrelevant-secret-is-empty',
+            },
+            body,
+        });
+        const result = await adapter.validateRequest(req as any);
+        expect(result).toBe(false);
+    });
+
+    it('resolves the signing secret via SlackWorkspaceLink and accepts a valid signature', async () => {
+        const body = 'text=hello&team_id=T789';
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const signature = `v0=${crypto
+            .createHmac('sha256', 'test-secret')
+            .update(`v0:${timestamp}:${body}`)
+            .digest('hex')}`;
+        const req = new Request('http://localhost/api/v1/gateway/slack', {
+            method: 'POST',
+            headers: {
+                'x-slack-request-timestamp': timestamp,
+                'x-slack-signature': signature,
+            },
+            body,
+        });
+        const result = await adapter.validateRequest(req as any);
+        expect(result).toBe(true);
+        expect(TenantConfigService.getConfig).toHaveBeenCalledWith('agent-ops-slack', 'tenant-1');
+    });
+
+    it('parseInbound resolves the internal tenantId from team_id via SlackWorkspaceLink', async () => {
         const body = 'text=check+lambdas&user_id=U123&channel_id=C456&response_url=https%3A%2F%2Fhooks.slack.com%2Ftest&team_id=T789&user_name=kartik&channel_name=general';
         const req = new Request('http://localhost/api/v1/gateway/slack', {
             method: 'POST',
@@ -60,11 +117,29 @@ describe('SlackAdapter', () => {
         const msg = await adapter.parseInbound(req as any);
         expect(msg.channelType).toBe('slack');
         expect(msg.taskDescription).toBe('check lambdas');
-        expect(msg.tenantId).toBe('T789');
+        // NOT 'T789' — that's Slack's team_id, not our tenantId
+        expect(msg.tenantId).toBe('tenant-1');
         expect(msg.channelMeta).toMatchObject({
             userId: 'U123',
             channelId: 'C456',
+            teamId: 'T789',
         });
+    });
+
+    it('parseInbound falls back to the raw team_id when no SlackWorkspaceLink exists', async () => {
+        vi.mocked(getSlackWorkspaceLinkRepository).mockReturnValue({
+            findTenantIdByTeamId: vi.fn().mockResolvedValue(null),
+            upsertLink: vi.fn().mockResolvedValue(undefined),
+            getLinkForTenant: vi.fn().mockResolvedValue(null),
+        } as any);
+        const body = 'text=hello&user_id=U123&channel_id=C456&team_id=T999';
+        const req = new Request('http://localhost/api/v1/gateway/slack', {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            body,
+        });
+        const msg = await adapter.parseInbound(req as any);
+        expect(msg.tenantId).toBe('T999');
     });
 
     it('parseInbound detects interaction payload as ReplyContext', async () => {

@@ -64,13 +64,22 @@ RUN npx prisma@5 generate --schema=./libs/prisma/schema.prisma
 # Build the application
 RUN npm run build
 
-# ── Stage 3: Production runner (Bun) ──
-FROM oven/bun:1-slim AS runner
+# ── Stage 4: Production runner (Node) ──
+#
+# Runner is Node, not Bun, for two hard reasons:
+#   1. stdio MCP servers launch as `npx -y <pkg>` and are Node packages with a
+#      `#!/usr/bin/env node` shebang — they need node + npm/npx on PATH.
+#   2. Bun does not implement `node:v8` (`isBuildingSnapshot`), which the
+#      MongoDB LangGraph checkpointer reaches on the deep-agent approve path.
+# Next's standalone server.js is a Node artifact and the builder stage above is
+# already node:20-slim, so this is the native runtime for it.
+FROM node:20-slim AS runner
 WORKDIR /app
 
 # Install system dependencies, AWS CLI, Python3 (for uvx/MCP servers)
 RUN apt-get update && \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
     curl \
     unzip \
     git \
@@ -82,7 +91,7 @@ RUN apt-get update && \
     python3 \
     python3-venv && \
     curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip" && \
-    unzip awscliv2.zip && \
+    unzip -q awscliv2.zip && \
     ./aws/install && \
     rm -rf aws awscliv2.zip && \
     rm -rf /var/lib/apt/lists/*
@@ -93,7 +102,12 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     cp /root/.local/bin/uvx /usr/local/bin/uvx && \
     chmod +x /usr/local/bin/uv /usr/local/bin/uvx
 
-# Set environment variables
+# Set environment variables.
+# HOME + the cache dirs must be writable by the non-root `node` user: npx stages
+# packages under $HOME/.npm/_npx, uvx under $UV_CACHE_DIR, and `mcp-remote`
+# persists its OAuth tokens under $HOME/.mcp-auth. These keys are on the
+# buildStdioEnv() allowlist in lib/agent/mcp-manager.ts, so they reach the
+# spawned MCP subprocess.
 ENV PORT=3000 \
     HOSTNAME="0.0.0.0" \
     NODE_ENV=production \
@@ -101,7 +115,13 @@ ENV PORT=3000 \
     NEXT_PUBLIC_AWS_REGION=ap-south-1 \
     NEXT_PUBLIC_APP_TABLE_NAME=NucleusAppTable \
     NEXT_PUBLIC_AUDIT_TABLE_NAME=NucleusAuditTable \
-    NEXT_PUBLIC_AWS_USE_STS=true
+    NEXT_PUBLIC_AWS_USE_STS=true \
+    HOME=/home/node \
+    NPM_CONFIG_CACHE=/home/node/.npm \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false \
+    XDG_CACHE_HOME=/home/node/.cache \
+    UV_CACHE_DIR=/home/node/.cache/uv
 
 # Download RDS CA bundle for TLS connections
 RUN curl -sSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
@@ -133,13 +153,24 @@ RUN ln -sf /tmp/cache ./.next/cache
 COPY apps/web-ui/docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
-# Set proper permissions
-RUN chown -R bun:bun /app /tmp/cache
+# Set proper permissions (incl. the npx / uvx / mcp-remote writable cache dirs)
+RUN mkdir -p /home/node/.npm /home/node/.cache/uv /home/node/.mcp-auth && \
+    chown -R node:node /app /tmp/cache /home/node
 
 # Switch to non-root user
-USER bun
+USER node
+
+# Warm the npx cache for the MCP servers we ship support for, so the first agent
+# run does not pay a cold npm-registry fetch (and still works if egress stalls).
+# `npm exec --package=<pkg> -- true` populates $HOME/.npm/_npx under the same key
+# `npx -y <pkg>` uses, without launching the server's stdio loop. Best-effort:
+# a registry hiccup at build time must not fail the image.
+RUN npm exec --yes --package=@modelcontextprotocol/server-slack -- true > /dev/null 2>&1 || \
+      echo "WARN: could not pre-warm npx cache for @modelcontextprotocol/server-slack"; \
+    npm exec --yes --package=mcp-remote -- true > /dev/null 2>&1 || \
+      echo "WARN: could not pre-warm npx cache for mcp-remote"
 
 EXPOSE 3000
 
-# Entrypoint: retry DB connection, run Prisma migrations, then start Next.js via Bun
+# Entrypoint: retry DB connection, run Prisma migrations, then start Next.js via Node
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

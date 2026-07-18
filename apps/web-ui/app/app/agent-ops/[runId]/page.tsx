@@ -9,13 +9,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { Spinner } from "@/components/ui/spinner"
 import {
-  ArrowLeft, CheckCircle2, Clock, Loader2, MessageSquare, ShieldCheck, ShieldX, XCircle,
+  ArrowLeft, CheckCircle2, ChevronDown, Clock, Loader2, MessageSquare, ShieldCheck, ShieldX, XCircle,
 } from "lucide-react"
 import { RunHeader } from "@/components/agent-ops/run-timeline/run-header"
 import { RunTimeline } from "@/components/agent-ops/run-timeline/timeline"
 import { useRunStream } from "@/components/agent-ops/run-timeline/use-run-stream"
 import { useAgentOpsRunDetail, useApproveRun, useCancelRun, useResumeRun } from "@/lib/queries/agent-ops"
 import { exportRunToPdf } from "@/lib/agent-ops/export-pdf"
+import { exportRunToMarkdown } from "@/lib/agent-ops/export-markdown"
 import { useTenant } from "@/lib/tenant-context"
 import { toast } from "sonner"
 
@@ -29,6 +30,7 @@ export default function RunDetailPage() {
 
   const [exporting, setExporting] = useState(false)
   const [clarificationText, setClarificationText] = useState("")
+  const [resultOpen, setResultOpen] = useState(true)
 
   // First fetch without polling; useRunStream drives live updates, and we fall
   // back to 2s polling only while the run is active and the stream is down.
@@ -51,13 +53,22 @@ export default function RunDetailPage() {
     if (!run) return
     setExporting(true)
     try {
-      await exportRunToPdf(run, events)
+      await exportRunToPdf(run, events, timezone)
     } catch (err) {
       toast.error("PDF export failed", { description: (err as Error).message })
     } finally {
       setExporting(false)
     }
-  }, [run, events])
+  }, [run, events, timezone])
+
+  const handleExportMarkdown = useCallback(() => {
+    if (!run) return
+    try {
+      exportRunToMarkdown(run, events, timezone)
+    } catch (err) {
+      toast.error("Markdown export failed", { description: (err as Error).message })
+    }
+  }, [run, events, timezone])
 
   if (detail.isLoading) {
     return <div className="flex flex-1 items-center justify-center py-24"><Spinner /></div>
@@ -93,31 +104,44 @@ export default function RunDetailPage() {
         onCancel={() => cancelRun.mutate({ runId, body: { tenantId: run.tenantId } })}
         cancelling={cancelRun.isPending}
         onExportPdf={handleExportPdf}
+        onExportMarkdown={handleExportMarkdown}
         exporting={exporting}
         onBack={() => router.push("/app/agent-ops")}
       />
 
-      {/* Result */}
+      {/* Result — collapsible; long summaries otherwise bury the timeline below. */}
       {run.result?.summary && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm text-green-600">
-              <CheckCircle2 className="h-4 w-4" /> Result
-            </CardTitle>
+            <button
+              type="button"
+              onClick={() => setResultOpen(v => !v)}
+              aria-expanded={resultOpen}
+              className="flex w-full items-center gap-2 text-left"
+            >
+              <CardTitle className="flex flex-1 items-center gap-2 text-sm text-green-600">
+                <CheckCircle2 className="h-4 w-4" /> Result
+              </CardTitle>
+              <ChevronDown
+                className={`h-4 w-4 text-muted-foreground transition-transform ${resultOpen ? "" : "-rotate-90"}`}
+              />
+            </button>
           </CardHeader>
-          <CardContent>
-            <div className="rounded-md bg-muted p-4">
-              <MarkdownContent content={run.result.summary} />
-            </div>
-            {run.result.toolsUsed?.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                <span className="mr-1 text-xs text-muted-foreground">Tools used:</span>
-                {run.result.toolsUsed.map(tool => (
-                  <Badge key={tool} variant="outline" className="text-xs">{tool}</Badge>
-                ))}
+          {resultOpen && (
+            <CardContent>
+              <div className="rounded-md bg-muted p-4">
+                <MarkdownContent content={run.result.summary} />
               </div>
-            )}
-          </CardContent>
+              {run.result.toolsUsed?.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <span className="mr-1 text-xs text-muted-foreground">Tools used:</span>
+                  {run.result.toolsUsed.map(tool => (
+                    <Badge key={tool} variant="outline" className="text-xs">{tool}</Badge>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          )}
         </Card>
       )}
 

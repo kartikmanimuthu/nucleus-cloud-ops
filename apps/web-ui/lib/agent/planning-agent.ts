@@ -19,6 +19,7 @@ import {
     llmAuditLog,
     getCheckpointer,
     getStore,
+    REFLECTION_STALL_LIMIT,
 } from "./agent-shared";
 import {
     buildBaseIdentity,
@@ -89,6 +90,8 @@ export interface ParsedReflectorResult {
     suggestions: string;
     isComplete: boolean;
     updatedPlan: PlanStep[];
+    /** True when parsing threw outright — feeds the consecutive-failure fail-safe. */
+    parseFailed?: boolean;
 }
 
 /**
@@ -155,8 +158,10 @@ export function parseReflectorResponse(content: string, plan: PlanStep[]): Parse
         }
     } catch (e) {
         console.error("[Reflector] Parsing failed:", e);
-        analysis = "Reflection parsing failed. Continuing with next iteration.";
-        isComplete = false;
+        return {
+            analysis: "Reflection parsing failed. Continuing with next iteration.",
+            issues, suggestions, isComplete: false, updatedPlan, parseFailed: true,
+        };
     }
 
     return { analysis, issues, suggestions, isComplete, updatedPlan };
@@ -622,8 +627,26 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
         console.log(`[Reflector] Raw content: ${truncateOutput(content, 200)}`);
 
         const parsedResult = applyStallBreaker(parseReflectorResponse(content, plan), state.stallCount ?? 0);
-        const { analysis, issues, suggestions, updatedPlan } = parsedResult;
-        let { isComplete } = parsedResult;
+        const { issues, suggestions, updatedPlan } = parsedResult;
+        let { analysis, isComplete } = parsedResult;
+        // Feeds the consecutive-failure fail-safe below: empty reflector text
+        // (Sonnet 5's reasoning block can consume the whole output budget,
+        // stopReason max_tokens -> zero text) and unparseable output both count
+        // as a failed reflection.
+        const parseFailed = !content.trim() || parsedResult.parseFailed === true;
+
+        // Fail-safe (defense in depth): a reflector we cannot parse must NEVER be
+        // able to spin the reflect→revise loop. Before this guard, a parse failure
+        // left isComplete=false every round, so the loop churned all the way to
+        // MAX_ITERATIONS burning an LLM call per lap. After REFLECTION_STALL_LIMIT
+        // consecutive unparseable reflections, finalize with what we already have.
+        const priorFailures = state.reflectionStallCount ?? 0;
+        const parseFailures = parseFailed ? priorFailures + 1 : 0;
+        if (parseFailed && parseFailures >= REFLECTION_STALL_LIMIT) {
+            isComplete = true;
+            analysis = `Reflection output could not be parsed ${parseFailures} times in a row — finalizing with the results gathered so far rather than retrying further.`;
+            console.warn(`⚠️ [REFLECTOR] ${parseFailures} consecutive parse failures — forcing completion.`);
+        }
 
         console.log(`\n🧐 [REFLECTOR] Analysis Complete:`);
         console.log(`   Analysis:    ${truncateOutput(analysis, 300)}`);
@@ -653,6 +676,7 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
             nextAction: isComplete ? "complete" : "revise",
             // Reset the stall counter whenever we land on completion, tidy either way.
             ...(isComplete ? { stallCount: 0 } : {}),
+            reflectionStallCount: parseFailures,
         };
 
         if (updatedPlan.length > 0) {

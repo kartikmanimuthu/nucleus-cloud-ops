@@ -14,7 +14,7 @@ import { KBChatSidebar } from "./kb-chat-sidebar";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
 import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
 import { useKBChatMessages } from "@/lib/queries/kb-chat";
-import { useProviderModels } from "@/lib/queries/providers";
+import { useProviderModels, defaultModelId } from "@/lib/queries/providers";
 import { queryKeys } from "@/lib/queries/query-keys";
 
 const EXAMPLE_PROMPTS = [
@@ -61,10 +61,10 @@ export function KBChat({ initialKbId }: KBChatProps) {
   const { data: availableModels = [] } = useProviderModels();
   const { data: history, isFetching: isLoadingHistory } = useKBChatMessages(loadId);
 
-  // Default the model to the first available; keep current selection if still valid.
+  // Default to the provider's default chat model; keep current selection if still valid.
   useEffect(() => {
     setSelectedModel((prev) =>
-      prev && availableModels.some((m) => m.id === prev) ? prev : availableModels[0]?.id ?? "",
+      prev && availableModels.some((m) => m.id === prev) ? prev : defaultModelId(availableModels),
     );
   }, [availableModels]);
 

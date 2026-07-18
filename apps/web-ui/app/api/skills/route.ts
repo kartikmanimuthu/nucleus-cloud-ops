@@ -11,8 +11,8 @@ import { slugify } from '@/lib/skill-service';
 import { AuditService } from '@/lib/audit-service';
 import type { SkillRecord } from '@/lib/db/repositories/skill/interface';
 
-function toDTO(s: SkillRecord) {
-    return {
+function toDTO(s: SkillRecord, includeContent = false) {
+    const dto = {
         id: s.slug,
         name: s.name,
         description: s.description,
@@ -23,14 +23,17 @@ function toDTO(s: SkillRecord) {
         createdAt: s.createdAt,
         updatedAt: s.updatedAt,
     };
+    return includeContent ? { ...dto, content: s.content } : dto;
 }
 
 export async function GET(request: NextRequest) {
     try {
         const tenantId = await getSessionTenantId();
-        const includeDisabled = new URL(request.url).searchParams.has('all');
+        const params = new URL(request.url).searchParams;
+        const includeDisabled = params.has('all');
+        const withContent = params.has('withContent');
         const skills = await getSkillRepository().listByTenant(tenantId, { includeDisabled });
-        return NextResponse.json({ success: true, skills: skills.map(toDTO) });
+        return NextResponse.json({ success: true, skills: skills.map((s) => toDTO(s, withContent)) });
     } catch (error) {
         if (error instanceof Error && error.message.startsWith('Unauthenticated')) {
             return NextResponse.json({ success: false, error: 'Unauthenticated' }, { status: 401 });

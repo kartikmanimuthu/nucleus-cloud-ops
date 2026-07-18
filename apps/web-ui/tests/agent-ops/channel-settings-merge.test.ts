@@ -20,6 +20,9 @@ const {
     mockGetAuthSession,
     mockLogUserAction,
     mockAuthorize,
+    mockGetLinkForTenant,
+    mockUpsertLink,
+    mockFindTenantIdByTeamId,
 } = vi.hoisted(() => ({
     mockGetConfig: vi.fn(),
     mockSaveConfig: vi.fn(),
@@ -27,6 +30,9 @@ const {
     mockGetAuthSession: vi.fn(),
     mockLogUserAction: vi.fn(),
     mockAuthorize: vi.fn(),
+    mockGetLinkForTenant: vi.fn(),
+    mockUpsertLink: vi.fn(),
+    mockFindTenantIdByTeamId: vi.fn(),
 }));
 
 vi.mock('@/lib/tenant-config-service', () => ({
@@ -44,6 +50,16 @@ vi.mock('@/lib/audit-service', () => ({
 
 vi.mock('@/lib/rbac/authorize', () => ({
     authorize: mockAuthorize,
+}));
+
+// Slack's team_id → tenantId link — irrelevant to Jira, but the shared slack
+// route imports it, so it must be mocked regardless of which channel a test targets.
+vi.mock('@/lib/db/repository-factory', () => ({
+    getSlackWorkspaceLinkRepository: () => ({
+        getLinkForTenant: mockGetLinkForTenant,
+        upsertLink: mockUpsertLink,
+        findTenantIdByTeamId: mockFindTenantIdByTeamId,
+    }),
 }));
 
 // Import after mocks
@@ -69,6 +85,11 @@ beforeEach(() => {
     mockLogUserAction.mockResolvedValue(undefined);
     mockSaveConfig.mockResolvedValue(undefined);
     mockAuthorize.mockResolvedValue(null); // authorized by default
+    // Default: tenant is already linked to a Slack workspace, so merge-on-blank
+    // saves don't need to re-verify a bot token against the real Slack API.
+    mockGetLinkForTenant.mockResolvedValue({ teamId: 'T-EXIST', tenantId: 'tenant-1', botUserId: 'B-EXIST' });
+    mockUpsertLink.mockResolvedValue(undefined);
+    mockFindTenantIdByTeamId.mockResolvedValue('tenant-1');
 });
 
 describe('Slack settings PUT — merge on blank', () => {

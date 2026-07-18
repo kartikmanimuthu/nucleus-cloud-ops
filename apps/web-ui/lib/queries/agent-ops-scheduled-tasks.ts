@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/queries/query-keys';
-import type { ScheduledTask } from '@/lib/agent-ops/types';
+import type { AgentOpsRun, ScheduledTask } from '@/lib/agent-ops/types';
 import type { TaskListQuery, TaskListStats } from '@/lib/db/repositories/scheduled-task/interface';
 
 export interface TaskListFilters {
@@ -50,6 +50,36 @@ export function useScheduledTasks(filters: TaskListFilters = {}) {
                 total: data.total ?? 0,
                 stats: data.stats ?? { active: 0, paused: 0, totalRuns: 0 },
             };
+        },
+    });
+}
+
+export interface RunHistoryPage {
+    runs: AgentOpsRun[];
+    total: number;
+}
+
+/**
+ * Server-paginated run history for one scheduled task. `total` is the count of
+ * that task's runs (filtered in SQL), so the pagination bar reflects reality.
+ * keepPreviousData avoids the list flashing empty while a page is fetched.
+ */
+export function useScheduledTaskRuns(
+    taskId: string,
+    filters: { page?: number; limit?: number } = {}
+) {
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 25;
+    return useQuery({
+        queryKey: queryKeys.agentOps.scheduledTasks.runs(taskId, { page, limit }),
+        enabled: Boolean(taskId),
+        placeholderData: (prev) => prev,
+        queryFn: async (): Promise<RunHistoryPage> => {
+            const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+            const data = await fetchJson<{ runs?: AgentOpsRun[]; total?: number; error?: string }>(
+                `/api/agent-ops/scheduled-tasks/${taskId}/runs?${params}`
+            );
+            return { runs: data.runs ?? [], total: data.total ?? 0 };
         },
     });
 }

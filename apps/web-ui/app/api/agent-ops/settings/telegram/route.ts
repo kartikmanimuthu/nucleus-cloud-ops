@@ -2,6 +2,7 @@
  * AgentOps Telegram Settings API Route
  *
  * GET /api/agent-ops/settings/telegram — Returns Telegram config (secrets masked)
+ * DELETE /api/agent-ops/settings/telegram — Resets (deletes) the stored config
  * PUT /api/agent-ops/settings/telegram — Validates and saves Telegram config to PostgreSQL
  */
 
@@ -130,6 +131,49 @@ export async function PUT(req: Request) {
         console.error('[API /agent-ops/settings/telegram] PUT error:', error);
         return NextResponse.json(
             { error: error.message || 'Failed to save Telegram settings' },
+            { status: 500 }
+        );
+    }
+}
+
+/**
+ * DELETE — reset the Telegram integration: removes the stored credentials so the
+ * channel returns to its unconfigured state. Destructive and irreversible from
+ * the UI (secrets are never echoed back), hence the explicit RBAC gate and a
+ * high-severity audit record.
+ */
+export async function DELETE() {
+    try {
+        const authError = await authorize('delete', 'Agent');
+        if (authError) return authError;
+
+        const tenantId = await getSessionTenantId();
+        await TenantConfigService.deleteConfig(CONFIG_KEY, tenantId);
+
+        console.log('[API /agent-ops/settings/telegram] Reset Telegram config for tenant:', tenantId);
+
+        const session = await getAuthSession();
+        AuditService.logUserAction({
+            eventType: 'agent.settings.telegram_reset',
+            severity: 'high',
+            apiRoute: 'DELETE /api/agent-ops/settings/telegram',
+            httpMethod: 'DELETE',
+            action: 'Reset Telegram Settings',
+            resourceType: 'agent',
+            resourceId: 'telegram-integration',
+            resourceName: 'Telegram Integration',
+            user: session?.user?.email || 'unknown',
+            userType: 'user',
+            status: 'success',
+            details: 'Reset Telegram integration settings — stored credentials deleted',
+            metadata: { tenantId },
+        }).catch(() => {});
+
+        return NextResponse.json({ success: true, configured: false, enabled: false });
+    } catch (error: any) {
+        console.error('[API /agent-ops/settings/telegram] DELETE error:', error);
+        return NextResponse.json(
+            { error: error.message || 'Failed to reset Telegram settings' },
             { status: 500 }
         );
     }

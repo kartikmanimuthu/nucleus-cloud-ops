@@ -1,0 +1,118 @@
+---
+title: Jira / Atlassian Integration
+description: Trigger agent runs from Jira Automation and connect Jira/Confluence as an MCP tool source, including headless auth for containerized deployments.
+---
+
+Nucleus Ops connects to Jira in two independent ways — pick whichever (or both) fit your workflow:
+
+| | **Jira channel** | **Atlassian MCP tool** |
+|---|---|---|
+| Purpose | Trigger agent runs from Jira Automation, post results as issue comments | Give the AI Ops agent read/write access to Jira issues (and Confluence) as a tool |
+| Setup location | **Channels** → **Jira** | **Channels** → **MCP Servers** |
+| Auth | Webhook secret + API token | API token (headless) or browser OAuth |
+
+---
+
+## Jira Channel — Trigger Runs from Jira Automation
+
+**Goal:** Let a Jira Automation rule kick off an agent run (Part 1), and optionally have Nucleus
+Ops post the result back as a comment on the triggering issue (Part 2).
+
+![Channels](/screenshots/channels.png)
+
+Go to **Channels** → **Jira** to find the Webhook Endpoint, Credentials form, and an example
+Webhook Payload referenced in the steps below.
+
+### Part 1 — Trigger runs from Jira (required)
+
+1. **Generate and save the Webhook Secret** — click **Generate** next to the Webhook Secret
+   field, copy the value somewhere safe, and click **Save Settings**.
+2. **Create a Jira Automation rule** — in Jira, open **Project settings → Automation** (or
+   **Settings → System → Automation** for a global rule) and click **Create rule**.
+3. **Choose a trigger** — for example **Issue created**, **Issue transitioned**, or
+   **Manually triggered**. Optionally add a condition (e.g. label = `agent-ops`) so only
+   selected issues trigger runs.
+4. **Add a "Send web request" action**:
+   - **Web request URL**: the Webhook Endpoint shown on the Jira settings page
+   - **HTTP method**: `POST`
+   - **Web request body**: Custom data → paste the *Automation template* from the Webhook
+     Payload card (it uses Jira Automation smart values so the payload fills itself per issue)
+   - **Headers**: add `Authorization` = `Bearer <your-secret>` (the Webhook Secret from step 1)
+5. **Publish and test the rule** — use the rule's **Validate** button or create a test issue;
+   the run appears under **Agent Ops → Runs** with source `jira`.
+
+### Part 2 — Post results back to issues (recommended)
+
+6. **Pick the bot account** — use a dedicated Atlassian service account (recommended) or your
+   own; run results are posted as comments by this user.
+7. **Create an API token** — signed in as that account, open
+   [Atlassian account → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens)
+   and click **Create API token**. Copy it right away — it is shown only once.
+8. **Fill in Base URL, User Email, and API Token** on the Jira settings page — Base URL is your
+   site (e.g. `https://your-org.atlassian.net`), User Email is the bot account's email, API
+   Token is the value from the previous step.
+9. **Test and save** — click **Test Connection**; on success the **Bot Account ID** is
+   auto-filled (it prevents the bot from reacting to its own comments). Then click
+   **Save Settings**.
+
+**Example use case:** a "Restart staging DB" issue transitions to *In Progress* → Automation
+rule fires → Nucleus Ops runs the agent → result comment lands on the issue a few seconds later.
+
+---
+
+## Atlassian MCP Tool — Give the Agent Jira/Confluence Access
+
+**Goal:** Let the AI Ops agent search, read, and update Jira issues (or Confluence pages)
+directly during a run, via the official Atlassian Rovo MCP server.
+
+1. Go to **Channels** → **MCP Servers** → **Configure**.
+2. Add a new server pointing at `https://mcp.atlassian.com/v1/mcp` (see the two auth options
+   below).
+3. Once connected, Jira/Confluence tools become available to the AI Ops agent automatically —
+   no additional wiring needed.
+
+### Option A — Browser OAuth (interactive environments)
+
+If you're running Nucleus Ops somewhere with a browser available (local dev, a desktop client),
+the default flow works out of the box: add the server with just the URL, and `mcp-remote` will
+open a browser tab for you to approve access.
+
+### Option B — Headless auth (Docker / ECS / any non-interactive environment)
+
+The default OAuth flow opens a local callback server on port `3736` and waits for a browser to
+approve access. That has no way to succeed when Nucleus Ops runs the MCP client headlessly —
+inside a Docker container or an ECS task with no browser and no interactive user. The
+connection will hang or fail because nothing can ever complete the callback.
+
+The fix is to skip OAuth entirely and authenticate with an Atlassian **API token** over HTTP
+Basic Auth instead, passed straight to `mcp-remote` as a header:
+
+1. **Generate an API token** from your Atlassian account's security settings
+   (`id.atlassian.com` → **Manage profile** → **Security** → **API tokens**).
+2. **Base64-encode `email:api_token`**:
+   ```bash
+   echo -n "your.email@example.com:YOUR_API_TOKEN" | base64
+   ```
+3. **Add a new stdio MCP server** in **Channels** → **MCP Servers** with:
+   - **Command**: `npx`
+   - **Arguments** (one per line):
+     ```
+     -y
+     mcp-remote@latest
+     https://mcp.atlassian.com/v1/mcp
+     --header
+     Authorization: Basic <base64-string-from-step-2>
+     ```
+   - **Environment variables**: none needed — leave this empty. `mcp-remote` reads the
+     credential from the `--header` argument, not from an env var, so setting something like
+     `ATLASSIAN_API_TOKEN` here has no effect and can cause the client to fall back to the
+     OAuth flow instead.
+4. **Test connection** — with the Basic Auth header attached to the first request, the server
+   handshake completes immediately with no browser interaction required.
+
+<Callout type="warn">
+  The base64 string is a reversible encoding of your email and API token, not encryption —
+  treat it as a plaintext credential. Never commit it to a repo, paste it into a shared doc or
+  chat log, or store it outside the MCP server's own encrypted config. If a token is ever
+  exposed, revoke it from the Atlassian API token portal and issue a new one.
+</Callout>

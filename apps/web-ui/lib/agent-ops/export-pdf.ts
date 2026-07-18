@@ -1,5 +1,6 @@
 import type { AgentOpsRun, AgentOpsEvent } from "./types"
 import { formatDateTime } from '@/lib/date-utils';
+import { buildSteps, type TimelineStep } from "@/components/agent-ops/run-timeline/build-steps";
 
 const EVENT_META: Record<string, { label: string; bg: string; color: string }> = {
     planning: { label: "Planning", bg: "#dbeafe", color: "#1d4ed8" },
@@ -173,9 +174,20 @@ export function buildRunReportHtml(run: AgentOpsRun, events: AgentOpsEvent[], ti
     }
     const statusStyle = statusColors[run.status] ?? "background:#f3f4f6;color:#374151;"
 
+    // The <title> becomes the browser's default "Save as PDF" filename.
+    const docTitle = `agent-ops-run-${run.runId.slice(0, 8)}`
+
     return `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"/><title>Agent Ops Run Report</title></head>
+<head>
+  <meta charset="utf-8"/>
+  <title>${esc(docTitle)}</title>
+  <style>
+    @page { size: A4; margin: 8mm; }
+    /* Force badge/section background colors to print (they carry meaning). */
+    html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  </style>
+</head>
 <body style="${S.body}">
 
   <!-- Header -->
@@ -240,57 +252,346 @@ export function buildRunReportHtml(run: AgentOpsRun, events: AgentOpsEvent[], ti
 </html>`
 }
 
-export async function exportRunToPdf(run: AgentOpsRun, events: AgentOpsEvent[]): Promise<void> {
-    const html2pdf = (await import("html2pdf.js")).default
+// hex "#rrggbb" → [r,g,b] for jsPDF's setFillColor/setTextColor.
+function hexToRgb(hex: string): [number, number, number] {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
+    if (!m) return [55, 65, 81]
+    return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
+}
 
-    const html = buildRunReportHtml(run, events)
-    const filename = `agent-ops-run-${run.runId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.pdf`
+/**
+ * Export a run to PDF using jsPDF's vector text API — NOT html2canvas.
+ *
+ * Two earlier approaches failed:
+ *  1. html2pdf/html2canvas rasterized the whole report into ONE canvas. Chrome
+ *     silently caps canvas height at 65,535 px (transparent, no error), so long
+ *     runs produced a blank PDF.
+ *  2. Native window.print() has no canvas limit but opens the OS print dialog,
+ *     which is dead-in-the-water on machines with no printer configured (macOS
+ *     shows "No Printer Selected" and hides Save-as-PDF in a small menu).
+ *
+ * jsPDF text rendering has neither problem: no raster canvas (no size limit),
+ * selectable text, tiny files, jsPDF.save() triggers a normal browser download
+ * with a real filename on every OS. We paginate manually via a y-cursor.
+ */
+export async function exportRunToPdf(
+    run: AgentOpsRun,
+    events: AgentOpsEvent[],
+    timeZone?: string
+): Promise<void> {
+    const { jsPDF } = await import("jspdf")
+    const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" })
 
-    // html2pdf.js clones the source node (via snapdom's deepCloneBasic, which
-    // copies inline styles verbatim with cloneNode) and places the clone inside
-    // its own `height:auto` capture container, then runs html2canvas on that
-    // *container*. If the source node's inline style makes it out-of-flow
-    // (position: fixed/absolute, or off-screen coordinates), the clone is also
-    // out-of-flow and contributes zero height to the capture container — so
-    // html2canvas renders a 0-height canvas and jsPDF emits an empty PDF
-    // (verified: 1468x0 canvas → 3 KB blank PDF).
-    //
-    // Fix: keep the off-screen positioning on a WRAPPER that is never cloned,
-    // and leave the holder itself as an in-flow block carrying only the body's
-    // base styles (S.body). html2pdf clones the holder (not the wrapper), so
-    // the clone flows normally inside the capture container and the container
-    // gets the content's height (verified: 733x1161 → 1468x2324 canvas,
-    // ~1M non-white pixels → 370 KB PDF). All report styling is inline, so the
-    // clone needs no external stylesheets.
-    const wrapper = document.createElement("div")
-    wrapper.style.cssText = "position:fixed;top:0;left:-99999px;z-index:-9999;pointer-events:none;"
-    const holder = document.createElement("div")
-    holder.style.cssText = S.body
-    holder.innerHTML = new DOMParser().parseFromString(html, "text/html").body.innerHTML
-    wrapper.appendChild(holder)
-    document.body.appendChild(wrapper)
+    const M = 12                 // page margin (mm)
+    const PW = 210, PH = 297     // A4 (mm)
+    const CW = PW - M * 2        // content width (mm)
+    const PT = 0.352778          // 1 pt in mm
+    let y = M
 
-    // Let layout settle before capture.
-    await new Promise(r => setTimeout(r, 50))
+    const clean = (s: unknown) => String(s ?? "").replace(/\r/g, "").replace(/\t/g, "    ")
+    const ensure = (h: number) => { if (y + h > PH - M) { doc.addPage(); y = M } }
 
-    try {
-        await html2pdf()
-            .set({
-                margin: [8, 8, 8, 8],
-                filename,
-                image: { type: "jpeg", quality: 0.98 },
-                html2canvas: {
-                    scale: 2,
-                    useCORS: true,
-                    logging: false,
-                    windowWidth: 794,
-                    scrollY: 0,
-                },
-                jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-            })
-            .from(holder)
-            .save()
-    } finally {
-        document.body.removeChild(wrapper)
+    // Wrapped paragraph. Returns nothing; advances y (paginating as needed).
+    function para(
+        text: string,
+        opts: { size?: number; color?: [number, number, number]; font?: string; style?: string; indent?: number; gap?: number } = {}
+    ) {
+        const { size = 9, color = [55, 65, 81], font = "helvetica", style = "normal", indent = 0, gap = 1.35 } = opts
+        doc.setFont(font, style)
+        doc.setFontSize(size)
+        doc.setTextColor(color[0], color[1], color[2])
+        const lh = size * PT * gap
+        const lines: string[] = doc.splitTextToSize(clean(text), CW - indent)
+        for (const ln of lines) {
+            ensure(lh)
+            doc.text(ln, M + indent, y + size * PT)  // baseline offset
+            y += lh
+        }
     }
+
+    // Small filled label chip. Draws at (x, y-top); returns its width (mm).
+    function chip(label: string, x: number, bgHex: string, fgHex: string): number {
+        const size = 7.5
+        doc.setFont("helvetica", "bold")
+        doc.setFontSize(size)
+        const w = doc.getTextWidth(label) + 3
+        const h = 4.2
+        const [br, bg, bb] = hexToRgb(bgHex)
+        const [fr, fg, fb] = hexToRgb(fgHex)
+        doc.setFillColor(br, bg, bb)
+        doc.roundedRect(x, y, w, h, 0.8, 0.8, "F")
+        doc.setTextColor(fr, fg, fb)
+        doc.text(label, x + 1.5, y + h - 1.3)
+        return w
+    }
+
+    function rule() {
+        ensure(3)
+        doc.setDrawColor(229, 231, 235)
+        doc.setLineWidth(0.2)
+        doc.line(M, y, PW - M, y)
+        y += 3
+    }
+
+    // ── Header ────────────────────────────────────────────────────────────
+    para("Agent Ops Run Report", { size: 18, style: "bold", color: [17, 24, 39], gap: 1.1 })
+    para(run.runId, { size: 9, font: "courier", color: [107, 114, 128] })
+    y += 1
+    const statusMeta: Record<string, [string, string]> = {
+        completed: ["#dcfce7", "#166534"], failed: ["#fee2e2", "#dc2626"],
+        in_progress: ["#dbeafe", "#1d4ed8"], cancelled: ["#f3f4f6", "#6b7280"],
+    }
+    const [sbg, sfg] = statusMeta[run.status] ?? ["#f3f4f6", "#374151"]
+    chip(run.status.replace(/_/g, " ").toUpperCase(), M, sbg, sfg)
+    y += 7
+
+    // ── Meta ──────────────────────────────────────────────────────────────
+    const tokenTotals = events.reduce(
+        (a, e) => {
+            if (e.metadata) {
+                a.input += (e.metadata.inputTokens as number) || 0
+                a.output += (e.metadata.outputTokens as number) || 0
+            }
+            return a
+        },
+        { input: 0, output: 0 }
+    )
+    const tokenStr = tokenTotals.input + tokenTotals.output > 0
+        ? `${tokenTotals.input.toLocaleString()} in / ${tokenTotals.output.toLocaleString()} out`
+        : "—"
+    const metaPairs: [string, string][] = [
+        ["Source", clean(run.source)],
+        ["Mode", clean(run.mode)],
+        ["Duration", formatDuration(run.durationMs)],
+        ["Tokens", tokenStr],
+        ["Events", String(events.length)],
+        ["Started", formatTime(run.createdAt, timeZone)],
+    ]
+    if (run.completedAt) metaPairs.push(["Completed", formatTime(run.completedAt, timeZone)])
+    for (const [k, v] of metaPairs) {
+        ensure(5)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(107, 114, 128)
+        doc.text(`${k}:`, M, y + 3)
+        doc.setFont("helvetica", "normal"); doc.setTextColor(17, 24, 39)
+        doc.text(clean(v), M + 26, y + 3)
+        y += 5
+    }
+    y += 3
+
+    // ── Task ──────────────────────────────────────────────────────────────
+    para("Task Description", { size: 12, style: "bold", color: [55, 65, 81] })
+    rule()
+    para(run.taskDescription, { size: 10, color: [17, 24, 39] })
+    if (run.selectedSkill) para(`Skill: ${run.selectedSkill}`, { size: 8, color: [107, 114, 128] })
+    if (run.accountName) para(`Account: ${run.accountName} (${run.accountId ?? ""})`, { size: 8, color: [107, 114, 128] })
+    y += 3
+
+    // ── Result / Error ──────────────────────────────────────────────────────
+    if (run.result?.summary) {
+        para("Result", { size: 12, style: "bold", color: [22, 101, 52] })
+        rule()
+        para(run.result.summary, { size: 9, color: [17, 24, 39] })
+        if (run.result.toolsUsed?.length) para(`Tools used: ${run.result.toolsUsed.join(", ")}`, { size: 8, color: [107, 114, 128] })
+        if (run.result.iterations) para(`${run.result.iterations} iteration(s)`, { size: 8, color: [107, 114, 128] })
+        y += 3
+    }
+    if (run.error) {
+        para("Error", { size: 12, style: "bold", color: [220, 38, 38] })
+        rule()
+        para(run.error, { size: 9, font: "courier", color: [220, 38, 38] })
+        y += 3
+    }
+
+    // ── Execution Timeline ──────────────────────────────────────────────────
+    // Reuse the SAME step model the web UI builds (run-timeline/build-steps.ts)
+    // so the PDF and the on-screen timeline never drift: tool_call + tool_result
+    // are paired into one Tool step (name, arguments, output, status, duration),
+    // and steps carry the same kinds/labels/colors as the UI. The ONE deliberate
+    // difference: the UI folds long work runs into collapsible "Worked — N tool
+    // calls" groups, but a PDF can't be clicked open, so groups are rendered
+    // EXPANDED here and every tool call shows its arguments + output inline.
+    para(`Execution Timeline (${events.length} events)`, { size: 12, style: "bold", color: [55, 65, 81] })
+    rule()
+
+    const steps = buildSteps(events, run.status)
+    if (steps.length === 0) {
+        para("No events recorded.", { size: 9, color: [156, 163, 175] })
+    }
+
+    const fmtDur = (ms?: number) =>
+        ms === undefined ? "" : ms < 1000 ? `${ms}ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${(ms / 60000).toFixed(1)}m`
+    const firstLine = (t?: string, n = 110) => {
+        if (!t) return ""
+        const l = clean(t).split("\n").find((s) => s.trim()) ?? ""
+        return l.length > n ? `${l.slice(0, n)}…` : l
+    }
+
+    type Chip = { label: string; bg: string; fg: string }
+    const KIND: Record<string, Chip> = {
+        memory:     { label: "Memory",     bg: "#ede9fe", fg: "#6d28d9" },
+        evaluation: { label: "Evaluated",  bg: "#fef3c7", fg: "#b45309" },
+        planning:   { label: "Planning",   bg: "#dbeafe", fg: "#1d4ed8" },
+        thinking:   { label: "Thinking",   bg: "#f3f4f6", fg: "#6b7280" },
+        tool:       { label: "Tool",       bg: "#e0f2fe", fg: "#0369a1" },
+        reflection: { label: "Reflection", bg: "#f3e8ff", fg: "#7e22ce" },
+        final:      { label: "Final",      bg: "#dcfce7", fg: "#166534" },
+        error:      { label: "Error",      bg: "#fee2e2", fg: "#dc2626" },
+    }
+
+    // Header row for a step: chip + optional title (+ status) + right-aligned time.
+    function stepHead(
+        chipLabel: string,
+        c: Chip,
+        indent: number,
+        opts: { title?: string; titleMono?: boolean; status?: string; statusColor?: [number, number, number]; time?: string } = {}
+    ) {
+        ensure(6)
+        const x0 = M + indent
+        const cw = chip(chipLabel, x0, c.bg, c.fg)
+        let cx = x0 + cw + 2
+        const timeStr = opts.time ?? ""
+        let timeW = 0
+        if (timeStr) {
+            doc.setFont("helvetica", "normal"); doc.setFontSize(7.5)
+            timeW = doc.getTextWidth(timeStr)
+        }
+        const rightEdge = PW - M - (timeW ? timeW + 2 : 0)
+        if (opts.title) {
+            doc.setFont(opts.titleMono ? "courier" : "helvetica", opts.titleMono ? "normal" : "bold")
+            doc.setFontSize(9); doc.setTextColor(17, 24, 39)
+            const t = (doc.splitTextToSize(clean(opts.title), Math.max(20, rightEdge - cx - 2))[0] as string) ?? ""
+            doc.text(t, cx, y + 3)
+            cx += doc.getTextWidth(t) + 3
+        }
+        if (opts.status) {
+            doc.setFont("helvetica", "normal"); doc.setFontSize(8)
+            const sc = opts.statusColor ?? [107, 114, 128]
+            doc.setTextColor(sc[0], sc[1], sc[2])
+            doc.text(opts.status, cx, y + 3)
+        }
+        if (timeStr) {
+            doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(156, 163, 175)
+            doc.text(timeStr, PW - M - timeW, y + 3)
+        }
+        y += 6
+    }
+
+    function renderStep(step: TimelineStep, indent: number) {
+        const bodyIndent = indent + 4
+        const t = (e: AgentOpsEvent) => formatTime(e.createdAt, timeZone)
+
+        switch (step.kind) {
+            case "group": {
+                const toolCount = step.steps.filter((s) => s.kind === "tool").length
+                ensure(6)
+                doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(107, 114, 128)
+                const dur = step.durationMs > 0 ? `  ·  ${fmtDur(step.durationMs)}` : ""
+                doc.text(`Worked — ${toolCount} tool call${toolCount === 1 ? "" : "s"}${dur}`, M + indent, y + 3)
+                y += 6
+                for (const s of step.steps) renderStep(s, indent + 4)
+                y += 1
+                break
+            }
+            case "tool": {
+                const anchor = step.call ?? step.result
+                const statusLabel = step.status === "error" ? "failed" : step.status === "running" ? "running" : ""
+                const statusColor: [number, number, number] = step.status === "error" ? [220, 38, 38] : [107, 114, 128]
+                stepHead(KIND.tool.label, KIND.tool, indent, {
+                    title: step.toolName,
+                    titleMono: true,
+                    status: [statusLabel, step.durationMs !== undefined ? fmtDur(step.durationMs) : ""].filter(Boolean).join("  "),
+                    statusColor,
+                    time: anchor ? t(anchor) : undefined,
+                })
+                const args = step.call?.toolArgs
+                const output = step.result?.toolOutput ?? step.result?.content
+                if (args && Object.keys(args).length > 0) {
+                    para("ARGUMENTS", { size: 7, style: "bold", color: [107, 114, 128], indent: bodyIndent })
+                    para(JSON.stringify(args, null, 2), { size: 7.5, font: "courier", color: [55, 65, 81], indent: bodyIndent, gap: 1.25 })
+                }
+                if (output) {
+                    para("OUTPUT", { size: 7, style: "bold", color: [107, 114, 128], indent: bodyIndent })
+                    para(output, { size: 7.5, font: "courier", color: step.status === "error" ? [220, 38, 38] : [55, 65, 81], indent: bodyIndent, gap: 1.25 })
+                }
+                if (!args && !output) para("No detail captured.", { size: 8, color: [156, 163, 175], indent: bodyIndent })
+                y += 1.5
+                break
+            }
+            case "planning":
+                stepHead(KIND.planning.label, KIND.planning, indent, { title: firstLine(step.event.content) || "Planning", time: t(step.event) })
+                if (step.event.content) para(step.event.content, { size: 8.5, color: [55, 65, 81], indent: bodyIndent })
+                y += 1.5
+                break
+            case "reflection":
+                stepHead(step.event.eventType === "revision" ? "Revision" : "Reflection", KIND.reflection, indent, { time: t(step.event) })
+                if (step.event.content) para(step.event.content, { size: 8.5, color: [55, 65, 81], indent: bodyIndent })
+                y += 1.5
+                break
+            case "thinking":
+                if (!step.event.content) break
+                stepHead(KIND.thinking.label, KIND.thinking, indent, { time: t(step.event) })
+                para(step.event.content, { size: 8.5, color: [107, 114, 128], style: "italic", indent: bodyIndent })
+                y += 1.5
+                break
+            case "evaluation": {
+                const m = (step.event.metadata ?? {}) as Record<string, unknown>
+                const kbs = (m.knowledgeBaseIds as unknown[] | undefined) ?? []
+                const badges = [
+                    m.mode ? `${m.mode} mode` : "",
+                    (m.skillName || m.skillId) ? `skill: ${m.skillName ?? m.skillId}` : "",
+                    kbs.length ? `KB ×${kbs.length}` : "",
+                    m.requiresApproval ? "approval" : "",
+                ].filter(Boolean).join("    ·    ")
+                stepHead(KIND.evaluation.label, KIND.evaluation, indent, { title: "Evaluated request", time: t(step.event) })
+                if (badges) para(badges, { size: 7.5, color: [107, 114, 128], indent: bodyIndent })
+                if (step.event.content) para(step.event.content, { size: 8.5, color: [55, 65, 81], indent: bodyIndent })
+                y += 1.5
+                break
+            }
+            case "memory": {
+                const m = (step.event.metadata ?? {}) as Record<string, unknown>
+                stepHead(KIND.memory.label, KIND.memory, indent, {
+                    title: step.event.content || (step.phase === "recall" ? "Memory recall" : "Memory save"),
+                    time: t(step.event),
+                })
+                if (step.phase === "recall") {
+                    const parts = [
+                        (m.facts as unknown[])?.length ? `${(m.facts as unknown[]).length} fact(s)` : "",
+                        (m.rules as unknown[])?.length ? `${(m.rules as unknown[]).length} rule(s)` : "",
+                        (m.episodes as unknown[])?.length ? `${(m.episodes as unknown[]).length} episode(s)` : "",
+                    ].filter(Boolean).join("    ·    ")
+                    if (parts) para(parts, { size: 7.5, color: [107, 114, 128], indent: bodyIndent })
+                } else if (m.savedFacts !== undefined) {
+                    para(`${m.savedFacts ?? 0} fact(s), ${m.savedRules ?? 0} rule(s) saved · episode: ${m.episodeCaptured ? "yes" : "no"}`,
+                        { size: 7.5, color: [107, 114, 128], indent: bodyIndent })
+                }
+                y += 1.5
+                break
+            }
+            case "final":
+                stepHead(KIND.final.label, KIND.final, indent, { title: step.event.node === "__cancelled__" ? "Run cancelled" : "Final summary", time: t(step.event) })
+                if (step.event.content) para(step.event.content, { size: 9, color: [17, 24, 39], indent: bodyIndent })
+                y += 1.5
+                break
+            case "error":
+                stepHead(KIND.error.label, KIND.error, indent, { title: firstLine(step.event.content) || "Error", time: t(step.event) })
+                if (step.event.content) para(step.event.content, { size: 8, font: "courier", color: [220, 38, 38], indent: bodyIndent })
+                y += 1.5
+                break
+        }
+    }
+
+    for (const step of steps) renderStep(step, 0)
+
+    // ── Footer on every page ────────────────────────────────────────────────
+    const pages = doc.getNumberOfPages()
+    for (let p = 1; p <= pages; p++) {
+        doc.setPage(p)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(156, 163, 175)
+        const footer = `Nucleus Cloud Ops  ·  Page ${p} of ${pages}`
+        doc.text(footer, PW / 2 - doc.getTextWidth(footer) / 2, PH - 6)
+    }
+
+    const filename = `agent-ops-run-${run.runId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.pdf`
+    doc.save(filename)
 }

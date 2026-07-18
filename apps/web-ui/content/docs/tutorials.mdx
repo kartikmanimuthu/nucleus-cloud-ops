@@ -39,13 +39,7 @@ description: Step-by-step guides for common Nucleus Ops workflows.
 
 **Goal:** Let your team trigger cloud operations from Slack.
 
-![Channels](/screenshots/channels.png)
-
-1. Go to **Channels** → **Slack** → **Configure**
-2. Create a Slack app, add the Bot Token and webhook URL
-3. Test the connection
-4. In Slack, use slash commands to trigger agent runs
-5. Results are posted back to your configured channel
+See the dedicated [Slack Integration](/docs/slack-integration) guide for full setup steps.
 
 **Example Slack command:** `/nucleus is there any ec2 instance running in partner system non prod stx`
 
@@ -55,10 +49,9 @@ description: Step-by-step guides for common Nucleus Ops workflows.
 
 **Goal:** Trigger cloud operations from Jira Automation rules.
 
-1. Go to **Channels** → **Jira** → **Configure**
-2. Enter your Jira base URL and API token
-3. In Jira Automation, create a rule that calls the Nucleus Ops webhook
-4. Agent results are posted as issue comments
+See the dedicated [Jira / Atlassian Integration](/docs/jira-integration) guide for full setup
+steps — both the Jira Automation trigger channel and connecting Jira/Confluence as an MCP tool
+source for the agent.
 
 ---
 
