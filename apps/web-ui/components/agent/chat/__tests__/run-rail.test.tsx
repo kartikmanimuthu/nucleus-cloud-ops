@@ -76,16 +76,21 @@ describe('RunRail', () => {
     expect(row.textContent?.length ?? 0).toBeLessThan(longStep.length)
   })
 
-  it('shows "Recalling memory…" activity with a spinner during memory_recall', () => {
+  it('shows "Recalling memory…" activity with a spinner during memory_recall, and the Status line does not repeat it', () => {
     const runState: RunState = { ...EMPTY_RUN_STATE, currentPhase: 'memory_recall' }
     render(<RunRail runState={runState} isStreaming context={CONTEXT} />)
     expect(screen.getByText('Recalling memory…')).toBeTruthy()
+    // Only the Activity row's spinner label ("Recalling memory") should
+    // exist — the Status line intentionally falls back to a generic label
+    // instead of repeating the same phrase a second time on the same screen.
+    expect(screen.getAllByText('Recalling memory')).toHaveLength(1)
   })
 
-  it('shows "Saving memory…" activity with a spinner during memory_save', () => {
+  it('shows "Saving memory…" activity with a spinner during memory_save, and the Status line does not repeat it', () => {
     const runState: RunState = { ...EMPTY_RUN_STATE, currentPhase: 'memory_save' }
     render(<RunRail runState={runState} isStreaming context={CONTEXT} />)
     expect(screen.getByText('Saving memory…')).toBeTruthy()
+    expect(screen.getAllByText('Saving memory')).toHaveLength(1)
   })
 
   it('does not render a hardcoded "Generating..." badge', () => {

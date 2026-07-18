@@ -92,6 +92,40 @@ describe('TranscriptHeader', () => {
     expect(reviseStep.getAttribute('data-status')).toBe('upcoming')
   })
 
+  it('lap 2 execution: Reflect/Revise from lap 1 must NOT be stuck done (canonical position, not cumulative history)', () => {
+    // planning -> execution -> reflection -> revision -> execution (lap 2).
+    // currentPhase is 'execution' again, with 25+ iterations still ahead —
+    // Reflect and Revise must read as upcoming for THIS lap, not "done"
+    // just because they occurred somewhere earlier in the full history.
+    const runState: RunState = {
+      ...EMPTY_RUN_STATE,
+      currentPhase: 'execution',
+      phases: [
+        { phase: 'planning', node: 'planner', ts: 1 },
+        { phase: 'execution', node: 'executor', ts: 2 },
+        { phase: 'reflection', node: 'reflector', ts: 3 },
+        { phase: 'revision', node: 'reviser', ts: 4 },
+        { phase: 'execution', node: 'executor', ts: 5 },
+      ],
+      plan: planOf(3, 19),
+    }
+
+    render(
+      <TranscriptHeader
+        title="Run"
+        runState={runState}
+        isStreaming
+        elapsedMs={5000}
+        onMenuAction={vi.fn()}
+      />
+    )
+
+    expect(screen.getByTestId('step-plan').getAttribute('data-status')).toBe('done')
+    expect(screen.getByTestId('step-execute').getAttribute('data-status')).toBe('active')
+    expect(screen.getByTestId('step-reflect').getAttribute('data-status')).toBe('upcoming')
+    expect(screen.getByTestId('step-revise').getAttribute('data-status')).toBe('upcoming')
+  })
+
   it('final phase marks every step done', () => {
     const runState: RunState = {
       ...EMPTY_RUN_STATE,

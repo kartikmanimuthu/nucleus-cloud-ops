@@ -8,9 +8,13 @@ import type { RunState } from "./run-state";
 
 const PHASE_LABELS: Record<string, string> = {
   planning: "Planning", execution: "Executing", reflection: "Reflecting",
-  revision: "Revising", final: "Finalizing", memory_recall: "Recalling memory",
-  memory_save: "Saving memory", text: "Idle",
+  revision: "Revising", final: "Finalizing", text: "Idle",
 };
+
+// memory_recall/memory_save get their own detailed row (with spinner) in the
+// Activity section below — the Status line falls back to this generic label
+// for them instead of repeating "Recalling memory" / "Saving memory" verbatim.
+const MEMORY_PHASES = new Set(["memory_recall", "memory_save"]);
 
 // First clause of a plan step, capped at 60 chars — the full text stays
 // available via the row's `title` tooltip attr (and PlanStep's own children).
@@ -67,7 +71,7 @@ export function RunRail({
           ) : (
             <>
               <span className={cn("h-2 w-2 rounded-full", isStreaming ? "animate-pulse bg-blue-500" : "bg-muted-foreground/40")} />
-              {PHASE_LABELS[currentPhase] ?? currentPhase}
+              {MEMORY_PHASES.has(currentPhase) ? "Working" : (PHASE_LABELS[currentPhase] ?? currentPhase)}
             </>
           )}
         </div>
@@ -86,7 +90,7 @@ export function RunRail({
             <div
               data-testid="plan-progress-fill"
               className="h-full rounded bg-primary transition-all"
-              style={{ width: `${plan.length > 0 ? (done / plan.length) * 100 : 0}%` }}
+              style={{ width: `${(done / plan.length) * 100}%` }}
             />
           </div>
           <Plan defaultOpen isStreaming={false}>
@@ -121,13 +125,13 @@ export function RunRail({
           )}
           {currentPhase === "memory_recall" && (
             <li className="flex items-center gap-1.5 text-muted-foreground">
-              <Spinner size="xs" />
+              <Spinner size="xs" label="Recalling memory" />
               Recalling memory…
             </li>
           )}
           {currentPhase === "memory_save" && (
             <li className="flex items-center gap-1.5 text-muted-foreground">
-              <Spinner size="xs" />
+              <Spinner size="xs" label="Saving memory" />
               Saving memory…
             </li>
           )}

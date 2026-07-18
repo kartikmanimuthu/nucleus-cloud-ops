@@ -40,6 +40,10 @@ const STEPS: StepDef[] = [
   { key: "revise", label: "Revise", phases: ["revision", "memory_save"] },
 ];
 
+function stepIndexForPhase(phase: string): number {
+  return STEPS.findIndex((step) => step.phases.includes(phase));
+}
+
 const MENU_ITEMS: Array<{ action: TranscriptMenuAction; label: string }> = [
   { action: "export", label: "Export" },
   { action: "copy", label: "Copy" },
@@ -56,9 +60,19 @@ function formatElapsed(ms: number): string {
 }
 
 /**
- * Live phase stepper — status derives ONLY from runState.phases /
- * runState.currentPhase, so it can never contradict the plan progress shown
- * elsewhere (the "Generating…" vs "19/19" bug this component exists to kill).
+ * Live phase stepper — status derives ONLY from runState.currentPhase's
+ * CANONICAL POSITION in the fixed Plan→Execute→Reflect→Revise order, never
+ * from cumulative phase history. Both the fast and planning agents loop
+ * execute→reflect→revise repeatedly (a data-phase part is pushed on every
+ * on_chat_model_start, see app/api/chat/route.ts), so history-based "has
+ * this phase ever occurred" membership would keep Reflect/Revise stuck
+ * "done" forever after lap 1 even while lap 2's execution is still 25+
+ * iterations from finishing. Position-based derivation is monotonic PER
+ * LAP: whichever step currentPhase maps to is `active`, everything before
+ * it in the fixed order is `done`, everything after is `upcoming` — this
+ * can never contradict the plan progress shown elsewhere (the
+ * "Generating…" vs "19/19" bug this component exists to kill), and it
+ * resets correctly every time the run loops back to an earlier step.
  */
 function StepBadge({
   step,
@@ -92,9 +106,7 @@ export function TranscriptHeader({ title, runState, isStreaming, elapsedMs, onMe
   const { phases, currentPhase, plan } = runState;
   const isIdle = !isStreaming && phases.length === 0;
   const isFinal = currentPhase === "final";
-  // Every phase that has already happened, EXCLUDING the terminal (current)
-  // entry — that terminal entry is what currentPhase itself refers to.
-  const occurredBefore = new Set(phases.slice(0, -1).map((p) => p.phase));
+  const activeIndex = stepIndexForPhase(currentPhase);
   const doneCount = plan.filter((s) => s.status === "completed").length;
 
   return (
@@ -104,9 +116,13 @@ export function TranscriptHeader({ title, runState, isStreaming, elapsedMs, onMe
       {!isIdle && (
         <div data-testid="phase-stepper" className="flex items-center gap-2 text-xs">
           {STEPS.map((step, i) => {
-            const isActive = !isFinal && step.phases.includes(currentPhase);
-            const isDone = isFinal || step.phases.some((phase) => occurredBefore.has(phase));
-            const status: StepStatus = isActive ? "active" : isDone ? "done" : "upcoming";
+            const status: StepStatus = isFinal
+              ? "done"
+              : i < activeIndex
+                ? "done"
+                : i === activeIndex
+                  ? "active"
+                  : "upcoming";
             const progress = step.key === "execute" && plan.length > 0 ? `${doneCount}/${plan.length}` : null;
             return (
               <span key={step.key} className="flex items-center gap-2">
