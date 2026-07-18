@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import { Check, HelpCircle, Send } from "lucide-react";
 import type { PendingClarification } from "./run-state";
 
@@ -36,9 +35,9 @@ export function ClarificationCard({
   };
 
   return (
-    <div data-testid="clarification-card" className="my-2 overflow-hidden rounded-lg border border-blue-500/30 bg-background shadow-sm">
-      <div className="flex items-center gap-2 border-b border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm font-semibold text-blue-700 dark:text-blue-400">
-        <HelpCircle className="h-4 w-4" />
+    <div data-testid="clarification-card" className="my-2 overflow-hidden rounded-lg border bg-background shadow-sm">
+      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-sm font-semibold text-foreground">
+        <HelpCircle className="h-4 w-4 text-muted-foreground" />
         The agent needs input to continue
       </div>
       <div className="space-y-2.5 px-3 py-2.5 text-sm">
@@ -50,12 +49,7 @@ export function ClarificationCard({
               return (
                 <Button key={opt} size="sm" variant={isSelected ? "default" : "outline"}
                   disabled={isRecorded && !isSelected}
-                  className={cn(
-                    "h-7 rounded-full text-xs",
-                    isSelected
-                      ? "bg-blue-600 text-white hover:bg-blue-600"
-                      : "border-blue-500/40 text-blue-700 hover:bg-blue-500/10 dark:text-blue-400",
-                  )}
+                  className="h-7 rounded-full text-xs"
                   onClick={() => submit(opt)}>
                   {isSelected && <Check className="mr-1 h-3 w-3" />}
                   {opt}
@@ -66,8 +60,8 @@ export function ClarificationCard({
         )}
         {isCustomAnswer && (
           <div className="flex flex-wrap gap-1.5">
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2.5 py-1 text-xs text-blue-700 dark:text-blue-400">
-              <Check className="h-3 w-3" />
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-foreground">
+              <Check className="h-3 w-3 text-muted-foreground" />
               {recordedAnswer}
             </span>
           </div>
