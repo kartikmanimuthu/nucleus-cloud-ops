@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { cn } from "@/lib/utils"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { buildTranscript, isEmptyDecisionCarrier, type LooseMessage, type TranscriptEvent } from "@/lib/agent-chat/events"
 import type { RunState } from "@/components/agent/chat/run-state"
