@@ -3,6 +3,7 @@ import { getCheckpointer } from '@/lib/agent/agent-shared';
 import { getChatHistory } from '@/lib/agent/persistence';
 import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
+import { normalizeLegacyContent } from '@/lib/agent-chat/legacy-normalizer';
 
 interface HistoryMessage {
     id: string;
@@ -16,19 +17,58 @@ interface HistoryMessage {
         args?: Record<string, unknown>;
         result?: string;
         state?: 'call' | 'result';
+        data?: Record<string, unknown>;
     }>;
 }
 
-// Phase markers written by processStream before persistence — must match route.ts getPhaseMarker()
-const PHASE_MARKERS = [
-    'PLANNING_PHASE_START\n',
-    'EXECUTION_PHASE_START\n',
-    'REFLECTION_PHASE_START\n',
-    'REVISION_PHASE_START\n',
-    'FINAL_PHASE_START\n',
-    'MEMORY_RECALL_PHASE_START\n',
-    'MEMORY_SAVE_PHASE_START\n',
-];
+/**
+ * Reconstructs the typed parts for one persisted assistant content block
+ * (see route.ts's `finally` block, which prefixes stored AI message content
+ * with a phase marker via getPhaseMarker() before persistence).
+ * normalizeLegacyContent is the sole holder of the marker->phase mapping;
+ * this function only decides which typed part shape each phase renders as:
+ *  - memory_recall / memory_save -> a data-phase part + a data-memory part
+ *    (the new Mission Control UI's memory row), replacing the old reasoning
+ *    part reconstruction.
+ *  - text (no marker) -> a bare text part — this IS the answer, no phase
+ *    context needed.
+ *  - final -> a data-phase part + a text part (still the answer, but tagged
+ *    with the phase it closed out under).
+ *  - planning / execution / reflection / revision -> a data-phase part + a
+ *    reasoning part with the stripped text.
+ *
+ * NOTE (legacy client degradation, accepted for this migration): the legacy
+ * chat-interface.tsx still parses phase from a sentinel-prefixed reasoning
+ * part's own text (parsePhaseFromContent). Since the text here is already
+ * stripped, reloaded threads render those blocks under the generic "text"
+ * phase styling (no colored phase banner) in the legacy UI — the new UI
+ * (later tasks) reads data-phase instead and is unaffected. Reloaded
+ * memory_recall/memory_save blocks go further: the legacy UI does not render
+ * data-memory parts at all (only the new UI, via buildTranscript, does), so
+ * those blocks disappear entirely from a RELOADED thread in the legacy UI
+ * (they were visible, with a phase banner, before this change). Live-streamed
+ * memory blocks already dropped from the legacy view when Task 2 switched
+ * live memory narration to data-memory-only, so this only affects history
+ * replay parity, not new behavior in the live stream.
+ */
+function buildPhaseParts(content: string): HistoryMessage['parts'] {
+    const { phase, text } = normalizeLegacyContent(content);
+
+    if (phase === 'memory_recall' || phase === 'memory_save') {
+        return [
+            { type: 'data-phase', data: { phase, node: 'history', ts: 0 } },
+            { type: 'data-memory', data: { op: phase === 'memory_save' ? 'save' : 'recall', summary: text, count: null } },
+        ];
+    }
+    if (phase === 'text') {
+        return [{ type: 'text', text }];
+    }
+    // final, planning, execution, reflection, revision
+    return [
+        { type: 'data-phase', data: { phase, node: 'history', ts: 0 } },
+        { type: phase === 'final' ? 'text' : 'reasoning', text },
+    ];
+}
 
 /**
  * Multimodal user turns are persisted as a JSON-encoded LangChain content array
@@ -65,10 +105,7 @@ function convertPlainMessage(msg: { role: string; content: string; metadata?: Re
         return { id: `history-${index}`, role: 'user', content, parts: [{ type: 'text', text: content }] };
     }
     if (role === 'ai') {
-        const hasPhaseMarker = PHASE_MARKERS.some(m => content.startsWith(m));
-        const parts: HistoryMessage['parts'] = content
-            ? [{ type: hasPhaseMarker ? 'reasoning' : 'text', text: content }]
-            : [];
+        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
         const toolCalls = metadata?.tool_calls as Array<{ id?: string; name: string; args: Record<string, unknown> }> | undefined;
         for (const tc of toolCalls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args, state: 'call' });
@@ -93,13 +130,7 @@ function convertMessage(msg: BaseMessage, index: number): HistoryMessage | null 
     }
     if (msgType === 'ai') {
         const aiMsg = msg as AIMessage;
-        const parts: HistoryMessage['parts'] = [];
-        if (content) {
-            // If the content was annotated with a phase marker before saving, reconstruct
-            // it as a reasoning part so the UI renders phase headers on history load.
-            const hasPhaseMarker = PHASE_MARKERS.some(m => content.startsWith(m));
-            parts.push({ type: hasPhaseMarker ? 'reasoning' : 'text', text: content });
-        }
+        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
         for (const tc of aiMsg.tool_calls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args as Record<string, unknown>, state: 'call' });
         }

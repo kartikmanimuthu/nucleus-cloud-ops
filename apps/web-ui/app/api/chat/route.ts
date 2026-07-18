@@ -808,19 +808,10 @@ function processStream(
 
                                 if (!safeEnqueue({ type: `${chunkType}-start` as any, id: currentPartId })) break;
                                 streamStarted = true;
-
-                                const phaseMarker = getPhaseMarker(currentPhase);
-                                if (phaseMarker) {
-                                    safeEnqueue({
-                                        type: `${chunkType}-delta` as any,
-                                        id: currentPartId,
-                                        delta: phaseMarker,
-                                    });
-                                    // Only count as text content if it's actually a text part
-                                    if (chunkType === 'text') {
-                                        hasEmittedTextContent = true;
-                                    }
-                                }
+                                // Live sentinel-marker delta emission removed (Task 4) — the
+                                // buildPhasePart data-phase part above already carries the phase
+                                // to the client. Persisted history still gets the marker prefix
+                                // via getPhaseMarker() in the `finally` block below.
                             }
                         }
                         else if (event.event === "on_chat_model_stream") {
