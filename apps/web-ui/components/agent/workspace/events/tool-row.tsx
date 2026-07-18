@@ -73,7 +73,10 @@ function renderOutput(output: unknown): string {
 
 function StatusGlyph({ status, durationMs }: { status: ToolEvent["status"]; durationMs?: number }) {
   if (status === "running") return <Spinner size="xs" />
-  if (status === "rejected") return <span className="text-xs text-red-500">Rejected</span>
+  if (status === "rejected")
+    return (
+      <span className="inline-block rounded bg-red-500/10 px-1.5 text-[10px] text-red-500">Rejected</span>
+    )
   if (status === "error") return <X className="h-3.5 w-3.5 shrink-0 text-red-500" />
   return (
     <span className="inline-flex items-center gap-1">
