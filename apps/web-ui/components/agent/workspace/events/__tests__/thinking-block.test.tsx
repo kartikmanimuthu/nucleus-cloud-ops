@@ -62,4 +62,9 @@ describe('ThinkingBlock', () => {
     rerender(<ThinkingBlock event={{ ...event, streaming: false }} />);
     expect(screen.queryByText('Streaming reasoning')).toBeNull();
   });
+
+  it('renders exactly one "thinking"-ish element while streaming — no duplicate badge from the underlying primitive', () => {
+    render(<ThinkingBlock event={makeEvent({ streaming: true })} />);
+    expect(screen.getAllByText(/thinking/i)).toHaveLength(1);
+  });
 });

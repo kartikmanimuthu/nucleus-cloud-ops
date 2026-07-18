@@ -1,8 +1,10 @@
 "use client"
 
 import * as React from "react"
+import { ChevronDown } from "lucide-react"
 import type { TranscriptEvent } from "@/lib/agent-chat/events"
-import { Reasoning, ReasoningTrigger, ReasoningContent } from "@/components/ai-elements/reasoning"
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible"
+import { MarkdownContent } from "@/components/ui/markdown-content"
 import { cn } from "@/lib/utils"
 
 type ThinkingEvent = Extract<TranscriptEvent, { kind: "thinking" }>
@@ -14,13 +16,14 @@ function sentenceCasePhase(phase: string): string {
 }
 
 /**
- * Faded, auto-collapsing "Thought for Ns" row. Wraps ai-elements' Reasoning
- * primitives with the design spec's row styling (no border, faded/italic,
- * hover tint) and a phase chip in the expanded body.
- *
- * ai-elements' Reasoning auto-*opens* when `isStreaming` flips true (its own
- * internal effect) but has no matching auto-*collapse* when streaming ends,
- * so we drive `open` locally and pass it down as a controlled prop.
+ * Faded, auto-collapsing "Thought for Ns" row for TranscriptEvent's thinking
+ * variant. Built directly on the plain Radix collapsible primitives
+ * (@/components/ui/collapsible), not ai-elements/reasoning.tsx's Reasoning —
+ * that component unconditionally renders its own Brain icon + purple
+ * "Thinking..." pill whenever isStreaming is true, duplicating this row's
+ * own faded label and violating the "faded, no border" spec. It's a shared
+ * primitive (also used by chat-interface.tsx), so we own our row instead of
+ * patching it.
  */
 export function ThinkingBlock({
   event,
@@ -31,6 +34,9 @@ export function ThinkingBlock({
 }) {
   const [open, setOpen] = React.useState(event.streaming)
 
+  // Auto-open while streaming, auto-collapse the moment streaming ends.
+  // Manual toggles afterward are preserved since this effect only re-runs
+  // when event.streaming itself changes.
   React.useEffect(() => {
     setOpen(event.streaming)
   }, [event.streaming])
@@ -41,33 +47,27 @@ export function ThinkingBlock({
       ? "Thinking…"
       : "Thought"
 
-  const showPhaseChip = open && event.phase !== "execution"
-
   return (
-    <Reasoning
-      isStreaming={event.streaming}
-      open={open}
-      onOpenChange={setOpen}
-      className="rounded-none border-0 bg-transparent shadow-none"
-    >
-      <ReasoningTrigger
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger
         className={cn(
-          "px-2 py-1 text-xs italic font-normal text-muted-foreground",
-          "hover:text-muted-foreground hover:bg-muted/40"
+          "group flex w-full items-center gap-1.5 rounded px-2 py-1 text-left",
+          "text-xs italic text-muted-foreground hover:bg-muted/40"
         )}
       >
-        {label}
-      </ReasoningTrigger>
-      {showPhaseChip && (
-        <div className="px-2 pt-1">
-          <span className="inline-block rounded bg-muted px-1.5 text-[10px] not-italic text-muted-foreground">
-            {sentenceCasePhase(event.phase)}
-          </span>
+        <ChevronDown className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+        <span className={cn(event.streaming && "animate-pulse")}>{label}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-2 pb-2 pt-1 text-xs text-muted-foreground">
+          {event.phase !== "execution" && (
+            <span className="mb-1 mr-1 inline-block rounded bg-muted px-1.5 text-[10px]">
+              {sentenceCasePhase(event.phase)}
+            </span>
+          )}
+          <MarkdownContent content={event.text} className="text-xs text-muted-foreground" />
         </div>
-      )}
-      <ReasoningContent className="border-t-0 bg-none px-2 pb-2 pt-1 text-xs italic text-muted-foreground">
-        {event.text}
-      </ReasoningContent>
-    </Reasoning>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
