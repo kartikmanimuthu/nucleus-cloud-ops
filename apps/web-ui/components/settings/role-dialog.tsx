@@ -22,12 +22,13 @@ import {
 } from "@/components/ui/table";
 import type { Module, Action, PermissionSet } from "@/lib/rbac/types";
 
-const MODULES: { key: Module; label: string }[] = [
-    { key: "Accounts", label: "Accounts" },
-    { key: "Schedules", label: "Schedules" },
-    { key: "AIOps", label: "AI Ops" },
-    { key: "Inventory", label: "Inventory" },
-    { key: "Settings", label: "Settings" },
+const MODULES: { key: Module; label: string; allowedActions: Action[] }[] = [
+    { key: "Accounts", label: "Accounts", allowedActions: ["create", "read", "update", "delete"] },
+    { key: "Schedules", label: "Schedules", allowedActions: ["create", "read", "update", "delete"] },
+    { key: "AIOps", label: "AI Ops", allowedActions: ["create", "read", "update", "delete"] },
+    { key: "Inventory", label: "Inventory", allowedActions: ["create", "read", "update", "delete"] },
+    { key: "Settings", label: "Settings", allowedActions: ["create", "read", "update", "delete"] },
+    { key: "Dashboard", label: "Dashboard", allowedActions: ["read"] },
 ];
 
 const ACTIONS: { key: Action; label: string }[] = [
@@ -42,7 +43,9 @@ type PermissionsState = Record<Module, Set<Action>>;
 function toPermissionsState(permissions?: PermissionSet | null): PermissionsState {
     const state = {} as PermissionsState;
     for (const mod of MODULES) {
-        state[mod.key] = new Set((permissions?.[mod.key] ?? []) as Action[]);
+        const allowed = new Set(mod.allowedActions);
+        const incoming = (permissions?.[mod.key] ?? []).filter((a) => allowed.has(a));
+        state[mod.key] = new Set(incoming);
     }
     return state;
 }
@@ -50,7 +53,8 @@ function toPermissionsState(permissions?: PermissionSet | null): PermissionsStat
 function toPermissionSet(state: PermissionsState): PermissionSet {
     const result = {} as PermissionSet;
     for (const mod of MODULES) {
-        result[mod.key] = Array.from(state[mod.key]) as Action[];
+        const allowed = new Set(mod.allowedActions);
+        result[mod.key] = Array.from(state[mod.key]).filter((a) => allowed.has(a)) as Action[];
     }
     return result;
 }
@@ -184,27 +188,34 @@ export function RoleDialog({ open, onOpenChange, role, onSave }: RoleDialogProps
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {MODULES.map((mod) => (
-                                        <TableRow key={mod.key} className="min-h-[44px]">
-                                            <TableCell className="font-medium py-3">
-                                                {mod.label}
-                                            </TableCell>
-                                            {ACTIONS.map((act) => (
-                                                <TableCell
-                                                    key={act.key}
-                                                    className="text-center py-3"
-                                                >
-                                                    <Checkbox
-                                                        checked={permissions[mod.key].has(act.key)}
-                                                        onCheckedChange={() =>
-                                                            togglePermission(mod.key, act.key)
-                                                        }
-                                                        aria-label={`${mod.label} ${act.label}`}
-                                                    />
+                                    {MODULES.map((mod) => {
+                                        const allowed = new Set(mod.allowedActions);
+                                        return (
+                                            <TableRow key={mod.key} className="min-h-[44px]">
+                                                <TableCell className="font-medium py-3">
+                                                    {mod.label}
                                                 </TableCell>
-                                            ))}
-                                        </TableRow>
-                                    ))}
+                                                {ACTIONS.map((act) => {
+                                                    const isAllowed = allowed.has(act.key);
+                                                    return (
+                                                        <TableCell
+                                                            key={act.key}
+                                                            className="text-center py-3"
+                                                        >
+                                                            <Checkbox
+                                                                checked={permissions[mod.key].has(act.key)}
+                                                                onCheckedChange={() =>
+                                                                    togglePermission(mod.key, act.key)
+                                                                }
+                                                                disabled={!isAllowed}
+                                                                aria-label={`${mod.label} ${act.label}`}
+                                                            />
+                                                        </TableCell>
+                                                    );
+                                                })}
+                                            </TableRow>
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
                         </div>

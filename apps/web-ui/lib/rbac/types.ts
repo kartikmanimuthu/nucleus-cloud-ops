@@ -2,8 +2,8 @@
 // MODULE-BASED TYPES (Phase 13 custom RBAC)
 // =============================================================================
 
-/** The 5 top-level modules in the permission matrix */
-export type Module = 'Accounts' | 'Schedules' | 'AIOps' | 'Inventory' | 'Settings';
+/** The 6 top-level modules in the permission matrix */
+export type Module = 'Accounts' | 'Schedules' | 'AIOps' | 'Inventory' | 'Settings' | 'Dashboard';
 
 /** CRUD actions only — schedule execution maps to 'update', audit export maps to 'read' */
 export type Action = 'create' | 'read' | 'update' | 'delete';
@@ -37,6 +37,7 @@ export const SUBJECT_TO_MODULE: Record<string, Module> = {
     Billing: 'Settings',
     Certificate: 'Settings',
     RightSizing: 'Inventory', // right-sizing analyzes discovered inventory (read=view, update=review/trigger scan)
+    Dashboard: 'Dashboard',   // unified dashboard read permission
     all: 'Settings',        // wildcard fallback
 };
 

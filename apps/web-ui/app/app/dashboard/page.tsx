@@ -1,4 +1,4 @@
-import { DashboardClient } from "@/components/dashboard/dashboard-client";
+import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getAuthSession } from "@/lib/auth-session";
 import { redirect } from "next/navigation";
 
@@ -7,5 +7,5 @@ export default async function Dashboard() {
   if (!session?.user) {
     redirect("/api/auth/signin");
   }
-  return <DashboardClient />;
+  return <DashboardShell />;
 }

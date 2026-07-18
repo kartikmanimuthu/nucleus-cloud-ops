@@ -10,7 +10,7 @@ import {
 import type { PermissionSet } from './types';
 
 describe('ROLE_PERMISSIONS', () => {
-    it('Owner has all 4 CRUD actions on all 5 modules (20 true checks)', () => {
+    it('Owner has all 4 CRUD actions on 5 core modules and read on Dashboard', () => {
         const modules = ['Accounts', 'Schedules', 'AIOps', 'Inventory', 'Settings'] as const;
         const actions = ['create', 'read', 'update', 'delete'] as const;
         for (const mod of modules) {
@@ -18,6 +18,7 @@ describe('ROLE_PERMISSIONS', () => {
                 expect(ROLE_PERMISSIONS.Owner[mod]).toContain(action);
             }
         }
+        expect(ROLE_PERMISSIONS.Owner.Dashboard).toContain('read');
     });
 
     it('Admin has full CRUD on Accounts, Schedules, AIOps, Inventory', () => {
@@ -54,8 +55,8 @@ describe('ROLE_PERMISSIONS', () => {
         expect(ROLE_PERMISSIONS.Member.Settings).not.toContain('delete');
     });
 
-    it('Viewer has R only on all 5 modules', () => {
-        const modules = ['Accounts', 'Schedules', 'AIOps', 'Inventory', 'Settings'] as const;
+    it('Viewer has R only on all 6 modules', () => {
+        const modules = ['Accounts', 'Schedules', 'AIOps', 'Inventory', 'Settings', 'Dashboard'] as const;
         for (const mod of modules) {
             expect(ROLE_PERMISSIONS.Viewer[mod]).toContain('read');
             expect(ROLE_PERMISSIONS.Viewer[mod]).not.toContain('create');
@@ -132,24 +133,26 @@ describe('canAssignRole', () => {
 });
 
 describe('getAutoLevel', () => {
-    it('returns 4 for Owner-level permissions (all 20 actions)', () => {
+    it('returns 4 for Owner-level permissions (full CRUD + Dashboard read)', () => {
         const ownerPerms: PermissionSet = {
             Accounts: ['create', 'read', 'update', 'delete'],
             Schedules: ['create', 'read', 'update', 'delete'],
             AIOps: ['create', 'read', 'update', 'delete'],
             Inventory: ['create', 'read', 'update', 'delete'],
             Settings: ['create', 'read', 'update', 'delete'],
+            Dashboard: ['read'],
         };
         expect(getAutoLevel(ownerPerms)).toBe(4);
     });
 
-    it('returns 1 for Viewer-level permissions (read only, 5 actions)', () => {
+    it('returns 1 for Viewer-level permissions (read only, 6 actions)', () => {
         const viewerPerms: PermissionSet = {
             Accounts: ['read'],
             Schedules: ['read'],
             AIOps: ['read'],
             Inventory: ['read'],
             Settings: ['read'],
+            Dashboard: ['read'],
         };
         expect(getAutoLevel(viewerPerms)).toBe(1);
     });
@@ -163,6 +166,7 @@ describe('hasCustomPermission', () => {
             AIOps: [],
             Inventory: [],
             Settings: [],
+            Dashboard: ['read'],
         };
         expect(hasCustomPermission(customPerms, 'create', 'Accounts')).toBe(true);
     });
@@ -174,6 +178,7 @@ describe('hasCustomPermission', () => {
             AIOps: [],
             Inventory: [],
             Settings: [],
+            Dashboard: ['read'],
         };
         expect(hasCustomPermission(customPerms, 'delete', 'Accounts')).toBe(false);
     });

@@ -11,6 +11,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         AIOps: ['create', 'read', 'update', 'delete'],
         Inventory: ['create', 'read', 'update', 'delete'],
         Settings: ['create', 'read', 'update', 'delete'],
+        Dashboard: ['read'], // Dashboard is read-only for everyone
     },
     Admin: {
         Accounts: ['create', 'read', 'update', 'delete'],
@@ -18,6 +19,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         AIOps: ['create', 'read', 'update', 'delete'],
         Inventory: ['create', 'read', 'update', 'delete'],
         Settings: ['create', 'read', 'update'], // No delete on Settings per D-04
+        Dashboard: ['read'],
     },
     Member: {
         Accounts: ['create', 'read', 'update'],
@@ -25,6 +27,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         AIOps: ['create', 'read', 'update'],
         Inventory: ['create', 'read', 'update'],
         Settings: ['read'], // R only on Settings per D-04
+        Dashboard: ['read'],
     },
     Viewer: {
         Accounts: ['read'],
@@ -32,6 +35,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         AIOps: ['read'],
         Inventory: ['read'],
         Settings: ['read'],
+        Dashboard: ['read'],
     },
 };
 
@@ -80,12 +84,14 @@ export function canAssignRole(assignerRole: PredefinedRole, targetRole: Predefin
 
 /**
  * Per D-10: auto-level a custom role by its total permission count.
- * Thresholds: 20=Owner-level(4), 15+=Admin-level(3), 8+=Member-level(2), else Viewer-level(1).
+ * Thresholds: Owner-level(4), 15+=Admin-level(3), 8+=Member-level(2), else Viewer-level(1).
+ * Owner threshold is derived from the static Owner permission set so it stays correct
+ * when new read-only modules (e.g. Dashboard) are added.
  */
 export function getAutoLevel(permissions: PermissionSet): RoleLevel {
     const totalActions = Object.values(permissions).flat().length;
-    const maxPossible = 20; // 5 modules * 4 actions
-    if (totalActions >= maxPossible) return 4;
+    const ownerActionCount = Object.values(ROLE_PERMISSIONS.Owner).flat().length;
+    if (totalActions >= ownerActionCount) return 4;
     if (totalActions >= 15) return 3;
     if (totalActions >= 8) return 2;
     return 1;
