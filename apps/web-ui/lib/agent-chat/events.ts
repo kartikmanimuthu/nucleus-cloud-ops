@@ -41,6 +41,22 @@ export interface BuildTranscriptOptions {
     decisions: Map<string, { approved: boolean; answer?: string }>;
 }
 
+// A "decision carrier" is the empty user message sent to resume a run when the
+// user decides a pending approval/clarification batch — the server acts on
+// `body.decisions` before reading the last message, so the message itself needs
+// no content. Hide it from the transcript so no empty user bubble lingers.
+export function isEmptyDecisionCarrier(m: any): boolean {
+    if (m?.role !== 'user') return false;
+    const parts: any[] = m.parts || [];
+    const hasText =
+        parts.some((p: any) => p.type === 'text' && (p.text || '').trim().length > 0) ||
+        (typeof m.content === 'string' && m.content.trim().length > 0);
+    const hasAttach =
+        (m.experimental_attachments?.length || 0) > 0 ||
+        parts.some((p: any) => typeof p.type === 'string' && p.type.startsWith('file'));
+    return !hasText && !hasAttach;
+}
+
 // Legacy inline sentinel the backend prefixes to the first reasoning chunk of a
 // phase (see app/api/chat/route.ts PHASE_START markers). Structured threads
 // carry the phase via data-phase parts instead, but we still defensively strip

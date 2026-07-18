@@ -126,6 +126,7 @@ import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
 import { useRunState } from "@/components/agent/chat/use-run-state";
 import { computeToolPartVisibility, isRejectedToolResult } from "@/components/agent/chat/run-state";
+import { isEmptyDecisionCarrier } from "@/lib/agent-chat/events";
 import { useDecisions } from "@/components/agent/chat/use-decisions";
 import { ApprovalBatchCard } from "@/components/agent/chat/approval-batch-card";
 import { ClarificationCard } from "@/components/agent/chat/clarification-card";
@@ -285,22 +286,6 @@ function partImageUrl(part: any): string | undefined {
     return `data:${part.source.media_type};base64,${part.source.data}`;
   }
   return undefined;
-}
-
-// A "decision carrier" is the empty user message sent to resume a run when the
-// user decides a pending approval/clarification batch — the server acts on
-// `body.decisions` before reading the last message, so the message itself needs
-// no content. Hide it from the transcript so no empty user bubble lingers.
-function isEmptyDecisionCarrier(m: any): boolean {
-  if (m?.role !== "user") return false;
-  const parts: any[] = m.parts || [];
-  const hasText =
-    parts.some((p: any) => p.type === "text" && (p.text || "").trim().length > 0) ||
-    (typeof m.content === "string" && m.content.trim().length > 0);
-  const hasAttach =
-    (m.experimental_attachments?.length || 0) > 0 ||
-    parts.some((p: any) => typeof p.type === "string" && p.type.startsWith("file"));
-  return !hasText && !hasAttach;
 }
 
 // The AI SDK surfaces HTTP failures as Error(message) where message is usually
