@@ -103,4 +103,55 @@ describe('humanizeReflection', () => {
         });
         expect(humanizeReflection(raw)).toBe('Everything checks out.');
     });
+
+    it('keeps suggestions when the value is exactly "None" (asymmetric with the Issues omission rule)', () => {
+        const raw = JSON.stringify({
+            isComplete: false,
+            analysis: 'Step in progress.',
+            issues: '',
+            suggestions: 'None',
+        });
+        expect(humanizeReflection(raw)).toBe('Step in progress.\n\nNext: None');
+    });
+
+    it('returns raw unchanged when a {...} span exists but has none of the reflector keys (guards against hijack by an unrelated embedded object)', () => {
+        const raw = 'Some notes before an unrelated object: {"foo": "bar", "count": 3} and after.';
+        expect(humanizeReflection(raw)).toBe(raw);
+    });
+
+    // reflectNode (apps/web-ui/lib/agent/planning-agent.ts) persists a pre-formatted
+    // feedback string, never raw JSON — persisted reflection content must reach the
+    // SAME prose shape the live JSON path produces. Mirrors planning-agent's exact
+    // feedback template so the parsing is derived from the real format, not guessed.
+    function buildReflectNodeFeedback(analysis: string, issues: string, suggestions: string, isComplete: boolean): string {
+        return `🔍 **Reflection Analysis:**
+${analysis}
+
+${issues !== 'None' ? `⚠️ **Issues Found:** ${issues}` : ''}
+${suggestions !== 'None' ? `💡 **Suggestions:** ${suggestions}` : ''}
+
+**Task Complete:** ${isComplete ? '✅ Yes' : '❌ No, continuing...'}`;
+    }
+
+    it('converts the reflectNode feedback format (full sections) to the same prose shape as the JSON path', () => {
+        const raw = buildReflectNodeFeedback(
+            'The plan correctly lists AWS accounts before filtering.',
+            'Missing region filter in step 2.',
+            'Add a region parameter before executing.',
+            false,
+        );
+        expect(humanizeReflection(raw)).toBe(
+            'The plan correctly lists AWS accounts before filtering.\n\nIssues: Missing region filter in step 2.\n\nNext: Add a region parameter before executing.'
+        );
+    });
+
+    it('omits the Issues line when the feedback format has no Issues section (reflector reported "None")', () => {
+        const raw = buildReflectNodeFeedback('All good so far.', 'None', 'Keep going.', false);
+        expect(humanizeReflection(raw)).toBe('All good so far.\n\nNext: Keep going.');
+    });
+
+    it('drops the Task Complete trailer from the feedback format entirely', () => {
+        const raw = buildReflectNodeFeedback('Nothing left to do.', 'None', 'None', true);
+        expect(humanizeReflection(raw)).toBe('Nothing left to do.');
+    });
 });

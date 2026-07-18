@@ -1095,9 +1095,12 @@ function processStream(
                                     if (phase !== 'text') {
                                         const marker = getPhaseMarker(phase);
                                         if (marker && typeof msg.content === 'string') {
-                                            // Reflection messages persist as prose, never the
-                                            // reflector's raw JSON — history replay must match
-                                            // the humanized live reasoning part above.
+                                            // reflectNode persists its already-formatted feedback
+                                            // string (🔍 Reflection Analysis / ⚠️ Issues Found /
+                                            // 💡 Suggestions), not raw JSON — humanizeReflection
+                                            // recognizes that format and normalizes it to the SAME
+                                            // prose shape as the live reasoning part above, so
+                                            // history replay matches what was streamed live.
                                             const content = phase === 'reflection'
                                                 ? humanizeReflection(msg.content)
                                                 : msg.content;

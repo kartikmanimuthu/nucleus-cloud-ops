@@ -22,17 +22,89 @@ export function buildMemoryPart(op: 'recall' | 'save', summary: string): DataPar
     return { type: 'data-memory', data: { op, summary, count } };
 }
 
+// Exact markers from planning-agent.ts's reflectNode `feedback` template (do not
+// change independently of that template):
+//   `🔍 **Reflection Analysis:**\n${analysis}\n\n` +
+//   `${issues !== "None" ? \`⚠️ **Issues Found:** ${issues}\` : ""}\n` +
+//   `${suggestions !== "None" ? \`💡 **Suggestions:** ${suggestions}\` : ""}\n\n` +
+//   `**Task Complete:** ${isComplete ? "✅ Yes" : "❌ No, continuing..."}`
+const REFLECTION_ANALYSIS_MARKER = '🔍 **Reflection Analysis:**';
+const REFLECTION_ISSUES_MARKER = '⚠️ **Issues Found:**';
+const REFLECTION_SUGGESTIONS_MARKER = '💡 **Suggestions:**';
+const REFLECTION_TASK_COMPLETE_MARKER = '**Task Complete:**';
+
+// Keys that only ever appear on the reflector's own JSON payload. Used to reject
+// an unrelated `{...}` span embedded in ordinary prose from being parsed as if it
+// were reflector output (JSON.parse would happily succeed on `{"foo":"bar"}`).
+const REFLECTOR_JSON_KEYS = ['analysis', 'isComplete', 'issues', 'suggestions', 'updatedPlan'] as const;
+
+function hasReflectorShape(obj: Record<string, unknown>): boolean {
+    return REFLECTOR_JSON_KEYS.some((key) => key in obj);
+}
+
 /**
- * The reflector node emits raw JSON (`{ isComplete, analysis, issues,
- * suggestions, updatedPlan }`), sometimes wrapped in ```json fences or preceded
- * by leading prose. This must never reach the client verbatim as a "reasoning"
- * block — it reads as broken JSON, not thought. Extract the first `{` … last
- * `}` span, parse it, and render prose: `analysis`, plus an `Issues:` line
- * (omitted when empty, missing, or starts with "None") and a `Next:` line
- * (omitted when empty or missing). Any parse failure returns `raw` unchanged
- * so callers never lose the underlying text.
+ * reflectNode (planning-agent.ts) persists its ALREADY-FORMATTED feedback string
+ * as the AIMessage content — never raw JSON — so this is the shape `humanizeReflection`
+ * sees at persistence time. Convert it to the same `analysis` + `Issues:` + `Next:`
+ * prose the JSON path produces, so history replay matches the live stream. Returns
+ * `null` when the analysis marker isn't present (not this format).
+ */
+function normalizeReflectNodeFeedback(raw: string): string | null {
+    const analysisIdx = raw.indexOf(REFLECTION_ANALYSIS_MARKER);
+    if (analysisIdx === -1) return null;
+
+    const afterAnalysis = analysisIdx + REFLECTION_ANALYSIS_MARKER.length;
+    const issuesIdx = raw.indexOf(REFLECTION_ISSUES_MARKER, afterAnalysis);
+    const suggestionsIdx = raw.indexOf(REFLECTION_SUGGESTIONS_MARKER, afterAnalysis);
+    const taskCompleteIdx = raw.indexOf(REFLECTION_TASK_COMPLETE_MARKER, afterAnalysis);
+
+    // The analysis section runs up to whichever of the three markers appears next —
+    // any of them may be absent (planning-agent omits the Issues/Suggestions marker
+    // lines entirely when the reflector reported "None").
+    const analysisEnd = Math.min(
+        ...[issuesIdx, suggestionsIdx, taskCompleteIdx, raw.length].filter((i) => i !== -1),
+    );
+    let prose = raw.slice(afterAnalysis, analysisEnd).trim();
+
+    if (issuesIdx !== -1) {
+        const issuesEnd = Math.min(
+            ...[suggestionsIdx, taskCompleteIdx, raw.length].filter((i) => i !== -1 && i > issuesIdx),
+        );
+        const issues = raw.slice(issuesIdx + REFLECTION_ISSUES_MARKER.length, issuesEnd).trim();
+        if (issues && !/^none/i.test(issues)) {
+            prose += `\n\nIssues: ${issues}`;
+        }
+    }
+
+    if (suggestionsIdx !== -1) {
+        const suggestionsEnd = taskCompleteIdx !== -1 && taskCompleteIdx > suggestionsIdx ? taskCompleteIdx : raw.length;
+        const suggestions = raw.slice(suggestionsIdx + REFLECTION_SUGGESTIONS_MARKER.length, suggestionsEnd).trim();
+        if (suggestions) {
+            prose += `\n\nNext: ${suggestions}`;
+        }
+    }
+
+    return prose;
+}
+
+/**
+ * The reflector node streams raw JSON (`{ isComplete, analysis, issues,
+ * suggestions, updatedPlan }`) live, sometimes wrapped in ```json fences or
+ * preceded by leading prose; reflectNode then persists an ALREADY-FORMATTED
+ * feedback string (see `normalizeReflectNodeFeedback` above) as the AIMessage
+ * content, never that raw JSON. Neither shape must ever reach the client/history
+ * verbatim as a "reasoning" block — both read as broken JSON or a bespoke emoji
+ * template, not thought. Try the feedback-string format first; otherwise extract
+ * the first `{` … last `}` span, parse it (rejecting an unrelated embedded object
+ * that happens to parse but has none of the reflector's keys), and render prose:
+ * `analysis`, plus an `Issues:` line (omitted when empty, missing, or starts with
+ * "None") and a `Next:` line (omitted when empty or missing). Any parse failure
+ * returns `raw` unchanged so callers never lose the underlying text.
  */
 export function humanizeReflection(raw: string): string {
+    const feedbackProse = normalizeReflectNodeFeedback(raw);
+    if (feedbackProse !== null) return feedbackProse;
+
     const start = raw.indexOf('{');
     const end = raw.lastIndexOf('}');
     if (start === -1 || end === -1 || end < start) return raw;
@@ -41,6 +113,10 @@ export function humanizeReflection(raw: string): string {
     try {
         parsed = JSON.parse(raw.slice(start, end + 1));
     } catch {
+        return raw;
+    }
+
+    if (typeof parsed !== 'object' || parsed === null || !hasReflectorShape(parsed)) {
         return raw;
     }
 
