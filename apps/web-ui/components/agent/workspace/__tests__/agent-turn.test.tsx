@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { AgentTurn } from '../agent-turn'
 import { Transcript } from '../transcript'
-import type { LooseMessage } from '@/lib/agent-chat/events'
+import type { LooseMessage, TranscriptEvent } from '@/lib/agent-chat/events'
 import type { RunState } from '@/components/agent/chat/run-state'
 import type { DecisionMap } from '@/components/agent/chat/use-decisions'
 
@@ -20,15 +20,9 @@ const EMPTY_RUN_STATE: RunState = {
   hasApprovalData: false,
 }
 
-function baseProps(message: LooseMessage) {
+function baseProps(events: TranscriptEvent[]) {
   return {
-    message,
-    isStreaming: false,
-    toolVisibility: new Map<string, string>(
-      (message.parts ?? [])
-        .filter((p: any) => p.toolCallId)
-        .map((p: any) => [p.toolCallId, message.id])
-    ),
+    events,
     decisions: {} as DecisionMap,
     showWork: true,
     runState: EMPTY_RUN_STATE,
@@ -39,29 +33,26 @@ function baseProps(message: LooseMessage) {
   }
 }
 
-function reasoningToolTextMessage(): LooseMessage {
-  return {
-    id: 'm1',
-    role: 'assistant',
-    parts: [
-      { type: 'reasoning', text: 'Thinking about the next step' },
-      {
-        type: 'tool-execute_command',
-        toolCallId: 'tc1',
-        toolName: 'execute_command',
-        input: { command: 'aws ec2 describe-instances' },
-        output: 'ok',
-        state: 'output-available',
-      },
-      { type: 'text', text: 'Here is the answer.' },
-    ],
-  }
+function reasoningToolTextEvents(): TranscriptEvent[] {
+  return [
+    { kind: 'thinking', id: 'm1:0', phase: 'execution', text: 'Thinking about the next step', streaming: false },
+    {
+      kind: 'tool',
+      id: 'm1:tool:tc1',
+      toolCallId: 'tc1',
+      toolName: 'execute_command',
+      input: { command: 'aws ec2 describe-instances' },
+      output: 'ok',
+      status: 'done',
+    },
+    { kind: 'answer', id: 'm1:2', text: 'Here is the answer.', streaming: false },
+  ]
 }
 
 describe('AgentTurn', () => {
   it('renders exactly one avatar, one ThinkingBlock, one ToolRow, one answer', () => {
-    const message = reasoningToolTextMessage()
-    render(<AgentTurn {...baseProps(message)} />)
+    const events = reasoningToolTextEvents()
+    render(<AgentTurn {...baseProps(events)} />)
 
     expect(screen.getAllByTestId('agent-turn-avatar')).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: /Thought/ })).toHaveLength(1)
@@ -70,8 +61,8 @@ describe('AgentTurn', () => {
   })
 
   it('showWork:false hides process rows behind a "Show work (2 steps)" toggle', () => {
-    const message = reasoningToolTextMessage()
-    render(<AgentTurn {...baseProps(message)} showWork={false} />)
+    const events = reasoningToolTextEvents()
+    render(<AgentTurn {...baseProps(events)} showWork={false} />)
 
     expect(screen.queryByRole('button', { name: /Thought/ })).toBeNull()
     expect(screen.queryByText('execute_command')).toBeNull()
@@ -85,23 +76,19 @@ describe('AgentTurn', () => {
   })
 
   it('groups >=3 consecutive done tool events via groupEvents', () => {
-    const message: LooseMessage = {
-      id: 'm2',
-      role: 'assistant',
-      parts: [
-        { type: 'tool-a', toolCallId: 'c1', toolName: 'a', input: {}, output: 'ok', state: 'output-available' },
-        { type: 'tool-b', toolCallId: 'c2', toolName: 'b', input: {}, output: 'ok', state: 'output-available' },
-        { type: 'tool-c', toolCallId: 'c3', toolName: 'c', input: {}, output: 'ok', state: 'output-available' },
-      ],
-    }
-    render(<AgentTurn {...baseProps(message)} />)
+    const events: TranscriptEvent[] = [
+      { kind: 'tool', id: 't1', toolCallId: 'c1', toolName: 'a', input: {}, output: 'ok', status: 'done' },
+      { kind: 'tool', id: 't2', toolCallId: 'c2', toolName: 'b', input: {}, output: 'ok', status: 'done' },
+      { kind: 'tool', id: 't3', toolCallId: 'c3', toolName: 'c', input: {}, output: 'ok', status: 'done' },
+    ]
+    render(<AgentTurn {...baseProps(events)} />)
 
     expect(screen.getByText('Ran 3 tools')).toBeTruthy()
     expect(screen.queryByText('a')).toBeNull()
   })
 
   it('renders the approval interrupt card only when isLastAssistantMessage and runState has a pending batch', () => {
-    const message: LooseMessage = { id: 'm3', role: 'assistant', parts: [{ type: 'text', text: 'Working on it.' }] }
+    const events: TranscriptEvent[] = [{ kind: 'answer', id: 'm3:0', text: 'Working on it.', streaming: false }]
     const runState: RunState = {
       ...EMPTY_RUN_STATE,
       pendingApproval: {
@@ -111,11 +98,11 @@ describe('AgentTurn', () => {
     }
 
     const { rerender } = render(
-      <AgentTurn {...baseProps(message)} runState={runState} isLastAssistantMessage={false} />
+      <AgentTurn {...baseProps(events)} runState={runState} isLastAssistantMessage={false} />
     )
     expect(screen.queryByTestId('approval-batch-card')).toBeNull()
 
-    rerender(<AgentTurn {...baseProps(message)} runState={runState} isLastAssistantMessage={true} />)
+    rerender(<AgentTurn {...baseProps(events)} runState={runState} isLastAssistantMessage={true} />)
     expect(screen.getByTestId('approval-batch-card')).toBeTruthy()
   })
 })
@@ -151,5 +138,22 @@ describe('Transcript', () => {
 
     expect(screen.getByText('Hello there')).toBeTruthy()
     expect(screen.getByTestId('user-bubble')).toBeTruthy()
+  })
+
+  it('reuses the cached build for a settled (non-last) message across a messages-array identity change', () => {
+    const messages: LooseMessage[] = [
+      { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: 'First answer.' }] },
+      { id: 'a2', role: 'assistant', parts: [{ type: 'text', text: 'Second answer.' }] },
+    ]
+    const { rerender } = render(<Transcript messages={messages} {...passthrough} isStreaming />)
+    expect(screen.getByText('First answer.')).toBeTruthy()
+    expect(screen.getByText('Second answer.')).toBeTruthy()
+
+    // New array reference, identical message objects/part counts — simulates
+    // the reference churn `useChat` produces on every streamed token.
+    const rechurned = [...messages]
+    rerender(<Transcript messages={rechurned} {...passthrough} isStreaming />)
+    expect(screen.getByText('First answer.')).toBeTruthy()
+    expect(screen.getByText('Second answer.')).toBeTruthy()
   })
 })

@@ -4,7 +4,7 @@ import * as React from "react"
 import { Bot, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { MarkdownContent } from "@/components/ui/markdown-content"
-import { buildTranscript, type LooseMessage, type TranscriptEvent } from "@/lib/agent-chat/events"
+import type { TranscriptEvent } from "@/lib/agent-chat/events"
 import { groupEvents, type ToolGroup } from "@/lib/agent-chat/group-events"
 import { ThinkingBlock } from "./events/thinking-block"
 import { ToolRow, ToolGroupRow } from "./events/tool-row"
@@ -15,12 +15,11 @@ import type { RunState } from "@/components/agent/chat/run-state"
 import type { DecisionMap } from "@/components/agent/chat/use-decisions"
 
 export interface AgentTurnProps {
-  message: LooseMessage
-  /** Only true for the last assistant message of the thread while a response streams in. */
-  isStreaming: boolean
-  toolVisibility: Map<string, string>
-  /** Live in-progress batch decisions (from useDecisions()) — feeds both
-   *  buildTranscript's rejected-tool detection and the interrupt cards below. */
+  /** Pre-built via buildTranscript(message, …) — Transcript owns that single,
+   *  memoized call (see transcript.tsx) so history isn't reparsed every render. */
+  events: TranscriptEvent[]
+  /** Live in-progress batch decisions (from useDecisions()) — feeds the
+   *  interrupt cards below. */
   decisions: DecisionMap
   /** Default expand state for process rows; a local per-turn override applies once toggled. */
   showWork: boolean
@@ -65,16 +64,14 @@ function renderOutputRow(row: Extract<TranscriptEvent, { kind: "answer" | "image
 
 /**
  * One assistant "turn": a single avatar, the transcript grammar rendered via
- * groupEvents(buildTranscript(...)), and (only for the last assistant message)
- * the Mission Control interrupt cards. Process rows (thinking/tool/tool-group/
- * memory) sit inside a left guide line and can be hidden behind a single
- * "Show work" toggle; the answer/image rows always render at full opacity
- * below the guide.
+ * groupEvents(events) — events are pre-built by Transcript, not here — and
+ * (only for the last assistant message) the Mission Control interrupt cards.
+ * Process rows (thinking/tool/tool-group/memory) sit inside a left guide line
+ * and can be hidden behind a single "Show work" toggle; the answer/image rows
+ * always render at full opacity below the guide.
  */
 export function AgentTurn({
-  message,
-  isStreaming,
-  toolVisibility,
+  events,
   decisions,
   showWork,
   runState,
@@ -87,20 +84,12 @@ export function AgentTurn({
   const [localExpanded, setLocalExpanded] = React.useState(false)
   const expanded = showWork || localExpanded
 
-  const decisionsForTranscript = React.useMemo(
-    () => new Map(Object.entries(decisions).map(([id, d]) => [id, { approved: d.approved, answer: d.answer }])),
-    [decisions]
-  )
-
-  const events = React.useMemo(
-    () => buildTranscript(message, { isStreaming, toolVisibility, decisions: decisionsForTranscript }),
-    [message, isStreaming, toolVisibility, decisionsForTranscript]
-  )
-
   const grouped = React.useMemo(() => groupEvents(events), [events])
 
   const processRows = grouped.filter((row) => !isOutputRow(row))
   const outputRows = grouped.filter(isOutputRow) as Array<Extract<TranscriptEvent, { kind: "answer" | "image" }>>
+  // Counted from the raw, pre-grouping events so a >=3-tool run collapsed into
+  // one ToolGroupRow still reports its true step count, not 1.
   const hiddenStepCount = events.filter((e) => e.kind !== "answer" && e.kind !== "image").length
 
   const showClarifications = isLastAssistantMessage && runState.pendingClarifications.length > 0
@@ -137,7 +126,7 @@ export function AgentTurn({
         )}
 
         {outputRows.length > 0 && (
-          <div className="space-y-2 opacity-100">
+          <div className="space-y-2">
             {outputRows.map(renderOutputRow)}
           </div>
         )}

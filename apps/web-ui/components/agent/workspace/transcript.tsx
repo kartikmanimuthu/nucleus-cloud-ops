@@ -133,6 +133,47 @@ export function Transcript({
     [decisions]
   )
 
+  // Per-message buildTranscript cache, keyed by message id + a cheap
+  // "has this message's content changed" fingerprint (part count). During
+  // streaming, `messages` gets a new array reference on every token, which
+  // would otherwise re-run buildTranscript (an O(parts) reduce) across the
+  // ENTIRE visible history on every tick. Non-last messages are settled —
+  // their part count stops growing once the run moves on — so they're safe
+  // to reuse verbatim; only the last (actively streaming) message always
+  // recomputes. Known edge case: a live decision resolving a pending tool
+  // call that happens to live on a NON-last message (rather than the latest
+  // one, where pending approvals/clarifications actually surface) won't
+  // invalidate the cache until that message's part count next changes — in
+  // practice this never happens, since pending decisions are always attached
+  // to the latest message.
+  const cacheRef = React.useRef(new Map<string, { partsLength: number; events: TranscriptEvent[]; durationMs: Map<string, number> }>())
+
+  React.useEffect(() => {
+    const liveIds = new Set(visible.map((m) => m.id))
+    for (const id of cacheRef.current.keys()) {
+      if (!liveIds.has(id)) cacheRef.current.delete(id)
+    }
+  }, [visible])
+
+  function getMessageTranscript(message: LooseMessage, isLastAssistantMessage: boolean) {
+    const partsLength = message.parts?.length ?? 0
+    const cached = cacheRef.current.get(message.id)
+    if (!isLastAssistantMessage && cached && cached.partsLength === partsLength) {
+      return cached
+    }
+
+    const messageIsStreaming = isLastAssistantMessage && isStreaming
+    const events = buildTranscript(message, {
+      isStreaming: messageIsStreaming,
+      toolVisibility,
+      decisions: decisionsForTranscript,
+    })
+    const durationMs = computeThinkingDurations(message, events)
+    const entry = { partsLength, events, durationMs }
+    cacheRef.current.set(message.id, entry)
+    return entry
+  }
+
   return (
     <div className="flex-1 overflow-y-auto" onScroll={handleScroll}>
       <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-4">
@@ -142,25 +183,12 @@ export function Transcript({
           }
 
           const isLastAssistantMessage = index === visible.length - 1
-          const messageIsStreaming = isLastAssistantMessage && isStreaming
-
-          // Built here (in addition to AgentTurn's own build) purely to derive
-          // best-effort thinking durations from this message's data-phase
-          // parts — AgentTurn remains the single source of truth for the
-          // rendered event list.
-          const events = buildTranscript(message, {
-            isStreaming: messageIsStreaming,
-            toolVisibility,
-            decisions: decisionsForTranscript,
-          })
-          const durationMs = computeThinkingDurations(message, events)
+          const { events, durationMs } = getMessageTranscript(message, isLastAssistantMessage)
 
           return (
             <AgentTurn
               key={message.id}
-              message={message}
-              isStreaming={messageIsStreaming}
-              toolVisibility={toolVisibility}
+              events={events}
               decisions={decisions}
               showWork={showWork}
               runState={runState}
