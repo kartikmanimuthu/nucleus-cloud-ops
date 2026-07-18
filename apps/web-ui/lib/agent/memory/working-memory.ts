@@ -1,7 +1,7 @@
 import type { BaseMessage } from '@langchain/core/messages';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { getRecentMessages } from '../agent-shared';
+import { getRecentMessages, contentToText } from '../agent-shared';
 import type { ReflectionState } from '../agent-shared';
 import type { Scratchpad, WorkingMemory } from './types';
 import { getMemoryService } from './memory-service';
@@ -44,7 +44,7 @@ export function estimateTokens(text: string): number {
 }
 
 function messageText(m: BaseMessage): string {
-    return typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+    return contentToText(m.content);
 }
 
 export function estimateMessagesTokens(messages: BaseMessage[]): number {
@@ -134,7 +134,7 @@ export async function foldWorkingMemory(
     let newSp: Partial<Scratchpad> = {};
     try {
         const resp = await reflectorModel.invoke([sys, input]);
-        const content = typeof resp.content === 'string' ? resp.content : JSON.stringify(resp.content);
+        const content = contentToText(resp.content);
         const match = content.match(/\{[\s\S]*\}/);
         if (match) {
             const parsed = JSON.parse(match[0]) as { summary?: string; scratchpad?: Partial<Scratchpad> };

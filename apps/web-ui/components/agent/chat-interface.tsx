@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -35,11 +36,14 @@ import {
   Wand2,
   FileText,
   ChevronDown,
+  HelpCircle,
   Clock,
   Database,
   BookOpen,
   Maximize2,
   Minimize2,
+  PanelRight,
+  PanelRightClose,
 } from "lucide-react";
 import {
   copyToClipboard,
@@ -120,6 +124,13 @@ import { UIAccount } from "@/lib/types";
 import { useProviderModels, defaultModelId } from "@/lib/queries/providers";
 import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
+import { useRunState } from "@/components/agent/chat/use-run-state";
+import { computeToolPartVisibility, isRejectedToolResult } from "@/components/agent/chat/run-state";
+import { useDecisions } from "@/components/agent/chat/use-decisions";
+import { ApprovalBatchCard } from "@/components/agent/chat/approval-batch-card";
+import { ClarificationCard } from "@/components/agent/chat/clarification-card";
+import { RunRail } from "@/components/agent/chat/run-rail";
+import { RunTimeline } from "@/components/agent/chat/run-timeline";
 
 // Phase types matching backend
 type AgentPhase =
@@ -276,6 +287,43 @@ function partImageUrl(part: any): string | undefined {
   return undefined;
 }
 
+// A "decision carrier" is the empty user message sent to resume a run when the
+// user decides a pending approval/clarification batch — the server acts on
+// `body.decisions` before reading the last message, so the message itself needs
+// no content. Hide it from the transcript so no empty user bubble lingers.
+function isEmptyDecisionCarrier(m: any): boolean {
+  if (m?.role !== "user") return false;
+  const parts: any[] = m.parts || [];
+  const hasText =
+    parts.some((p: any) => p.type === "text" && (p.text || "").trim().length > 0) ||
+    (typeof m.content === "string" && m.content.trim().length > 0);
+  const hasAttach =
+    (m.experimental_attachments?.length || 0) > 0 ||
+    parts.some((p: any) => typeof p.type === "string" && p.type.startsWith("file"));
+  return !hasText && !hasAttach;
+}
+
+// The AI SDK surfaces HTTP failures as Error(message) where message is usually
+// the raw response body — our API routes return `{"error":"..."}` — sometimes
+// with surrounding text. Extract the human-readable server error when present.
+function extractServerErrorMessage(error: unknown): string | null {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (!message.trim()) return null;
+  const jsonMatch = message.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed && typeof parsed.error === "string" && parsed.error.trim()) {
+        return parsed.error.trim();
+      }
+    } catch {
+      // Not JSON — fall through to the raw message.
+    }
+  }
+  return message.trim();
+}
+
 // Render a message whose `content` has no structured `parts` (legacy / history
 // rows). If content is a JSON-encoded array of parts, render its text and image
 // portions instead of dumping the raw JSON string as markdown text.
@@ -371,59 +419,104 @@ const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isAc
           </div>
         )}
         
-        {/* Render parts */}
-        {parts.length > 0 &&
-          parts.map((part: any, index: number) => {
-            // Text part
-            if (part.type === "text") {
-              const text = part.text || "";
-              if (!text.trim()) return null;
-              // While the last part of the last message is actively streaming, skip the
-              // expensive ReactMarkdown + remarkGfm AST parse on every delta. Render as
-              // plain pre instead — markdown kicks in automatically on the next render
-              // after the stream ends and isActivelyStreaming becomes false.
-              const isLastPart = index === parts.length - 1;
-              const skipMarkdown = isLastMessage && isActivelyStreaming && isLastPart;
-              return (
-                <div key={`${message.id}-part-${index}`}>
-                  {skipMarkdown ? (
-                    <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-sans break-words m-0 p-0 bg-transparent border-none">
-                      {text}
-                    </pre>
-                  ) : (
-                    <MarkdownContent content={text} />
-                  )}
-                </div>
-              );
-            }
+        {/* Render parts.
+            Mission Control: assistant messages with structured "work" parts
+            (reasoning phases + tool calls) render those inside a threaded
+            RunTimeline, with any text parts shown full-width as the answer
+            below. Pure-text assistant messages, user messages, and legacy rows
+            fall through to the flat loop below (which also drops data-* parts). */}
+        {(() => {
+          const workParts = parts.filter(
+            (p: any) =>
+              p.type === "reasoning" ||
+              p.type?.startsWith?.("tool-") ||
+              (p.toolCallId && p.type !== "text"),
+          );
+          const textParts = parts.filter((p: any) => p.type === "text");
 
-            // Reasoning part (contains phase markers)
-            if (part.type === "reasoning") {
-              const { phase, cleanContent } = parsePhaseFromContent(
-                part.text || "",
-              );
-              const isLastReasoningPart = index === parts.map(p => p.type).lastIndexOf("reasoning");
-              const isActivePhase = isLastMessage && isActivelyStreaming && isLastReasoningPart;
-              return renderPhaseBlock(
-                phase,
-                cleanContent,
-                `${message.id}-part-${index}`,
-                isActivePhase,
-              );
-            }
+          const renderTextPart = (part: any, index: number, total: number) => {
+            const text = part.text || "";
+            if (!text.trim()) return null;
+            // While the last text part of the last message is actively streaming,
+            // skip the expensive ReactMarkdown + remarkGfm AST parse on every
+            // delta. Render as plain pre instead — markdown kicks in automatically
+            // once the stream ends and isActivelyStreaming becomes false.
+            const isLastPart = index === total - 1;
+            const skipMarkdown = isLastMessage && isActivelyStreaming && isLastPart;
+            return (
+              <div key={`${message.id}-text-${index}`}>
+                {skipMarkdown ? (
+                  <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-sans break-words m-0 p-0 bg-transparent border-none">
+                    {text}
+                  </pre>
+                ) : (
+                  <MarkdownContent content={text} />
+                )}
+              </div>
+            );
+          };
 
-            // Tool invocation
-            if (part.type === "tool-invocation" || part.toolCallId) {
-              return renderToolInvocation(part, message.id, index);
-            }
+          // Assistant message with work → threaded timeline + full-width answer.
+          if (!isUser && workParts.length > 0) {
+            return (
+              <>
+                <RunTimeline
+                  parts={workParts}
+                  messageId={message.id}
+                  isActivelyStreaming={!!isLastMessage && !!isActivelyStreaming}
+                  // parsePhaseFromContent narrows to AgentPhase; RunTimeline hands
+                  // back the widened string, so cast the phase-block renderer.
+                  renderPhaseBlock={renderPhaseBlock as (phase: string, content: string, key: string, isActive?: boolean) => React.ReactNode}
+                  renderToolInvocation={renderToolInvocation}
+                  parsePhase={parsePhaseFromContent}
+                />
+                {textParts.map((part: any, index: number) =>
+                  renderTextPart(part, index, textParts.length),
+                )}
+              </>
+            );
+          }
 
-            return null;
-          })}
+          // Fallback: flat loop (user messages, pure-text assistant, legacy).
+          return (
+            <>
+              {parts.length > 0 &&
+                parts.map((part: any, index: number) => {
+                  // Text part
+                  if (part.type === "text") {
+                    return renderTextPart(part, index, parts.length);
+                  }
 
-        {/* Fallback for simple content (legacy / history rows without parts) */}
-        {parts.length === 0 && message.content && (
-          <MessageContentFallback content={message.content} />
-        )}
+                  // Reasoning part (contains phase markers)
+                  if (part.type === "reasoning") {
+                    const { phase, cleanContent } = parsePhaseFromContent(
+                      part.text || "",
+                    );
+                    const isLastReasoningPart = index === parts.map((p: any) => p.type).lastIndexOf("reasoning");
+                    const isActivePhase = isLastMessage && isActivelyStreaming && isLastReasoningPart;
+                    return renderPhaseBlock(
+                      phase,
+                      cleanContent,
+                      `${message.id}-part-${index}`,
+                      isActivePhase,
+                    );
+                  }
+
+                  // Tool invocation
+                  if (part.type === "tool-invocation" || part.toolCallId) {
+                    return renderToolInvocation(part, message.id, index);
+                  }
+
+                  return null;
+                })}
+
+              {/* Fallback for simple content (legacy / history rows without parts) */}
+              {parts.length === 0 && message.content && (
+                <MessageContentFallback content={message.content} />
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {/* User Avatar */}
@@ -437,6 +530,10 @@ const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isAc
     </div>
   );
 });
+
+// localStorage key for the right run-rail open/closed preference — persists
+// across sessions (shared by all threads).
+const RAIL_OPEN_STORAGE_KEY = "aiops-rail-open";
 
 // Tool outputs from AWS CLI can exceed 50 KB (describe-instances, list-web-acls, etc.).
 // Rendering the full string in the DOM for 30-50 tool calls causes the browser to freeze.
@@ -539,6 +636,32 @@ export function ChatInterface({
   // Configuration state (before conversation starts)
   const [autoApprove, setAutoApprove] = useState(true);
   const [showTools, setShowTools] = useState(false);
+
+  // Right run-rail visibility (lg+ only — below lg the rail is always hidden
+  // and the compact header strip covers it). Initialized true and synced from
+  // localStorage in an effect — no existing lazy-initializer pattern in the
+  // codebase, and reading window in the initializer risks an SSR hydration
+  // mismatch in this "use client" file.
+  const [railOpen, setRailOpen] = useState(true);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(RAIL_OPEN_STORAGE_KEY);
+      if (stored !== null) setRailOpen(stored !== "false");
+    } catch {
+      // localStorage unavailable (private mode / disabled) — keep default.
+    }
+  }, []);
+  const toggleRail = useCallback(() => {
+    setRailOpen((open) => {
+      const next = !open;
+      try {
+        window.localStorage.setItem(RAIL_OPEN_STORAGE_KEY, String(next));
+      } catch {
+        // Preference simply won't persist.
+      }
+      return next;
+    });
+  }, []);
   const [selectedModel, setSelectedModel] = useState("");
   // Models are sourced ONLY from tenant-configured providers (shared TanStack
   // Query hook — no hardcoded Bedrock baseline). Preselect the default provider's
@@ -556,12 +679,22 @@ export function ChatInterface({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [wasStopped, setWasStopped] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
+  // LEGACY: pre-data-part threads only — new runs render the plan rail (T5) from
+  // typed data parts, not by parsing text content here.
   const planStepCacheRef = useRef(new Map<string, string[]>());
   // rAF handle for debounced auto-scroll — cancelled if a new message arrives before the frame fires.
   const scrollRafRef = useRef<number | null>(null);
   // Set once the user sends a message so a slow history fetch can't clobber the
   // optimistic conversation with a stale (or empty) server snapshot.
   const skipHistoryRef = useRef(false);
+  // ai@7.0.22's Chat.makeRequest catches HTTP errors internally, routes them to
+  // `onError` below, and RESOLVES the sendMessage promise — it never rejects.
+  // submitDecisions can't rely on try/catch to detect a failed resume; it reads
+  // this flag (set in onError, cleared right before each sendMessage call).
+  const submitErrorRef = useRef(false);
+  // Human-readable server error extracted in onError (e.g. the 400/409 body's
+  // `error` string) — used as the decision-submit failure toast description.
+  const submitErrorMessageRef = useRef<string | null>(null);
 
   // Scroll control state - track if user has manually scrolled up
   const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
@@ -693,34 +826,32 @@ export function ChatInterface({
   const { messages, sendMessage, status, error, reload, setMessages, addToolResult, stop, regenerate } =
     useChat({
       id: threadId,
-      api: "/api/chat",
       // Batch micro-delta SSE chunks into 50ms windows, reducing ~4000+ renders → ~80-100.
       // Without this, every 1-8 byte token fires a full React reconciliation cycle.
       experimental_throttle: 500,
-      maxSteps: 10,
-      body: {
-        threadId,
-        autoApprove,
-        model: selectedModel,
-        mode: agentMode,
-        accounts:
-          selectedAccounts.length > 0
-            ? selectedAccounts.map((a) => ({
-                accountId: a.accountId,
-                accountName: a.name,
-              }))
-            : undefined,
-        selectedSkill: selectedSkill || undefined,
-        mcpServerIds:
-          selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
-        knowledgeBaseIds:
-          selectedKbIds.length > 0 ? selectedKbIds : undefined,
-      },
-      onResponse: (response: Response) => {
-        console.log("[ChatInterface] Received response headers:", response);
-      },
-      onFinish: (message: any, options: any) => {
-        console.log("[ChatInterface] Chat finished. Final message:", message);
+      transport: new DefaultChatTransport({
+        api: "/api/chat",
+        body: {
+          threadId,
+          autoApprove,
+          model: selectedModel,
+          mode: agentMode,
+          accounts:
+            selectedAccounts.length > 0
+              ? selectedAccounts.map((a) => ({
+                  accountId: a.accountId,
+                  accountName: a.name,
+                }))
+              : undefined,
+          selectedSkill: selectedSkill || undefined,
+          mcpServerIds:
+            selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+          knowledgeBaseIds:
+            selectedKbIds.length > 0 ? selectedKbIds : undefined,
+        },
+      }),
+      onFinish: (options) => {
+        console.log("[ChatInterface] Chat finished. Final message:", options.message);
         console.log("[ChatInterface] Usage/Options:", options);
       },
       onError: (error) => {
@@ -729,10 +860,156 @@ export function ChatInterface({
         if (error?.message?.includes("409") || (error as any)?.status === 409) {
           console.warn("[ChatInterface] Thread is already processing — duplicate request blocked.");
         }
+        // The SDK swallows HTTP errors here and resolves sendMessage — this flag
+        // is the only way submitDecisions can observe that its resume failed.
+        // Keep the actual server error text so the failure toast can say WHY.
+        submitErrorRef.current = true;
+        submitErrorMessageRef.current = extractServerErrorMessage(error);
       },
     }) as any;
 
   const isLoading = status === 'submitted' || status === 'streaming';
+
+  // ── Mission Control run state ──────────────────────────────────────────────
+  // Restored pending-interrupt parts from a reload are appended as a synthetic
+  // assistant message so deriveRunState sees them like live stream parts.
+  const [restoredParts, setRestoredParts] = useState<any[]>([]);
+  const runMessages = useMemo(
+    () =>
+      restoredParts.length > 0
+        ? [...messages, { role: "assistant", parts: restoredParts, id: "restored-interrupt" }]
+        : messages,
+    [messages, restoredParts],
+  );
+
+  // Tool calls the user has decided on via the batch/clarification cards,
+  // toolCallId → { approved, answer? }. A decided-but-resultless part must
+  // render its decision (approved/rejected), never the legacy inline pending
+  // card and never the interrupted-error state — this covers the window before
+  // the resume stream starts and the failure case where the resume never
+  // starts. The answer text is retained so clarification cards can show the
+  // recorded answer.
+  const [decidedToolCalls, setDecidedToolCalls] = useState<
+    Map<string, { approved: boolean; answer?: string }>
+  >(new Map());
+
+  // Resume a run by submitting the decided approval/clarification batch.
+  // CARRIER MESSAGE: the /api/chat resume path branches on `body.decisions`
+  // BEFORE reading the last message, so the message itself carries no content.
+  // v7 `sendMessage` accepts an empty-content message (verified in the SDK
+  // source: a plain {role,content} object with no `text`/`files` key is pushed
+  // verbatim, no rejection), so we send `content: ""` and hide the resulting
+  // empty user bubble in rendering via isEmptyDecisionCarrier().
+  const submitDecisions = useCallback(
+    async (
+      decisionBatch: Array<{ toolCallId: string; approved: boolean; reason?: string; answer?: string }>,
+    ) => {
+      // ai@7.0.22's Chat.makeRequest catches HTTP errors internally and routes
+      // them to the `onError` callback above BEFORE this promise settles — it
+      // never rejects on an HTTP error, so a try/catch here would be dead code.
+      // Detect failure via the flag instead (reset just before the call, read
+      // right after `await` since `onError` fires synchronously within it).
+      // Record every decision so the timeline's tool cards render the outcome
+      // immediately (and never resurrect a pending/interrupted state).
+      setDecidedToolCalls((prev) => {
+        const next = new Map(prev);
+        for (const d of decisionBatch) next.set(d.toolCallId, { approved: d.approved, answer: d.answer });
+        return next;
+      });
+      submitErrorRef.current = false;
+      submitErrorMessageRef.current = null;
+      await sendMessage(
+        { role: "user", content: "" } as any, // carrier; server acts on body.decisions
+        {
+          body: {
+            threadId,
+            autoApprove,
+            model: selectedModel,
+            mode: agentMode,
+            decisions: decisionBatch,
+            accounts:
+              selectedAccounts.length > 0
+                ? selectedAccounts.map((a) => ({ accountId: a.accountId, accountName: a.name }))
+                : undefined,
+            selectedSkill: selectedSkill || undefined,
+            mcpServerIds:
+              selectedMcpServerIds.length > 0 ? selectedMcpServerIds : undefined,
+            knowledgeBaseIds:
+              selectedKbIds.length > 0 ? selectedKbIds : undefined,
+          },
+        },
+      );
+      if (submitErrorRef.current) {
+        // The SDK swallows HTTP errors into onError and resolves sendMessage,
+        // so failure is only observable via this flag (set in onError above).
+        // Prefer the actual server error (e.g. "Undecided tool call(s): …",
+        // "Thread is already processing…") over the generic copy.
+        toast.error("Couldn't submit your decisions", {
+          description:
+            submitErrorMessageRef.current || "The run may be busy — try again.",
+        });
+        // Roll back the recorded decisions — decidedToolCalls feeds the
+        // pending-state derivation, so leaving them in would drop the batch
+        // from the cards and make retry impossible.
+        setDecidedToolCalls((prev) => {
+          const next = new Map(prev);
+          for (const d of decisionBatch) next.delete(d.toolCallId);
+          return next;
+        });
+        decisionsResetRef.current?.();
+      } else {
+        // Only clear the restored card once the submission actually succeeded —
+        // clearing it eagerly meant a failed submit left no way to retry.
+        setRestoredParts([]);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sendMessage, threadId, autoApprove, selectedModel, agentMode, selectedAccounts, selectedSkill, selectedMcpServerIds, selectedKbIds],
+  );
+
+  // Pending ids = approval tools + clarifications; derive in two passes so
+  // useDecisions' resolved ids feed back into the displayed pending state.
+  // Both passes exclude ids whose decision was already SUBMITTED (recorded in
+  // decidedToolCalls at submit time), so a decided tool from a previous batch
+  // can never resurrect after a reload or stream race. In-progress decisions
+  // of the LIVE batch are NOT in decidedToolCalls yet, so the first pass still
+  // lists them as pending — preserving the old EMPTY_RESOLVED behavior for the
+  // current batch (the approval card keeps showing undecided tools).
+  const decidedIdSet = useMemo(
+    () => new Set(decidedToolCalls.keys()),
+    [decidedToolCalls],
+  );
+  const runStateRaw = useRunState(runMessages, decidedIdSet);
+  const pendingIds = useMemo(
+    () => [
+      ...(runStateRaw.pendingApproval?.tools.map((t) => t.toolCallId) ?? []),
+      ...runStateRaw.pendingClarifications.map((c) => c.toolCallId),
+    ],
+    [runStateRaw.pendingApproval, runStateRaw.pendingClarifications],
+  );
+  const { decisions, decide, decideRemaining, resolvedIds, reset: resetDecisions } = useDecisions({
+    pendingToolCallIds: pendingIds,
+    onComplete: submitDecisions,
+  });
+  // submitDecisions is defined above useDecisions but needs to call reset() on
+  // failure — a ref sidesteps the circular dependency without reordering hooks.
+  const decisionsResetRef = useRef<(() => void) | null>(null);
+  decisionsResetRef.current = resetDecisions;
+  const mergedResolvedIds = useMemo(() => {
+    if (decidedIdSet.size === 0) return resolvedIds;
+    const merged = new Set(resolvedIds);
+    for (const id of decidedIdSet) merged.add(id);
+    return merged;
+  }, [resolvedIds, decidedIdSet]);
+  const runState = useRunState(runMessages, mergedResolvedIds);
+
+  // Cross-message tool-card dedupe: after an approval resume the server re-emits
+  // tool parts under their original tool_call_ids in a NEW assistant message.
+  // Per toolCallId only the winning part (last with output, else last overall)
+  // renders; renderToolInvocation suppresses the rest. Keyed off the live
+  // messages array — renderToolInvocation's identity changes with this map and
+  // is a MessageRow prop, so suppressed rows re-render.
+  const toolPartVisibility = useMemo(() => computeToolPartVisibility(messages), [messages]);
 
   // Use refs so the effects below only re-run when status/messages change,
   // not when the parent re-renders and passes new inline function references.
@@ -798,6 +1075,7 @@ export function ChatInterface({
         threadId,
       );
       setIsLoadingHistory(true);
+      setRestoredParts([]);
 
       try {
         const historyUrl = ownerUserId
@@ -820,6 +1098,27 @@ export function ChatInterface({
             setHasStarted(true);
           } else {
             console.log("[ChatInterface] No history found for thread");
+          }
+
+          // Mission Control: restore live run-state from the history response so
+          // a reload mid-run shows the plan / parked approval card again.
+          if (data.pendingInterrupt?.parts?.length) {
+            console.log(
+              "[ChatInterface] Restoring parked interrupt:",
+              data.pendingInterrupt.parts.length,
+              "part(s)",
+            );
+            // A parked plan-mode run carries BOTH a plan and a pending interrupt —
+            // prepend the plan part so the plan rail survives the reload, not just
+            // the approval/clarification card.
+            setRestoredParts([
+              ...(data.plan?.length ? [{ type: "data-plan", data: { steps: data.plan, updatedBy: "history" } }] : []),
+              ...data.pendingInterrupt.parts,
+            ]);
+            setHasStarted(true);
+          } else if (data.plan?.length) {
+            // Reloaded threads carry the final plan even without live data-plan parts.
+            setRestoredParts([{ type: "data-plan", data: { steps: data.plan, updatedBy: "history" } }]);
           }
         } else {
           console.warn("[ChatInterface] Failed to fetch history:", res.status);
@@ -959,6 +1258,7 @@ export function ChatInterface({
     setAttachments([]);
     setHasStarted(true);
     setWasStopped(false);
+    setRestoredParts([]); // Stale restored run-state must not override the new run ("last part wins").
     setUserHasScrolledUp(false); // Reset scroll state on new message
     // A send has taken over this thread — an in-flight history load must not
     // overwrite the optimistic user message / streamed response.
@@ -1005,6 +1305,10 @@ export function ChatInterface({
   };
 
   // Handle tool approval - makes explicit API call to resume LangGraph execution
+  // LEGACY resume contract: only reachable via the inline per-tool Confirmation
+  // below, which itself only renders when a pending tool call isn't owned by the
+  // batch/clarification cards (i.e. old parked threads without typed data parts).
+  // Current runs resolve approvals through `decide` (batch decision, T2/T7).
   const handleToolApproval = async (
     toolCallId: string,
     approved: boolean,
@@ -1013,6 +1317,7 @@ export function ChatInterface({
     console.log(
       `[ChatInterface] Tool ${approved ? "approved" : "rejected"}: ${toolCallId}`,
     );
+    setRestoredParts([]); // Stale restored run-state must not override the new run ("last part wins").
 
     // First, update local state via addToolResult (for UI feedback).
     // AI SDK v5 expects { tool, toolCallId, output } — passing the legacy
@@ -1052,6 +1357,13 @@ export function ChatInterface({
     );
   };
 
+  // When the thread has a typed data-plan, the right rail (RunRail) is the
+  // single source of truth for the plan — the transcript's planning block
+  // renders only a slim marker instead of the full (duplicate) Plan card.
+  // Legacy threads (no data-plan) keep the text-parsed Plan card.
+  const typedPlanStepCount = runState.plan.length;
+  const hasTypedPlan = typedPlanStepCount > 0;
+
   // Render a phase block
   const renderPhaseBlock = useCallback((
     phase: AgentPhase,
@@ -1073,6 +1385,8 @@ export function ChatInterface({
 
     // Parse plan steps from content - handle multiple formats
     // Use cache to avoid re-parsing identical content on every render
+    // LEGACY: pre-data-part threads only — text-parsed plan steps, superseded by
+    // the typed `plan` data part (T5 live plan rail) for current runs.
     let planSteps: string[] = [];
 
     if (phase === "planning") {
@@ -1119,6 +1433,34 @@ export function ChatInterface({
 
         planStepCacheRef.current.set(cacheKey, planSteps);
       }
+    }
+
+    // Typed data-plan present → the rail owns the plan. Render only a slim
+    // planning marker (label bar + one muted line) instead of the full Plan
+    // card, so the plan isn't duplicated in the transcript. The parse/cache
+    // above still runs — only the render is gated.
+    if (phase === "planning" && hasTypedPlan) {
+      return (
+        <div key={key} className="w-full mb-2">
+          <div
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 text-xs font-semibold border-l-4 rounded-r-md",
+              config.borderColor,
+              config.bgColor,
+              config.textColor,
+            )}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {config.label}
+            {isActivePhase && (
+              <Loader2 className="w-3 h-3 animate-spin ml-auto" />
+            )}
+          </div>
+          <p className="mt-1.5 px-3 text-xs text-muted-foreground">
+            Execution plan created — {typedPlanStepCount} step{typedPlanStepCount === 1 ? "" : "s"} (tracked in the panel on the right)
+          </p>
+        </div>
+      );
     }
 
     // Use Plan component for planning phase with steps
@@ -1244,7 +1586,7 @@ export function ChatInterface({
       </div>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading]);
+  }, [isLoading, hasTypedPlan, typedPlanStepCount]);
 
   // Render tool invocation using enhanced Tool component
   const renderToolInvocation = useCallback((
@@ -1267,37 +1609,116 @@ export function ChatInterface({
     const result = part.result || part.output;
     const state = part.state;
 
+    // Cross-message dedupe: after an approval resume the same toolCallId exists
+    // in two messages (pre-pause input-only twin + resumed part with output).
+    // Only the winning part renders. Parts without a toolCallId never suppress.
+    if (part.toolCallId) {
+      const winnerMessageId = toolPartVisibility.get(part.toolCallId);
+      if (winnerMessageId !== undefined && winnerMessageId !== messageId) {
+        return null;
+      }
+    }
+
+    // ask_user never renders the generic Tool card. While pending, the
+    // ClarificationCard owns the UI entirely — suppress the raw invocation
+    // (the timeline skips the spine dot on null). Once answered/declined
+    // (output present, incl. after reload — or decided locally before the
+    // resume stream lands), render a compact Q&A card consistent with the
+    // clarification-card styling.
+    if (rawToolName === "ask_user") {
+      const askDecision = part.toolCallId
+        ? decidedToolCalls.get(part.toolCallId)
+        : undefined;
+      const answerText =
+        result != null
+          ? typeof result === "string"
+            ? result
+            : JSON.stringify(result)
+          : askDecision !== undefined
+            ? askDecision.answer ?? "Declined to answer."
+            : undefined;
+      if (answerText === undefined) return null;
+      const question =
+        typeof args?.question === "string" ? args.question : "";
+      return (
+        <div
+          key={part.toolCallId || `${messageId}-tool-${index}`}
+          className="mt-2 overflow-hidden rounded-lg border border-blue-500/30 bg-background shadow-sm"
+        >
+          <div className="flex items-center gap-2 border-b border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400">
+            <HelpCircle className="h-3.5 w-3.5" />
+            Clarification
+          </div>
+          <div className="space-y-1 px-3 py-2 text-xs min-w-0">
+            {question && <p className="font-medium break-words">{question}</p>}
+            <p className="text-muted-foreground break-words">{answerText}</p>
+          </div>
+        </div>
+      );
+    }
+
     const isCall = state === "call" || !result;
-    // Show approval UI only when: not auto-approve AND tool is in "call" state without result
-    const isPending = !autoApprove && isCall && !result && !isLoading;
+    // Mission Control owns approval/clarification for tool calls in the current
+    // pending batch — suppress the legacy inline Confirmation for those so the
+    // decision lives only in the batch/clarification card (avoids double UI).
+    const ownedByBatch =
+      runState.pendingApproval?.tools.some((t) => t.toolCallId === part.toolCallId) ||
+      runState.pendingClarifications.some((c) => c.toolCallId === part.toolCallId);
+    // Decision already made via the batch/clarification cards for this call?
+    const decision = part.toolCallId ? decidedToolCalls.get(part.toolCallId) : undefined;
+    const isDecided = decision !== undefined;
+    // Owned by the batch and awaiting the user's decision — render an awaiting
+    // state (never error) and point at the decision card below.
+    const isAwaitingDecision = !!ownedByBatch && !result;
+    // Legacy inline approval UI: only for pre-Mission-Control threads (no
+    // data-approval part ever seen) — otherwise the batch card owns decisions.
+    const isPending =
+      !runState.hasApprovalData && !ownedByBatch && !isDecided &&
+      !autoApprove && isCall && !result && !isLoading;
 
     const hasRealResult =
       !!result && result !== "Approved" && result !== "Cancelled by user";
 
+    // Rejected by the user — either decided locally via the batch card, or the
+    // server's synthetic "Rejected by user…" tool result (post-resume/reload).
+    // Takes precedence over "complete": a rejected tool must never render the
+    // green success badge just because it carries (synthetic) output.
+    const isRejected = isRejectedToolResult(result, decision);
+
     // A tool part with no result that is no longer streaming and is not awaiting
-    // approval means the run was aborted mid-tool. Surface a terminal state
-    // instead of a perpetual "pending" that never resolves (even after reload).
-    const isInterrupted = isCall && !result && !isLoading && !isPending;
+    // approval (nor already decided via a batch card) means the run was aborted
+    // mid-tool. Surface a terminal state instead of a perpetual "pending" that
+    // never resolves (even after reload).
+    const isInterrupted =
+      isCall && !result && !isLoading && !isPending && !ownedByBatch && !isDecided;
 
-    // Determine tool state for new component
+    // Determine tool state for new component ('rejected' wins over 'complete')
     const toolState =
-      hasRealResult
-        ? "complete"
-        : isLoading && isCall && !result
-          ? "running"
-          : isInterrupted
-            ? "error"
-            : "pending";
+      isRejected
+        ? "rejected"
+        : hasRealResult
+          ? "complete"
+          : isLoading && isCall && !result
+            ? "running"
+            : isInterrupted
+              ? "error"
+              : "pending";
 
-    // Determine approval state for Confirmation component
+    // Determine approval state for Confirmation component. Batch-card decisions
+    // (decidedToolCalls) surface here for result-less parts so the outcome is
+    // visible even before the resume stream starts (or if it never does).
     const approvalState =
       result === "Approved"
         ? "approved"
-        : result === "Cancelled by user"
+        : result === "Cancelled by user" || isRejected
           ? "rejected"
-          : isPending
-            ? "pending"
-            : undefined;
+          : isDecided && !result
+            ? decision?.approved
+              ? "approved"
+              : "rejected"
+            : isPending
+              ? "pending"
+              : undefined;
 
     return (
       <Tool
@@ -1359,10 +1780,23 @@ export function ChatInterface({
           )}
 
           {/* Output with loading state — truncated to TOOL_OUTPUT_TRUNCATE_BYTES if large.
+              Awaiting a batch decision → point at the approval card (never an error).
               If the run was aborted mid-tool, show a terminal interrupted note. */}
-          {isInterrupted ? (
+          {isAwaitingDecision ? (
+            <div className="px-3 py-2 text-xs italic text-muted-foreground">
+              Awaiting your decision in the approval card below.
+            </div>
+          ) : isInterrupted ? (
             <ToolOutput
               errorText="Execution interrupted — the run was stopped before this tool returned a result."
+              label="Output"
+            />
+          ) : isRejected && hasRealResult ? (
+            // Rejection output must not read as a normal successful result —
+            // route the synthetic "Rejected by user…" text through ToolOutput's
+            // destructive errorText path.
+            <ToolOutput
+              errorText={typeof result === "string" ? result : JSON.stringify(result)}
               label="Output"
             />
           ) : (
@@ -1376,7 +1810,7 @@ export function ChatInterface({
       </Tool>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoApprove, isLoading, handleToolApproval, showTools]);
+  }, [autoApprove, isLoading, handleToolApproval, showTools, runState, decidedToolCalls, toolPartVisibility]);
 
   // Sample prompts
   const samplePrompts = [
@@ -1387,7 +1821,9 @@ export function ChatInterface({
 
   return (
     <>
-    <div className="relative flex flex-col h-full w-full overflow-hidden bg-background max-w-[95%] mx-auto border rounded-xl shadow-lg">
+    <div className="relative flex h-full w-full overflow-hidden bg-background max-w-[95%] mx-auto border rounded-xl shadow-lg">
+      {/* Left: conversation column (header + messages + composer) */}
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
       {distillSkill.isPending && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-xl">
           <SpinnerOverlay label="Generating skill..." />
@@ -1421,12 +1857,38 @@ export function ChatInterface({
           </p>
         </div>
 
+        {/* Compact status strip — mobile only; the full rail is hidden below lg */}
+        <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground lg:hidden">
+          {runState.plan.length > 0 && (
+            <span>
+              plan {runState.plan.filter((s) => s.status === "completed").length}/
+              {runState.plan.length}
+            </span>
+          )}
+          {runState.pendingApproval && (
+            <span className="text-amber-600">⚠ {runState.pendingApproval.tools.length}</span>
+          )}
+        </div>
+
+        {/* Run-rail toggle — lg+ only (the rail itself is hidden below lg, the
+            compact strip above covers mobile). Carries lg:ml-auto so the header
+            actions stay right-aligned when the mobile strip is hidden. */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleRail}
+          className="hidden h-8 w-8 shrink-0 lg:ml-auto lg:inline-flex"
+          title={railOpen ? "Hide run panel" : "Show run panel"}
+        >
+          {railOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
+        </Button>
+
         {onToggleFullscreen && (
           <Button
             variant="ghost"
             size="icon"
             onClick={onToggleFullscreen}
-            className="ml-auto h-8 w-8 shrink-0"
+            className="h-8 w-8 shrink-0"
             title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
           >
             {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -1435,8 +1897,20 @@ export function ChatInterface({
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4" onScrollCapture={handleScroll}>
-        <div id={`chat-messages-container-${threadId}`} data-testid="chat-messages-container" className="space-y-4">
+      {/* Radix ScrollArea wraps children in an inline-styled `display: table;
+          min-width: 100%` div, which sizes to max-content — a wide tool INPUT
+          JSON or phase paragraph forces intrinsic width up the chain, giving
+          the column a horizontal scrollbar and clipping content at the right
+          edge instead of wrapping. Force that wrapper back to block (so normal
+          width constraints + break-words apply) and hard-hide horizontal
+          overflow on the viewport so a stray wide element can never produce a
+          column-level horizontal scrollbar. Markdown tables still scroll in
+          their own overflow-x-auto wrapper. */}
+      <ScrollArea
+        className="flex-1 p-4 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden [&_[data-radix-scroll-area-viewport]>div]:!block"
+        onScrollCapture={handleScroll}
+      >
+        <div id={`chat-messages-container-${threadId}`} data-testid="chat-messages-container" className="space-y-4 min-w-0">
           {/* Loading history indicator */}
           {isLoadingHistory && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -1472,17 +1946,45 @@ export function ChatInterface({
             </div>
           )}
 
-          {/* Render messages */}
-          {messages.map((message: any, msgIndex: number) => (
-            <MessageRow
-              key={message.id}
-              message={message}
-              isLastMessage={msgIndex === messages.length - 1}
-              isActivelyStreaming={isLoading}
-              renderPhaseBlock={renderPhaseBlock}
-              renderToolInvocation={renderToolInvocation}
+          {/* Render messages — empty decision-carrier messages are hidden */}
+          {(() => {
+            const rendered = messages.filter((m: any) => !isEmptyDecisionCarrier(m));
+            return rendered.map((message: any, msgIndex: number) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                isLastMessage={msgIndex === rendered.length - 1}
+                isActivelyStreaming={isLoading}
+                renderPhaseBlock={renderPhaseBlock}
+                renderToolInvocation={renderToolInvocation}
+              />
+            ));
+          })()}
+
+          {/* Mission Control decision cards — clarifications first, then the
+              approval batch. These own the resume decision for their tool calls
+              (the inline legacy Confirmation is suppressed for them). */}
+          {runState.pendingClarifications.map((c) => (
+            <ClarificationCard
+              key={c.toolCallId}
+              clarification={c}
+              // Recorded answer: in-progress batch decision first (recorded by
+              // decide() before the batch completes), then the submitted map.
+              decidedAnswer={
+                decisions[c.toolCallId]?.answer ??
+                decidedToolCalls.get(c.toolCallId)?.answer
+              }
+              onAnswer={(id, answer) => decide(id, { approved: true, answer })}
             />
           ))}
+          {runState.pendingApproval && (
+            <ApprovalBatchCard
+              tools={runState.pendingApproval.tools}
+              decisions={decisions}
+              onDecide={decide}
+              onDecideRemaining={decideRemaining}
+            />
+          )}
 
           {/* Loading indicator — shown for the full agent execution lifecycle */}
           {isLoading && (
@@ -2292,8 +2794,9 @@ export function ChatInterface({
                 <Label
                   htmlFor="auto-approve-chat"
                   className="text-xs font-medium cursor-pointer text-muted-foreground select-none"
+                  title="Read-only tools run without asking. Destructive actions always pause for approval."
                 >
-                  Auto-approve tools
+                  Auto-approve read-only tools
                 </Label>
               </div>
 
@@ -2360,6 +2863,34 @@ export function ChatInterface({
             </div>
           </div>
         </form>
+      </div>
+      </div>
+
+      {/* Right: run rail — hidden below lg; collapsible drawer at lg+ (header
+          PanelRight toggle). Width animates to 0 when closed; the fixed-width
+          inner wrapper keeps the rail content from reflowing mid-transition. */}
+      <div
+        className={cn(
+          "hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out lg:block",
+          railOpen ? "w-72 xl:w-80" : "w-0",
+        )}
+      >
+        <div className="h-full w-72 xl:w-80">
+        <RunRail
+          runState={runState}
+          isStreaming={isLoading}
+          context={{
+            accountNames: selectedAccounts.map((a) => a.name),
+            modelLabel: availableModels.find((m) => m.id === selectedModel)?.label ?? selectedModel,
+            skillName: availableSkills.find((s) => s.id === selectedSkill)?.name ?? null,
+            toolCount: null,
+            kbLabel:
+              selectedKbIds.length > 0
+                ? `Knowledge: ${selectedKbIds.length} selected`
+                : "Knowledge: All (auto)",
+          }}
+        />
+        </div>
       </div>
     </div>
     <SkillFormDialog

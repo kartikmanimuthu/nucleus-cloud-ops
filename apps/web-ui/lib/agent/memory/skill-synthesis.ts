@@ -12,6 +12,7 @@
 
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { contentToText } from '../agent-shared';
 import { getPrismaClient } from '@/lib/db/pg-config';
 import { getSkillRepository } from '@/lib/db/repository-factory';
 import { getMemoryService } from './memory-service';
@@ -176,7 +177,7 @@ export async function synthesizeDomainSkills(params: {
         );
 
         const resp = await params.distillerModel.invoke([DISTILLER_SYSTEM, input]);
-        const content = typeof resp.content === 'string' ? resp.content : JSON.stringify(resp.content);
+        const content = contentToText(resp.content);
         const match = content.match(/\{[\s\S]*\}/);
         if (!match) {
             console.warn(`🎯 [SKILL-SYNTH] Distiller returned no JSON for '${domain}' — will retry next run`);

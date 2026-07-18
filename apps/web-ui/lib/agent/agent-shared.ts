@@ -58,11 +58,31 @@ export interface PlanStep {
     status: 'pending' | 'in_progress' | 'completed' | 'failed';
 }
 
+/** Verdict produced by the guard node for one pending tool call. */
+export interface GuardVerdict {
+    toolCallId: string;
+    toolName: string;
+    isMutative: boolean;
+    severity: 'LOW' | 'MEDIUM' | 'HIGH';
+    /** One-sentence statement of what the call does (e.g. "Terminates EC2 instance i-0abc"). */
+    action: string;
+    /** What is affected if this runs (data loss, downstream services, cost). */
+    blastRadius: string;
+    reversible: boolean;
+    /** A less-destructive alternative, or "" when none applies. */
+    saferPath: string;
+    /** Classifier/LLM reason string for observability. */
+    reason: string;
+}
+
 export interface ToolResultEntry {
     toolName: string;
     output: string;      // truncated to 1000 chars
     isError: boolean;
     iterationIndex: number;
+    /** The tool call's args, when available — lets the reflector distinguish
+     *  otherwise-identical tool names (e.g. which region/resource a call targeted). */
+    args?: unknown;
 }
 
 export interface ReflectionState {
@@ -81,7 +101,11 @@ export interface ReflectionState {
     memoryStats: MemoryStats | null;
     runningSummary: string; // Phase 1: rolling summary of compacted turns
     scratchpad: Scratchpad; // Phase 1: structured working-memory scratchpad
-    reflectionStallCount?: number; // consecutive reflections with the same blocking issue (stall detector)
+    guardVerdicts: Record<string, GuardVerdict>; // keyed by toolCallId, replaced per guard pass
+    /** Consecutive no-tool-call revisions (planning-agent only). Optional so fast-agent,
+     *  which shares this state type but has no reviser/stall logic, is unaffected. */
+    stallCount?: number;
+    reflectionStallCount?: number; // consecutive unparseable/empty reflections (parse-failure fail-safe)
 }
 
 // --- Schema for StateGraph ---
@@ -150,6 +174,14 @@ export const graphState: StateGraphArgs<ReflectionState>["channels"] = {
     scratchpad: {
         reducer: (x: Scratchpad, y: Scratchpad) => y || x,
         default: () => ({ openGoals: [], keyFindings: [], resourceIds: [], pendingSteps: [] }),
+    },
+    guardVerdicts: {
+        reducer: (x: Record<string, GuardVerdict>, y: Record<string, GuardVerdict>) => y,
+        default: () => ({}),
+    },
+    stallCount: {
+        reducer: (x: number | undefined, y: number | undefined) => y ?? x,
+        default: () => 0,
     },
     reflectionStallCount: {
         reducer: (x: number | undefined, y: number | undefined) => y ?? x ?? 0,
@@ -311,9 +343,14 @@ function formatMessageForAudit(msg: BaseMessage, depth: AuditDepth): string {
 
         body = parts.join('\n') || '(empty)';
     } else {
+        // Audit output is meant to be human-readable text. contentToText flattens
+        // Sonnet 5-style block arrays; fall back to JSON.stringify only when the
+        // content is a non-string shape with no extractable text (keeps fidelity
+        // for exotic block types rather than logging an empty line).
+        const text = contentToText(msg.content);
         const raw = typeof msg.content === 'string'
             ? msg.content
-            : JSON.stringify(msg.content);
+            : (text || JSON.stringify(msg.content));
         body = depth === 'compact' ? truncateOutput(raw, 200) : raw;
     }
 
@@ -364,12 +401,88 @@ export function llmAuditLog(
 }
 
 // --- Helper Functions ---
+
+/**
+ * Normalize AIMessage.content to plain text. Newer models (e.g. Claude Sonnet 5
+ * via Bedrock) return an ARRAY of content blocks instead of a string; code that
+ * parses model output (plan JSON, reflector JSON, guard risk JSON) must extract
+ * the text blocks rather than String()/JSON.stringify()-ing the array.
+ */
+export function contentToText(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content
+            .map((block) => {
+                if (typeof block === 'string') return block;
+                if (block && typeof block === 'object') {
+                    const b = block as Record<string, unknown>;
+                    if (typeof b.text === 'string') return b.text;
+                }
+                return '';
+            })
+            .join('');
+    }
+    if (content == null) return '';
+    return JSON.stringify(content);
+}
+
 export function truncateOutput(text: string, maxChars: number = 500): string {
     if (!text) return "";
     if (text.length > maxChars) {
         return text.slice(0, maxChars) + "...";
     }
     return text;
+}
+
+/**
+ * Truncation variant for text shown to a REVIEWER model (e.g. the reflector's
+ * "Recent Assistant Output" slot). truncateOutput()'s bare "..." made the
+ * reflector read its own input truncation as a truncated DELIVERABLE ("the
+ * final report was cut off mid-sentence") and force a redundant re-render
+ * cycle. This marker states explicitly that only the review copy is cut.
+ */
+export function truncateForReview(text: string, maxChars: number): string {
+    if (!text) return "";
+    if (text.length <= maxChars) return text;
+    return text.slice(0, maxChars)
+        + `\n…[TRUNCATED FOR REVIEW ONLY — the actual message is ${text.length} characters and continues past this cutoff; do NOT treat this cutoff as an incomplete or truncated deliverable]`;
+}
+
+/**
+ * Precise tool-result error classifier shared by the fast and planning agents.
+ *
+ * Replaces the old substring heuristic (`content includes "error"/"exception"`),
+ * which false-flagged successful outputs that merely MENTION errors — e.g. a
+ * CloudWatch query for the "Errors" metric returning {"Label": "Errors", ...}.
+ *
+ * Failure contracts (see tools.ts / mcp-tools.ts / aws-credentials-tool.ts):
+ *  - LangChain sets ToolMessage.status === 'error' when a tool throws.
+ *  - execute_command failures return output starting with "Command failed:".
+ *  - File/S3/jail/MCP/ToolNode errors return strings starting with "Error:" or
+ *    "Error <doing X>:" — i.e. an "Error"-prefixed string.
+ *  - glob/grep/web_search return "Glob error:" / "Grep error:" / "Web search error:".
+ *  - JSON tools (get_aws_credentials, list_aws_accounts) return {"success": false, ...}.
+ * All checks are trimmed-prefix (case-sensitive) or parsed-JSON — never
+ * substring-anywhere.
+ */
+export function isToolResultError(status: string | undefined, rawContent: string): boolean {
+    if (status === 'error') return true;
+    if (!rawContent) return false;
+    const text = rawContent.trimStart();
+    if (text.startsWith('Command failed:')) return true;
+    if (text.startsWith('Error:') || text.startsWith('Error ')) return true;
+    if (text.startsWith('Glob error:') || text.startsWith('Grep error:') || text.startsWith('Web search error:')) return true;
+    if (text.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(text);
+            if (parsed && typeof parsed === 'object' && (parsed as { success?: unknown }).success === false) {
+                return true;
+            }
+        } catch {
+            // Not valid JSON (e.g. truncated tool output) — fall through to non-error.
+        }
+    }
+    return false;
 }
 
 /**
@@ -640,6 +753,49 @@ export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage
     }
 
     return result;
+}
+
+/**
+ * Build a state VIEW for ToolNode whose last AIMessage carries only the tool
+ * calls that do not yet have a ToolMessage result (per-tool reject / ask_user
+ * answers write results BEFORE the tools node runs). ToolNode executes every
+ * tool_call on the last AI message — without this filter, a rejected call
+ * would execute anyway. Returns null when nothing is left to execute.
+ * The underlying graph state is never mutated.
+ */
+export function withUnresolvedToolCallsOnly(
+    state: { messages: BaseMessage[] },
+): { messages: BaseMessage[] } | null {
+    const messages = state.messages ?? [];
+    let lastAiIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i]._getType() === 'ai') { lastAiIdx = i; break; }
+    }
+    if (lastAiIdx === -1) return null;
+    const ai = messages[lastAiIdx] as AIMessage;
+    const calls = ai.tool_calls ?? [];
+    if (calls.length === 0) return null;
+
+    const resolved = new Set<string>();
+    for (let i = lastAiIdx + 1; i < messages.length; i++) {
+        const m = messages[i] as unknown as { tool_call_id?: string };
+        if (messages[i]._getType() === 'tool' && m.tool_call_id) resolved.add(m.tool_call_id);
+    }
+    const unresolved = calls.filter(c => c.id && !resolved.has(c.id));
+    if (unresolved.length === 0) return null;
+    if (unresolved.length === calls.length) return { messages };
+
+    const filteredAi = new AIMessage({
+        content: ai.content,
+        tool_calls: unresolved,
+        additional_kwargs: ai.additional_kwargs,
+        response_metadata: ai.response_metadata,
+        id: ai.id,
+    });
+    // Execution-scoped clone for ToolNode only — not a general-purpose message copy (drops usage_metadata/name).
+    const view = [...messages];
+    view[lastAiIdx] = filteredAi;
+    return { messages: view };
 }
 
 // Configuration for graph creation

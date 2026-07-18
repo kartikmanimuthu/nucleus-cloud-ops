@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { getSkillContent, getSkillSummaries } from "@/lib/skill-service";
@@ -9,7 +9,10 @@ import {
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
+    contentToText,
+    isToolResultError,
     sanitizeMessagesForBedrock,
+    withUnresolvedToolCallsOnly,
     tagMessagePhase,
     getCheckpointer,
     getStore,
@@ -34,6 +37,8 @@ import { createAgentModels, assembleTools } from "./model-factory";
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 import { autoSkillSelectionEnabled } from "./auto-skill-select";
 import { prepareContext, buildWorkingMemorySection } from "./memory/working-memory";
+import { createGuardNode } from "./guard";
+import { routeAfterGuard } from "./gate-routing";
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
 export async function createFastGraph(config: GraphConfig) {
@@ -76,6 +81,13 @@ export async function createFastGraph(config: GraphConfig) {
     const memoryDeps = { reflectorModel, tenantId, userId: config.userId, store };
     const memoryRecallNode = createMemoryRecallNode(memoryDeps);
     const memorySaveNode = createMemorySaveNode(memoryDeps);
+
+    const guardNode = createGuardNode({ riskModel: reflectorModel });
+    // approval_gate is a no-op marker node: the interrupt BEFORE it is the pause.
+    async function approvalGateNode(): Promise<Partial<ReflectionState>> {
+        console.log('⏸️ [APPROVAL GATE] resuming after human decision');
+        return {};
+    }
 
     // Working-memory deps — threadId is read per-node from the runtime config.
     const wmDeps = { reflectorModel, tenantId, userId: config.userId };
@@ -149,15 +161,23 @@ Review the full conversation history before responding:
     // ---------------------------------------------------------------------------
     async function collectingToolNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         console.log(`\n⚙️ [FAST TOOLS] Executing tool calls...`);
-        const result = await toolNode.invoke(state);
+        const view = withUnresolvedToolCallsOnly(state);
+        if (!view) {
+            console.log('⚙️ [FAST TOOLS] All tool calls already resolved (rejected/answered) — skipping execution.');
+            return {};
+        }
+        const result = await toolNode.invoke({ ...state, messages: view.messages });
         console.log(`⚙️ [FAST TOOLS] Execution complete. Result messages: ${result.messages?.length || 0}`);
 
         const newToolResults: ToolResultEntry[] = [];
         if (result.messages) {
             for (const msg of result.messages) {
                 if (msg._getType() === 'tool') {
-                    const rawContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-                    const isError = rawContent.toLowerCase().includes('error') || rawContent.toLowerCase().includes('exception');
+                    const rawContent = contentToText(msg.content);
+                    // Precise classifier (status flag / error-prefix / success:false JSON) —
+                    // the old substring match flagged ANY output mentioning "error", e.g. a
+                    // successful CloudWatch query for the "Errors" metric.
+                    const isError = isToolResultError((msg as ToolMessage).status, rawContent);
                     newToolResults.push({
                         toolName: (msg as any).name || 'unknown_tool',
                         output: truncateOutput(rawContent, 1000),
@@ -261,7 +281,10 @@ Please provide your critique.`
             console.warn(`⚠️ [FAST REFLECTOR] Skipping reflection due to model error: ${err?.message ?? err}`);
             return { isComplete: true };
         }
-        const content = extractTextContent(response.content);
+        // contentToText normalizes Claude Sonnet 5's block-array content — JSON.stringify-ing
+        // the array instead would hide the "COMPLETE" sentinel inside escaped JSON and make
+        // the critique unreadable if forwarded as feedback.
+        const content = contentToText(response.content);
 
         if (!content) {
             console.log(`⚠️ [FAST REFLECTOR] Empty content received!`);
@@ -389,7 +412,7 @@ Please narrow the question or ask me to continue from here.`;
     // ---------------------------------------------------------------------------
     // CONDITIONAL EDGES
     // ---------------------------------------------------------------------------
-    function shouldContinue(state: ReflectionState): "tools" | "reflect" | "finalize" | "memory_save" {
+    function shouldContinue(state: ReflectionState): "guard" | "reflect" | "finalize" | "memory_save" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
@@ -408,7 +431,7 @@ Please narrow the question or ask me to continue from here.`;
         }
 
         if (hasPendingToolCalls) {
-            return "tools";
+            return "guard";
         }
 
         // Soft cap: if we've exceeded the reflection cycle limit, accept the answer as-is
@@ -433,6 +456,8 @@ Please narrow the question or ask me to continue from here.`;
     const workflow = new StateGraph<ReflectionState>({ channels: graphState })
         .addNode("memory_recall", memoryRecallNode)
         .addNode("agent", agentNode)
+        .addNode("guard", guardNode)
+        .addNode("approval_gate", approvalGateNode)
         .addNode("tools", collectingToolNode)
         .addNode("reflect", reflectNode)
         .addNode("finalize", finalizeNode)
@@ -442,11 +467,17 @@ Please narrow the question or ask me to continue from here.`;
         .addEdge("memory_recall", "agent")
 
         .addConditionalEdges("agent", shouldContinue, {
-            tools: "tools",
+            guard: "guard",
             reflect: "reflect",
             finalize: "finalize",
             memory_save: "memory_save"
         })
+
+        .addConditionalEdges("guard", (state: ReflectionState) => routeAfterGuard(state, autoApprove), {
+            approval_gate: "approval_gate",
+            tools: "tools"
+        })
+        .addEdge("approval_gate", "tools")
 
         .addConditionalEdges("reflect", shouldContinueFromReflect, {
             agent: "agent",
@@ -457,13 +488,9 @@ Please narrow the question or ask me to continue from here.`;
         .addEdge("finalize", "memory_save")
         .addEdge("memory_save", END);
 
-    if (autoApprove) {
-        return workflow.compile({ checkpointer, ...(store && { store }) });
-    } else {
-        return workflow.compile({
-            checkpointer,
-            ...(store && { store }),
-            interruptBefore: ["tools"],
-        });
-    }
+    return workflow.compile({
+        checkpointer,
+        ...(store && { store }),
+        interruptBefore: ["approval_gate"],
+    });
 }

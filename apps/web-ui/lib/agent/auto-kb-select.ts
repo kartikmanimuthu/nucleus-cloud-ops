@@ -6,7 +6,7 @@
  */
 
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
-import type { ResolvedModelConfig } from './agent-shared';
+import { contentToText, type ResolvedModelConfig } from './agent-shared';
 import { createAgentModels } from './model-factory';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 
@@ -39,7 +39,7 @@ export async function autoSelectKb(params: {
             `Rules: include a KB id ONLY when its description clearly matches the request. Pick multiple if several are relevant. Return an empty array when none clearly apply.`,
         );
         const resp = await reflector.invoke([sys, new HumanMessage(params.message.slice(0, 4000))]);
-        const content = typeof resp.content === 'string' ? resp.content : JSON.stringify(resp.content);
+        const content = contentToText(resp.content);
         const match = content.match(/\{[\s\S]*\}/);
         if (!match) return empty;
         const parsed = JSON.parse(match[0]) as { kbIds?: unknown; reasoning?: string };

@@ -9,6 +9,7 @@
 
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { contentToText } from '../agent-shared';
 import { getMemoryService } from './memory-service';
 import type { ExtractedFact, MemoryHit, ReconcileDecision, ReconcileSummary } from './types';
 
@@ -135,7 +136,7 @@ export async function reconcileMemories(params: {
             })), null, 2,
         ));
         const resp = await judgeModel.invoke([JUDGE_SYSTEM, input]);
-        const content = typeof resp.content === 'string' ? resp.content : JSON.stringify(resp.content);
+        const content = contentToText(resp.content);
         for (const d of parseDecisions(content)) {
             if (typeof d?.factIndex === 'number') decisions.set(d.factIndex, d);
         }

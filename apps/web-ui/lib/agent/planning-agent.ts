@@ -1,4 +1,4 @@
-import { AIMessage, SystemMessage, HumanMessage } from "@langchain/core/messages";
+import { AIMessage, SystemMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { getSkillContent, getSkillSummaries } from "@/lib/skill-service";
@@ -10,12 +10,15 @@ import {
     graphState,
     MAX_ITERATIONS,
     truncateOutput,
+    truncateForReview,
+    contentToText,
+    isToolResultError,
     sanitizeMessagesForBedrock,
+    withUnresolvedToolCallsOnly,
     tagMessagePhase,
     llmAuditLog,
     getCheckpointer,
     getStore,
-    extractTextContent,
     REFLECTION_STALL_LIMIT,
 } from "./agent-shared";
 import {
@@ -32,6 +35,155 @@ import { createAgentModels, assembleTools, deriveInputTokenBudget } from "./mode
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 import { autoSkillSelectionEnabled } from "./auto-skill-select";
 import { prepareContext, buildWorkingMemorySection, estimateTokens } from "./memory/working-memory";
+import { createGuardNode } from "./guard";
+import { routeAfterGuard } from "./gate-routing";
+
+const PLAN_STATUSES = new Set<PlanStep['status']>(['completed', 'in_progress', 'pending', 'failed']);
+
+function isValidPlanStatus(value: unknown): value is PlanStep['status'] {
+    return typeof value === 'string' && PLAN_STATUSES.has(value as PlanStep['status']);
+}
+
+/**
+ * Maps the reflector's `updatedPlan` entries onto the existing `plan` array by
+ * 1-based `index` (current format — avoids echoing full step text, which is what
+ * blew the reflector's token budget). Falls back to matching by exact `step` text
+ * for the old format (backward compatible with any in-flight/replayed runs).
+ * Malformed entries (bad status, out-of-range index, unmatched step text) are
+ * silently ignored — the corresponding step just keeps its current status.
+ * Returns [] when nothing in `entries` could be applied, signalling "no change".
+ */
+export function mapUpdatedPlanEntries(entries: unknown[], plan: PlanStep[]): PlanStep[] {
+    if (!Array.isArray(entries) || entries.length === 0 || plan.length === 0) return [];
+
+    const statusByIndex = new Map<number, PlanStep['status']>();
+
+    for (const raw of entries) {
+        if (!raw || typeof raw !== 'object') continue;
+        const entry = raw as Record<string, unknown>;
+        if (!isValidPlanStatus(entry.status)) continue;
+
+        if (typeof entry.index === 'number' && Number.isInteger(entry.index)) {
+            const idx = entry.index - 1; // prompt uses 1-based indexing
+            if (idx >= 0 && idx < plan.length) {
+                statusByIndex.set(idx, entry.status);
+            }
+            continue;
+        }
+
+        if (typeof entry.step === 'string' && entry.step.trim().length > 0) {
+            const matchIdx = plan.findIndex(p => p.step === entry.step);
+            if (matchIdx !== -1) {
+                statusByIndex.set(matchIdx, entry.status);
+            }
+        }
+    }
+
+    if (statusByIndex.size === 0) return [];
+
+    return plan.map((s, i) => ({ ...s, status: statusByIndex.get(i) ?? s.status }));
+}
+
+export interface ParsedReflectorResult {
+    analysis: string;
+    issues: string;
+    suggestions: string;
+    isComplete: boolean;
+    updatedPlan: PlanStep[];
+    /** True when parsing threw outright — feeds the consecutive-failure fail-safe. */
+    parseFailed?: boolean;
+}
+
+/**
+ * Parses the reflector's raw model output into a structured verdict. Exported so it
+ * can be unit-tested directly (truncated JSON, index vs. legacy step-text plan
+ * formats, malformed entries) without spinning up the full graph.
+ *
+ * Truncation tolerance: the balanced-brace scan below only matches a JSON object
+ * that actually closes — a maxTokens cutoff mid-object leaves it unmatched, which
+ * used to silently drop a genuine `"isComplete": true` the model already wrote.
+ * The raw-content fallback now re-checks for that literal before giving up.
+ */
+export function parseReflectorResponse(content: string, plan: PlanStep[]): ParsedReflectorResult {
+    let analysis = "";
+    let issues = "None";
+    let suggestions = "None";
+    let isComplete = false;
+    let updatedPlan: PlanStep[] = [];
+
+    try {
+        // Extract outermost JSON object using balanced-brace scan to avoid
+        // greedy regex capturing embedded JSON strings in large tool outputs.
+        let jsonStr: string | null = null;
+        const start = content.indexOf('{');
+        if (start !== -1) {
+            let depth = 0;
+            for (let i = start; i < content.length; i++) {
+                if (content[i] === '{') depth++;
+                else if (content[i] === '}') { depth--; if (depth === 0) { jsonStr = content.slice(start, i + 1); break; } }
+            }
+        }
+        const jsonMatch = jsonStr ? [jsonStr] : null;
+        if (jsonMatch) {
+            try {
+                const parsed = JSON.parse(jsonMatch[0]);
+                analysis = parsed.analysis || "";
+                issues = parsed.issues || "None";
+                suggestions = parsed.suggestions || "None";
+                isComplete = parsed.isComplete === true;
+                if (parsed.updatedPlan && Array.isArray(parsed.updatedPlan) && parsed.updatedPlan.length > 0) {
+                    updatedPlan = mapUpdatedPlanEntries(parsed.updatedPlan, plan);
+                }
+            } catch (parseErr) {
+                console.warn("[Reflector] JSON.parse failed, using isComplete regex fallback:", parseErr);
+                if (/["']?isComplete["']?\s*:\s*true/.test(jsonMatch[0])) {
+                    isComplete = true;
+                    analysis = "Task completed (reflector JSON parse failed but isComplete detected)";
+                } else {
+                    analysis = "Reflection JSON parse failed. Continuing.";
+                    isComplete = false;
+                }
+            }
+        } else {
+            console.log("[Reflector] No JSON found, using raw content fallback");
+            analysis = content;
+            if (content.toLowerCase().includes("task complete") || content.toLowerCase().includes("successfully completed")) {
+                isComplete = true;
+            } else if (/["']?isComplete["']?\s*:\s*true/.test(content)) {
+                // Balanced-brace scan found no closing brace (maxTokens truncation) but the
+                // model had already emitted isComplete:true before getting cut off.
+                isComplete = true;
+                analysis = "Task completed (reflector response truncated but isComplete detected)";
+            }
+        }
+    } catch (e) {
+        console.error("[Reflector] Parsing failed:", e);
+        return {
+            analysis: "Reflection parsing failed. Continuing with next iteration.",
+            issues, suggestions, isComplete: false, updatedPlan, parseFailed: true,
+        };
+    }
+
+    return { analysis, issues, suggestions, isComplete, updatedPlan };
+}
+
+/**
+ * Stall breaker: when the reviser produces two consecutive no-tool-call (prose-only)
+ * revisions, there is no new evidence for the reflector to evaluate — left alone, a
+ * "not complete" verdict here just sends it back to revise again, ping-ponging until
+ * MAX_ITERATIONS. Forces completion instead, keeping whatever was already gathered.
+ * Extracted as a pure function (rather than inlined in reflectNode) so the decision
+ * is unit-testable without spinning up the graph.
+ */
+export function applyStallBreaker(parsed: ParsedReflectorResult, stallCount: number): ParsedReflectorResult {
+    if (parsed.isComplete || stallCount < 2) return parsed;
+    console.log(`⚠️ [REFLECTOR] Stall detected (2 consecutive no-op revisions) — forcing completion with gathered results.`);
+    return {
+        ...parsed,
+        isComplete: true,
+        analysis: `${parsed.analysis}\n\n(Auto-completed: 2 consecutive revision cycles produced no new tool activity.)`,
+    };
+}
 
 // Factory function to create a configured reflection graph
 export async function createReflectionGraph(config: GraphConfig) {
@@ -77,6 +229,13 @@ export async function createReflectionGraph(config: GraphConfig) {
     const memoryRecallNode = createMemoryRecallNode(memoryDeps);
     const memorySaveNode = createMemorySaveNode(memoryDeps);
 
+    const guardNode = createGuardNode({ riskModel: reflectorModel });
+    // approval_gate is a no-op marker node: the interrupt BEFORE it is the pause.
+    async function approvalGateNode(): Promise<Partial<ReflectionState>> {
+        console.log('⏸️ [APPROVAL GATE] resuming after human decision');
+        return {};
+    }
+
     // Working-memory deps — threadId is read per-node from the runtime config.
     // budgetTokens is derived from the resolved model so small/local context windows
     // trigger compaction correctly; systemPromptTokens charges the always-on prompt
@@ -99,9 +258,7 @@ export async function createReflectionGraph(config: GraphConfig) {
                 : null,
         );
         const lastMessage = messages[messages.length - 1];
-        const taskDescription = typeof lastMessage.content === 'string'
-            ? lastMessage.content
-            : JSON.stringify(lastMessage.content);
+        const taskDescription = contentToText(lastMessage.content);
 
         console.log(`\n================================================================================`);
         console.log(`🤖 [PLANNER] Initiating planning phase`);
@@ -157,7 +314,7 @@ Only return the JSON array, nothing else.`);
 
         let planSteps: PlanStep[] = [];
         try {
-            const content = extractTextContent(response.content);
+            const content = contentToText(response.content);
             const jsonMatch = content.match(/\[[\s\S]*\]/);
             if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
@@ -190,7 +347,9 @@ Only return the JSON array, nothing else.`);
         return {
             plan: planSteps,
             taskDescription,
-            messages: [tagMessagePhase(new AIMessage({ content: `📋 **Plan Created:**\n${planText}` }), 'planning')],
+            // Keep a short text (with phase marker) for legacy rendering + history;
+            // the structured plan streams as data-plan parts.
+            messages: [tagMessagePhase(new AIMessage({ content: `📋 Created a ${planSteps.length}-step execution plan.` }), 'planning')],
             nextAction: "generate"
         };
     }
@@ -291,20 +450,42 @@ ${accountContext}
     // ---------------------------------------------------------------------------
     async function collectingToolNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
         console.log(`\n⚙️ [TOOLS] Executing tool calls...`);
-        const result = await toolNode.invoke(state);
+        const view = withUnresolvedToolCallsOnly(state);
+        if (!view) {
+            console.log('⚙️ [TOOLS] All tool calls already resolved (rejected/answered) — skipping execution.');
+            return {};
+        }
+        const result = await toolNode.invoke({ ...state, messages: view.messages });
         console.log(`⚙️ [TOOLS] Execution complete. Result messages: ${result.messages?.length || 0}`);
+
+        // Map tool_call_id -> args from the AI message(s) that issued these calls, so
+        // ToolResultEntry can carry a compact args hint for the reflector (which
+        // otherwise sees only anonymous `[toolName]` results for a multi-region sweep).
+        const argsByToolCallId = new Map<string, unknown>();
+        for (const msg of view.messages) {
+            if (msg._getType() === 'ai') {
+                for (const tc of (msg as AIMessage).tool_calls ?? []) {
+                    if (tc.id) argsByToolCallId.set(tc.id, tc.args);
+                }
+            }
+        }
 
         const newToolResults: ToolResultEntry[] = [];
         if (result.messages) {
             for (const msg of result.messages) {
                 if (msg._getType() === 'tool') {
-                    const rawContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-                    const isError = rawContent.toLowerCase().includes('error') || rawContent.toLowerCase().includes('exception');
+                    const rawContent = contentToText(msg.content);
+                    // Precise classifier (status flag / error-prefix / success:false JSON) —
+                    // the old substring match flagged ANY output mentioning "error", e.g. a
+                    // successful CloudWatch query for the "Errors" metric.
+                    const isError = isToolResultError((msg as ToolMessage).status, rawContent);
+                    const toolCallId = (msg as ToolMessage).tool_call_id;
                     const entry: ToolResultEntry = {
                         toolName: (msg as any).name || 'unknown_tool',
                         output: truncateOutput(rawContent, 1000),
                         isError,
                         iterationIndex: state.iterationCount,
+                        args: toolCallId ? argsByToolCallId.get(toolCallId) : undefined,
                     };
                     newToolResults.push(entry);
                     const icon = isError ? '❌' : '✅';
@@ -330,7 +511,7 @@ ${accountContext}
     // REFLECTOR NODE
     // ---------------------------------------------------------------------------
     async function reflectNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        const { messages, taskDescription, iterationCount, plan, toolResults } = state;
+        const { messages, taskDescription, iterationCount, plan, toolResults, memoryContext } = state;
 
         console.log(`\n================================================================================`);
         console.log(`🤔 [REFLECTOR] Analyzing execution results`);
@@ -342,16 +523,30 @@ ${accountContext}
             ? `The executor is operating under the "${selectedSkill}" skill. Use the following skill instructions to verify correctness and adherence:\n\n${skillContent}`
             : `The executor is operating as a general-purpose agentic assistant with no specific skill constraints. Ensure it is acting helpfully and correctly.`;
 
+        // The planner sees recalled memory (memoryContext) and may legitimately build plan
+        // steps around it (baseline comparisons, prior findings). The reflector previously
+        // had no visibility into memoryContext at all, so it repeatedly flagged those steps
+        // as fabricated scope creep. Surface a truncated copy here so it can tell the
+        // difference between scope creep and memory-grounded planning.
+        const memoryContextSection = memoryContext
+            ? `\n## Recalled memory available to the agent\nThe plan may legitimately reference the following recalled facts/experience — do NOT flag steps grounded in these as scope creep:\n${truncateOutput(memoryContext, 2000)}\n`
+            : '';
+
         const reflectorSystemPrompt = new SystemMessage(`You are a principal-level AWS and DevOps engineer performing a structured review of an AI agent's execution output.
 
 ${skillCritiqueContext}
-
+${memoryContextSection}
 Original Task: ${taskDescription}
 
 Plan Status:
 ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 
 Iteration: ${iterationCount}/${MAX_ITERATIONS}
+
+## Input Notes
+
+- The "Recent Assistant Output" you receive may be truncated FOR REVIEW ONLY. A "[TRUNCATED FOR REVIEW ONLY …]" marker means the real message continued past the cutoff — do NOT report it as an incomplete or truncated deliverable.
+- The Plan Status block reflects YOUR OWN last updatedPlan and may lag the assistant's narrative by one cycle — such lag is expected bookkeeping, not an error to flag.
 
 ## Review Criteria
 
@@ -377,36 +572,34 @@ Set isComplete to true ONLY when ALL of the following are true:
 
 ## Output Format
 
-Respond with exactly this JSON object — no markdown, no commentary outside the JSON:
+Respond with exactly this JSON object — no markdown, no commentary outside the JSON. Put "isComplete" FIRST so it is not lost if your response is cut off:
 {
+    "isComplete": true or false,
     "analysis": "Concise assessment of what was done, quality of execution, and whether the step objective was met",
     "issues": "Specific issues found — wrong flags, missing pagination, incorrect resource targeted, error suppressed, etc. Use 'None' if no issues",
     "suggestions": "Concrete corrective actions for the reviser to take, referencing specific tool calls or flags. Use 'None' if no suggestions",
-    "isComplete": true or false,
     "updatedPlan": [
-        { "step": "Exact step description from the original plan", "status": "completed" | "pending" | "failed" }
+        { "index": 1, "status": "completed" | "in_progress" | "pending" | "failed" }
     ]
 }
 
-You MUST return the updatedPlan array with the current status of every step. Only return the JSON object, nothing else.`);
+"updatedPlan" MUST have exactly one entry per plan step, in order, using the 1-based "index" matching the numbered Plan Status list above. Do NOT repeat the step text — index + status only. Only return the JSON object, nothing else.`);
 
         const recentAiMessages = messages.filter(m => m._getType() === 'ai');
         const lastAiMessage = recentAiMessages.length > 0 ? recentAiMessages[recentAiMessages.length - 1] : null;
-        let lastAiText = "None";
-        if (lastAiMessage && lastAiMessage.content) {
-            lastAiText = typeof lastAiMessage.content === 'string'
-                ? lastAiMessage.content
-                : JSON.stringify(lastAiMessage.content);
-        }
+        // contentToText normalizes Claude Sonnet 5's block-array content (dozens of tiny
+        // streamed text blocks) to plain text — JSON.stringify-ing that array instead shows
+        // the reflector a JSON blob it (correctly, but unhelpfully) describes as "fragmented".
+        const lastAiText = lastAiMessage && lastAiMessage.content ? contentToText(lastAiMessage.content) : "None";
 
         const summaryInput = new HumanMessage({
             content: `Please analyze the following execution and provide your feedback in JSON format.
 
 Recent Assistant Output:
-${truncateOutput(lastAiText, 1500)}
+${truncateForReview(lastAiText, 4000)}
 
 Tool Results (most recent):
-${toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}] ${truncateOutput(e.output, 500)}`).join('\n---\n')}
+${toolResults.slice(-8).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}(${truncateOutput(JSON.stringify(e.args ?? {}), 160)})] ${truncateOutput(e.output, 600)}`).join('\n---\n')}
 
 Plan Status:
 ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
@@ -430,66 +623,17 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
             };
         }
 
-        let analysis = "";
-        let issues = "None";
-        let suggestions = "None";
-        let isComplete = false;
-        let updatedPlan: PlanStep[] = [];
+        const content = contentToText(response.content);
+        console.log(`[Reflector] Raw content: ${truncateOutput(content, 200)}`);
 
-        let parseFailed = false;
-        try {
-            const content = extractTextContent(response.content);
-            console.log(`[Reflector] Raw content: ${truncateOutput(content, 200)}`);
-            // Empty reflector text (reasoning consumed the whole output budget,
-            // stopReason max_tokens) — route through the parse-failure path so the
-            // consecutive-failure fail-safe below can force completion.
-            if (!content.trim()) throw new Error('reflector returned no text output');
-
-            // Extract outermost JSON object using balanced-brace scan to avoid
-            // greedy regex capturing embedded JSON strings in large tool outputs.
-            let jsonStr: string | null = null;
-            const start = content.indexOf('{');
-            if (start !== -1) {
-                let depth = 0;
-                for (let i = start; i < content.length; i++) {
-                    if (content[i] === '{') depth++;
-                    else if (content[i] === '}') { depth--; if (depth === 0) { jsonStr = content.slice(start, i + 1); break; } }
-                }
-            }
-            const jsonMatch = jsonStr ? [jsonStr] : null;
-            if (jsonMatch) {
-                try {
-                    const parsed = JSON.parse(jsonMatch[0]);
-                    analysis = parsed.analysis || "";
-                    issues = parsed.issues || "None";
-                    suggestions = parsed.suggestions || "None";
-                    isComplete = parsed.isComplete === true;
-                    if (parsed.updatedPlan && Array.isArray(parsed.updatedPlan) && parsed.updatedPlan.length > 0) {
-                        updatedPlan = parsed.updatedPlan;
-                    }
-                } catch (parseErr) {
-                    console.warn("[Reflector] JSON.parse failed, using isComplete regex fallback:", parseErr);
-                    if (/["']?isComplete["']?\s*:\s*true/.test(jsonMatch[0])) {
-                        isComplete = true;
-                        analysis = "Task completed (reflector JSON parse failed but isComplete detected)";
-                    } else {
-                        analysis = "Reflection JSON parse failed. Continuing.";
-                        isComplete = false;
-                    }
-                }
-            } else {
-                console.log("[Reflector] No JSON found, using raw content fallback");
-                analysis = content;
-                if (content.toLowerCase().includes("task complete") || content.toLowerCase().includes("successfully completed")) {
-                    isComplete = true;
-                }
-            }
-        } catch (e) {
-            console.error("[Reflector] Parsing failed:", e);
-            parseFailed = true;
-            analysis = "Reflection parsing failed. Continuing with next iteration.";
-            isComplete = false;
-        }
+        const parsedResult = applyStallBreaker(parseReflectorResponse(content, plan), state.stallCount ?? 0);
+        const { issues, suggestions, updatedPlan } = parsedResult;
+        let { analysis, isComplete } = parsedResult;
+        // Feeds the consecutive-failure fail-safe below: empty reflector text
+        // (Sonnet 5's reasoning block can consume the whole output budget,
+        // stopReason max_tokens -> zero text) and unparseable output both count
+        // as a failed reflection.
+        const parseFailed = !content.trim() || parsedResult.parseFailed === true;
 
         // Fail-safe (defense in depth): a reflector we cannot parse must NEVER be
         // able to spin the reflect→revise loop. Before this guard, a parse failure
@@ -530,6 +674,8 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
             errors: issues !== "None" ? [issues] : [],
             isComplete,
             nextAction: isComplete ? "complete" : "revise",
+            // Reset the stall counter whenever we land on completion, tidy either way.
+            ...(isComplete ? { stallCount: 0 } : {}),
             reflectionStallCount: parseFailures,
         };
 
@@ -613,6 +759,9 @@ ${accountContext}`);
             // the reviser emits tool_calls the tools→generate path increments as before, so
             // we leave the counter untouched there to avoid double-counting.
             ...(revHasToolCalls ? {} : { iterationCount: iterationCount + 1 }),
+            // Stall breaker feed: no tool calls means this revision made no new progress.
+            // Two of these in a row forces completion in reflectNode (see stallCount there).
+            stallCount: revHasToolCalls ? 0 : (state.stallCount ?? 0) + 1,
             ...stateUpdate,
         };
     }
@@ -658,7 +807,7 @@ Write for an engineer audience. Be specific — include resource IDs, account na
         try {
             const summaryResponse = await model.invoke(_auditInputs_fin);
             llmAuditLog('FINAL', _auditInputs_fin, summaryResponse, _auditStart_fin);
-            summaryContent = extractTextContent(summaryResponse.content);
+            summaryContent = contentToText(summaryResponse.content);
         } catch (err: any) {
             // A finalize failure must never crash the run — assemble a best-effort summary
             // from the tool results and review notes already captured in state.
@@ -695,7 +844,7 @@ ${summaryContent}`;
     // ---------------------------------------------------------------------------
     // CONDITIONAL EDGES
     // ---------------------------------------------------------------------------
-    function shouldContinueFromGenerate(state: ReflectionState): "tools" | "reflect" | "final" {
+    function shouldContinueFromGenerate(state: ReflectionState): "guard" | "reflect" | "final" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
@@ -707,7 +856,7 @@ ${summaryContent}`;
         }
 
         if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
-            return "tools";
+            return "guard";
         }
 
         if (iterationCount <= 1) {
@@ -727,7 +876,7 @@ ${summaryContent}`;
         return "generate";
     }
 
-    function shouldContinueFromRevise(state: ReflectionState): "tools" | "reflect" {
+    function shouldContinueFromRevise(state: ReflectionState): "guard" | "reflect" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
@@ -739,7 +888,7 @@ ${summaryContent}`;
         }
 
         if (lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
-            return "tools";
+            return "guard";
         }
         return "reflect";
     }
@@ -759,6 +908,8 @@ ${summaryContent}`;
         .addNode("memory_recall", memoryRecallNode)
         .addNode("planner", planNode)
         .addNode("generate", generateNode)
+        .addNode("guard", guardNode)
+        .addNode("approval_gate", approvalGateNode)
         .addNode("tools", collectingToolNode)
         .addNode("reflect", reflectNode)
         .addNode("revise", reviseNode)
@@ -770,10 +921,16 @@ ${summaryContent}`;
         .addEdge("planner", "generate")
 
         .addConditionalEdges("generate", shouldContinueFromGenerate, {
-            tools: "tools",
+            guard: "guard",
             reflect: "reflect",
             final: "final"
         })
+
+        .addConditionalEdges("guard", (state: ReflectionState) => routeAfterGuard(state, autoApprove), {
+            approval_gate: "approval_gate",
+            tools: "tools"
+        })
+        .addEdge("approval_gate", "tools")
 
         .addConditionalEdges("tools", shouldContinueFromTools, {
             generate: "generate",
@@ -786,22 +943,18 @@ ${summaryContent}`;
         })
 
         .addConditionalEdges("revise", shouldContinueFromRevise, {
-            tools: "tools",
+            guard: "guard",
             reflect: "reflect"
         })
 
         .addEdge("final", "memory_save")
         .addEdge("memory_save", END);
 
-    if (autoApprove) {
-        console.log(`[Graph] Creating graph with autoApprove=true (no interrupts)`);
-        return workflow.compile({ checkpointer, ...(store && { store }) });
-    } else {
-        console.log(`[Graph] Creating graph with autoApprove=false (interrupt before tools)`);
-        return workflow.compile({
-            checkpointer,
-            ...(store && { store }),
-            interruptBefore: ["tools"],
-        });
-    }
+    // The gate is ALWAYS compiled in; routeAfterGuard decides whether flow enters it.
+    console.log(`[Graph] Compiling with approval_gate interrupt (autoApprove=${autoApprove} affects routing only)`);
+    return workflow.compile({
+        checkpointer,
+        ...(store && { store }),
+        interruptBefore: ["approval_gate"],
+    });
 }

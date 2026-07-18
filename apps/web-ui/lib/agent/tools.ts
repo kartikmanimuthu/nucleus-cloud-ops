@@ -633,3 +633,27 @@ export const getFileFromS3Tool = tool(
         }),
     }
 );
+
+/**
+ * ask_user — mid-run clarification. This tool NEVER produces an answer itself:
+ * the guard router always sends ask_user calls to the approval_gate interrupt,
+ * where the user's reply is written as this call's ToolMessage before resume.
+ * If it executes directly (gate bypassed — should not happen), it returns a
+ * sentinel telling the model no answer exists, so the model cannot hallucinate one.
+ */
+export const askUserTool = tool(
+    async ({ question }: { question: string; options?: string[] }) => {
+        return `No answer was provided for: "${question}". Proceed with your best judgment or finish and state the open question.`;
+    },
+    {
+        name: 'ask_user',
+        description:
+            'Ask the user a clarifying question when the request is ambiguous or a decision is theirs to make ' +
+            '(e.g. which of several matching resources to act on). Provide 2-4 suggested answers in `options` when possible. ' +
+            'The run pauses until the user answers; the answer arrives as this tool\'s result.',
+        schema: z.object({
+            question: z.string().describe('The specific question to ask the user'),
+            options: z.array(z.string()).optional().describe('Suggested answers shown as one-click choices'),
+        }),
+    },
+);

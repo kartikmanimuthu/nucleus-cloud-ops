@@ -7,7 +7,7 @@
  */
 
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
-import type { ResolvedModelConfig } from './agent-shared';
+import { contentToText, type ResolvedModelConfig } from './agent-shared';
 import { createAgentModels } from './model-factory';
 import { getSkillSummaries, getSkillById } from '@/lib/skill-service';
 
@@ -33,7 +33,7 @@ export async function autoSelectSkill(params: {
             `Rules: pick a skill ONLY when the request clearly matches its description. When in doubt, return null.`,
         );
         const resp = await reflector.invoke([sys, new HumanMessage(params.message.slice(0, 4000))]);
-        const content = typeof resp.content === 'string' ? resp.content : JSON.stringify(resp.content);
+        const content = contentToText(resp.content);
         const match = content.match(/\{[\s\S]*\}/);
         if (!match) return null;
         const parsed = JSON.parse(match[0]) as { skillId?: string | null; reasoning?: string };

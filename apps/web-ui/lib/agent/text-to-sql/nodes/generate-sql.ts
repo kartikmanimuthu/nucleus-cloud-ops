@@ -1,8 +1,8 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { extractTextContent } from '@/lib/agent/agent-shared';
 import { buildSQLGenerationPrompt } from '../prompts';
 import { type TextToSQLState, requireModelConfig } from '../state';
 import { createAgentModels } from '@/lib/agent/model-factory';
+import { contentToText } from '@/lib/agent/agent-shared';
 
 export async function generateSQLNode(state: TextToSQLState): Promise<Partial<TextToSQLState>> {
     const model = createAgentModels({ ...requireModelConfig(state), maxTokens: 1024 }).reflector;
@@ -34,7 +34,7 @@ export async function generateSQLNode(state: TextToSQLState): Promise<Partial<Te
     ]);
 
     // Extract SQL — strip markdown fences if present
-    let sql = extractTextContent(response.content);
+    let sql = contentToText(response.content);
     sql = sql.replace(/```sql\n?/gi, '').replace(/```\n?/g, '').trim();
 
     console.log(`[TextToSQL] Generated SQL (iteration ${state.iteration + 1}): ${sql}`);

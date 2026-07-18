@@ -8,6 +8,9 @@ import { buildClientErrorText } from '@/lib/agent/stream-error';
 import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
+import { buildPlanPart, buildPhasePart, buildInterruptParts } from './stream-parts';
+import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
+import type { PlanStep } from '@/lib/agent/agent-shared';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -76,7 +79,8 @@ export async function POST(req: Request) {
             accountName,    // Deprecated: single AWS account name
             selectedSkill,  // Skill ID for dynamic skill loading
             mcpServerIds,   // MCP server IDs to activate for this session
-            knowledgeBaseIds // Knowledge Base IDs manually selected in the console
+            knowledgeBaseIds, // Knowledge Base IDs manually selected in the console
+            decisions       // Per-tool approval decisions (new resume contract)
         } = await req.json();
         // Resolve userId and tenantId from session
         let resolvedUserId: string;
@@ -222,6 +226,20 @@ export async function POST(req: Request) {
         // Track the toolCallId when resuming from HITL approval
         let resumedToolCallId: string | undefined;
 
+        // Original pending tool calls that will execute on resume. processStream
+        // uses these to re-emit tool parts under their ORIGINAL tool_call_ids
+        // (the ids the pre-pause message's parts already use) instead of run_ids,
+        // so the client can pair the resumed output with the existing cards.
+        let resumedPendingCalls: ResumedPendingCall[] = [];
+
+        // Decisions that produced ToolMessages directly (rejected tools + ask_user
+        // answers/declines) never execute in the tools node, so the resumed stream
+        // emits no on_tool_start/on_tool_end for them — without help their cards
+        // would stay pending forever (and read as "interrupted" after reload).
+        // processStream re-emits these as synthetic tool input+output parts under
+        // their ORIGINAL tool_call_ids at resume-stream start.
+        let syntheticDecisionResults: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown>; output: string }> = [];
+
         // Track pre-run message count so we only persist NEW messages from this turn
         let preRunMessageCount = 0;
 
@@ -235,7 +253,91 @@ export async function POST(req: Request) {
             );
         }
 
-        if (lastMessage.role === 'tool') {
+        if (Array.isArray(decisions)) {
+            // Per-tool decision resume (new contract; legacy role:'tool' path below still works)
+            const { buildDecisionToolMessages } = await import('./decisions');
+            const { pendingToolCallsOf } = await import('@/lib/agent/guard');
+
+            const interruptState = await graph.getState(config);
+            preRunMessageCount = interruptState.values?.messages?.length ?? 0;
+            const nextNodes: string[] = (interruptState.next as string[] | undefined) ?? [];
+            if (!nextNodes.includes('approval_gate')) {
+                releaseLock();
+                return new Response(JSON.stringify({ error: 'No pending approval on this thread.' }), {
+                    status: 409, headers: { 'Content-Type': 'application/json' },
+                });
+            }
+            const pending = pendingToolCallsOf(interruptState.values);
+            const result = buildDecisionToolMessages(pending, decisions);
+            if (!result.ok) {
+                releaseLock();
+                return new Response(JSON.stringify({ error: result.error }), {
+                    status: 400, headers: { 'Content-Type': 'application/json' },
+                });
+            }
+            if (result.toolMessages.length > 0) {
+                await graph.updateState(config, { messages: result.toolMessages });
+            }
+
+            // Resume-stream coherence: emitting tool-input events for the approved
+            // executions requires the isResumedFromApproval path in processStream.
+            const firstApprovedRealTool = pending.find(
+                c => c.name !== 'ask_user' && result.approvedIds.includes(c.id),
+            );
+            if (firstApprovedRealTool) {
+                resumedToolCallId = firstApprovedRealTool.id;
+            }
+            // Only approved real tools execute on resume (rejected + ask_user
+            // calls already received ToolMessages above).
+            resumedPendingCalls = pending
+                .filter(c => c.name !== 'ask_user' && result.approvedIds.includes(c.id))
+                .map(c => ({ id: c.id, name: c.name, args: c.args }));
+
+            // Rejected tools + ask_user calls got their ToolMessages written above;
+            // mirror those results into the response stream as synthetic tool parts
+            // so their cards resolve durably (live AND after reload).
+            const decidedContentById = new Map(
+                result.toolMessages.map(tm => [
+                    tm.tool_call_id,
+                    typeof tm.content === 'string' ? tm.content : JSON.stringify(tm.content),
+                ]),
+            );
+            syntheticDecisionResults = pending
+                .filter(c => decidedContentById.has(c.id))
+                .map(c => ({
+                    toolCallId: c.id,
+                    toolName: c.name,
+                    args: c.args,
+                    output: decidedContentById.get(c.id)!,
+                }));
+
+            // Audit every decision on a mutative call (guard verdicts live in state)
+            try {
+                const { AuditService } = await import('@/lib/audit-service');
+                const verdicts = interruptState.values?.guardVerdicts ?? {};
+                for (const call of pending) {
+                    const v = verdicts[call.id];
+                    if (!v?.isMutative) continue;
+                    const approved = result.approvedIds.includes(call.id);
+                    await AuditService.logAgentEvent({
+                        eventType: 'chat_tool_approval',
+                        action: approved ? 'approve_mutative_tool' : 'reject_mutative_tool',
+                        userId: resolvedUserId,
+                        tenantId: resolvedTenantId,
+                        status: 'success',
+                        details: `${approved ? 'Approved' : 'Rejected'} ${call.name} (severity ${v.severity}): ${v.action}`,
+                        resourceType: 'agent_tool_call',
+                        resourceId: call.id,
+                        metadata: { toolName: call.name, severity: v.severity, argsPreview: JSON.stringify(call.args).slice(0, 200) },
+                        correlationId: threadId,
+                    });
+                }
+            } catch (auditErr) {
+                console.warn('[Chat API] approval audit failed (non-fatal):', auditErr);
+            }
+
+            input = null; // resume from the approval_gate interrupt
+        } else if (lastMessage.role === 'tool') {
             // Tool result (Human-in-the-Loop approval)
             console.log(`[API] Processing tool message. Full message:`, JSON.stringify(lastMessage));
             console.log(`[API] Extracted toolCallId: ${lastMessage.toolCallId}`);
@@ -265,6 +367,19 @@ export async function POST(req: Request) {
                     content: lastMessage.content
                 });
                 await graph.updateState(config, { messages: [toolMessage] });
+            }
+
+            // Populate the original pending calls for the resumed stream (same
+            // contract as the decisions branch above). Computed AFTER the
+            // rejection ToolMessage write so only calls that will actually
+            // execute remain pending.
+            try {
+                const { pendingToolCallsOf } = await import('@/lib/agent/guard');
+                const postState = await graph.getState(config);
+                resumedPendingCalls = pendingToolCallsOf(postState.values ?? { messages: [] })
+                    .map(c => ({ id: c.id, name: c.name, args: c.args }));
+            } catch (e) {
+                console.warn('[Chat API] Could not resolve pending calls for resume (non-fatal):', e);
             }
 
             input = null; // Resume from interrupt
@@ -378,7 +493,9 @@ export async function POST(req: Request) {
                     { configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId } },
                     resolvedUserId,
                     resolvedTenantId,
-                    preRunMessageCount
+                    preRunMessageCount,
+                    resumedPendingCalls,
+                    syntheticDecisionResults
                 )
             });
         } else {
@@ -473,6 +590,9 @@ function getPhaseFromNode(node: string): AgentPhase {
             return 'text';        // Deep Agent main model node: same rationale
         case 'tools':
             return 'execution';   // Deep Agent tool execution
+        case 'guard':
+        case 'approval_gate':
+            return 'execution';   // Guard risk-assessment + approval pause: render under execution
         case 'memory_recall':
             return 'memory_recall';
         case 'memory_save':
@@ -538,7 +658,9 @@ function processStream(
     config?: any,
     resolvedUserId?: string,
     resolvedTenantId?: string,
-    preRunMessageCount = 0
+    preRunMessageCount = 0,
+    resumedPendingCalls: ResumedPendingCall[] = [],
+    syntheticDecisionResults: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown>; output: string }> = []
 ): ReadableStream<UIMessageChunk> {
     return new ReadableStream({
         async start(controller) {
@@ -567,6 +689,12 @@ function processStream(
             // Track pending tool calls for HITL flow within the same request
             // Maps tool name to the original toolCallId from on_chat_model_end
             const pendingToolCalls = new Map<string, string>();
+
+            // Resumed-from-approval flow: original tool_call_ids consumed so far
+            // and the run_id → emitted-id mapping (on_tool_end must pair its
+            // output with whatever id on_tool_start emitted the input under).
+            const consumedResumedIds = new Set<string>();
+            const runIdToEmittedId = new Map<string, string>();
 
             // Track if we've emitted any actual TEXT content (not reasoning)
             // The AI SDK requires messages to have either TEXT or pending tool calls
@@ -606,14 +734,41 @@ function processStream(
                     hasEmittedTextContent = true;
                 }
 
+                // Durable terminal cards for decision outcomes that never execute as
+                // tools (rejections + ask_user answers/declines): emit input+output
+                // parts under the ORIGINAL tool_call_ids, in the exact format the
+                // live on_tool_start/on_tool_end handlers use. The client's
+                // computeToolPartVisibility makes this output-bearing part win over
+                // the pre-pause input-only twin, so no double card renders.
+                for (const s of syntheticDecisionResults) {
+                    if (!safeEnqueue({ type: 'tool-input-start', toolCallId: s.toolCallId, toolName: s.toolName })) return;
+                    if (!safeEnqueue({ type: 'tool-input-available', toolCallId: s.toolCallId, toolName: s.toolName, input: s.args })) return;
+                    if (!safeEnqueue({ type: 'tool-output-available', toolCallId: s.toolCallId, output: s.output })) return;
+                }
+
                 for await (const event of stream) {
                     try {
                         const runId = event.run_id || "";
 
-                        if (event.event === "on_chat_model_start") {
+                        // The guard node's model call produces internal risk verdicts
+                        // (raw JSON) that go to the guardVerdicts state channel, NOT to
+                        // graph `messages` — never stream it as visible reasoning, and
+                        // never count it in phaseList (it persists no AIMessage, so a
+                        // push would drift the positional phase fallback).
+                        const isGuardModelRun =
+                            event.event.startsWith("on_chat_model_") &&
+                            event.metadata?.langgraph_node === 'guard';
+
+                        if (isGuardModelRun) {
+                            // Skip start/stream/end entirely. streamStarted stays false
+                            // (the previous run's on_chat_model_end already closed its
+                            // part), so nothing downstream references a dangling part id.
+                        }
+                        else if (event.event === "on_chat_model_start") {
                             const node = event.metadata?.langgraph_node;
                             currentPhase = getPhaseFromNode(node || "");
                             phaseList.push(currentPhase);
+                            safeEnqueue(buildPhasePart(currentPhase, node || '') as UIMessageChunk);
 
                             // Ensure unique IDs per chat model run to avoid index conflicts
                             partCounter++;
@@ -702,10 +857,17 @@ function processStream(
                             } else if (isResumedFromApproval) {
                                 // For HITL mode when resuming from approval:
                                 // We need to emit tool-input for EVERY tool, not just the first one
-                                // This handles cases where multiple tools were queued for execution
-                                console.log("[DEBUG] Emitting tool-input for HITL resumed tool:", toolId, toolName);
-                                if (!safeEnqueue({ type: "tool-input-start", toolCallId: toolId, toolName })) break;
-                                if (!safeEnqueue({ type: "tool-input-available", toolCallId: toolId, toolName, input: args || {} })) break;
+                                // This handles cases where multiple tools were queued for execution.
+                                // Emit under the ORIGINAL tool_call_id (the id the pre-pause
+                                // message's parts already use) so the client updates the
+                                // existing card instead of duplicating it under a run_id.
+                                const originalId = resolveResumedToolCallId(
+                                    resumedPendingCalls, consumedResumedIds, toolName, args, toolId,
+                                );
+                                runIdToEmittedId.set(runId, originalId);
+                                console.log("[DEBUG] Emitting tool-input for HITL resumed tool:", originalId, toolName, "(run:", toolId, ")");
+                                if (!safeEnqueue({ type: "tool-input-start", toolCallId: originalId, toolName })) break;
+                                if (!safeEnqueue({ type: "tool-input-available", toolCallId: originalId, toolName, input: args || {} })) break;
                             }
                             // For initial HITL request (not resumed), tool-input events 
                             // are emitted in on_chat_model_end, so we skip here
@@ -721,9 +883,18 @@ function processStream(
                             const toolName = event.name || "";
                             let toolId = runId || "";
 
-                            // For HITL resumed flow and autoApprove, use run_id (matches on_tool_start)
-                            // For initial HITL request, use the pending tool call ID from on_chat_model_end
-                            if (!autoApprove && !isResumedFromApproval && pendingToolCalls.has(toolName)) {
+                            // For autoApprove, use run_id (matches on_tool_start).
+                            // For the HITL resumed flow, pair the output with whatever id
+                            // on_tool_start emitted the input under (original tool_call_id),
+                            // falling back to the ToolMessage's own tool_call_id, then run_id.
+                            // For initial HITL request, use the pending tool call ID from on_chat_model_end.
+                            if (!autoApprove && isResumedFromApproval) {
+                                const emittedId = runIdToEmittedId.get(runId);
+                                const outputToolCallId = (event.data?.output as { tool_call_id?: unknown } | undefined)?.tool_call_id;
+                                toolId = emittedId
+                                    || (typeof outputToolCallId === 'string' && outputToolCallId ? outputToolCallId : '')
+                                    || toolId;
+                            } else if (!autoApprove && !isResumedFromApproval && pendingToolCalls.has(toolName)) {
                                 toolId = pendingToolCalls.get(toolName)!;
                                 pendingToolCalls.delete(toolName);
                             }
@@ -737,8 +908,45 @@ function processStream(
                                 if (!safeEnqueue({ type: "tool-output-available", toolCallId: toolId, output: outputContent })) break;
                             }
                         }
+                        else if (event.event === "on_chain_end") {
+                            // Graph-node completion: stream plan snapshots when a node changed the plan.
+                            // Deviation from the brief: keyed off `event.metadata?.langgraph_node` rather
+                            // than `event.name`. LangGraph sets both `runName` and `metadata.langgraph_node`
+                            // to the node id for the node's own chain run (pregel/algo.js), but metadata
+                            // propagates to every nested child run inside that node (e.g. internal
+                            // ChannelWrite steps) while `runName`/`event.name` does not — so `event.name`
+                            // would miss chain-end events whose outer runnable isn't named after the node.
+                            // The `Array.isArray(output?.plan)` guard below still ensures we only ever act
+                            // on the one chain-end whose output is actually the node's returned partial
+                            // state (internal steps have a differently-shaped output).
+                            const node = event.metadata?.langgraph_node || event.name || "";
+                            const output = event.data?.output as { plan?: PlanStep[] } | undefined;
+                            if (
+                                threadId &&
+                                ["planner", "generate", "reflect", "revise", "tools"].includes(node) &&
+                                Array.isArray(output?.plan) && output!.plan.length > 0
+                            ) {
+                                safeEnqueue(buildPlanPart(threadId, output!.plan, node) as UIMessageChunk);
+                            }
+                        }
                     } catch (innerError) {
                         console.error("Stream event processing error:", innerError);
+                    }
+                }
+
+                // If the run parked at the approval_gate interrupt, describe the pending
+                // batch as typed parts so the client can render decision cards.
+                if (threadId && graph && config) {
+                    try {
+                        const parked = await graph.getState(config);
+                        const nextNodes: string[] = (parked?.next as string[] | undefined) ?? [];
+                        if (nextNodes.includes('approval_gate')) {
+                            for (const part of buildInterruptParts(parked.values ?? {}, threadId)) {
+                                safeEnqueue(part as UIMessageChunk);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[Chat API] interrupt part emission failed (non-fatal):', e);
                     }
                 }
 
