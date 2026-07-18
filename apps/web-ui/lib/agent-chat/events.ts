@@ -66,8 +66,7 @@ function hasOutputValue(part: LoosePart): boolean {
 }
 
 function resolveOutput(part: LoosePart): unknown {
-    if (part.output !== undefined) return part.output;
-    return part.result;
+    return part.output ?? part.result;
 }
 
 interface PendingThinking {
@@ -157,9 +156,9 @@ export function buildTranscript(message: LooseMessage, opts: BuildTranscriptOpti
                 return;
             }
             case 'text': {
-                flushThinking();
                 const text = part.text ?? '';
                 if (text.trim().length === 0) return;
+                flushThinking();
                 events.push({ kind: 'answer', id, text, streaming: false });
                 return;
             }

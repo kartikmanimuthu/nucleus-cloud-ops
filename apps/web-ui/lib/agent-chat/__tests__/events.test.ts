@@ -120,6 +120,18 @@ describe('reasoning merging', () => {
         expect(thinkingEvents).toHaveLength(1);
         expect((thinkingEvents[0] as any).text).toBe('Part one. Part two.');
     });
+
+    it('a whitespace-only text part (emits no event) does not break a reasoning merge', () => {
+        const events = buildTranscript(msg([
+            { type: 'data-phase', data: { phase: 'execution' } },
+            { type: 'reasoning', text: 'Step one.' },
+            { type: 'text', text: ' ' },
+            { type: 'reasoning', text: 'Step two.' },
+        ]), noOpts);
+        const thinkingEvents = events.filter((e: any) => e.kind === 'thinking');
+        expect(thinkingEvents).toHaveLength(1);
+        expect((thinkingEvents[0] as any).text).toBe('Step one.Step two.');
+    });
 });
 
 describe('tool events', () => {
