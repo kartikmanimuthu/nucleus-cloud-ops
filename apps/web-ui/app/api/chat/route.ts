@@ -8,7 +8,7 @@ import { buildClientErrorText } from '@/lib/agent/stream-error';
 import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
-import { buildPlanPart, buildPhasePart, buildInterruptParts } from './stream-parts';
+import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
 
@@ -709,6 +709,13 @@ function processStream(
             let memoryRecallText = '';
             let memorySaveText = '';
 
+            // Per-run accumulator for the live data-memory part: reset at the start of
+            // each memory model run (on_chat_model_start) and flushed as ONE
+            // buildMemoryPart at on_chat_model_end, so multiple recalls/saves within a
+            // single request each get their own part. This never replaces
+            // memoryRecallText/memorySaveText above, which still feed persistence.
+            let memoryRunText = '';
+
             const safeEnqueue = (chunk: UIMessageChunk) => {
                 try {
                     controller.enqueue(chunk);
@@ -775,21 +782,31 @@ function processStream(
                             currentPartId = `part-${runId}-${partCounter}`;
                             streamStarted = false;
 
-                            const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
+                            const isMemoryPhase = currentPhase === 'memory_recall' || currentPhase === 'memory_save';
 
-                            if (!safeEnqueue({ type: `${chunkType}-start` as any, id: currentPartId })) break;
-                            streamStarted = true;
+                            if (isMemoryPhase) {
+                                // Memory narration is no longer streamed as a reasoning part —
+                                // it surfaces live as ONE data-memory part at on_chat_model_end.
+                                // Reset the per-run accumulator; streamStarted stays false so the
+                                // stream/end handlers below know there's no dangling part to close.
+                                memoryRunText = '';
+                            } else {
+                                const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
 
-                            const phaseMarker = getPhaseMarker(currentPhase);
-                            if (phaseMarker) {
-                                safeEnqueue({
-                                    type: `${chunkType}-delta` as any,
-                                    id: currentPartId,
-                                    delta: phaseMarker,
-                                });
-                                // Only count as text content if it's actually a text part
-                                if (chunkType === 'text') {
-                                    hasEmittedTextContent = true;
+                                if (!safeEnqueue({ type: `${chunkType}-start` as any, id: currentPartId })) break;
+                                streamStarted = true;
+
+                                const phaseMarker = getPhaseMarker(currentPhase);
+                                if (phaseMarker) {
+                                    safeEnqueue({
+                                        type: `${chunkType}-delta` as any,
+                                        id: currentPartId,
+                                        delta: phaseMarker,
+                                    });
+                                    // Only count as text content if it's actually a text part
+                                    if (chunkType === 'text') {
+                                        hasEmittedTextContent = true;
+                                    }
                                 }
                             }
                         }
@@ -802,20 +819,26 @@ function processStream(
                                 text = content.filter((c) => c.type === 'text').map((c) => c.text).join('');
                             }
 
-                            if (text && streamStarted) {
-                                // Capture memory-phase text for display-only history persistence.
-                                if (currentPhase === 'memory_recall') memoryRecallText += text;
-                                else if (currentPhase === 'memory_save') memorySaveText += text;
-
-                                const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
-                                if (!safeEnqueue({
-                                    type: `${chunkType}-delta` as any,
-                                    id: currentPartId,
-                                    delta: text,
-                                })) break;
-                                // Only count as text content if it's actually a text part
-                                if (chunkType === 'text') {
-                                    hasEmittedTextContent = true;
+                            if (text) {
+                                const isMemoryPhase = currentPhase === 'memory_recall' || currentPhase === 'memory_save';
+                                if (isMemoryPhase) {
+                                    // Capture memory-phase text for display-only history persistence
+                                    // AND the per-run accumulator that becomes the live data-memory
+                                    // part below — no reasoning part is streamed for these phases.
+                                    if (currentPhase === 'memory_recall') memoryRecallText += text;
+                                    else memorySaveText += text;
+                                    memoryRunText += text;
+                                } else if (streamStarted) {
+                                    const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
+                                    if (!safeEnqueue({
+                                        type: `${chunkType}-delta` as any,
+                                        id: currentPartId,
+                                        delta: text,
+                                    })) break;
+                                    // Only count as text content if it's actually a text part
+                                    if (chunkType === 'text') {
+                                        hasEmittedTextContent = true;
+                                    }
                                 }
                             }
                         }
@@ -824,6 +847,18 @@ function processStream(
                                 const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
                                 if (!safeEnqueue({ type: `${chunkType}-end` as any, id: currentPartId })) break;
                                 streamStarted = false;
+                            }
+
+                            if (currentPhase === 'memory_recall' || currentPhase === 'memory_save') {
+                                // Live counterpart of the reasoning stream we silenced above: emit
+                                // ONE data-memory part for this run if it produced non-blank text.
+                                if (memoryRunText.trim()) {
+                                    safeEnqueue(buildMemoryPart(
+                                        currentPhase === 'memory_save' ? 'save' : 'recall',
+                                        memoryRunText,
+                                    ) as UIMessageChunk);
+                                }
+                                memoryRunText = '';
                             }
 
                             if (!autoApprove) {

@@ -12,6 +12,17 @@ export function buildPhasePart(phase: string, node: string): DataPart {
 }
 
 /**
+ * One data-memory part per memory model run (recall or save). `count` is the
+ * number of markdown bullet lines in the accumulated summary (matches
+ * `/^[-*•]\s/m`), or null when the summary reads as prose (no bullets).
+ */
+export function buildMemoryPart(op: 'recall' | 'save', summary: string): DataPart {
+    const bulletMatches = summary.match(/^[-*•]\s/gm);
+    const count = bulletMatches ? bulletMatches.length : null;
+    return { type: 'data-memory', data: { op, summary, count } };
+}
+
+/**
  * Parts describing a parked approval_gate interrupt: one data-approval batch
  * for normal tools (each row carrying its guard verdict) and one
  * data-clarification per pending ask_user call.
