@@ -8,7 +8,7 @@ import { buildClientErrorText } from '@/lib/agent/stream-error';
 import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
-import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart } from './stream-parts';
+import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, humanizeReflection } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
 
@@ -716,6 +716,13 @@ function processStream(
             // memoryRecallText/memorySaveText above, which still feed persistence.
             let memoryRunText = '';
 
+            // Per-run accumulator for reflector-node deltas: the reflector emits raw
+            // JSON token-by-token, which must never stream to the client verbatim (it
+            // reads as broken JSON, not thought). Buffer it here instead of enqueueing
+            // reasoning-deltas live; on_chat_model_end flushes ONE humanized reasoning
+            // part built from the full buffer. Reset at the start of each reflection run.
+            let reflectionBuf = '';
+
             const safeEnqueue = (chunk: UIMessageChunk) => {
                 try {
                     controller.enqueue(chunk);
@@ -783,6 +790,7 @@ function processStream(
                             streamStarted = false;
 
                             const isMemoryPhase = currentPhase === 'memory_recall' || currentPhase === 'memory_save';
+                            const isReflectionPhase = currentPhase === 'reflection';
 
                             if (isMemoryPhase) {
                                 // Memory narration is no longer streamed as a reasoning part —
@@ -790,6 +798,11 @@ function processStream(
                                 // Reset the per-run accumulator; streamStarted stays false so the
                                 // stream/end handlers below know there's no dangling part to close.
                                 memoryRunText = '';
+                            } else if (isReflectionPhase) {
+                                // Same treatment: the reflector's raw JSON must never stream as
+                                // reasoning. Reset the per-run buffer; streamStarted stays false
+                                // so the stream/end handlers below know there's no part to close.
+                                reflectionBuf = '';
                             } else {
                                 const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
 
@@ -828,6 +841,10 @@ function processStream(
                                     if (currentPhase === 'memory_recall') memoryRecallText += text;
                                     else memorySaveText += text;
                                     memoryRunText += text;
+                                } else if (currentPhase === 'reflection') {
+                                    // Buffer the reflector's raw JSON deltas — never streamed live.
+                                    // Flushed as one humanized reasoning part at on_chat_model_end.
+                                    reflectionBuf += text;
                                 } else if (streamStarted) {
                                     const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
                                     if (!safeEnqueue({
@@ -859,6 +876,25 @@ function processStream(
                                     ) as UIMessageChunk);
                                 }
                                 memoryRunText = '';
+                            }
+
+                            if (currentPhase === 'reflection') {
+                                // Live counterpart of the buffered stream above: flush ONE
+                                // reasoning part built from the FULL run's buffer, humanized —
+                                // the raw reflector JSON never reaches the client. Fresh id
+                                // (not currentPartId — no reasoning part was ever opened for
+                                // this run, since streamStarted was never set true above).
+                                if (reflectionBuf.trim()) {
+                                    const reflectPartId = `reflect-${runId}-${partCounter}`;
+                                    safeEnqueue({ type: 'reasoning-start', id: reflectPartId });
+                                    safeEnqueue({
+                                        type: 'reasoning-delta',
+                                        id: reflectPartId,
+                                        delta: humanizeReflection(reflectionBuf),
+                                    });
+                                    safeEnqueue({ type: 'reasoning-end', id: reflectPartId });
+                                }
+                                reflectionBuf = '';
                             }
 
                             if (!autoApprove) {
@@ -1059,7 +1095,13 @@ function processStream(
                                     if (phase !== 'text') {
                                         const marker = getPhaseMarker(phase);
                                         if (marker && typeof msg.content === 'string') {
-                                            msg.content = marker + msg.content;
+                                            // Reflection messages persist as prose, never the
+                                            // reflector's raw JSON — history replay must match
+                                            // the humanized live reasoning part above.
+                                            const content = phase === 'reflection'
+                                                ? humanizeReflection(msg.content)
+                                                : msg.content;
+                                            msg.content = marker + content;
                                         }
                                     }
                                     aiIndex++;

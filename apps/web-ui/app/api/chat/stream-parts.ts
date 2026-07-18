@@ -23,6 +23,44 @@ export function buildMemoryPart(op: 'recall' | 'save', summary: string): DataPar
 }
 
 /**
+ * The reflector node emits raw JSON (`{ isComplete, analysis, issues,
+ * suggestions, updatedPlan }`), sometimes wrapped in ```json fences or preceded
+ * by leading prose. This must never reach the client verbatim as a "reasoning"
+ * block — it reads as broken JSON, not thought. Extract the first `{` … last
+ * `}` span, parse it, and render prose: `analysis`, plus an `Issues:` line
+ * (omitted when empty, missing, or starts with "None") and a `Next:` line
+ * (omitted when empty or missing). Any parse failure returns `raw` unchanged
+ * so callers never lose the underlying text.
+ */
+export function humanizeReflection(raw: string): string {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start === -1 || end === -1 || end < start) return raw;
+
+    let parsed: { analysis?: unknown; issues?: unknown; suggestions?: unknown };
+    try {
+        parsed = JSON.parse(raw.slice(start, end + 1));
+    } catch {
+        return raw;
+    }
+
+    const analysis = typeof parsed.analysis === 'string' ? parsed.analysis : '';
+    let prose = analysis;
+
+    const issues = typeof parsed.issues === 'string' ? parsed.issues.trim() : '';
+    if (issues && !/^none/i.test(issues)) {
+        prose += `\n\nIssues: ${issues}`;
+    }
+
+    const suggestions = typeof parsed.suggestions === 'string' ? parsed.suggestions.trim() : '';
+    if (suggestions) {
+        prose += `\n\nNext: ${suggestions}`;
+    }
+
+    return prose;
+}
+
+/**
  * Parts describing a parked approval_gate interrupt: one data-approval batch
  * for normal tools (each row carrying its guard verdict) and one
  * data-clarification per pending ask_user call.
