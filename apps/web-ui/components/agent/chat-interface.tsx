@@ -127,6 +127,7 @@ import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
 import { useRunState } from "@/components/agent/chat/use-run-state";
 import { computeToolPartVisibility, isRejectedToolResult } from "@/components/agent/chat/run-state";
 import { isEmptyDecisionCarrier } from "@/lib/agent-chat/events";
+import { extractServerErrorMessage } from "@/lib/agent-chat/use-chat-session-helpers";
 import { useDecisions } from "@/components/agent/chat/use-decisions";
 import { ApprovalBatchCard } from "@/components/agent/chat/approval-batch-card";
 import { ClarificationCard } from "@/components/agent/chat/clarification-card";
@@ -286,27 +287,6 @@ function partImageUrl(part: any): string | undefined {
     return `data:${part.source.media_type};base64,${part.source.data}`;
   }
   return undefined;
-}
-
-// The AI SDK surfaces HTTP failures as Error(message) where message is usually
-// the raw response body — our API routes return `{"error":"..."}` — sometimes
-// with surrounding text. Extract the human-readable server error when present.
-function extractServerErrorMessage(error: unknown): string | null {
-  const message =
-    error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  if (!message.trim()) return null;
-  const jsonMatch = message.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed && typeof parsed.error === "string" && parsed.error.trim()) {
-        return parsed.error.trim();
-      }
-    } catch {
-      // Not JSON — fall through to the raw message.
-    }
-  }
-  return message.trim();
 }
 
 // Render a message whose `content` has no structured `parts` (legacy / history
