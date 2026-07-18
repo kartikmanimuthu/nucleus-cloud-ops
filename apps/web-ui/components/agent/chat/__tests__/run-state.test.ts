@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveRunState, computeToolPartVisibility } from '../run-state';
+import { deriveRunState, computeToolPartVisibility, isRejectedToolResult } from '../run-state';
 
 const msg = (parts: Array<{ type: string; data?: unknown; text?: string }>) =>
     ({ role: 'assistant', parts });
@@ -212,5 +212,32 @@ describe('computeToolPartVisibility', () => {
             msgWithId('m1', [toolPart('t1')]),
         ] as any);
         expect(vis.get('t1')).toBe('m1');
+    });
+});
+
+describe('isRejectedToolResult', () => {
+    it('detects the synthetic server rejection output (with and without reason)', () => {
+        expect(isRejectedToolResult('Rejected by user. Do not retry this exact action; adapt or ask.')).toBe(true);
+        expect(isRejectedToolResult('Rejected by user — reason: too risky. Do not retry this exact action; adapt or ask.')).toBe(true);
+    });
+
+    it('detects a local batch-card rejection decision even before any output exists', () => {
+        expect(isRejectedToolResult(undefined, { approved: false })).toBe(true);
+        expect(isRejectedToolResult(null, { approved: false, answer: 'nope' })).toBe(true);
+        // Decision wins regardless of what the (stale) result says
+        expect(isRejectedToolResult('ok', { approved: false })).toBe(true);
+    });
+
+    it('approved decisions and normal outputs are not rejections', () => {
+        expect(isRejectedToolResult('command output', { approved: true })).toBe(false);
+        expect(isRejectedToolResult('command output')).toBe(false);
+        expect(isRejectedToolResult(undefined)).toBe(false);
+        expect(isRejectedToolResult(undefined, { approved: true })).toBe(false);
+    });
+
+    it('does not match rejection text mid-string or non-string results', () => {
+        expect(isRejectedToolResult('The call was Rejected by user earlier')).toBe(false);
+        expect(isRejectedToolResult({ text: 'Rejected by user' })).toBe(false);
+        expect(isRejectedToolResult(['Rejected by user'])).toBe(false);
     });
 });

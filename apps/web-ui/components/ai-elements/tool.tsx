@@ -1,12 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDown, Terminal, Loader2, Check, AlertCircle } from "lucide-react"
+import { ChevronDown, Terminal, Loader2, Check, AlertCircle, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible"
 import { Shimmer, ShimmerLines } from "@/components/ui/shimmer"
 
-export type ToolState = 'pending' | 'running' | 'complete' | 'error';
+export type ToolState = 'pending' | 'running' | 'complete' | 'error' | 'rejected';
 
 interface ToolContextValue {
   open: boolean;
@@ -48,6 +48,7 @@ const Tool = React.forwardRef<
           "w-full rounded-lg border bg-card shadow-sm overflow-hidden",
           state === 'running' && "border-primary/30",
           state === 'error' && "border-destructive/30",
+          state === 'rejected' && "border-destructive/40",
           state === 'complete' && "border-success/30",
           className
         )}
@@ -98,6 +99,11 @@ const ToolHeader = React.forwardRef<
     error: {
       icon: <AlertCircle className="h-3.5 w-3.5" />,
       badge: <span className="text-[10px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-full">Error</span>,
+      iconBg: "bg-destructive/10 text-destructive border-destructive/20",
+    },
+    rejected: {
+      icon: <X className="h-3.5 w-3.5" />,
+      badge: <span className="text-[10px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-full">Rejected</span>,
       iconBg: "bg-destructive/10 text-destructive border-destructive/20",
     },
   };

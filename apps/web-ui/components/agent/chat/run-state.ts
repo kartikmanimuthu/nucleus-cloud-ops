@@ -116,6 +116,22 @@ export function deriveRunState(
 }
 
 /**
+ * A tool call the user rejected. Two signals, either is sufficient:
+ *  - the local batch-card decision recorded approved === false (covers the
+ *    window before the resume stream materializes the synthetic tool output);
+ *  - the server's synthetic tool-result part, whose text always starts with
+ *    "Rejected by user" (see app/api/chat/decisions.ts).
+ * Non-string results (structured tool outputs) are never rejections.
+ */
+export function isRejectedToolResult(
+    result: unknown,
+    decision?: { approved: boolean; answer?: string },
+): boolean {
+    if (decision?.approved === false) return true;
+    return typeof result === 'string' && result.startsWith('Rejected by user');
+}
+
+/**
  * Cross-message tool-part dedupe. After an approval resume, the resumed stream
  * re-emits tool parts with the ORIGINAL tool_call_ids in a NEW assistant
  * message, leaving the pre-pause message with an input-only twin. Per

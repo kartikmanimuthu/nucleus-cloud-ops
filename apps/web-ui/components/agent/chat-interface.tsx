@@ -42,6 +42,8 @@ import {
   BookOpen,
   Maximize2,
   Minimize2,
+  PanelRight,
+  PanelRightClose,
 } from "lucide-react";
 import {
   copyToClipboard,
@@ -123,7 +125,7 @@ import { useProviderModels } from "@/lib/queries/providers";
 import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
 import { useRunState } from "@/components/agent/chat/use-run-state";
-import { computeToolPartVisibility } from "@/components/agent/chat/run-state";
+import { computeToolPartVisibility, isRejectedToolResult } from "@/components/agent/chat/run-state";
 import { useDecisions } from "@/components/agent/chat/use-decisions";
 import { ApprovalBatchCard } from "@/components/agent/chat/approval-batch-card";
 import { ClarificationCard } from "@/components/agent/chat/clarification-card";
@@ -529,6 +531,10 @@ const MessageRow = React.memo(function MessageRow({ message, isLastMessage, isAc
   );
 });
 
+// localStorage key for the right run-rail open/closed preference — persists
+// across sessions (shared by all threads).
+const RAIL_OPEN_STORAGE_KEY = "aiops-rail-open";
+
 // Tool outputs from AWS CLI can exceed 50 KB (describe-instances, list-web-acls, etc.).
 // Rendering the full string in the DOM for 30-50 tool calls causes the browser to freeze.
 // This constant caps the initially-rendered portion; users can expand on demand.
@@ -630,6 +636,32 @@ export function ChatInterface({
   // Configuration state (before conversation starts)
   const [autoApprove, setAutoApprove] = useState(true);
   const [showTools, setShowTools] = useState(false);
+
+  // Right run-rail visibility (lg+ only — below lg the rail is always hidden
+  // and the compact header strip covers it). Initialized true and synced from
+  // localStorage in an effect — no existing lazy-initializer pattern in the
+  // codebase, and reading window in the initializer risks an SSR hydration
+  // mismatch in this "use client" file.
+  const [railOpen, setRailOpen] = useState(true);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(RAIL_OPEN_STORAGE_KEY);
+      if (stored !== null) setRailOpen(stored !== "false");
+    } catch {
+      // localStorage unavailable (private mode / disabled) — keep default.
+    }
+  }, []);
+  const toggleRail = useCallback(() => {
+    setRailOpen((open) => {
+      const next = !open;
+      try {
+        window.localStorage.setItem(RAIL_OPEN_STORAGE_KEY, String(next));
+      } catch {
+        // Preference simply won't persist.
+      }
+      return next;
+    });
+  }, []);
   const [selectedModel, setSelectedModel] = useState("");
   // Models are sourced ONLY from tenant-configured providers (shared TanStack
   // Query hook — no hardcoded Bedrock baseline). Auto-select the first available
@@ -1325,6 +1357,13 @@ export function ChatInterface({
     );
   };
 
+  // When the thread has a typed data-plan, the right rail (RunRail) is the
+  // single source of truth for the plan — the transcript's planning block
+  // renders only a slim marker instead of the full (duplicate) Plan card.
+  // Legacy threads (no data-plan) keep the text-parsed Plan card.
+  const typedPlanStepCount = runState.plan.length;
+  const hasTypedPlan = typedPlanStepCount > 0;
+
   // Render a phase block
   const renderPhaseBlock = useCallback((
     phase: AgentPhase,
@@ -1394,6 +1433,34 @@ export function ChatInterface({
 
         planStepCacheRef.current.set(cacheKey, planSteps);
       }
+    }
+
+    // Typed data-plan present → the rail owns the plan. Render only a slim
+    // planning marker (label bar + one muted line) instead of the full Plan
+    // card, so the plan isn't duplicated in the transcript. The parse/cache
+    // above still runs — only the render is gated.
+    if (phase === "planning" && hasTypedPlan) {
+      return (
+        <div key={key} className="w-full mb-2">
+          <div
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 text-xs font-semibold border-l-4 rounded-r-md",
+              config.borderColor,
+              config.bgColor,
+              config.textColor,
+            )}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {config.label}
+            {isActivePhase && (
+              <Loader2 className="w-3 h-3 animate-spin ml-auto" />
+            )}
+          </div>
+          <p className="mt-1.5 px-3 text-xs text-muted-foreground">
+            Execution plan created — {typedPlanStepCount} step{typedPlanStepCount === 1 ? "" : "s"} (tracked in the panel on the right)
+          </p>
+        </div>
+      );
     }
 
     // Use Plan component for planning phase with steps
@@ -1519,7 +1586,7 @@ export function ChatInterface({
       </div>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading]);
+  }, [isLoading, hasTypedPlan, typedPlanStepCount]);
 
   // Render tool invocation using enhanced Tool component
   const renderToolInvocation = useCallback((
@@ -1612,6 +1679,12 @@ export function ChatInterface({
     const hasRealResult =
       !!result && result !== "Approved" && result !== "Cancelled by user";
 
+    // Rejected by the user — either decided locally via the batch card, or the
+    // server's synthetic "Rejected by user…" tool result (post-resume/reload).
+    // Takes precedence over "complete": a rejected tool must never render the
+    // green success badge just because it carries (synthetic) output.
+    const isRejected = isRejectedToolResult(result, decision);
+
     // A tool part with no result that is no longer streaming and is not awaiting
     // approval (nor already decided via a batch card) means the run was aborted
     // mid-tool. Surface a terminal state instead of a perpetual "pending" that
@@ -1619,15 +1692,17 @@ export function ChatInterface({
     const isInterrupted =
       isCall && !result && !isLoading && !isPending && !ownedByBatch && !isDecided;
 
-    // Determine tool state for new component
+    // Determine tool state for new component ('rejected' wins over 'complete')
     const toolState =
-      hasRealResult
-        ? "complete"
-        : isLoading && isCall && !result
-          ? "running"
-          : isInterrupted
-            ? "error"
-            : "pending";
+      isRejected
+        ? "rejected"
+        : hasRealResult
+          ? "complete"
+          : isLoading && isCall && !result
+            ? "running"
+            : isInterrupted
+              ? "error"
+              : "pending";
 
     // Determine approval state for Confirmation component. Batch-card decisions
     // (decidedToolCalls) surface here for result-less parts so the outcome is
@@ -1635,7 +1710,7 @@ export function ChatInterface({
     const approvalState =
       result === "Approved"
         ? "approved"
-        : result === "Cancelled by user"
+        : result === "Cancelled by user" || isRejected
           ? "rejected"
           : isDecided && !result
             ? decision?.approved
@@ -1716,6 +1791,14 @@ export function ChatInterface({
               errorText="Execution interrupted — the run was stopped before this tool returned a result."
               label="Output"
             />
+          ) : isRejected && hasRealResult ? (
+            // Rejection output must not read as a normal successful result —
+            // route the synthetic "Rejected by user…" text through ToolOutput's
+            // destructive errorText path.
+            <ToolOutput
+              errorText={typeof result === "string" ? result : JSON.stringify(result)}
+              label="Output"
+            />
           ) : (
             <ToolOutputWithTruncation
               output={hasRealResult ? result : undefined}
@@ -1787,12 +1870,25 @@ export function ChatInterface({
           )}
         </div>
 
+        {/* Run-rail toggle — lg+ only (the rail itself is hidden below lg, the
+            compact strip above covers mobile). Carries lg:ml-auto so the header
+            actions stay right-aligned when the mobile strip is hidden. */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleRail}
+          className="hidden h-8 w-8 shrink-0 lg:ml-auto lg:inline-flex"
+          title={railOpen ? "Hide run panel" : "Show run panel"}
+        >
+          {railOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
+        </Button>
+
         {onToggleFullscreen && (
           <Button
             variant="ghost"
             size="icon"
             onClick={onToggleFullscreen}
-            className="h-8 w-8 shrink-0 lg:ml-auto"
+            className="h-8 w-8 shrink-0"
             title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
           >
             {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -2770,8 +2866,16 @@ export function ChatInterface({
       </div>
       </div>
 
-      {/* Right: run rail — hidden below lg */}
-      <div className="hidden w-72 shrink-0 lg:block xl:w-80">
+      {/* Right: run rail — hidden below lg; collapsible drawer at lg+ (header
+          PanelRight toggle). Width animates to 0 when closed; the fixed-width
+          inner wrapper keeps the rail content from reflowing mid-transition. */}
+      <div
+        className={cn(
+          "hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out lg:block",
+          railOpen ? "w-72 xl:w-80" : "w-0",
+        )}
+      >
+        <div className="h-full w-72 xl:w-80">
         <RunRail
           runState={runState}
           isStreaming={isLoading}
@@ -2786,6 +2890,7 @@ export function ChatInterface({
                 : "Knowledge: All (auto)",
           }}
         />
+        </div>
       </div>
     </div>
     <SkillFormDialog
