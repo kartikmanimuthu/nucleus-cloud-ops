@@ -132,8 +132,8 @@ export function Composer({
               </Button>
             </PopoverTrigger>
             <PopoverContent side="top" align="start" className="w-72 space-y-3 p-3">
-              <KbSection field={context.kb} />
-              <ToolsSection field={context.tools} />
+              <KbSection field={context.kb} disabled={disabled} />
+              <ToolsSection field={context.tools} disabled={disabled} />
               <div className="space-y-1.5 border-t pt-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Attach images

@@ -11,6 +11,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 // state (chat-interface.tsx: accounts/availableModels/availableSkills/
 // knowledgeBases/mcpServers), trimmed to what the UI actually reads. The shell
 // (Task 13) owns fetching; Composer is purely presentational over these.
+//
+// Every field carries its own optional `disabled` so the shell can express
+// per-picker locks (e.g. the monolith locks the skill picker once a run has
+// started — chat-interface.tsx:2295 `hasStarted || isLoading` — while account
+// and model stay changeable, chat-interface.tsx:2057/2201). A field's
+// `disabled` ORs with Composer's top-level `disabled` prop; either one locks
+// that specific chip/section.
 
 export interface ComposerAccountOption {
   accountId: string;
@@ -45,24 +52,28 @@ export interface ComposerAccountsField {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   loading?: boolean;
+  disabled?: boolean;
 }
 
 export interface ComposerModelField {
   available: ComposerModelOption[];
   selectedId: string;
   onChange: (id: string) => void;
+  disabled?: boolean;
 }
 
 export interface ComposerSkillField {
   available: ComposerSkillOption[];
   selectedId: string | null;
   onChange: (id: string | null) => void;
+  disabled?: boolean;
 }
 
 export interface ComposerKbField {
   available: ComposerKbOption[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  disabled?: boolean;
 }
 
 export interface ComposerToolsField {
@@ -70,6 +81,7 @@ export interface ComposerToolsField {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   loading?: boolean;
+  disabled?: boolean;
 }
 
 export interface ComposerContext {
@@ -78,6 +90,36 @@ export interface ComposerContext {
   skill: ComposerSkillField;
   kb: ComposerKbField;
   tools: ComposerToolsField;
+}
+
+// Provider display order/labels — mirrors the monolith's model-grouping
+// (chat-interface.tsx:2227-2251): Bedrock first, then the rest in a stable
+// order, with any unrecognised provider key falling back to itself.
+const PROVIDER_GROUP_LABELS: Record<string, string> = {
+  bedrock: "Bedrock",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  ollama: "Ollama",
+  vllm: "vLLM",
+  lmstudio: "LM Studio",
+  litellm: "LiteLLM Gateway",
+  "openai-compatible": "Self-Hosted",
+};
+const PROVIDER_GROUP_ORDER = Object.keys(PROVIDER_GROUP_LABELS);
+
+function groupModelsByProvider(models: ComposerModelOption[]) {
+  const present = Array.from(new Set(models.map((m) => m.provider)));
+  const orderedProviders = [
+    ...PROVIDER_GROUP_ORDER.filter((p) => present.includes(p)),
+    ...present.filter((p) => !PROVIDER_GROUP_ORDER.includes(p)),
+  ];
+  return orderedProviders
+    .map((provider) => ({
+      provider,
+      label: PROVIDER_GROUP_LABELS[provider] ?? provider,
+      models: models.filter((m) => m.provider === provider),
+    }))
+    .filter((group) => group.models.length > 0);
 }
 
 // Shared chip shell: a rounded pill whose label opens a Popover (the trigger)
@@ -90,6 +132,7 @@ function ChipShell({
   disabled,
   onClear,
   clearLabel,
+  triggerTestId,
   children,
 }: {
   label: string;
@@ -98,6 +141,7 @@ function ChipShell({
   disabled?: boolean;
   onClear?: () => void;
   clearLabel: string;
+  triggerTestId?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -110,7 +154,12 @@ function ChipShell({
         )}
       >
         <PopoverTrigger asChild>
-          <button type="button" disabled={disabled} className="max-w-[140px] truncate">
+          <button
+            type="button"
+            disabled={disabled}
+            data-testid={triggerTestId}
+            className="max-w-[140px] truncate"
+          >
             {label}
           </button>
         </PopoverTrigger>
@@ -149,6 +198,7 @@ function SearchBox({ value, onChange, placeholder }: { value: string; onChange: 
 
 export function AccountChip({ field, disabled }: { field: ComposerAccountsField; disabled?: boolean }) {
   const [search, setSearch] = useState("");
+  const isDisabled = disabled || field.disabled;
   const selected = field.available.filter((a) => field.selectedIds.includes(a.accountId));
   const label = field.loading
     ? "Loading…"
@@ -165,8 +215,9 @@ export function AccountChip({ field, disabled }: { field: ComposerAccountsField;
       label={label}
       title={title}
       active={selected.length > 0}
-      disabled={disabled}
+      disabled={isDisabled}
       clearLabel="Clear accounts"
+      triggerTestId="account-chip-trigger"
       onClear={selected.length > 0 ? () => field.onChange([]) : undefined}
     >
       <SearchBox value={search} onChange={setSearch} placeholder="Search accounts…" />
@@ -199,34 +250,53 @@ export function AccountChip({ field, disabled }: { field: ComposerAccountsField;
 }
 
 export function ModelChip({ field, disabled }: { field: ComposerModelField; disabled?: boolean }) {
+  const [search, setSearch] = useState("");
+  const isDisabled = disabled || field.disabled;
   const selected = field.available.find((m) => m.id === field.selectedId);
   const label = field.available.length === 0 ? "No providers configured" : selected?.label ?? "Select model";
+  const filtered = field.available.filter((m) => m.label.toLowerCase().includes(search.toLowerCase()));
+  const groups = groupModelsByProvider(filtered);
 
   return (
     <ChipShell
       label={label}
       title={selected?.label ?? "Select model"}
       active={!!selected}
-      disabled={disabled}
+      disabled={isDisabled}
       clearLabel="Clear model"
+      triggerTestId="model-chip-trigger"
       onClear={selected ? () => field.onChange("") : undefined}
     >
+      {field.available.length > 0 && (
+        <SearchBox value={search} onChange={setSearch} placeholder="Search models…" />
+      )}
       <div className="max-h-60 overflow-y-auto p-1">
         {field.available.length === 0 && (
           <p className="p-3 text-center text-xs text-muted-foreground">
             No LLM providers configured. Add one in Settings → Providers.
           </p>
         )}
-        {field.available.map((model) => (
-          <button
-            type="button"
-            key={model.id}
-            onClick={() => field.onChange(model.id)}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
-          >
-            <Check className={cn("h-3.5 w-3.5 shrink-0", model.id === field.selectedId ? "opacity-100" : "opacity-0")} />
-            <span className="truncate">{model.label}</span>
-          </button>
+        {field.available.length > 0 && groups.length === 0 && (
+          <p className="p-3 text-center text-xs text-muted-foreground">No matching models</p>
+        )}
+        {groups.map((group) => (
+          <div key={group.provider} className="mb-1">
+            <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {group.label}
+            </p>
+            {group.models.map((model) => (
+              <button
+                type="button"
+                key={model.id}
+                data-testid={`model-option-${model.id}`}
+                onClick={() => field.onChange(model.id)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+              >
+                <Check className={cn("h-3.5 w-3.5 shrink-0", model.id === field.selectedId ? "opacity-100" : "opacity-0")} />
+                <span className="truncate">{model.label}</span>
+              </button>
+            ))}
+          </div>
         ))}
       </div>
     </ChipShell>
@@ -234,6 +304,7 @@ export function ModelChip({ field, disabled }: { field: ComposerModelField; disa
 }
 
 export function SkillChip({ field, disabled }: { field: ComposerSkillField; disabled?: boolean }) {
+  const isDisabled = disabled || field.disabled;
   const selected = field.available.find((s) => s.id === field.selectedId);
   const label = selected?.name ?? "No skill";
 
@@ -242,8 +313,9 @@ export function SkillChip({ field, disabled }: { field: ComposerSkillField; disa
       label={label}
       title={selected?.description ?? "No skill selected"}
       active={!!selected}
-      disabled={disabled}
+      disabled={isDisabled}
       clearLabel="Clear skill"
+      triggerTestId="skill-chip-trigger"
       onClear={selected ? () => field.onChange(null) : undefined}
     >
       <div className="max-h-60 overflow-y-auto p-1">
@@ -282,11 +354,13 @@ function CheckList({
   selectedIds,
   onToggle,
   emptyLabel,
+  disabled,
 }: {
   items: Array<{ id: string; label: string; sublabel?: string }>;
   selectedIds: string[];
   onToggle: (id: string, checked: boolean) => void;
   emptyLabel: string;
+  disabled?: boolean;
 }) {
   if (items.length === 0) {
     return <p className="px-1 py-2 text-xs text-muted-foreground">{emptyLabel}</p>;
@@ -301,6 +375,7 @@ function CheckList({
           <Checkbox
             checked={selectedIds.includes(item.id)}
             onCheckedChange={(checked) => onToggle(item.id, checked === true)}
+            disabled={disabled}
             className="h-4 w-4"
           />
           <div className="min-w-0 flex-1">
@@ -313,7 +388,8 @@ function CheckList({
   );
 }
 
-export function KbSection({ field }: { field: ComposerKbField }) {
+export function KbSection({ field, disabled }: { field: ComposerKbField; disabled?: boolean }) {
+  const isDisabled = disabled || field.disabled;
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
@@ -321,7 +397,14 @@ export function KbSection({ field }: { field: ComposerKbField }) {
           Knowledge base
         </p>
         {field.selectedIds.length > 0 && (
-          <Button type="button" variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={() => field.onChange([])}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={isDisabled}
+            className="h-5 px-1.5 text-[10px]"
+            onClick={() => field.onChange([])}
+          >
             Clear
           </Button>
         )}
@@ -333,6 +416,7 @@ export function KbSection({ field }: { field: ComposerKbField }) {
         items={field.available.map((kb) => ({ id: kb.id, label: kb.name }))}
         selectedIds={field.selectedIds}
         emptyLabel="No knowledge bases available"
+        disabled={isDisabled}
         onToggle={(id, checked) =>
           field.onChange(checked ? [...field.selectedIds, id] : field.selectedIds.filter((x) => x !== id))
         }
@@ -341,13 +425,21 @@ export function KbSection({ field }: { field: ComposerKbField }) {
   );
 }
 
-export function ToolsSection({ field }: { field: ComposerToolsField }) {
+export function ToolsSection({ field, disabled }: { field: ComposerToolsField; disabled?: boolean }) {
+  const isDisabled = disabled || field.disabled;
   return (
     <div className="space-y-1.5 border-t pt-2">
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Tools</p>
         {field.selectedIds.length > 0 && (
-          <Button type="button" variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={() => field.onChange([])}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={isDisabled}
+            className="h-5 px-1.5 text-[10px]"
+            onClick={() => field.onChange([])}
+          >
             Clear
           </Button>
         )}
@@ -356,6 +448,7 @@ export function ToolsSection({ field }: { field: ComposerToolsField }) {
         items={field.available.map((tool) => ({ id: tool.id, label: tool.name, sublabel: tool.description }))}
         selectedIds={field.selectedIds}
         emptyLabel={field.loading ? "Loading…" : "No connected tools available"}
+        disabled={isDisabled}
         onToggle={(id, checked) =>
           field.onChange(checked ? [...field.selectedIds, id] : field.selectedIds.filter((x) => x !== id))
         }

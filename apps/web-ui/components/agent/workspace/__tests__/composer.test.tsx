@@ -130,6 +130,77 @@ describe('Composer', () => {
     expect(onChange).toHaveBeenCalledWith(null)
   })
 
+  it('groups model options by provider (with a header per group) and filters them via search', () => {
+    const onChange = vi.fn()
+    const context = baseContext({
+      model: {
+        available: [
+          { id: 'm-bedrock', label: 'Claude 4.5 Sonnet', provider: 'bedrock' },
+          { id: 'm-openai', label: 'GPT-4o', provider: 'openai' },
+          { id: 'm-ollama', label: 'Llama 3', provider: 'ollama' },
+        ],
+        selectedId: 'm-bedrock',
+        onChange,
+      },
+    })
+    render(<Composer {...baseProps({ context })} />)
+
+    fireEvent.click(screen.getByTestId('model-chip-trigger'))
+
+    // Grouped under a header per provider, in the monolith's stable order.
+    expect(screen.getByText('Bedrock')).toBeTruthy()
+    expect(screen.getByText('OpenAI')).toBeTruthy()
+    expect(screen.getByText('Ollama')).toBeTruthy()
+    expect(screen.getByTestId('model-option-m-bedrock')).toBeTruthy()
+    expect(screen.getByTestId('model-option-m-openai')).toBeTruthy()
+    expect(screen.getByTestId('model-option-m-ollama')).toBeTruthy()
+
+    // Search filters the list down to the matching provider/model only.
+    fireEvent.change(screen.getByPlaceholderText('Search models…'), { target: { value: 'Llama' } })
+
+    expect(screen.queryByTestId('model-option-m-bedrock')).toBeNull()
+    expect(screen.queryByTestId('model-option-m-openai')).toBeNull()
+    expect(screen.getByTestId('model-option-m-ollama')).toBeTruthy()
+    expect(screen.queryByText('Bedrock')).toBeNull()
+    expect(screen.getByText('Ollama')).toBeTruthy()
+  })
+
+  it('selecting a filtered model option calls context.model.onChange with its id', () => {
+    const onChange = vi.fn()
+    const context = baseContext({
+      model: {
+        available: [
+          { id: 'm-bedrock', label: 'Claude 4.5 Sonnet', provider: 'bedrock' },
+          { id: 'm-ollama', label: 'Llama 3', provider: 'ollama' },
+        ],
+        selectedId: 'm-bedrock',
+        onChange,
+      },
+    })
+    render(<Composer {...baseProps({ context })} />)
+
+    fireEvent.click(screen.getByTestId('model-chip-trigger'))
+    fireEvent.click(screen.getByTestId('model-option-m-ollama'))
+
+    expect(onChange).toHaveBeenCalledWith('m-ollama')
+  })
+
+  it('locks just the skill picker via context.skill.disabled while account/model stay open', () => {
+    const context = baseContext({
+      skill: {
+        available: [{ id: 'sk-1', name: 'Cost Audit', description: 'Audits spend' }],
+        selectedId: null,
+        onChange: vi.fn(),
+        disabled: true,
+      },
+    })
+    render(<Composer {...baseProps({ context })} />)
+
+    expect((screen.getByTestId('skill-chip-trigger') as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByTestId('account-chip-trigger') as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByTestId('model-chip-trigger') as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('char counter is hidden well under the limit', () => {
     render(<Composer {...baseProps({ value: 'a'.repeat(100) })} />)
     expect(screen.queryByTestId('char-counter')).toBeNull()
