@@ -37,7 +37,8 @@ export function MemoryRow({ event, defaultOpen = false }: { event: MemoryEvent; 
       <CollapsibleTrigger
         className={cn(
           "group flex w-full items-center gap-1.5 rounded px-2 py-1 text-left",
-          "text-xs text-muted-foreground hover:bg-muted/40"
+          "text-xs text-muted-foreground hover:bg-muted/40",
+          "outline-none focus-visible:ring-1 focus-visible:ring-ring"
         )}
       >
         <ChevronDown className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180" />

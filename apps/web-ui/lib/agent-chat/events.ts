@@ -224,3 +224,33 @@ export function buildTranscript(message: LooseMessage, opts: BuildTranscriptOpti
 
     return events;
 }
+
+/**
+ * Kills the double-escaped JSON the executor sometimes wraps tool input in:
+ * `{ input: string }` where the string is itself JSON, or `input` itself
+ * being a bare JSON string. Falls back to the original value unchanged when
+ * neither shape parses. Used by ToolRow (UI display) and chat-export (MD/PDF).
+ */
+export function unwrapToolInput(input: unknown): unknown {
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+        const record = input as Record<string, unknown>;
+        if (typeof record.input === 'string') {
+            try {
+                return JSON.parse(record.input);
+            } catch {
+                return input;
+            }
+        }
+        return input;
+    }
+
+    if (typeof input === 'string') {
+        try {
+            return JSON.parse(input);
+        } catch {
+            return input;
+        }
+    }
+
+    return input;
+}

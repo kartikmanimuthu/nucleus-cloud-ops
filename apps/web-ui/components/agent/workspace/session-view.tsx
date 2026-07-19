@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useChatSession } from "@/lib/agent-chat/use-chat-session";
 import { buildChatTranscript } from "@/lib/agent/build-chat-transcript";
-import { copyToClipboard, exportToMarkdown, exportToPDF } from "@/lib/chat-export";
+import { copyToClipboard, exportToMarkdown, exportToPDF, exportReportToPDF } from "@/lib/chat-export";
 import { useDistillSkill } from "@/lib/queries/skills";
 import { useDistillScheduledTask } from "@/lib/queries/agent-ops-scheduled-tasks";
 import { SCHEDULED_TASK_PREFILL_KEY } from "@/components/agent-ops/scheduled-task-dialog";
@@ -243,6 +243,11 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
   const handleMenuAction = useCallback(
     (action: TranscriptMenuAction) => {
       switch (action) {
+        case "export-report":
+          void exportReportToPDF(messages as any, threadId).then((ok) => {
+            if (!ok) toast.error("No answer to export yet", { description: "Run a task first — this exports the final answer only." });
+          });
+          break;
         case "export-md":
           void exportToMarkdown(messages as any, threadId);
           break;

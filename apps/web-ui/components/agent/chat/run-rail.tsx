@@ -180,10 +180,15 @@ export function RunRail({
       {/* Context */}
       <RailSection icon={Cloud} title="Context">
         <ul className="space-y-1 text-xs text-muted-foreground">
-          <li className="truncate">{context.accountNames.length > 0 ? context.accountNames.join(", ") : "No account selected"}</li>
-          <li className="flex items-center gap-1.5 truncate"><Cpu className="h-3 w-3 shrink-0" />{context.modelLabel || "Default model"}</li>
-          {context.skillName && <li className="truncate">Skill: {context.skillName}</li>}
-          <li className="truncate">{context.kbLabel}{context.toolCount != null ? ` · ${context.toolCount} tools` : ""}</li>
+          <li className="break-words" title={context.accountNames.join(", ")}>
+            {context.accountNames.length > 0 ? context.accountNames.join(", ") : "No account selected"}
+          </li>
+          <li className="flex items-start gap-1.5" title={context.modelLabel}>
+            <Cpu className="mt-0.5 h-3 w-3 shrink-0" />
+            <span className="min-w-0 break-words">{context.modelLabel || "Default model"}</span>
+          </li>
+          {context.skillName && <li className="break-words">Skill: {context.skillName}</li>}
+          <li className="break-words">{context.kbLabel}{context.toolCount != null ? ` · ${context.toolCount} tools` : ""}</li>
         </ul>
       </RailSection>
     </aside>

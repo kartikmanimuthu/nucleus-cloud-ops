@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { RunState } from "@/components/agent/chat/run-state";
 
-export type TranscriptMenuAction = "export-md" | "export-pdf" | "copy" | "schedule" | "skill" | "clear";
+export type TranscriptMenuAction = "export-report" | "export-md" | "export-pdf" | "copy" | "schedule" | "skill" | "clear";
 
 export interface TranscriptHeaderProps {
   title: string;
@@ -45,8 +45,9 @@ function stepIndexForPhase(phase: string): number {
 }
 
 const MENU_ITEMS: Array<{ action: TranscriptMenuAction; label: string }> = [
+  { action: "export-report", label: "Export report (PDF)" },
   { action: "export-md", label: "Export as Markdown" },
-  { action: "export-pdf", label: "Export as PDF" },
+  { action: "export-pdf", label: "Export transcript (PDF)" },
   { action: "copy", label: "Copy" },
   { action: "schedule", label: "Convert to scheduled task" },
   { action: "skill", label: "Save as skill" },
@@ -112,10 +113,10 @@ export function TranscriptHeader({ title, runState, isStreaming, elapsedMs, onMe
 
   return (
     <div className="flex items-center gap-3 border-b px-4 py-2">
-      <h2 className="truncate text-sm font-medium">{title}</h2>
+      <h2 className="truncate text-sm font-medium" title={title}>{title}</h2>
 
       {!isIdle && (
-        <div data-testid="phase-stepper" className="flex items-center gap-2 text-xs">
+        <div data-testid="phase-stepper" className="flex shrink-0 items-center gap-2 text-xs">
           {STEPS.map((step, i) => {
             const status: StepStatus = isFinal
               ? "done"

@@ -21,33 +21,10 @@ function toolIcon(toolName: string): React.ComponentType<{ className?: string }>
   return TOOL_ICONS[toolName] ?? Wrench
 }
 
-// Kills the double-escaped JSON the executor sometimes wraps tool input in:
-// `{ input: string }` where the string is itself JSON, or `input` itself
-// being a bare JSON string. Falls back to the original value unchanged when
-// neither shape parses.
-export function unwrapToolInput(input: unknown): unknown {
-  if (input && typeof input === "object" && !Array.isArray(input)) {
-    const record = input as Record<string, unknown>
-    if (typeof record.input === "string") {
-      try {
-        return JSON.parse(record.input)
-      } catch {
-        return input
-      }
-    }
-    return input
-  }
-
-  if (typeof input === "string") {
-    try {
-      return JSON.parse(input)
-    } catch {
-      return input
-    }
-  }
-
-  return input
-}
+// Moved to lib/agent-chat/events.ts so non-React consumers (chat-export) can
+// use it too; re-exported here to keep existing imports working.
+export { unwrapToolInput } from "@/lib/agent-chat/events"
+import { unwrapToolInput } from "@/lib/agent-chat/events"
 
 const PREVIEW_KEYS = ["command", "file_path", "path", "query"] as const
 
@@ -120,7 +97,8 @@ export function ToolRow({
       <CollapsibleTrigger
         className={cn(
           "group flex w-full items-center gap-1.5 rounded px-2 py-1 text-left",
-          "text-xs hover:bg-muted/40"
+          "text-xs hover:bg-muted/40",
+          "outline-none focus-visible:ring-1 focus-visible:ring-ring"
         )}
       >
         <ChevronDown className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180" />
@@ -169,7 +147,8 @@ export function ToolGroupRow({ group, defaultOpen = false }: { group: ToolGroup;
       <CollapsibleTrigger
         className={cn(
           "group flex w-full items-center gap-1.5 rounded px-2 py-1 text-left",
-          "text-xs hover:bg-muted/40"
+          "text-xs hover:bg-muted/40",
+          "outline-none focus-visible:ring-1 focus-visible:ring-ring"
         )}
       >
         <ChevronDown className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180" />

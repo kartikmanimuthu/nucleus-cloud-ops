@@ -202,7 +202,7 @@ describe('TranscriptHeader', () => {
     expect(onMenuAction).toHaveBeenCalledWith('export-md')
   })
 
-  it('offers a PDF export menu item', async () => {
+  it('offers transcript-PDF and report-PDF export menu items', async () => {
     const onMenuAction = vi.fn()
     render(
       <TranscriptHeader
@@ -215,9 +215,11 @@ describe('TranscriptHeader', () => {
     )
 
     fireEvent.keyDown(screen.getByRole('button', { name: /more actions/i }), { key: 'Enter' })
-    const pdfItem = await screen.findByText('Export as PDF')
-    fireEvent.click(pdfItem)
-
+    fireEvent.click(await screen.findByText('Export transcript (PDF)'))
     expect(onMenuAction).toHaveBeenCalledWith('export-pdf')
+
+    fireEvent.keyDown(screen.getByRole('button', { name: /more actions/i }), { key: 'Enter' })
+    fireEvent.click(await screen.findByText('Export report (PDF)'))
+    expect(onMenuAction).toHaveBeenCalledWith('export-report')
   })
 })

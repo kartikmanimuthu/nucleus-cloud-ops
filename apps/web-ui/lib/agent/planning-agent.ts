@@ -397,6 +397,7 @@ ${accountContext}
 - If a tool call returns an error, capture the full error message and include it in your summary; do not silently suppress it.
 - If the current step is a simple question or greeting that requires no tools, answer directly and concisely.
 - After completing the step (with or without tools), provide a brief, factual summary: what was done, the key output or finding, and any error or unexpected result.
+- If you already presented a complete final report/deliverable earlier in this conversation and this step revises or corrects it, present the corrected COMPLETE version once, beginning with the exact line "Revised report (supersedes the earlier draft):" — never leave two competing unmarked versions of the same report in the conversation.
 
 ⚠️ **Never use write_file or write_file_to_s3 for reports**: Render all reports and summaries directly in your response. S3 tools are only for logs, raw API outputs, or backup artifacts.
 
@@ -776,9 +777,20 @@ ${accountContext}`);
         console.log(`🏁 [FINAL] Generating comprehensive summary`);
         console.log(`================================================================================\n`);
 
-        const summarySystemPrompt = new SystemMessage(`You are a senior DevOps engineer writing the final delivery note for a completed automated task.
+        // Did the executor already render the full deliverable in-chat? Any
+        // substantial execution-phase text message counts. When it did, this
+        // node must CLOSE OUT, not re-summarize: its inputs are only the last
+        // 3 truncated tool outputs, so a restated "summary" drifts from the
+        // real report (live testing produced a recap contradicting the report
+        // it sat directly below — wrong region coverage, wrong counts).
+        const deliverableAlreadyRendered = state.messages.some((m) =>
+            m._getType() === 'ai' &&
+            (m as unknown as { response_metadata?: { agentPhase?: string } }).response_metadata?.agentPhase === 'execution' &&
+            typeof m.content === 'string' &&
+            m.content.trim().length >= 800
+        );
 
-Original Task: ${taskDescription}
+        const summaryContext = `Original Task: ${taskDescription}
 
 Execution Summary:
 - Iterations used: ${iterationCount}
@@ -787,7 +799,21 @@ Execution Summary:
 Key Tool Outputs (most recent):
 ${toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}]\n${truncateOutput(e.output, 500)}`).join('\n\n---\n\n')}
 
-Final Review Notes: ${reflection}
+Final Review Notes: ${reflection}`;
+
+        const groundingRule = `STRICT GROUNDING: state only facts that literally appear in the Key Tool Outputs or Final Review Notes above. Never introduce or extrapolate counts, region lists, resource names, or metrics that are not present there — when a detail is unavailable, refer the user to the report above instead of estimating. Write in second person ("you"), never about "the agent" or iteration counts.`;
+
+        const summarySystemPrompt = new SystemMessage(deliverableAlreadyRendered
+            ? `You are a senior DevOps engineer closing out a completed automated task. The full report/deliverable has ALREADY been delivered to the user earlier in this conversation — do NOT restate, re-summarize, or re-tabulate any of it.
+
+${summaryContext}
+
+Write a SHORT closing note: under 80 words, plain prose, no headings, no lists, no tables. One sentence confirming completion and pointing to the report above; at most one sentence naming the single most important follow-up action.
+
+${groundingRule}`
+            : `You are a senior DevOps engineer writing the final delivery note for a completed automated task.
+
+${summaryContext}
 
 Write a clear, markdown-formatted summary for the user that includes:
 
@@ -796,7 +822,9 @@ Write a clear, markdown-formatted summary for the user that includes:
 3. **Errors or Limitations** — if any step failed or returned partial data, state it explicitly with the reason
 4. **Recommended Next Steps** — concrete actions the user should consider based on the findings
 
-Write for an engineer audience. Be specific — include resource IDs, account names, service names, and numeric values where the data is available.`);
+Write for an engineer audience. Be specific — include resource IDs, account names, service names, and numeric values where the data is available.
+
+${groundingRule}`);
 
         const summaryInput = new HumanMessage({
             content: `Please provide the final summary for the completed task.`

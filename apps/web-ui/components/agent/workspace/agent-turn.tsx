@@ -116,8 +116,17 @@ function renderOutputRow(row: Extract<TranscriptEvent, { kind: "answer" | "image
   if (row.kind === "image") {
     return <img key={row.id} src={row.url} alt="" className="max-w-xs max-h-72 rounded border object-contain" />
   }
+  // No `prose` wrapper — the typography plugin's own heading/margin scale
+  // fights MarkdownContent's compact chat scale (documents-sized titles inside
+  // messages). MarkdownContent self-styles; here we only add the answer
+  // hierarchy: body text one step larger than process rows, and prose capped
+  // at a readable measure while tables/code keep the full fluid width.
   return (
-    <MarkdownContent key={row.id} content={row.text} className="prose prose-sm dark:prose-invert max-w-none" />
+    <MarkdownContent
+      key={row.id}
+      content={row.text}
+      className="[&_p]:text-sm [&_li]:text-sm [&_p]:max-w-[75ch] [&_li]:max-w-[75ch] [&_h1]:max-w-[75ch] [&_h2]:max-w-[75ch] [&_h3]:max-w-[75ch] [&_h4]:max-w-[75ch] [&_blockquote]:max-w-[75ch]"
+    />
   )
 }
 

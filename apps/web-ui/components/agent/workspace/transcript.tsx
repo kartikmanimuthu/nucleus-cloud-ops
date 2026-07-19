@@ -50,7 +50,7 @@ function UserBubble({ message }: { message: LooseMessage }) {
         {images.map((url, i) => (
           <img key={i} src={url} alt="" className="mb-2 max-h-48 max-w-xs rounded object-contain" />
         ))}
-        {text && <MarkdownContent content={text} className="prose prose-sm prose-invert max-w-none" />}
+        {text && <MarkdownContent content={text} className="[&_p]:text-sm" />}
       </div>
     </div>
   )
