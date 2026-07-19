@@ -205,7 +205,7 @@ export function Composer({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="composer-show-tools" className="text-xs font-normal text-muted-foreground">
-                  Show tools
+                  Show work
                 </Label>
                 <Switch
                   id="composer-show-tools"

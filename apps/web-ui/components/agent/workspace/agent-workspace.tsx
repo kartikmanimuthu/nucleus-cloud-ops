@@ -89,6 +89,7 @@ export function AgentWorkspace() {
           statuses={statuses}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+          pendingSessions={openSessions.map((s) => s.threadId)}
         />
       </div>
 
@@ -111,6 +112,7 @@ export function AgentWorkspace() {
             statuses={statuses}
             collapsed={false}
             onToggleCollapse={() => setMobileSidebarOpen(false)}
+            pendingSessions={openSessions.map((s) => s.threadId)}
           />
         </SheetContent>
       </Sheet>

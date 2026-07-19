@@ -158,4 +158,27 @@ describe('SessionSidebar', () => {
 
     expect(props.onToggleCollapse).toHaveBeenCalled();
   });
+
+  it('renders an ephemeral "New chat" row for an unsent pending session and fires onSelect on click', () => {
+    useThreadsMock.mockReturnValue({ data: [], isLoading: false });
+    const props = baseProps();
+
+    render(<SessionSidebar {...props} pendingSessions={['pending-1']} />);
+
+    const pendingRow = screen.getByTestId('session-row-pending');
+    expect(pendingRow).toBeTruthy();
+    fireEvent.click(pendingRow);
+    expect(props.onSelect).toHaveBeenCalledWith('pending-1');
+  });
+
+  it('drops a pending session from the ephemeral group once it appears in the server thread list', () => {
+    const threads: Thread[] = [makeThread({ id: 'pending-1', title: 'Now persisted' })];
+    useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
+
+    render(<SessionSidebar {...baseProps()} pendingSessions={['pending-1']} />);
+
+    // No ephemeral row — the persisted thread row is the single source now.
+    expect(screen.queryByTestId('session-row-pending')).toBeNull();
+    expect(screen.getByText('Now persisted')).toBeTruthy();
+  });
 });

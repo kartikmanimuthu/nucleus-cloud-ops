@@ -18,6 +18,14 @@ export interface SessionSidebarProps {
   statuses: Map<string, SessionStatus>;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /**
+   * Open sessions that have not yet been persisted server-side (a "+ New chat"
+   * the user hasn't sent a message in). `useThreads` lists only saved threads,
+   * so without these an unsent session becomes unreachable once the user opens
+   * a second one. Rendered as an ephemeral "New chat" group at the top; drops
+   * out automatically once the thread persists and appears in the server list.
+   */
+  pendingSessions?: string[];
 }
 
 interface SessionGroup {
@@ -65,10 +73,17 @@ export function SessionSidebar({
   statuses,
   collapsed,
   onToggleCollapse,
+  pendingSessions = [],
 }: SessionSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const { data: threads = [], isLoading } = useThreads();
   const deleteThread = useDeleteThread();
+
+  // Unsent sessions the server list doesn't know about yet. Hidden while
+  // searching (they have no title to match).
+  const pendingRows = searchQuery
+    ? []
+    : pendingSessions.filter((id) => !threads.some((t) => t.id === id));
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -139,8 +154,36 @@ export function SessionSidebar({
             <div className="py-8 text-center text-xs text-muted-foreground">Loading sessions...</div>
           )}
 
-          {!isLoading && groups.length === 0 && (
+          {!isLoading && groups.length === 0 && pendingRows.length === 0 && (
             <div className="py-8 text-center text-xs text-muted-foreground">No sessions found.</div>
+          )}
+
+          {!isLoading && pendingRows.length > 0 && (
+            <div className="space-y-1">
+              <div className="px-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                New chat
+              </div>
+              {pendingRows.map((id) => {
+                const isActive = id === activeId;
+                return (
+                  <div
+                    key={id}
+                    data-testid="session-row-pending"
+                    onClick={() => onSelect(id)}
+                    className={cn(
+                      'group flex items-center gap-2 rounded-md px-2 py-2 text-sm cursor-pointer transition-colors hover:bg-muted/60',
+                      isActive && 'bg-muted'
+                    )}
+                  >
+                    <StatusDot status={statuses.get(id)} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate leading-tight text-muted-foreground italic">New chat</div>
+                      <div className="text-[10px] text-muted-foreground">Not saved yet</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
 
           {!isLoading &&

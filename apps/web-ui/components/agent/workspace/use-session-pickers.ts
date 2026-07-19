@@ -42,8 +42,6 @@ export interface UseSessionPickersResult {
   setAgentMode: (mode: string) => void;
   autoApprove: boolean;
   setAutoApprove: (value: boolean) => void;
-  showTools: boolean;
-  setShowTools: (value: boolean) => void;
 }
 
 export function useSessionPickers({
@@ -81,7 +79,6 @@ export function useSessionPickers({
   // ── Composer settings ───────────────────────────────────────────────────────
   const [agentMode, setAgentMode] = useState("fast");
   const [autoApprove, setAutoApprove] = useState(true);
-  const [showTools, setShowTools] = useState(false);
 
   // Preselect the default provider's chat model; preserve an explicit user pick
   // across refetches (chat-interface.tsx:636-640).
@@ -249,7 +246,5 @@ export function useSessionPickers({
     setAgentMode,
     autoApprove,
     setAutoApprove,
-    showTools,
-    setShowTools,
   };
 }
