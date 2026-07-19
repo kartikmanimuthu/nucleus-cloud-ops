@@ -21,7 +21,9 @@ import { useDistillScheduledTask } from "@/lib/queries/agent-ops-scheduled-tasks
 import { SCHEDULED_TASK_PREFILL_KEY } from "@/components/agent-ops/scheduled-task-dialog";
 import { SkillFormDialog } from "@/components/skills/skill-form-dialog";
 import type { FileAttachment } from "@/components/agent/file-upload";
+import { Spinner } from "@/components/ui/spinner";
 import { Transcript } from "./transcript";
+import { EmptyState } from "./empty-state";
 import { TranscriptHeader, type TranscriptMenuAction } from "./transcript-header";
 import { RunRail } from "@/components/agent/chat/run-rail";
 import { Composer } from "./composer";
@@ -166,6 +168,33 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
     } as any);
   }, [inputValue, attachments, isStreaming, chat]);
 
+  // ── Enhance prompt (Wand2 in the composer) — ported from the monolith's
+  //    handleEnhancePrompt. Rewrites the draft via /api/enhance-prompt. ────────
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const handleEnhancePrompt = useCallback(async () => {
+    if (!inputValue.trim() || isEnhancing || isStreaming) return;
+    setIsEnhancing(true);
+    try {
+      const res = await fetch("/api/enhance-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: inputValue }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+      const data = await res.json();
+      if (data.enhancedPrompt) setInputValue(data.enhancedPrompt);
+    } catch (e) {
+      toast.error("Could not enhance the prompt", {
+        description: e instanceof Error ? e.message : "Try again",
+      });
+    } finally {
+      setIsEnhancing(false);
+    }
+  }, [inputValue, isEnhancing, isStreaming]);
+
   // ── Header menu actions ──────────────────────────────────────────────────────
   const distillSkill = useDistillSkill();
   const distillScheduledTask = useDistillScheduledTask();
@@ -268,17 +297,25 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
       {/* Middle: transcript + composer column, and the collapsible rail */}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <Transcript
-            messages={messages}
-            toolVisibility={chat.toolVisibility}
-            decisions={chat.decisions}
-            showWork={showWork}
-            runState={runState}
-            isStreaming={isStreaming}
-            onDecide={chat.decide}
-            onDecideRemaining={chat.decideRemaining}
-            onAnswer={chat.submitClarification}
-          />
+          {chat.isLoadingHistory && messages.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center">
+              <Spinner size="sm" label="Loading session" />
+            </div>
+          ) : messages.length === 0 ? (
+            <EmptyState onSuggestion={setInputValue} />
+          ) : (
+            <Transcript
+              messages={messages}
+              toolVisibility={chat.toolVisibility}
+              decisions={chat.decisions}
+              showWork={showWork}
+              runState={runState}
+              isStreaming={isStreaming}
+              onDecide={chat.decide}
+              onDecideRemaining={chat.decideRemaining}
+              onAnswer={chat.submitClarification}
+            />
+          )}
 
           {error && (
             <div
@@ -306,6 +343,8 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
                 onAutoApproveChange={pickers.setAutoApprove}
                 showTools={showWork}
                 onShowToolsChange={setShowWork}
+                onEnhance={handleEnhancePrompt}
+                isEnhancing={isEnhancing}
               />
             </div>
           </div>

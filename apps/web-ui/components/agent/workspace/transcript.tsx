@@ -5,7 +5,7 @@ import { MarkdownContent } from "@/components/ui/markdown-content"
 import { buildTranscript, hasOutputValue, isEmptyDecisionCarrier, type LooseMessage, type TranscriptEvent } from "@/lib/agent-chat/events"
 import type { RunState } from "@/components/agent/chat/run-state"
 import type { DecisionMap } from "@/components/agent/chat/use-decisions"
-import { AgentTurn } from "./agent-turn"
+import { AgentTurn, PendingTurn } from "./agent-turn"
 
 export interface TranscriptProps {
   messages: LooseMessage[]
@@ -235,6 +235,7 @@ export function Transcript({
               showWork={showWork}
               runState={runState}
               isLastAssistantMessage={isLastAssistantMessage}
+              isStreaming={isStreaming}
               durationMs={durationMs}
               onDecide={onDecide}
               onDecideRemaining={onDecideRemaining}
@@ -242,6 +243,11 @@ export function Transcript({
             />
           )
         })}
+        {/* The gap between a send and the assistant message's first chunk —
+            without this the page reads as frozen while the run spins up. */}
+        {isStreaming && visible[visible.length - 1]?.role === "user" && (
+          <PendingTurn phase={runState.currentPhase} />
+        )}
         <div ref={bottomRef} />
       </div>
     </div>

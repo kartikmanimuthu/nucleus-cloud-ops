@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, Send, Settings2, Square } from "lucide-react";
+import { Loader2, Plus, Send, Settings2, Square, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,6 +42,9 @@ export interface ComposerProps {
   onAutoApproveChange: (value: boolean) => void;
   showTools: boolean;
   onShowToolsChange: (value: boolean) => void;
+  /** "Enhance prompt with AI" (Wand2) — rewrites the draft via /api/enhance-prompt. */
+  onEnhance?: () => void;
+  isEnhancing?: boolean;
 }
 
 export function Composer({
@@ -60,6 +63,8 @@ export function Composer({
   onAutoApproveChange,
   showTools,
   onShowToolsChange,
+  onEnhance,
+  isEnhancing = false,
 }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [modePopoverOpen, setModePopoverOpen] = useState(false);
@@ -216,6 +221,29 @@ export function Composer({
               </div>
             </PopoverContent>
           </Popover>
+
+          {onEnhance && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              data-testid="composer-enhance-button"
+              onClick={onEnhance}
+              disabled={isEmpty || disabled || isStreaming || isEnhancing}
+              aria-label="Enhance prompt with AI"
+              title="Enhance prompt with AI"
+              className={cn(
+                "h-8 w-8 shrink-0 rounded-full text-muted-foreground transition-all hover:text-primary",
+                isEnhancing && "animate-pulse",
+              )}
+            >
+              {isEnhancing ? (
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              ) : (
+                <Wand2 className="h-4 w-4" />
+              )}
+            </Button>
+          )}
 
           <Button
             type="button"

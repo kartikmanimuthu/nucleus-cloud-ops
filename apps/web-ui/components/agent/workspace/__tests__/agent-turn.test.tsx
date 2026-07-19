@@ -107,6 +107,49 @@ describe('AgentTurn', () => {
     rerender(<AgentTurn {...baseProps(events)} runState={runState} isLastAssistantMessage={true} />)
     expect(screen.getByTestId('approval-batch-card')).toBeTruthy()
   })
+
+  it('renders a working indicator for a still-empty streaming last turn, not a lone avatar', () => {
+    render(
+      <AgentTurn
+        {...baseProps([])}
+        runState={{ ...EMPTY_RUN_STATE, currentPhase: 'memory_recall' }}
+        isLastAssistantMessage={true}
+        isStreaming={true}
+      />
+    )
+    expect(screen.getByTestId('working-indicator')).toBeTruthy()
+    expect(screen.getByText(/Recalling memory/)).toBeTruthy()
+  })
+
+  it('renders nothing at all for an empty settled turn', () => {
+    const { container } = render(
+      <AgentTurn {...baseProps([])} isLastAssistantMessage={false} isStreaming={false} />
+    )
+    expect(container.firstChild).toBeNull()
+    expect(screen.queryByTestId('agent-turn-avatar')).toBeNull()
+  })
+
+  it('keeps a working indicator visible during streaming with rows, but not while a decision is pending', () => {
+    const events: TranscriptEvent[] = [
+      { kind: 'tool', id: 't1', toolCallId: 'c1', toolName: 'a', input: {}, output: 'ok', status: 'done' },
+    ]
+    const { rerender } = render(
+      <AgentTurn {...baseProps(events)} isLastAssistantMessage={true} isStreaming={true} />
+    )
+    expect(screen.getByTestId('working-indicator')).toBeTruthy()
+
+    const pendingRunState: RunState = {
+      ...EMPTY_RUN_STATE,
+      pendingApproval: {
+        batchId: 'b1',
+        tools: [{ toolCallId: 'tc9', toolName: 'execute_command', args: {}, guard: null }],
+      },
+    }
+    rerender(
+      <AgentTurn {...baseProps(events)} runState={pendingRunState} isLastAssistantMessage={true} isStreaming={true} />
+    )
+    expect(screen.queryByTestId('working-indicator')).toBeNull()
+  })
 })
 
 describe('Transcript', () => {

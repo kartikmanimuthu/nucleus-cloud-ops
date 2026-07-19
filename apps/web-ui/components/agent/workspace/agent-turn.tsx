@@ -14,6 +14,62 @@ import { ClarificationCard } from "@/components/agent/chat/clarification-card"
 import type { RunState } from "@/components/agent/chat/run-state"
 import type { DecisionMap } from "@/components/agent/chat/use-decisions"
 
+const WORKING_LABELS: Record<string, string> = {
+  memory_recall: "Recalling memory",
+  planning: "Planning",
+  execution: "Working",
+  reflection: "Reflecting",
+  revision: "Revising",
+  final: "Finalizing",
+  memory_save: "Saving memory",
+  text: "Thinking",
+}
+
+/**
+ * Animated "the agent is doing something" row — shown in the gap between a
+ * send and the first visible transcript event (and inside a still-empty
+ * streaming turn), so the UI never looks frozen while the run spins up.
+ */
+export function WorkingIndicator({ phase }: { phase: string }) {
+  return (
+    <div
+      data-testid="working-indicator"
+      className="flex items-center gap-2 px-2 py-1.5 text-xs italic text-muted-foreground"
+    >
+      <span className="flex items-center gap-1">
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:150ms]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:300ms]" />
+      </span>
+      {WORKING_LABELS[phase] ?? "Working"}…
+    </div>
+  )
+}
+
+function AgentAvatar() {
+  return (
+    <div
+      data-testid="agent-turn-avatar"
+      className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted"
+    >
+      <Bot className="size-4 text-muted-foreground" />
+    </div>
+  )
+}
+
+/** A full pending turn (avatar + WorkingIndicator) — used by Transcript when
+ *  the run has started but no assistant message exists yet. */
+export function PendingTurn({ phase }: { phase: string }) {
+  return (
+    <div className="flex gap-3">
+      <AgentAvatar />
+      <div className="min-w-0 flex-1">
+        <WorkingIndicator phase={phase} />
+      </div>
+    </div>
+  )
+}
+
 export interface AgentTurnProps {
   /** Pre-built via buildTranscript(message, …) — Transcript owns that single,
    *  memoized call (see transcript.tsx) so history isn't reparsed every render. */
@@ -25,6 +81,9 @@ export interface AgentTurnProps {
   showWork: boolean
   runState: RunState
   isLastAssistantMessage: boolean
+  /** True while this session's response stream is active — drives the
+   *  WorkingIndicator when this (last) turn has no visible rows yet. */
+  isStreaming?: boolean
   /** Map<thinking event id, duration in ms>, best-effort — see Transcript. */
   durationMs?: Map<string, number>
   onDecide: (toolCallId: string, decision: { approved: boolean; reason?: string }) => void
@@ -76,6 +135,7 @@ export function AgentTurn({
   showWork,
   runState,
   isLastAssistantMessage,
+  isStreaming = false,
   durationMs,
   onDecide,
   onDecideRemaining,
@@ -95,14 +155,19 @@ export function AgentTurn({
   const showClarifications = isLastAssistantMessage && runState.pendingClarifications.length > 0
   const showApproval = isLastAssistantMessage && runState.pendingApproval !== null
 
+  // A turn with nothing visible yet (e.g. only data-phase parts during memory
+  // recall) must not render as a lone floating avatar: show the animated
+  // working indicator while streaming, and nothing at all once settled.
+  if (processRows.length === 0 && outputRows.length === 0 && !showClarifications && !showApproval) {
+    if (isLastAssistantMessage && isStreaming) {
+      return <PendingTurn phase={runState.currentPhase} />
+    }
+    return null
+  }
+
   return (
     <div className="flex gap-3">
-      <div
-        data-testid="agent-turn-avatar"
-        className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted"
-      >
-        <Bot className="size-4 text-muted-foreground" />
-      </div>
+      <AgentAvatar />
 
       <div className="min-w-0 flex-1 space-y-2">
         {processRows.length > 0 && (
@@ -131,6 +196,13 @@ export function AgentTurn({
           <div className="space-y-2">
             {outputRows.map(renderOutputRow)}
           </div>
+        )}
+
+        {/* Keep signalling activity between events (tool gaps, buffered
+            synthesis runs) — but not while a decision card is waiting on the
+            user, where "working" would be misleading. */}
+        {isLastAssistantMessage && isStreaming && !showClarifications && !showApproval && (
+          <WorkingIndicator phase={runState.currentPhase} />
         )}
 
         {showClarifications &&
