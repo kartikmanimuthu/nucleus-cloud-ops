@@ -38,16 +38,16 @@ function isOutputRow(row: Row): row is Extract<TranscriptEvent, { kind: "answer"
   return row.kind === "answer" || row.kind === "image"
 }
 
-function renderProcessRow(row: Row, durationMs?: Map<string, number>): React.ReactNode {
+function renderProcessRow(row: Row, durationMs?: Map<string, number>, defaultOpen = false): React.ReactNode {
   switch (row.kind) {
     case "thinking":
-      return <ThinkingBlock key={row.id} event={row} durationMs={durationMs?.get(row.id)} />
+      return <ThinkingBlock key={row.id} event={row} durationMs={durationMs?.get(row.id)} defaultOpen={defaultOpen} />
     case "tool":
-      return <ToolRow key={row.id} event={row} />
+      return <ToolRow key={row.id} event={row} defaultOpen={defaultOpen} />
     case "tool-group":
-      return <ToolGroupRow key={row.id} group={row} />
+      return <ToolGroupRow key={row.id} group={row} defaultOpen={defaultOpen} />
     case "memory":
-      return <MemoryRow key={row.id} event={row} />
+      return <MemoryRow key={row.id} event={row} defaultOpen={defaultOpen} />
     default:
       return null
   }
@@ -108,7 +108,9 @@ export function AgentTurn({
         {processRows.length > 0 && (
           expanded ? (
             <div className="ml-3 space-y-0.5 border-l pl-3">
-              {processRows.map((row) => renderProcessRow(row, durationMs))}
+              {/* With "Show work" on, every row renders expanded — the user asked
+                  for the full detail, not another click per row. */}
+              {processRows.map((row) => renderProcessRow(row, durationMs, showWork))}
             </div>
           ) : (
             <button

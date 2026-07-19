@@ -28,18 +28,22 @@ function sentenceCasePhase(phase: string): string {
 export function ThinkingBlock({
   event,
   durationMs,
+  defaultOpen = false,
 }: {
   event: ThinkingEvent
   durationMs?: number
+  /** With the "Show work" toggle on, rows render expanded so the full detail
+   *  is visible without a click; toggling it re-syncs every row. */
+  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = React.useState(event.streaming)
+  const [open, setOpen] = React.useState(defaultOpen || event.streaming)
 
-  // Auto-open while streaming, auto-collapse the moment streaming ends.
-  // Manual toggles afterward are preserved since this effect only re-runs
-  // when event.streaming itself changes.
+  // Auto-open while streaming; when streaming ends, collapse only if the
+  // "Show work" default doesn't hold the row open. Manual toggles afterward
+  // are preserved since this effect only re-runs when its inputs change.
   React.useEffect(() => {
-    setOpen(event.streaming)
-  }, [event.streaming])
+    setOpen(defaultOpen || event.streaming)
+  }, [event.streaming, defaultOpen])
 
   const label = durationMs != null
     ? `Thought for ${Math.round(durationMs / 1000)}s`

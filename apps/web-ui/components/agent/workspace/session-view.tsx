@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useChatSession } from "@/lib/agent-chat/use-chat-session";
 import { buildChatTranscript } from "@/lib/agent/build-chat-transcript";
-import { copyToClipboard, exportToMarkdown } from "@/lib/chat-export";
+import { copyToClipboard, exportToMarkdown, exportToPDF } from "@/lib/chat-export";
 import { useDistillSkill } from "@/lib/queries/skills";
 import { useDistillScheduledTask } from "@/lib/queries/agent-ops-scheduled-tasks";
 import { SCHEDULED_TASK_PREFILL_KEY } from "@/components/agent-ops/scheduled-task-dialog";
@@ -202,8 +202,13 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
   const handleMenuAction = useCallback(
     (action: TranscriptMenuAction) => {
       switch (action) {
-        case "export":
+        case "export-md":
           void exportToMarkdown(messages as any, threadId);
+          break;
+        case "export-pdf":
+          void exportToPDF(messages as any, threadId).then((ok) => {
+            if (!ok) toast.error("PDF export failed");
+          });
           break;
         case "copy":
           void copyToClipboard(messages as any).then((ok) =>
@@ -266,14 +271,14 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
           {error && (
             <div
               data-testid="session-error"
-              className="mx-auto w-full max-w-3xl px-4 pb-2 text-xs text-destructive"
+              className="mx-auto w-full max-w-4xl px-4 pb-2 text-xs text-destructive xl:max-w-5xl"
             >
               {error}
             </div>
           )}
 
           <div className="border-t p-3">
-            <div className="mx-auto w-full max-w-3xl">
+            <div className="mx-auto w-full max-w-4xl xl:max-w-5xl">
               <Composer
                 value={inputValue}
                 onChange={setInputValue}

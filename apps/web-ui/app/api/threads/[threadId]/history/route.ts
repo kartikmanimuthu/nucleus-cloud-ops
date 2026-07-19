@@ -4,6 +4,7 @@ import { getChatHistory } from '@/lib/agent/persistence';
 import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
 import { normalizeLegacyContent } from '@/lib/agent-chat/legacy-normalizer';
+import { humanizePlanning } from '@/app/api/chat/stream-parts';
 
 interface HistoryMessage {
     id: string;
@@ -66,7 +67,9 @@ function buildPhaseParts(content: string): HistoryMessage['parts'] {
     // final, planning, execution, reflection, revision
     return [
         { type: 'data-phase', data: { phase, node: 'history', ts: 0 } },
-        { type: phase === 'final' ? 'text' : 'reasoning', text },
+        // The planner block persists the raw JSON plan array — humanize it to the
+        // same "Drafted a N-step plan: …" prose the live stream now emits.
+        { type: phase === 'final' ? 'text' : 'reasoning', text: phase === 'planning' ? humanizePlanning(text) : text },
     ];
 }
 
@@ -172,6 +175,31 @@ function mergeToolResults(messages: HistoryMessage[]): HistoryMessage[] {
     return result;
 }
 
+/**
+ * Coalesce consecutive assistant messages into ONE message per turn.
+ *
+ * Persistence stores each agent phase block (memory recall, planning,
+ * execution, reflection, final answer, …) as its own chat-history row, so a
+ * single live turn — which streams as ONE assistant UIMessage with many
+ * parts — would otherwise reload as a stack of separate assistant messages,
+ * each rendered as its own AgentTurn (own avatar, own "Show work" toggle).
+ * Merging the parts back into one message makes a reloaded thread render
+ * with the same one-turn-per-run grammar as the live stream.
+ */
+function coalesceAssistantTurns(messages: HistoryMessage[]): HistoryMessage[] {
+    const result: HistoryMessage[] = [];
+    for (const msg of messages) {
+        const prev = result[result.length - 1];
+        if (msg.role === 'assistant' && prev?.role === 'assistant') {
+            prev.parts = [...(prev.parts ?? []), ...(msg.parts ?? [])];
+            prev.content = [prev.content, msg.content].filter(Boolean).join('\n\n');
+        } else {
+            result.push({ ...msg, parts: [...(msg.parts ?? [])] });
+        }
+    }
+    return result;
+}
+
 export async function GET(
     _req: Request,
     { params }: { params: Promise<{ threadId: string }> }
@@ -236,7 +264,7 @@ export async function GET(
             const msgs = await chatHistory.getMessages(sessionTenantId, sessionUserId, threadId);
             if (msgs.length > 0) {
                 const converted = msgs.map((m, i) => convertPlainMessage(m, i)).filter(Boolean) as HistoryMessage[];
-                return NextResponse.json({ messages: mergeToolResults(converted), plan, pendingInterrupt });
+                return NextResponse.json({ messages: coalesceAssistantTurns(mergeToolResults(converted)), plan, pendingInterrupt });
             }
         } catch (err) {
             console.warn('[History API] Chat history lookup failed, falling back to checkpoint:', err);
@@ -249,7 +277,7 @@ export async function GET(
         if (!rawMessages?.length) return NextResponse.json({ messages: [], plan, pendingInterrupt });
 
         const converted = rawMessages.map((m, i) => convertMessage(m, i)).filter(Boolean) as HistoryMessage[];
-        return NextResponse.json({ messages: mergeToolResults(converted), plan, pendingInterrupt });
+        return NextResponse.json({ messages: coalesceAssistantTurns(mergeToolResults(converted)), plan, pendingInterrupt });
     } catch (error) {
         console.error('[History API] Error:', error);
         return NextResponse.json({ error: 'Failed to fetch conversation history' }, { status: 500 });

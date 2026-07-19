@@ -151,70 +151,77 @@ export async function exportToMarkdown(messages: ChatMessage[], threadId: string
     }
 }
 
-// Keep the old function name for backwards compatibility
+/**
+ * Export chat to a PDF download.
+ *
+ * Renders the messages directly with jsPDF's vector text API (same approach as
+ * lib/agent-ops/export-pdf.ts) — NOT html2canvas: the old DOM-capture path
+ * targeted a container id the workspace no longer renders, and one-big-canvas
+ * rasterization silently blanks past Chrome's 65,535px canvas cap on long
+ * chats. Vector text has neither problem and stays selectable/searchable.
+ */
 export async function exportToPDF(messages: ChatMessage[], threadId: string): Promise<boolean> {
     try {
         console.log('[Export] Exporting to PDF, messages count:', messages.length);
+        const { jsPDF } = await import('jspdf');
+        const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 15;
+        const maxWidth = pageWidth - margin * 2;
+        let y = margin;
 
-        // Dynamically import html2pdf to avoid SSR issues
-        const html2pdf = (await import('html2pdf.js')).default;
-
-        const element = document.getElementById(`chat-messages-container-${threadId}`);
-        if (!element) {
-            console.error('Chat messages container not found for thread:', threadId);
-            return false;
-        }
-
-        // The container is inside a ScrollArea with overflow:hidden and fixed height.
-        // Temporarily expand all ancestor scroll containers so html2canvas captures everything.
-        const scrollViewport = element.closest('[data-radix-scroll-area-viewport]') as HTMLElement | null;
-        const scrollRoot = element.closest('[data-radix-scroll-area]') as HTMLElement | null;
-
-        const savedStyles: { el: HTMLElement; overflow: string; maxHeight: string; height: string }[] = [];
-
-        if (scrollViewport) {
-            savedStyles.push({ el: scrollViewport, overflow: scrollViewport.style.overflow, maxHeight: scrollViewport.style.maxHeight, height: scrollViewport.style.height });
-            scrollViewport.style.overflow = 'visible';
-            scrollViewport.style.maxHeight = 'none';
-            scrollViewport.style.height = 'auto';
-        }
-        if (scrollRoot) {
-            savedStyles.push({ el: scrollRoot, overflow: scrollRoot.style.overflow, maxHeight: scrollRoot.style.maxHeight, height: scrollRoot.style.height });
-            scrollRoot.style.overflow = 'visible';
-            scrollRoot.style.maxHeight = 'none';
-            scrollRoot.style.height = 'auto';
-        }
-
-        // Also expand the flex-1 parent that constrains the ScrollArea height
-        const flexParent = scrollRoot?.parentElement as HTMLElement | null;
-        if (flexParent && (flexParent.classList.contains('flex-1') || getComputedStyle(flexParent).flex === '1 1 0%')) {
-            savedStyles.push({ el: flexParent, overflow: flexParent.style.overflow, maxHeight: flexParent.style.maxHeight, height: flexParent.style.height });
-            flexParent.style.overflow = 'visible';
-            flexParent.style.maxHeight = 'none';
-            flexParent.style.height = 'auto';
-        }
-
-        element.classList.add('pdf-export-mode');
-
-        const opt = {
-            margin: 10,
-            filename: `chat_${threadId}_${Date.now()}.pdf`,
-            image: { type: 'jpeg' as const, quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, logging: false, scrollY: 0, windowHeight: element.scrollHeight + 200 },
-            jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
-            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        const ensureRoom = (needed: number) => {
+            if (y + needed > pageHeight - margin) {
+                doc.addPage();
+                y = margin;
+            }
         };
 
-        await html2pdf().set(opt).from(element).save();
+        const writeLines = (
+            text: string,
+            opts: { size: number; style?: 'normal' | 'bold'; color?: [number, number, number]; font?: 'helvetica' | 'courier' },
+        ) => {
+            doc.setFont(opts.font ?? 'helvetica', opts.style ?? 'normal');
+            doc.setFontSize(opts.size);
+            const [r, g, b] = opts.color ?? [17, 24, 39];
+            doc.setTextColor(r, g, b);
+            const lineHeight = opts.size * 0.45;
+            const lines = doc.splitTextToSize(text, maxWidth) as string[];
+            for (const line of lines) {
+                ensureRoom(lineHeight);
+                doc.text(line, margin, y);
+                y += lineHeight;
+            }
+        };
 
-        // Restore original styles
-        element.classList.remove('pdf-export-mode');
-        for (const { el, overflow, maxHeight, height } of savedStyles) {
-            el.style.overflow = overflow;
-            el.style.maxHeight = maxHeight;
-            el.style.height = height;
+        writeLines('AI Ops conversation', { size: 16, style: 'bold' });
+        y += 2;
+        writeLines(`Thread ${threadId} — exported ${formatDateTime(new Date(), 'longDateTime')}`, {
+            size: 9,
+            color: [107, 114, 128],
+        });
+        y += 5;
+
+        for (const message of messages) {
+            // Tool messages are folded into the assistant content extraction.
+            if (message.role === 'tool') continue;
+            const content = extractMessageContent(message);
+            if (!content.trim()) continue;
+
+            ensureRoom(12);
+            y += 2;
+            writeLines(message.role === 'user' ? 'User' : 'Agent', {
+                size: 11,
+                style: 'bold',
+                color: message.role === 'user' ? [29, 78, 216] : [21, 128, 61],
+            });
+            y += 1;
+            writeLines(content, { size: 9.5 });
+            y += 3;
         }
 
+        doc.save(`chat_${threadId}_${Date.now()}.pdf`);
         return true;
     } catch (error) {
         console.error('Failed to export PDF:', error);

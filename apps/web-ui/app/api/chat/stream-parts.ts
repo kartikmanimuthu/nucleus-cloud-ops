@@ -137,6 +137,52 @@ export function humanizeReflection(raw: string): string {
 }
 
 /**
+ * The planner node's model output IS the plan itself — a raw JSON array of
+ * step strings (sometimes fenced, sometimes wrapped in a `{ "plan": [...] }`
+ * object), streamed token-by-token. That must never reach the client verbatim
+ * as a "thinking" block (it reads as broken JSON, and the plan already renders
+ * structured in the run rail via the data-plan part). Convert it to a short
+ * numbered-list prose summary; any parse failure returns `raw` unchanged so
+ * genuine planner prose still shows.
+ */
+export function humanizePlanning(raw: string): string {
+    const cleaned = raw.replace(/```(?:json)?/gi, '').trim();
+
+    let steps: string[] | null = null;
+
+    const arrStart = cleaned.indexOf('[');
+    const arrEnd = cleaned.lastIndexOf(']');
+    if (arrStart !== -1 && arrEnd > arrStart) {
+        try {
+            const parsed = JSON.parse(cleaned.slice(arrStart, arrEnd + 1));
+            if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((s) => typeof s === 'string')) {
+                steps = parsed;
+            }
+        } catch {
+            // not a bare array — try the object shape below
+        }
+    }
+
+    if (!steps) {
+        const objStart = cleaned.indexOf('{');
+        const objEnd = cleaned.lastIndexOf('}');
+        if (objStart !== -1 && objEnd > objStart) {
+            try {
+                const parsed = JSON.parse(cleaned.slice(objStart, objEnd + 1)) as { plan?: unknown };
+                if (Array.isArray(parsed.plan) && parsed.plan.length > 0 && parsed.plan.every((s) => typeof s === 'string')) {
+                    steps = parsed.plan as string[];
+                }
+            } catch {
+                // not the object shape either — fall through to raw
+            }
+        }
+    }
+
+    if (!steps) return raw;
+    return `Drafted a ${steps.length}-step plan:\n\n${steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+}
+
+/**
  * Parts describing a parked approval_gate interrupt: one data-approval batch
  * for normal tools (each row carrying its guard verdict) and one
  * data-clarification per pending ask_user call.

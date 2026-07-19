@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { RunState } from "@/components/agent/chat/run-state";
 
-export type TranscriptMenuAction = "export" | "copy" | "schedule" | "skill" | "clear";
+export type TranscriptMenuAction = "export-md" | "export-pdf" | "copy" | "schedule" | "skill" | "clear";
 
 export interface TranscriptHeaderProps {
   title: string;
@@ -45,7 +45,8 @@ function stepIndexForPhase(phase: string): number {
 }
 
 const MENU_ITEMS: Array<{ action: TranscriptMenuAction; label: string }> = [
-  { action: "export", label: "Export" },
+  { action: "export-md", label: "Export as Markdown" },
+  { action: "export-pdf", label: "Export as PDF" },
   { action: "copy", label: "Copy" },
   { action: "schedule", label: "Convert to scheduled task" },
   { action: "skill", label: "Save as skill" },

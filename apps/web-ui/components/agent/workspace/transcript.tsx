@@ -210,7 +210,9 @@ export function Transcript({
 
   return (
     <div className="flex-1 overflow-y-auto" onScroll={handleScroll}>
-      <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-4">
+      {/* Wider cap than a reading column: the workspace's side panels collapse,
+          and the freed space should go to the transcript, not gutters. */}
+      <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-4 xl:max-w-5xl">
         {visible.map((message, index) => {
           if (message.role === "user") {
             return <UserBubble key={message.id} message={message} />

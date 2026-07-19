@@ -8,7 +8,7 @@ import { buildClientErrorText } from '@/lib/agent/stream-error';
 import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
-import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, humanizeReflection } from './stream-parts';
+import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, humanizeReflection, humanizePlanning } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
 
@@ -723,6 +723,12 @@ function processStream(
             // part built from the full buffer. Reset at the start of each reflection run.
             let reflectionBuf = '';
 
+            // Same treatment for the planner node: its model output IS the raw JSON
+            // plan array, streamed token-by-token. Buffer it and flush ONE humanized
+            // reasoning part ("Drafted a N-step plan: …") at on_chat_model_end — the
+            // structured plan itself reaches the client via the data-plan part.
+            let planningBuf = '';
+
             const safeEnqueue = (chunk: UIMessageChunk) => {
                 try {
                     controller.enqueue(chunk);
@@ -803,6 +809,10 @@ function processStream(
                                 // reasoning. Reset the per-run buffer; streamStarted stays false
                                 // so the stream/end handlers below know there's no part to close.
                                 reflectionBuf = '';
+                            } else if (currentPhase === 'planning') {
+                                // The planner streams the raw JSON plan array — buffered, never
+                                // live. Flushed humanized at on_chat_model_end.
+                                planningBuf = '';
                             } else {
                                 const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
 
@@ -836,6 +846,9 @@ function processStream(
                                     // Buffer the reflector's raw JSON deltas — never streamed live.
                                     // Flushed as one humanized reasoning part at on_chat_model_end.
                                     reflectionBuf += text;
+                                } else if (currentPhase === 'planning') {
+                                    // Buffer the planner's raw JSON plan deltas — never streamed live.
+                                    planningBuf += text;
                                 } else if (streamStarted) {
                                     const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
                                     if (!safeEnqueue({
@@ -886,6 +899,23 @@ function processStream(
                                     safeEnqueue({ type: 'reasoning-end', id: reflectPartId });
                                 }
                                 reflectionBuf = '';
+                            }
+
+                            if (currentPhase === 'planning') {
+                                // Live counterpart of the buffered planner stream above: flush ONE
+                                // humanized reasoning part ("Drafted a N-step plan: …") — the raw
+                                // plan JSON never reaches the client as thinking text.
+                                if (planningBuf.trim()) {
+                                    const planPartId = `plan-think-${runId}-${partCounter}`;
+                                    safeEnqueue({ type: 'reasoning-start', id: planPartId });
+                                    safeEnqueue({
+                                        type: 'reasoning-delta',
+                                        id: planPartId,
+                                        delta: humanizePlanning(planningBuf),
+                                    });
+                                    safeEnqueue({ type: 'reasoning-end', id: planPartId });
+                                }
+                                planningBuf = '';
                             }
 
                             if (!autoApprove) {

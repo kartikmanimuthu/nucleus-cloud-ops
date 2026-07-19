@@ -84,7 +84,9 @@ describe('AgentTurn', () => {
     render(<AgentTurn {...baseProps(events)} />)
 
     expect(screen.getByText('Ran 3 tools')).toBeTruthy()
-    expect(screen.queryByText('a')).toBeNull()
+    // With "Show work" on, the group renders expanded by default — the inner
+    // tool rows are visible without another click.
+    expect(screen.getByText('a')).toBeTruthy()
   })
 
   it('renders the approval interrupt card only when isLastAssistantMessage and runState has a pending batch', () => {

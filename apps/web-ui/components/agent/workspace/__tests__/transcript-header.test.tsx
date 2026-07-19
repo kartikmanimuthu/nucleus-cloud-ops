@@ -196,9 +196,28 @@ describe('TranscriptHeader', () => {
     // Radix's DropdownMenuTrigger opens on pointerdown (or Enter/Space), not
     // a plain click event — jsdom won't synthesize that from fireEvent.click.
     fireEvent.keyDown(screen.getByRole('button', { name: /more actions/i }), { key: 'Enter' })
-    const exportItem = await screen.findByText('Export')
+    const exportItem = await screen.findByText('Export as Markdown')
     fireEvent.click(exportItem)
 
-    expect(onMenuAction).toHaveBeenCalledWith('export')
+    expect(onMenuAction).toHaveBeenCalledWith('export-md')
+  })
+
+  it('offers a PDF export menu item', async () => {
+    const onMenuAction = vi.fn()
+    render(
+      <TranscriptHeader
+        title="Run"
+        runState={EMPTY_RUN_STATE}
+        isStreaming={false}
+        elapsedMs={null}
+        onMenuAction={onMenuAction}
+      />
+    )
+
+    fireEvent.keyDown(screen.getByRole('button', { name: /more actions/i }), { key: 'Enter' })
+    const pdfItem = await screen.findByText('Export as PDF')
+    fireEvent.click(pdfItem)
+
+    expect(onMenuAction).toHaveBeenCalledWith('export-pdf')
   })
 })

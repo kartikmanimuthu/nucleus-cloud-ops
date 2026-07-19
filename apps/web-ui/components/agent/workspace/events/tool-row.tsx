@@ -95,8 +95,22 @@ function StatusGlyph({ status, durationMs }: { status: ToolEvent["status"]; dura
  * ThinkingBlock's row grammar — not faded/italic since tool rows aren't
  * ambient narration.
  */
-export function ToolRow({ event, durationMs }: { event: ToolEvent; durationMs?: number }) {
-  const [open, setOpen] = React.useState(false)
+export function ToolRow({
+  event,
+  durationMs,
+  defaultOpen = false,
+}: {
+  event: ToolEvent
+  durationMs?: number
+  /** With the "Show work" toggle on, rows render expanded (input/output visible). */
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = React.useState(defaultOpen)
+
+  // Re-sync when the "Show work" toggle changes; manual toggles in between are kept.
+  React.useEffect(() => {
+    setOpen(defaultOpen)
+  }, [defaultOpen])
   const Icon = toolIcon(event.toolName)
   const unwrappedInput = React.useMemo(() => unwrapToolInput(event.input), [event.input])
   const preview = React.useMemo(() => argumentPreview(unwrappedInput), [unwrappedInput])
@@ -143,8 +157,12 @@ export function ToolRow({ event, durationMs }: { event: ToolEvent; durationMs?: 
  * Header row for a collapsed run of >=3 consecutive `done` tool events
  * (see group-events.ts). Expands to the individual ToolRows.
  */
-export function ToolGroupRow({ group }: { group: ToolGroup }) {
-  const [open, setOpen] = React.useState(false)
+export function ToolGroupRow({ group, defaultOpen = false }: { group: ToolGroup; defaultOpen?: boolean }) {
+  const [open, setOpen] = React.useState(defaultOpen)
+
+  React.useEffect(() => {
+    setOpen(defaultOpen)
+  }, [defaultOpen])
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -161,7 +179,7 @@ export function ToolGroupRow({ group }: { group: ToolGroup }) {
       <CollapsibleContent>
         <div className="space-y-0.5 pl-3">
           {group.tools.map((tool) => (
-            <ToolRow key={tool.id} event={tool} />
+            <ToolRow key={tool.id} event={tool} defaultOpen={defaultOpen} />
           ))}
         </div>
       </CollapsibleContent>

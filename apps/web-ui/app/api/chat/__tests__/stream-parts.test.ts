@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildMemoryPart, humanizeReflection } from '@/app/api/chat/stream-parts';
+import { buildMemoryPart, humanizeReflection, humanizePlanning } from '@/app/api/chat/stream-parts';
 
 describe('buildMemoryPart', () => {
     it('counts markdown bullets (-) and returns them as `count`', () => {
@@ -153,5 +153,34 @@ ${suggestions !== 'None' ? `💡 **Suggestions:** ${suggestions}` : ''}
     it('drops the Task Complete trailer from the feedback format entirely', () => {
         const raw = buildReflectNodeFeedback('Nothing left to do.', 'None', 'None', true);
         expect(humanizeReflection(raw)).toBe('Nothing left to do.');
+    });
+});
+
+describe('humanizePlanning', () => {
+    it('converts a raw JSON step array into a numbered-list summary', () => {
+        const raw = '["Check EC2 instances in us-east-1", "Check ECS services", "Summarize findings"]';
+        expect(humanizePlanning(raw)).toBe(
+            'Drafted a 3-step plan:\n\n1. Check EC2 instances in us-east-1\n2. Check ECS services\n3. Summarize findings',
+        );
+    });
+
+    it('handles fenced arrays and surrounding whitespace', () => {
+        const raw = '```json\n["step one", "step two"]\n```';
+        expect(humanizePlanning(raw)).toBe('Drafted a 2-step plan:\n\n1. step one\n2. step two');
+    });
+
+    it('handles the { "plan": [...] } object shape', () => {
+        const raw = '{"plan": ["alpha", "beta"]}';
+        expect(humanizePlanning(raw)).toBe('Drafted a 2-step plan:\n\n1. alpha\n2. beta');
+    });
+
+    it('returns genuine planner prose unchanged', () => {
+        const raw = 'I will first check the instances, then the services.';
+        expect(humanizePlanning(raw)).toBe(raw);
+    });
+
+    it('returns raw text unchanged when the array does not parse', () => {
+        const raw = '["unterminated, "broken]';
+        expect(humanizePlanning(raw)).toBe(raw);
     });
 });

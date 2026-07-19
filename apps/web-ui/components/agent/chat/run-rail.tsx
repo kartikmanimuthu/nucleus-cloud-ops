@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Activity, AlertTriangle, Cloud, Cpu, HelpCircle, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
+import { Activity, AlertTriangle, ChevronsDownUp, ChevronsUpDown, Cloud, Cpu, HelpCircle, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
 import { Plan, PlanContent, PlanStep } from "@/components/ai-elements/plan";
 import { Spinner } from "@/components/ui/spinner";
 import type { RunState } from "./run-state";
@@ -29,11 +30,12 @@ export function deriveStepTitle(step: string): string {
   return clause;
 }
 
-function RailSection({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
+function RailSection({ icon: Icon, title, action, children }: { icon: React.ElementType; title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         <Icon className="h-3 w-3" /> {title}
+        {action && <span className="ml-auto">{action}</span>}
       </div>
       {children}
     </div>
@@ -52,6 +54,19 @@ export function RunRail({
   const { plan, currentPhase, pendingApproval, pendingClarifications } = runState;
   const done = plan.filter((s) => s.status === "completed").length;
   const mutativePending = pendingApproval?.tools.some((t) => t.guard?.isMutative) ?? false;
+
+  // Plan steps render as a clipped one-clause title by default; clicking a
+  // step toggles its full text, and the section-header control expands or
+  // collapses all of them at once.
+  const [expandAllSteps, setExpandAllSteps] = useState(false);
+  const [expandedSteps, setExpandedSteps] = useState<ReadonlySet<number>>(new Set());
+  const toggleStep = (i: number) =>
+    setExpandedSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
 
   return (
     <aside data-testid="run-rail" className="flex h-full w-full flex-col gap-4 overflow-y-auto border-l bg-muted/20 p-3">
@@ -85,7 +100,21 @@ export function RunRail({
           (via the section title) and below (via the progress bar + each
           step's own active/completed icon). */}
       {plan.length > 0 && (
-        <RailSection icon={ListChecks} title={`Execution plan · ${done}/${plan.length}`}>
+        <RailSection
+          icon={ListChecks}
+          title={`Execution plan · ${done}/${plan.length}`}
+          action={
+            <button
+              type="button"
+              onClick={() => setExpandAllSteps((v) => !v)}
+              aria-label={expandAllSteps ? "Collapse plan steps" : "Expand plan steps"}
+              data-testid="plan-expand-toggle"
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              {expandAllSteps ? <ChevronsDownUp className="h-3 w-3" /> : <ChevronsUpDown className="h-3 w-3" />}
+            </button>
+          }
+        >
           <div className="h-1 w-full overflow-hidden rounded bg-muted">
             <div
               data-testid="plan-progress-fill"
@@ -95,14 +124,20 @@ export function RunRail({
           </div>
           <Plan defaultOpen isStreaming={false}>
             <PlanContent>
-              {plan.map((step, i) => (
-                <PlanStep key={i} number={i + 1}
-                  status={step.status === "in_progress" ? "active" : step.status}
-                  title={step.step}
-                  data-testid={`plan-step-${i}`}>
-                  {deriveStepTitle(step.step)}
-                </PlanStep>
-              ))}
+              {plan.map((step, i) => {
+                const stepExpanded = expandAllSteps || expandedSteps.has(i);
+                return (
+                  <PlanStep key={i} number={i + 1}
+                    status={step.status === "in_progress" ? "active" : step.status}
+                    title={step.step}
+                    onClick={() => toggleStep(i)}
+                    className="cursor-pointer"
+                    data-testid={`plan-step-${i}`}
+                    data-expanded={stepExpanded}>
+                    {stepExpanded ? step.step : deriveStepTitle(step.step)}
+                  </PlanStep>
+                );
+              })}
             </PlanContent>
           </Plan>
         </RailSection>

@@ -22,8 +22,13 @@ function memoryLabel(op: MemoryEvent["op"], count: number | null): string {
  * same faded trigger classes) but never auto-opens — memory events arrive
  * as a single complete unit, not streamed incrementally like reasoning.
  */
-export function MemoryRow({ event }: { event: MemoryEvent }) {
-  const [open, setOpen] = React.useState(false)
+export function MemoryRow({ event, defaultOpen = false }: { event: MemoryEvent; defaultOpen?: boolean }) {
+  const [open, setOpen] = React.useState(defaultOpen)
+
+  // Re-sync when the "Show work" toggle changes; manual toggles in between are kept.
+  React.useEffect(() => {
+    setOpen(defaultOpen)
+  }, [defaultOpen])
   const Icon = event.op === "save" ? Database : Brain
   const label = memoryLabel(event.op, event.count)
 
