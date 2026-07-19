@@ -37,6 +37,9 @@ export interface UseChatSessionResult {
   sendMessage: (message: {
     role: "user";
     content?: string;
+    /** v7 UIMessages render from parts — callers must include a text part for
+     *  the bubble; `content` rides along for the /api/chat server contract. */
+    parts?: Array<Record<string, unknown>>;
     experimental_attachments?: Array<{ name: string; contentType: string; url: string }>;
   }) => Promise<void>;
   stop: () => void;
@@ -295,6 +298,7 @@ export function useChatSession(opts: UseChatSessionOptions): UseChatSessionResul
     async (message: {
       role: "user";
       content?: string;
+      parts?: Array<Record<string, unknown>>;
       experimental_attachments?: Array<{ name: string; contentType: string; url: string }>;
     }) => {
       // Stale restored run-state must not override the new run ("last part

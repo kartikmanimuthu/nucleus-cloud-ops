@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildMemoryPart, humanizeReflection, humanizePlanning } from '@/app/api/chat/stream-parts';
+import { buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
+
+const WM_JSON = JSON.stringify({
+    summary: 'User asked to connect Jira; site resource retrieved.',
+    scratchpad: { openGoals: ['connect Jira'], keyFindings: [], resourceIds: [], pendingSteps: ['query board'] },
+});
 
 describe('buildMemoryPart', () => {
     it('counts markdown bullets (-) and returns them as `count`', () => {
@@ -182,5 +187,45 @@ describe('humanizePlanning', () => {
     it('returns raw text unchanged when the array does not parse', () => {
         const raw = '["unterminated, "broken]';
         expect(humanizePlanning(raw)).toBe(raw);
+    });
+});
+
+describe('isWorkingMemoryPayload', () => {
+    it('detects a bare working-memory JSON object', () => {
+        expect(isWorkingMemoryPayload(WM_JSON)).toBe(true);
+    });
+
+    it('detects a fenced working-memory JSON object', () => {
+        expect(isWorkingMemoryPayload('```json\n' + WM_JSON + '\n```')).toBe(true);
+    });
+
+    it('rejects an ordinary answer', () => {
+        expect(isWorkingMemoryPayload('Here is the brief:\n\n## Jira Connection\n- Site: …')).toBe(false);
+    });
+
+    it('rejects an answer that merely EMBEDS a WM-shaped object in substantial prose', () => {
+        const raw = `The compaction payload looked like this: ${WM_JSON}\n\nAnd here is a long explanation of what each field means and why it matters for the run.`;
+        expect(isWorkingMemoryPayload(raw)).toBe(false);
+    });
+
+    it('rejects JSON objects without the summary+scratchpad shape', () => {
+        expect(isWorkingMemoryPayload('{"analysis": "done", "isComplete": true}')).toBe(false);
+    });
+});
+
+describe('stripWorkingMemoryPrelude', () => {
+    it('strips a leading fenced WM block, keeping the answer', () => {
+        const raw = '```json\n' + WM_JSON + '\n```\nConnected to Jira. Here is the brief:';
+        expect(stripWorkingMemoryPrelude(raw)).toBe('Connected to Jira. Here is the brief:');
+    });
+
+    it('leaves an answer without a WM prelude untouched', () => {
+        const raw = 'Connected to Jira. Here is the brief:';
+        expect(stripWorkingMemoryPrelude(raw)).toBe(raw);
+    });
+
+    it('leaves a leading non-WM code fence untouched', () => {
+        const raw = '```json\n{"result": "ok"}\n```\nExplanation follows.';
+        expect(stripWorkingMemoryPrelude(raw)).toBe(raw);
     });
 });

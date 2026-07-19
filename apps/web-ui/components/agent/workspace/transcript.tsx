@@ -21,10 +21,15 @@ export interface TranscriptProps {
 }
 
 function userMessageText(message: LooseMessage): string {
-  return (message.parts ?? [])
+  const fromParts = (message.parts ?? [])
     .filter((p: any) => p.type === "text" && typeof p.text === "string")
     .map((p: any) => p.text as string)
     .join("\n")
+  if (fromParts) return fromParts
+  // Messages sent as `{ content }` without parts (older sessions, external
+  // senders) would otherwise render an empty bubble.
+  const content = (message as any).content
+  return typeof content === "string" ? content : ""
 }
 
 function userMessageImages(message: LooseMessage): string[] {
@@ -210,9 +215,10 @@ export function Transcript({
 
   return (
     <div className="flex-1 overflow-y-auto" onScroll={handleScroll}>
-      {/* Wider cap than a reading column: the workspace's side panels collapse,
-          and the freed space should go to the transcript, not gutters. */}
-      <div className="mx-auto w-full max-w-4xl space-y-4 px-4 py-4 xl:max-w-5xl">
+      {/* Fully fluid: the transcript takes whatever width the workspace's
+          collapsible side panels leave it, at every resolution — no fixed cap,
+          just breathing-room padding. */}
+      <div className="w-full space-y-4 px-4 py-4 md:px-8">
         {visible.map((message, index) => {
           if (message.role === "user") {
             return <UserBubble key={message.id} message={message} />

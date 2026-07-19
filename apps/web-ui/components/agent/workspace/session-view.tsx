@@ -144,14 +144,26 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
     setInputValue("");
     setAttachments([]);
     setHasStarted(true);
+    // AI SDK v7 UIMessages render from `parts` — a bare `content` string
+    // produces an EMPTY user bubble (the server still reads `.content`, so
+    // both are sent: parts for the UI, content for the /api/chat contract).
     void chat.sendMessage({
       role: "user",
       content: value,
+      parts: [
+        ...files.map((f) => ({
+          type: "file",
+          mediaType: f.type,
+          filename: f.name,
+          url: `data:${f.type};base64,${f.data}`,
+        })),
+        { type: "text", text: value },
+      ],
       experimental_attachments:
         files.length > 0
           ? files.map((f) => ({ name: f.name, contentType: f.type, url: `data:${f.type};base64,${f.data}` }))
           : undefined,
-    });
+    } as any);
   }, [inputValue, attachments, isStreaming, chat]);
 
   // ── Header menu actions ──────────────────────────────────────────────────────
@@ -271,14 +283,14 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
           {error && (
             <div
               data-testid="session-error"
-              className="mx-auto w-full max-w-4xl px-4 pb-2 text-xs text-destructive xl:max-w-5xl"
+              className="w-full px-4 pb-2 text-xs text-destructive md:px-8"
             >
               {error}
             </div>
           )}
 
           <div className="border-t p-3">
-            <div className="mx-auto w-full max-w-4xl xl:max-w-5xl">
+            <div className="w-full px-1 md:px-5">
               <Composer
                 value={inputValue}
                 onChange={setInputValue}

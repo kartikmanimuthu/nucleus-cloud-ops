@@ -4,7 +4,7 @@ import { getChatHistory } from '@/lib/agent/persistence';
 import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
 import { normalizeLegacyContent } from '@/lib/agent-chat/legacy-normalizer';
-import { humanizePlanning } from '@/app/api/chat/stream-parts';
+import { humanizePlanning, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
 
 interface HistoryMessage {
     id: string;
@@ -52,7 +52,7 @@ interface HistoryMessage {
  * live memory narration to data-memory-only, so this only affects history
  * replay parity, not new behavior in the live stream.
  */
-function buildPhaseParts(content: string): HistoryMessage['parts'] {
+function buildPhaseParts(content: string, hasToolCalls = false): HistoryMessage['parts'] {
     const { phase, text } = normalizeLegacyContent(content);
 
     if (phase === 'memory_recall' || phase === 'memory_save') {
@@ -64,12 +64,16 @@ function buildPhaseParts(content: string): HistoryMessage['parts'] {
     if (phase === 'text') {
         return [{ type: 'text', text }];
     }
-    // final, planning, execution, reflection, revision
+    // Same classification the live stream applies (see route.ts's phaseRunBuf):
+    // a tool-free execution/final block IS the answer → text; an execution
+    // block that carried tool calls is process narration → reasoning;
+    // planner/reviser blocks persist the raw JSON plan → humanized reasoning.
+    const isAnswer = phase === 'final' || (phase === 'execution' && !hasToolCalls);
     return [
         { type: 'data-phase', data: { phase, node: 'history', ts: 0 } },
-        // The planner block persists the raw JSON plan array — humanize it to the
-        // same "Drafted a N-step plan: …" prose the live stream now emits.
-        { type: phase === 'final' ? 'text' : 'reasoning', text: phase === 'planning' ? humanizePlanning(text) : text },
+        isAnswer
+            ? { type: 'text', text: stripWorkingMemoryPrelude(text) }
+            : { type: 'reasoning', text: phase === 'planning' || phase === 'revision' ? humanizePlanning(text) : text },
     ];
 }
 
@@ -108,8 +112,8 @@ function convertPlainMessage(msg: { role: string; content: string; metadata?: Re
         return { id: `history-${index}`, role: 'user', content, parts: [{ type: 'text', text: content }] };
     }
     if (role === 'ai') {
-        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
         const toolCalls = metadata?.tool_calls as Array<{ id?: string; name: string; args: Record<string, unknown> }> | undefined;
+        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content, (toolCalls?.length ?? 0) > 0) ?? [])] : [];
         for (const tc of toolCalls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args, state: 'call' });
         }
@@ -133,7 +137,7 @@ function convertMessage(msg: BaseMessage, index: number): HistoryMessage | null 
     }
     if (msgType === 'ai') {
         const aiMsg = msg as AIMessage;
-        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
+        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content, (aiMsg.tool_calls?.length ?? 0) > 0) ?? [])] : [];
         for (const tc of aiMsg.tool_calls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args as Record<string, unknown>, state: 'call' });
         }

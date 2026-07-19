@@ -1,4 +1,5 @@
 import { pendingToolCallsOf } from '@/lib/agent/guard';
+import { extractJsonObject } from '@/lib/agent/llm-json';
 import type { GuardVerdict, PlanStep, ReflectionState } from '@/lib/agent/agent-shared';
 
 export interface DataPart { type: `data-${string}`; id?: string; data: unknown }
@@ -180,6 +181,38 @@ export function humanizePlanning(raw: string): string {
 
     if (!steps) return raw;
     return `Drafted a ${steps.length}-step plan:\n\n${steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+}
+
+/**
+ * The working-memory compaction call (foldWorkingMemory in
+ * lib/agent/memory/working-memory.ts) runs the reflector model INSIDE a graph
+ * node, so its output — a bare `{"summary": …, "scratchpad": …}` JSON object,
+ * sometimes fenced — streams under that node's phase like any other model run.
+ * It's internal bookkeeping, never something to show the user. True when the
+ * run's whole output is such a payload (allowing only negligible framing text).
+ */
+export function isWorkingMemoryPayload(raw: string): boolean {
+    const cleaned = raw.replace(/```(?:json)?/gi, '').trim();
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start === -1 || end <= start) return false;
+    const obj = extractJsonObject(cleaned.slice(start, end + 1));
+    if (!obj || !('summary' in obj) || !('scratchpad' in obj)) return false;
+    const remainder = (cleaned.slice(0, start) + cleaned.slice(end + 1)).trim();
+    return remainder.length < 40;
+}
+
+/**
+ * Some answer runs prepend their working-memory snapshot as a fenced JSON
+ * block before the actual response. Strip that prelude (only when it really
+ * is a WM payload) so the visible answer starts at the prose.
+ */
+export function stripWorkingMemoryPrelude(raw: string): string {
+    const match = raw.match(/^\s*```(?:json)?\s*(\{[\s\S]*?\})\s*```\s*/);
+    if (!match) return raw;
+    const obj = extractJsonObject(match[1]);
+    if (obj && 'summary' in obj && 'scratchpad' in obj) return raw.slice(match[0].length);
+    return raw;
 }
 
 /**

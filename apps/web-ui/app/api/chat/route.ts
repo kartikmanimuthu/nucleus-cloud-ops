@@ -8,7 +8,7 @@ import { buildClientErrorText } from '@/lib/agent/stream-error';
 import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
-import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, humanizeReflection, humanizePlanning } from './stream-parts';
+import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
 
@@ -716,18 +716,25 @@ function processStream(
             // memoryRecallText/memorySaveText above, which still feed persistence.
             let memoryRunText = '';
 
-            // Per-run accumulator for reflector-node deltas: the reflector emits raw
-            // JSON token-by-token, which must never stream to the client verbatim (it
-            // reads as broken JSON, not thought). Buffer it here instead of enqueueing
-            // reasoning-deltas live; on_chat_model_end flushes ONE humanized reasoning
-            // part built from the full buffer. Reset at the start of each reflection run.
-            let reflectionBuf = '';
-
-            // Same treatment for the planner node: its model output IS the raw JSON
-            // plan array, streamed token-by-token. Buffer it and flush ONE humanized
-            // reasoning part ("Drafted a N-step plan: …") at on_chat_model_end — the
-            // structured plan itself reaches the client via the data-plan part.
-            let planningBuf = '';
+            // Per-run accumulator shared by every buffered (non-live-streamed) phase.
+            // Only ONE model run is active at a time, so a single buffer suffices;
+            // on_chat_model_end classifies it by currentPhase:
+            //  - reflection          → ONE humanized reasoning part (raw reflector JSON
+            //                          must never reach the client verbatim)
+            //  - planning / revision → ONE humanized reasoning part ("Drafted a N-step
+            //                          plan: …" — the structured plan reaches the client
+            //                          via the data-plan part)
+            //  - execution / final   → classified by what the run actually was:
+            //                          a working-memory compaction payload is DROPPED,
+            //                          a run that requested tool calls is process
+            //                          narration (reasoning), and a tool-free run IS
+            //                          the answer → emitted as a TEXT part. Without
+            //                          this, the agent's final answer streamed as
+            //                          "reasoning" and the new UI collapsed it into a
+            //                          thought (legacy UI rendered reasoning as visible
+            //                          cards, so this was invisible until now).
+            let phaseRunBuf = '';
+            const BUFFERED_PHASES = new Set(['reflection', 'planning', 'revision', 'execution', 'final']);
 
             const safeEnqueue = (chunk: UIMessageChunk) => {
                 try {
@@ -796,7 +803,6 @@ function processStream(
                             streamStarted = false;
 
                             const isMemoryPhase = currentPhase === 'memory_recall' || currentPhase === 'memory_save';
-                            const isReflectionPhase = currentPhase === 'reflection';
 
                             if (isMemoryPhase) {
                                 // Memory narration is no longer streamed as a reasoning part —
@@ -804,19 +810,16 @@ function processStream(
                                 // Reset the per-run accumulator; streamStarted stays false so the
                                 // stream/end handlers below know there's no dangling part to close.
                                 memoryRunText = '';
-                            } else if (isReflectionPhase) {
-                                // Same treatment: the reflector's raw JSON must never stream as
-                                // reasoning. Reset the per-run buffer; streamStarted stays false
-                                // so the stream/end handlers below know there's no part to close.
-                                reflectionBuf = '';
-                            } else if (currentPhase === 'planning') {
-                                // The planner streams the raw JSON plan array — buffered, never
-                                // live. Flushed humanized at on_chat_model_end.
-                                planningBuf = '';
+                            } else if (BUFFERED_PHASES.has(currentPhase)) {
+                                // Buffered phases never stream deltas live — the run is flushed
+                                // as ONE part (reasoning or text, see phaseRunBuf above) at
+                                // on_chat_model_end. streamStarted stays false so the stream/end
+                                // handlers below know there's no part to close.
+                                phaseRunBuf = '';
                             } else {
-                                const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
-
-                                if (!safeEnqueue({ type: `${chunkType}-start` as any, id: currentPartId })) break;
+                                // 'text' phase (deep agent main model / unknown nodes): the only
+                                // phase that still streams token-by-token, as a text part.
+                                if (!safeEnqueue({ type: 'text-start', id: currentPartId })) break;
                                 streamStarted = true;
                                 // Live sentinel-marker delta emission removed (Task 4) — the
                                 // buildPhasePart data-phase part above already carries the phase
@@ -842,31 +845,22 @@ function processStream(
                                     if (currentPhase === 'memory_recall') memoryRecallText += text;
                                     else memorySaveText += text;
                                     memoryRunText += text;
-                                } else if (currentPhase === 'reflection') {
-                                    // Buffer the reflector's raw JSON deltas — never streamed live.
-                                    // Flushed as one humanized reasoning part at on_chat_model_end.
-                                    reflectionBuf += text;
-                                } else if (currentPhase === 'planning') {
-                                    // Buffer the planner's raw JSON plan deltas — never streamed live.
-                                    planningBuf += text;
+                                } else if (BUFFERED_PHASES.has(currentPhase)) {
+                                    // Buffered — flushed as one classified part at on_chat_model_end.
+                                    phaseRunBuf += text;
                                 } else if (streamStarted) {
-                                    const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
                                     if (!safeEnqueue({
-                                        type: `${chunkType}-delta` as any,
+                                        type: 'text-delta',
                                         id: currentPartId,
                                         delta: text,
                                     })) break;
-                                    // Only count as text content if it's actually a text part
-                                    if (chunkType === 'text') {
-                                        hasEmittedTextContent = true;
-                                    }
+                                    hasEmittedTextContent = true;
                                 }
                             }
                         }
                         else if (event.event === "on_chat_model_end") {
                             if (streamStarted) {
-                                const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
-                                if (!safeEnqueue({ type: `${chunkType}-end` as any, id: currentPartId })) break;
+                                if (!safeEnqueue({ type: 'text-end', id: currentPartId })) break;
                                 streamStarted = false;
                             }
 
@@ -882,41 +876,41 @@ function processStream(
                                 memoryRunText = '';
                             }
 
-                            if (currentPhase === 'reflection') {
-                                // Live counterpart of the buffered stream above: flush ONE
-                                // reasoning part built from the FULL run's buffer, humanized —
-                                // the raw reflector JSON never reaches the client. Fresh id
-                                // (not currentPartId — no reasoning part was ever opened for
-                                // this run, since streamStarted was never set true above).
-                                if (reflectionBuf.trim()) {
-                                    const reflectPartId = `reflect-${runId}-${partCounter}`;
-                                    safeEnqueue({ type: 'reasoning-start', id: reflectPartId });
-                                    safeEnqueue({
-                                        type: 'reasoning-delta',
-                                        id: reflectPartId,
-                                        delta: humanizeReflection(reflectionBuf),
-                                    });
-                                    safeEnqueue({ type: 'reasoning-end', id: reflectPartId });
+                            // Flush the buffered run as ONE part — see phaseRunBuf's
+                            // declaration for the classification rules. Fresh part ids
+                            // (not currentPartId — no part was ever opened for this run,
+                            // since streamStarted was never set true above).
+                            if (BUFFERED_PHASES.has(currentPhase) && phaseRunBuf.trim()) {
+                                const flushId = `flush-${runId}-${partCounter}`;
+                                if (currentPhase === 'reflection') {
+                                    safeEnqueue({ type: 'reasoning-start', id: flushId });
+                                    safeEnqueue({ type: 'reasoning-delta', id: flushId, delta: humanizeReflection(phaseRunBuf) });
+                                    safeEnqueue({ type: 'reasoning-end', id: flushId });
+                                } else if (currentPhase === 'planning' || currentPhase === 'revision') {
+                                    safeEnqueue({ type: 'reasoning-start', id: flushId });
+                                    safeEnqueue({ type: 'reasoning-delta', id: flushId, delta: humanizePlanning(phaseRunBuf) });
+                                    safeEnqueue({ type: 'reasoning-end', id: flushId });
+                                } else if (isWorkingMemoryPayload(phaseRunBuf)) {
+                                    // Working-memory compaction output — internal bookkeeping,
+                                    // never shown.
+                                } else {
+                                    const runToolCalls = event.data?.output?.tool_calls ?? [];
+                                    if (runToolCalls.length > 0) {
+                                        // The run requested tool calls — its text is process
+                                        // narration, rendered as a thought.
+                                        safeEnqueue({ type: 'reasoning-start', id: flushId });
+                                        safeEnqueue({ type: 'reasoning-delta', id: flushId, delta: phaseRunBuf });
+                                        safeEnqueue({ type: 'reasoning-end', id: flushId });
+                                    } else {
+                                        // Tool-free execution/final run — this IS the answer.
+                                        safeEnqueue({ type: 'text-start', id: flushId });
+                                        safeEnqueue({ type: 'text-delta', id: flushId, delta: stripWorkingMemoryPrelude(phaseRunBuf) });
+                                        safeEnqueue({ type: 'text-end', id: flushId });
+                                        hasEmittedTextContent = true;
+                                    }
                                 }
-                                reflectionBuf = '';
                             }
-
-                            if (currentPhase === 'planning') {
-                                // Live counterpart of the buffered planner stream above: flush ONE
-                                // humanized reasoning part ("Drafted a N-step plan: …") — the raw
-                                // plan JSON never reaches the client as thinking text.
-                                if (planningBuf.trim()) {
-                                    const planPartId = `plan-think-${runId}-${partCounter}`;
-                                    safeEnqueue({ type: 'reasoning-start', id: planPartId });
-                                    safeEnqueue({
-                                        type: 'reasoning-delta',
-                                        id: planPartId,
-                                        delta: humanizePlanning(planningBuf),
-                                    });
-                                    safeEnqueue({ type: 'reasoning-end', id: planPartId });
-                                }
-                                planningBuf = '';
-                            }
+                            phaseRunBuf = '';
 
                             if (!autoApprove) {
                                 const toolCalls = event.data?.output?.tool_calls;
