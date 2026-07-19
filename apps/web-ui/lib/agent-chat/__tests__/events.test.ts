@@ -192,6 +192,16 @@ describe('tool events', () => {
         ]), { ...noOpts, toolVisibility: new Map([['tc1', 'm1']]) });
         expect((events[0] as any).toolName).toBe('write_file');
     });
+
+    it('falls back to part.args when input is absent (history-reload tool-invocation parts)', () => {
+        const events = buildTranscript(msg([
+            {
+                type: 'tool-invocation', toolCallId: 'tc1', toolName: 'execute_command',
+                args: { command: 'aws s3 ls' }, result: 'output', state: 'output-available',
+            },
+        ]), { ...noOpts, toolVisibility: new Map([['tc1', 'm1']]) });
+        expect(events[0]).toEqual(expect.objectContaining({ input: { command: 'aws s3 ls' } }));
+    });
 });
 
 describe('tool dedupe', () => {

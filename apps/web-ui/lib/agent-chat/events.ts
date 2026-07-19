@@ -25,6 +25,7 @@ export interface LoosePart {
     toolName?: string;
     state?: string;
     input?: unknown;
+    args?: unknown;
     output?: unknown;
     result?: unknown;
 }
@@ -200,7 +201,7 @@ export function buildTranscript(message: LooseMessage, opts: BuildTranscriptOpti
                         id: `${message.id}:tool:${toolCallId}`,
                         toolCallId,
                         toolName: deriveToolName(part),
-                        input: part.input,
+                        input: part.input ?? part.args,
                         output,
                         status,
                     });
