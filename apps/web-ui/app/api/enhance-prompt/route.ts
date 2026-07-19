@@ -4,6 +4,7 @@ import { getSessionTenantId } from "@/lib/auth-session";
 import { resolveDefaultModelConfig } from "@/lib/agent/model-resolver";
 import { createAgentModels } from "@/lib/agent/model-factory";
 import { isProviderConfigError } from "@/lib/agent/provider-errors";
+import { contentToText } from "@/lib/agent/llm-json";
 
 export async function POST(req: Request) {
     try {
@@ -47,12 +48,7 @@ Please provide the enhanced version.`);
 
         const response = await llm.invoke([systemPrompt, userMessage]);
 
-        let enhancedPrompt = "";
-        if (typeof response.content === "string") {
-            enhancedPrompt = response.content;
-        } else {
-            enhancedPrompt = JSON.stringify(response.content);
-        }
+        let enhancedPrompt: string = contentToText(response.content);
 
         // Clean up if the model included <enhanced_prompt> tags anyway
         enhancedPrompt = enhancedPrompt.replace(/<enhanced_prompt>/g, '').replace(/<\/enhanced_prompt>/g, '').trim();

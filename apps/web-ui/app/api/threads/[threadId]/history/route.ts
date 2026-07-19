@@ -3,6 +3,8 @@ import { getCheckpointer } from '@/lib/agent/agent-shared';
 import { getChatHistory } from '@/lib/agent/persistence';
 import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
+import { normalizeLegacyContent } from '@/lib/agent-chat/legacy-normalizer';
+import { humanizePlanning, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
 
 interface HistoryMessage {
     id: string;
@@ -16,19 +18,65 @@ interface HistoryMessage {
         args?: Record<string, unknown>;
         result?: string;
         state?: 'call' | 'result';
+        data?: Record<string, unknown>;
     }>;
 }
 
-// Phase markers written by processStream before persistence — must match route.ts getPhaseMarker()
-const PHASE_MARKERS = [
-    'PLANNING_PHASE_START\n',
-    'EXECUTION_PHASE_START\n',
-    'REFLECTION_PHASE_START\n',
-    'REVISION_PHASE_START\n',
-    'FINAL_PHASE_START\n',
-    'MEMORY_RECALL_PHASE_START\n',
-    'MEMORY_SAVE_PHASE_START\n',
-];
+/**
+ * Reconstructs the typed parts for one persisted assistant content block
+ * (see route.ts's `finally` block, which prefixes stored AI message content
+ * with a phase marker via getPhaseMarker() before persistence).
+ * normalizeLegacyContent is the sole holder of the marker->phase mapping;
+ * this function only decides which typed part shape each phase renders as:
+ *  - memory_recall / memory_save -> a data-phase part + a data-memory part
+ *    (the new Mission Control UI's memory row), replacing the old reasoning
+ *    part reconstruction.
+ *  - text (no marker) -> a bare text part — this IS the answer, no phase
+ *    context needed.
+ *  - final -> a data-phase part + a text part (still the answer, but tagged
+ *    with the phase it closed out under).
+ *  - planning / execution / reflection / revision -> a data-phase part + a
+ *    reasoning part with the stripped text.
+ *
+ * NOTE (legacy client degradation, accepted for this migration): the legacy
+ * chat-interface.tsx still parses phase from a sentinel-prefixed reasoning
+ * part's own text (parsePhaseFromContent). Since the text here is already
+ * stripped, reloaded threads render those blocks under the generic "text"
+ * phase styling (no colored phase banner) in the legacy UI — the new UI
+ * (later tasks) reads data-phase instead and is unaffected. Reloaded
+ * memory_recall/memory_save blocks go further: the legacy UI does not render
+ * data-memory parts at all (only the new UI, via buildTranscript, does), so
+ * those blocks disappear entirely from a RELOADED thread in the legacy UI
+ * (they were visible, with a phase banner, before this change). Live-streamed
+ * memory blocks already dropped from the legacy view when Task 2 switched
+ * live memory narration to data-memory-only, so this only affects history
+ * replay parity, not new behavior in the live stream.
+ */
+function buildPhaseParts(content: string): HistoryMessage['parts'] {
+    const { phase, text } = normalizeLegacyContent(content);
+
+    if (phase === 'memory_recall' || phase === 'memory_save') {
+        return [
+            { type: 'data-phase', data: { phase, node: 'history', ts: 0 } },
+            { type: 'data-memory', data: { op: phase === 'memory_save' ? 'save' : 'recall', summary: text, count: null } },
+        ];
+    }
+    if (phase === 'text') {
+        return [{ type: 'text', text }];
+    }
+    // Same classification the live stream applies (see route.ts's runMode):
+    // execution/final prose streams live as visible TEXT (answers AND
+    // inter-tool narration — the Claude-style grammar), so reloads render it
+    // as text too; planner/reviser blocks persist the raw JSON plan →
+    // humanized reasoning; reflection stays reasoning.
+    const isAnswer = phase === 'final' || phase === 'execution';
+    return [
+        { type: 'data-phase', data: { phase, node: 'history', ts: 0 } },
+        isAnswer
+            ? { type: 'text', text: stripWorkingMemoryPrelude(text) }
+            : { type: 'reasoning', text: phase === 'planning' || phase === 'revision' ? humanizePlanning(text) : text },
+    ];
+}
 
 /**
  * Multimodal user turns are persisted as a JSON-encoded LangChain content array
@@ -65,11 +113,8 @@ function convertPlainMessage(msg: { role: string; content: string; metadata?: Re
         return { id: `history-${index}`, role: 'user', content, parts: [{ type: 'text', text: content }] };
     }
     if (role === 'ai') {
-        const hasPhaseMarker = PHASE_MARKERS.some(m => content.startsWith(m));
-        const parts: HistoryMessage['parts'] = content
-            ? [{ type: hasPhaseMarker ? 'reasoning' : 'text', text: content }]
-            : [];
         const toolCalls = metadata?.tool_calls as Array<{ id?: string; name: string; args: Record<string, unknown> }> | undefined;
+        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
         for (const tc of toolCalls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args, state: 'call' });
         }
@@ -93,13 +138,7 @@ function convertMessage(msg: BaseMessage, index: number): HistoryMessage | null 
     }
     if (msgType === 'ai') {
         const aiMsg = msg as AIMessage;
-        const parts: HistoryMessage['parts'] = [];
-        if (content) {
-            // If the content was annotated with a phase marker before saving, reconstruct
-            // it as a reasoning part so the UI renders phase headers on history load.
-            const hasPhaseMarker = PHASE_MARKERS.some(m => content.startsWith(m));
-            parts.push({ type: hasPhaseMarker ? 'reasoning' : 'text', text: content });
-        }
+        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
         for (const tc of aiMsg.tool_calls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args as Record<string, unknown>, state: 'call' });
         }
@@ -136,6 +175,31 @@ function mergeToolResults(messages: HistoryMessage[]): HistoryMessage[] {
             i++;
         } else {
             i++;
+        }
+    }
+    return result;
+}
+
+/**
+ * Coalesce consecutive assistant messages into ONE message per turn.
+ *
+ * Persistence stores each agent phase block (memory recall, planning,
+ * execution, reflection, final answer, …) as its own chat-history row, so a
+ * single live turn — which streams as ONE assistant UIMessage with many
+ * parts — would otherwise reload as a stack of separate assistant messages,
+ * each rendered as its own AgentTurn (own avatar, own "Show work" toggle).
+ * Merging the parts back into one message makes a reloaded thread render
+ * with the same one-turn-per-run grammar as the live stream.
+ */
+function coalesceAssistantTurns(messages: HistoryMessage[]): HistoryMessage[] {
+    const result: HistoryMessage[] = [];
+    for (const msg of messages) {
+        const prev = result[result.length - 1];
+        if (msg.role === 'assistant' && prev?.role === 'assistant') {
+            prev.parts = [...(prev.parts ?? []), ...(msg.parts ?? [])];
+            prev.content = [prev.content, msg.content].filter(Boolean).join('\n\n');
+        } else {
+            result.push({ ...msg, parts: [...(msg.parts ?? [])] });
         }
     }
     return result;
@@ -205,7 +269,7 @@ export async function GET(
             const msgs = await chatHistory.getMessages(sessionTenantId, sessionUserId, threadId);
             if (msgs.length > 0) {
                 const converted = msgs.map((m, i) => convertPlainMessage(m, i)).filter(Boolean) as HistoryMessage[];
-                return NextResponse.json({ messages: mergeToolResults(converted), plan, pendingInterrupt });
+                return NextResponse.json({ messages: coalesceAssistantTurns(mergeToolResults(converted)), plan, pendingInterrupt });
             }
         } catch (err) {
             console.warn('[History API] Chat history lookup failed, falling back to checkpoint:', err);
@@ -218,7 +282,7 @@ export async function GET(
         if (!rawMessages?.length) return NextResponse.json({ messages: [], plan, pendingInterrupt });
 
         const converted = rawMessages.map((m, i) => convertMessage(m, i)).filter(Boolean) as HistoryMessage[];
-        return NextResponse.json({ messages: mergeToolResults(converted), plan, pendingInterrupt });
+        return NextResponse.json({ messages: coalesceAssistantTurns(mergeToolResults(converted)), plan, pendingInterrupt });
     } catch (error) {
         console.error('[History API] Error:', error);
         return NextResponse.json({ error: 'Failed to fetch conversation history' }, { status: 500 });

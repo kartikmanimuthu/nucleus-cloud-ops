@@ -11,6 +11,7 @@ import { getSessionTenantId } from '@/lib/auth-session';
 import { resolveDefaultModelConfig } from '@/lib/agent/model-resolver';
 import { createAgentModels } from '@/lib/agent/model-factory';
 import { isProviderConfigError } from '@/lib/agent/provider-errors';
+import { contentToText, extractJsonObject } from '@/lib/agent/llm-json';
 
 /** Same conservative provider-agnostic backstop used by /api/skills/distill. */
 const MAX_TRANSCRIPT_CHARS = 600_000;
@@ -99,12 +100,10 @@ export async function POST(request: NextRequest) {
         const modelConfig = await resolveDefaultModelConfig(tenantId);
         const { main } = createAgentModels(modelConfig);
         const resp = await main.invoke(`${DISTILL_PROMPT}\n${transcript}`);
-        const raw = typeof resp.content === 'string' ? resp.content : JSON.stringify(resp.content);
-        const jsonText = raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
-        let draft: { name?: string; prompt?: string; suggestedCron?: string; cadenceLabel?: string };
-        try {
-            draft = JSON.parse(jsonText);
-        } catch {
+        const raw = contentToText(resp.content);
+        const draft = extractJsonObject<{ name?: string; prompt?: string; suggestedCron?: string; cadenceLabel?: string }>(raw);
+        if (!draft) {
+            console.error('[ScheduledTasksAPI] distill: model reply was not parseable JSON:', raw.slice(0, 500));
             return NextResponse.json(
                 { success: false, error: 'Model did not return valid JSON' },
                 { status: 502 }

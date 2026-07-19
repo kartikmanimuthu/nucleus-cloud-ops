@@ -82,7 +82,7 @@ export function ApprovalBatchCard({
         })}
       </div>
 
-      <div className={cn("flex items-center justify-between gap-2 border-t bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground")}>
+      <div className={cn("flex items-center justify-between gap-2 border-t bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground")}>
         <span>Run continues when all are decided — approved calls run, rejected return "denied by user" to the agent.</span>
         {undecided.length > 0 && (
           <span className="flex shrink-0 gap-2">

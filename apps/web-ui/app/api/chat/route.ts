@@ -8,7 +8,7 @@ import { buildClientErrorText } from '@/lib/agent/stream-error';
 import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
-import { buildPlanPart, buildPhasePart, buildInterruptParts } from './stream-parts';
+import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
 
@@ -709,6 +709,47 @@ function processStream(
             let memoryRecallText = '';
             let memorySaveText = '';
 
+            // Per-run accumulator for the live data-memory part: reset at the start of
+            // each memory model run (on_chat_model_start) and flushed as ONE
+            // buildMemoryPart at on_chat_model_end, so multiple recalls/saves within a
+            // single request each get their own part. This never replaces
+            // memoryRecallText/memorySaveText above, which still feed persistence.
+            let memoryRunText = '';
+
+            // Per-run accumulator shared by every buffered (non-live-streamed) phase.
+            // Only ONE model run is active at a time, so a single buffer suffices;
+            // on_chat_model_end classifies it by currentPhase:
+            //  - reflection          → ONE humanized reasoning part (raw reflector JSON
+            //                          must never reach the client verbatim)
+            //  - planning / revision → ONE humanized reasoning part ("Drafted a N-step
+            //                          plan: …" — the structured plan reaches the client
+            //                          via the data-plan part)
+            //  - execution / final   → classified by what the run actually was:
+            //                          a working-memory compaction payload is DROPPED,
+            //                          a run that requested tool calls is process
+            //                          narration (reasoning), and a tool-free run IS
+            //                          the answer → emitted as a TEXT part. Without
+            //                          this, the agent's final answer streamed as
+            //                          "reasoning" and the new UI collapsed it into a
+            //                          thought (legacy UI rendered reasoning as visible
+            //                          cards, so this was invisible until now).
+            let phaseRunBuf = '';
+            const BUFFERED_PHASES = new Set(['reflection', 'planning', 'revision', 'execution', 'final']);
+
+            // Streaming mode for the CURRENT execution/final model run.
+            // Full-run buffering (round 2) fixed the hidden-answer bug but cost
+            // token streaming — the answer popped in whole at run end. Instead,
+            // sniff the run's first non-whitespace character:
+            //  - prose        → 'live': open a text part immediately and stream
+            //                   every delta token-by-token (the Claude-style UX;
+            //                   inter-tool narration streams as visible text too)
+            //  - '{','[','`'  → 'buffer': JSON-ish output (working-memory payload,
+            //                   fenced prelude, raw structures) — never streamed;
+            //                   classified at on_chat_model_end like round 2.
+            // planning/reflection/revision always run in 'buffer' mode (their
+            // output is raw JSON that gets humanized at run end).
+            let runMode: 'undecided' | 'buffer' | 'live' = 'buffer';
+
             const safeEnqueue = (chunk: UIMessageChunk) => {
                 try {
                     controller.enqueue(chunk);
@@ -775,22 +816,31 @@ function processStream(
                             currentPartId = `part-${runId}-${partCounter}`;
                             streamStarted = false;
 
-                            const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
+                            const isMemoryPhase = currentPhase === 'memory_recall' || currentPhase === 'memory_save';
 
-                            if (!safeEnqueue({ type: `${chunkType}-start` as any, id: currentPartId })) break;
-                            streamStarted = true;
-
-                            const phaseMarker = getPhaseMarker(currentPhase);
-                            if (phaseMarker) {
-                                safeEnqueue({
-                                    type: `${chunkType}-delta` as any,
-                                    id: currentPartId,
-                                    delta: phaseMarker,
-                                });
-                                // Only count as text content if it's actually a text part
-                                if (chunkType === 'text') {
-                                    hasEmittedTextContent = true;
-                                }
+                            if (isMemoryPhase) {
+                                // Memory narration is no longer streamed as a reasoning part —
+                                // it surfaces live as ONE data-memory part at on_chat_model_end.
+                                // Reset the per-run accumulator; streamStarted stays false so the
+                                // stream/end handlers below know there's no dangling part to close.
+                                memoryRunText = '';
+                            } else if (BUFFERED_PHASES.has(currentPhase)) {
+                                // See runMode above: execution/final sniff their first token and
+                                // stream prose live; planning/reflection/revision always buffer
+                                // (raw JSON → humanized at run end).
+                                phaseRunBuf = '';
+                                runMode = currentPhase === 'execution' || currentPhase === 'final'
+                                    ? 'undecided'
+                                    : 'buffer';
+                            } else {
+                                // 'text' phase (deep agent main model / unknown nodes): the only
+                                // phase that still streams token-by-token, as a text part.
+                                if (!safeEnqueue({ type: 'text-start', id: currentPartId })) break;
+                                streamStarted = true;
+                                // Live sentinel-marker delta emission removed (Task 4) — the
+                                // buildPhasePart data-phase part above already carries the phase
+                                // to the client. Persisted history still gets the marker prefix
+                                // via getPhaseMarker() in the `finally` block below.
                             }
                         }
                         else if (event.event === "on_chat_model_stream") {
@@ -802,29 +852,102 @@ function processStream(
                                 text = content.filter((c) => c.type === 'text').map((c) => c.text).join('');
                             }
 
-                            if (text && streamStarted) {
-                                // Capture memory-phase text for display-only history persistence.
-                                if (currentPhase === 'memory_recall') memoryRecallText += text;
-                                else if (currentPhase === 'memory_save') memorySaveText += text;
-
-                                const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
-                                if (!safeEnqueue({
-                                    type: `${chunkType}-delta` as any,
-                                    id: currentPartId,
-                                    delta: text,
-                                })) break;
-                                // Only count as text content if it's actually a text part
-                                if (chunkType === 'text') {
+                            if (text) {
+                                const isMemoryPhase = currentPhase === 'memory_recall' || currentPhase === 'memory_save';
+                                if (isMemoryPhase) {
+                                    // Capture memory-phase text for display-only history persistence
+                                    // AND the per-run accumulator that becomes the live data-memory
+                                    // part below — no reasoning part is streamed for these phases.
+                                    if (currentPhase === 'memory_recall') memoryRecallText += text;
+                                    else memorySaveText += text;
+                                    memoryRunText += text;
+                                } else if (BUFFERED_PHASES.has(currentPhase)) {
+                                    if (runMode === 'live') {
+                                        if (!safeEnqueue({ type: 'text-delta', id: currentPartId, delta: text })) break;
+                                    } else {
+                                        phaseRunBuf += text;
+                                        if (runMode === 'undecided') {
+                                            const lead = phaseRunBuf.trimStart();
+                                            if (lead) {
+                                                if (/^[{[`]/.test(lead)) {
+                                                    // JSON-ish run — keep buffering, classify at run end.
+                                                    runMode = 'buffer';
+                                                } else {
+                                                    // Prose — this is user-facing content: open a text
+                                                    // part now and stream the rest token-by-token.
+                                                    if (!safeEnqueue({ type: 'text-start', id: currentPartId })) break;
+                                                    if (!safeEnqueue({ type: 'text-delta', id: currentPartId, delta: phaseRunBuf })) break;
+                                                    streamStarted = true;
+                                                    hasEmittedTextContent = true;
+                                                    runMode = 'live';
+                                                    phaseRunBuf = '';
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if (streamStarted) {
+                                    if (!safeEnqueue({
+                                        type: 'text-delta',
+                                        id: currentPartId,
+                                        delta: text,
+                                    })) break;
                                     hasEmittedTextContent = true;
                                 }
                             }
                         }
                         else if (event.event === "on_chat_model_end") {
                             if (streamStarted) {
-                                const chunkType = currentPhase !== 'text' ? 'reasoning' : 'text';
-                                if (!safeEnqueue({ type: `${chunkType}-end` as any, id: currentPartId })) break;
+                                if (!safeEnqueue({ type: 'text-end', id: currentPartId })) break;
                                 streamStarted = false;
                             }
+
+                            if (currentPhase === 'memory_recall' || currentPhase === 'memory_save') {
+                                // Live counterpart of the reasoning stream we silenced above: emit
+                                // ONE data-memory part for this run if it produced non-blank text.
+                                if (memoryRunText.trim()) {
+                                    safeEnqueue(buildMemoryPart(
+                                        currentPhase === 'memory_save' ? 'save' : 'recall',
+                                        memoryRunText,
+                                    ) as UIMessageChunk);
+                                }
+                                memoryRunText = '';
+                            }
+
+                            // Flush the buffered run as ONE part — see phaseRunBuf's
+                            // declaration for the classification rules. Fresh part ids
+                            // (not currentPartId — no part was ever opened for this run,
+                            // since streamStarted was never set true above).
+                            if (BUFFERED_PHASES.has(currentPhase) && phaseRunBuf.trim()) {
+                                const flushId = `flush-${runId}-${partCounter}`;
+                                if (currentPhase === 'reflection') {
+                                    safeEnqueue({ type: 'reasoning-start', id: flushId });
+                                    safeEnqueue({ type: 'reasoning-delta', id: flushId, delta: humanizeReflection(phaseRunBuf) });
+                                    safeEnqueue({ type: 'reasoning-end', id: flushId });
+                                } else if (currentPhase === 'planning' || currentPhase === 'revision') {
+                                    safeEnqueue({ type: 'reasoning-start', id: flushId });
+                                    safeEnqueue({ type: 'reasoning-delta', id: flushId, delta: humanizePlanning(phaseRunBuf) });
+                                    safeEnqueue({ type: 'reasoning-end', id: flushId });
+                                } else if (isWorkingMemoryPayload(phaseRunBuf)) {
+                                    // Working-memory compaction output — internal bookkeeping,
+                                    // never shown.
+                                } else {
+                                    const runToolCalls = event.data?.output?.tool_calls ?? [];
+                                    if (runToolCalls.length > 0) {
+                                        // The run requested tool calls — its text is process
+                                        // narration, rendered as a thought.
+                                        safeEnqueue({ type: 'reasoning-start', id: flushId });
+                                        safeEnqueue({ type: 'reasoning-delta', id: flushId, delta: phaseRunBuf });
+                                        safeEnqueue({ type: 'reasoning-end', id: flushId });
+                                    } else {
+                                        // Tool-free execution/final run — this IS the answer.
+                                        safeEnqueue({ type: 'text-start', id: flushId });
+                                        safeEnqueue({ type: 'text-delta', id: flushId, delta: stripWorkingMemoryPrelude(phaseRunBuf) });
+                                        safeEnqueue({ type: 'text-end', id: flushId });
+                                        hasEmittedTextContent = true;
+                                    }
+                                }
+                            }
+                            phaseRunBuf = '';
 
                             if (!autoApprove) {
                                 const toolCalls = event.data?.output?.tool_calls;
@@ -1024,7 +1147,16 @@ function processStream(
                                     if (phase !== 'text') {
                                         const marker = getPhaseMarker(phase);
                                         if (marker && typeof msg.content === 'string') {
-                                            msg.content = marker + msg.content;
+                                            // reflectNode persists its already-formatted feedback
+                                            // string (🔍 Reflection Analysis / ⚠️ Issues Found /
+                                            // 💡 Suggestions), not raw JSON — humanizeReflection
+                                            // recognizes that format and normalizes it to the SAME
+                                            // prose shape as the live reasoning part above, so
+                                            // history replay matches what was streamed live.
+                                            const content = phase === 'reflection'
+                                                ? humanizeReflection(msg.content)
+                                                : msg.content;
+                                            msg.content = marker + content;
                                         }
                                     }
                                     aiIndex++;

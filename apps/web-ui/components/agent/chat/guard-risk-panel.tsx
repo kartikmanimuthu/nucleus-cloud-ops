@@ -21,15 +21,15 @@ export function GuardRiskPanel({ guard }: { guard: RunGuardVerdict }) {
         </span>
       </div>
       <dl className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-1 text-muted-foreground">
-        <dt className="font-medium uppercase text-[10px] tracking-wide">Action</dt>
+        <dt className="text-xs font-medium text-muted-foreground">Action</dt>
         <dd className="text-foreground">{guard.action}</dd>
-        <dt className="font-medium uppercase text-[10px] tracking-wide">Blast radius</dt>
+        <dt className="text-xs font-medium text-muted-foreground">Blast radius</dt>
         <dd>{guard.blastRadius}</dd>
-        <dt className="font-medium uppercase text-[10px] tracking-wide">Reversible</dt>
+        <dt className="text-xs font-medium text-muted-foreground">Reversible</dt>
         <dd>{guard.reversible ? "Yes" : "No — treat as permanent"}</dd>
         {guard.saferPath && (
           <>
-            <dt className="font-medium uppercase text-[10px] tracking-wide">Safer path</dt>
+            <dt className="text-xs font-medium text-muted-foreground">Safer path</dt>
             <dd>{guard.saferPath}</dd>
           </>
         )}
