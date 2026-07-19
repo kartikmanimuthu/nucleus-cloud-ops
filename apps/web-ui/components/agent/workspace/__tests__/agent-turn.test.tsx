@@ -108,6 +108,23 @@ describe('AgentTurn', () => {
     expect(screen.getByTestId('approval-batch-card')).toBeTruthy()
   })
 
+  it('interleaves narration text between tool blocks in true event order', () => {
+    const events: TranscriptEvent[] = [
+      { kind: 'tool', id: 't1', toolCallId: 'c1', toolName: 'first_tool', input: {}, output: 'ok', status: 'done' },
+      { kind: 'answer', id: 'a1', text: 'Step 1 complete, moving on.', streaming: false },
+      { kind: 'tool', id: 't2', toolCallId: 'c2', toolName: 'second_tool', input: {}, output: 'ok', status: 'done' },
+    ]
+    const { container } = render(<AgentTurn {...baseProps(events)} />)
+
+    const html = container.innerHTML
+    const firstTool = html.indexOf('first_tool')
+    const narration = html.indexOf('Step 1 complete')
+    const secondTool = html.indexOf('second_tool')
+    expect(firstTool).toBeGreaterThan(-1)
+    expect(narration).toBeGreaterThan(firstTool)
+    expect(secondTool).toBeGreaterThan(narration)
+  })
+
   it('renders a working indicator for a still-empty streaming last turn, not a lone avatar', () => {
     render(
       <AgentTurn

@@ -152,6 +152,23 @@ export function AgentTurn({
   // one ToolGroupRow still reports its true step count, not 1.
   const hiddenStepCount = events.filter((e) => e.kind !== "answer" && e.kind !== "image").length
 
+  // Chronological segments: runs of consecutive process rows (each rendered as
+  // one guide block) interleaved with the answer/narration text in true event
+  // order. Since execution narration streams as TEXT between tool calls, the
+  // old two-bucket layout (all work above, all text below) would scramble the
+  // story: "Step 2 complete" must sit between its tool rows, not after them all.
+  type Segment = { kind: "process"; rows: Row[] } | { kind: "output"; row: Extract<TranscriptEvent, { kind: "answer" | "image" }> }
+  const segments: Segment[] = []
+  for (const row of grouped) {
+    if (isOutputRow(row)) {
+      segments.push({ kind: "output", row })
+    } else {
+      const last = segments[segments.length - 1]
+      if (last?.kind === "process") last.rows.push(row)
+      else segments.push({ kind: "process", rows: [row] })
+    }
+  }
+
   const showClarifications = isLastAssistantMessage && runState.pendingClarifications.length > 0
   const showApproval = isLastAssistantMessage && runState.pendingApproval !== null
 
@@ -170,32 +187,40 @@ export function AgentTurn({
       <AgentAvatar />
 
       <div className="min-w-0 flex-1 space-y-2">
-        {processRows.length > 0 && (
-          expanded ? (
-            <div className="ml-3 space-y-0.5 border-l pl-3">
-              {/* With "Show work" on, every row renders expanded — the user asked
-                  for the full detail, not another click per row. */}
-              {processRows.map((row) => renderProcessRow(row, durationMs, showWork))}
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setLocalExpanded(true)}
-              className={cn(
-                "flex items-center gap-1 rounded px-2 py-1 text-left",
-                "text-xs text-muted-foreground hover:bg-muted/40"
-              )}
-            >
-              <ChevronRight className="h-3 w-3 shrink-0" />
-              <span>{`Show work (${hiddenStepCount} steps)`}</span>
-            </button>
+        {expanded ? (
+          // Chronological: guide blocks of work interleaved with text, in the
+          // order it actually happened. With "Show work" on, every row renders
+          // expanded — the user asked for the full detail, not a click per row.
+          segments.map((seg, i) =>
+            seg.kind === "output" ? (
+              <React.Fragment key={seg.row.id}>{renderOutputRow(seg.row)}</React.Fragment>
+            ) : (
+              <div key={`process-${i}`} className="ml-3 space-y-0.5 border-l pl-3">
+                {seg.rows.map((row) => renderProcessRow(row, durationMs, showWork))}
+              </div>
+            )
           )
-        )}
-
-        {outputRows.length > 0 && (
-          <div className="space-y-2">
-            {outputRows.map(renderOutputRow)}
-          </div>
+        ) : (
+          <>
+            {processRows.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setLocalExpanded(true)}
+                className={cn(
+                  "flex items-center gap-1 rounded px-2 py-1 text-left",
+                  "text-xs text-muted-foreground hover:bg-muted/40"
+                )}
+              >
+                <ChevronRight className="h-3 w-3 shrink-0" />
+                <span>{`Show work (${hiddenStepCount} steps)`}</span>
+              </button>
+            )}
+            {outputRows.length > 0 && (
+              <div className="space-y-2">
+                {outputRows.map(renderOutputRow)}
+              </div>
+            )}
+          </>
         )}
 
         {/* Keep signalling activity between events (tool gaps, buffered

@@ -736,6 +736,20 @@ function processStream(
             let phaseRunBuf = '';
             const BUFFERED_PHASES = new Set(['reflection', 'planning', 'revision', 'execution', 'final']);
 
+            // Streaming mode for the CURRENT execution/final model run.
+            // Full-run buffering (round 2) fixed the hidden-answer bug but cost
+            // token streaming — the answer popped in whole at run end. Instead,
+            // sniff the run's first non-whitespace character:
+            //  - prose        → 'live': open a text part immediately and stream
+            //                   every delta token-by-token (the Claude-style UX;
+            //                   inter-tool narration streams as visible text too)
+            //  - '{','[','`'  → 'buffer': JSON-ish output (working-memory payload,
+            //                   fenced prelude, raw structures) — never streamed;
+            //                   classified at on_chat_model_end like round 2.
+            // planning/reflection/revision always run in 'buffer' mode (their
+            // output is raw JSON that gets humanized at run end).
+            let runMode: 'undecided' | 'buffer' | 'live' = 'buffer';
+
             const safeEnqueue = (chunk: UIMessageChunk) => {
                 try {
                     controller.enqueue(chunk);
@@ -811,11 +825,13 @@ function processStream(
                                 // stream/end handlers below know there's no dangling part to close.
                                 memoryRunText = '';
                             } else if (BUFFERED_PHASES.has(currentPhase)) {
-                                // Buffered phases never stream deltas live — the run is flushed
-                                // as ONE part (reasoning or text, see phaseRunBuf above) at
-                                // on_chat_model_end. streamStarted stays false so the stream/end
-                                // handlers below know there's no part to close.
+                                // See runMode above: execution/final sniff their first token and
+                                // stream prose live; planning/reflection/revision always buffer
+                                // (raw JSON → humanized at run end).
                                 phaseRunBuf = '';
+                                runMode = currentPhase === 'execution' || currentPhase === 'final'
+                                    ? 'undecided'
+                                    : 'buffer';
                             } else {
                                 // 'text' phase (deep agent main model / unknown nodes): the only
                                 // phase that still streams token-by-token, as a text part.
@@ -846,8 +862,29 @@ function processStream(
                                     else memorySaveText += text;
                                     memoryRunText += text;
                                 } else if (BUFFERED_PHASES.has(currentPhase)) {
-                                    // Buffered — flushed as one classified part at on_chat_model_end.
-                                    phaseRunBuf += text;
+                                    if (runMode === 'live') {
+                                        if (!safeEnqueue({ type: 'text-delta', id: currentPartId, delta: text })) break;
+                                    } else {
+                                        phaseRunBuf += text;
+                                        if (runMode === 'undecided') {
+                                            const lead = phaseRunBuf.trimStart();
+                                            if (lead) {
+                                                if (/^[{[`]/.test(lead)) {
+                                                    // JSON-ish run — keep buffering, classify at run end.
+                                                    runMode = 'buffer';
+                                                } else {
+                                                    // Prose — this is user-facing content: open a text
+                                                    // part now and stream the rest token-by-token.
+                                                    if (!safeEnqueue({ type: 'text-start', id: currentPartId })) break;
+                                                    if (!safeEnqueue({ type: 'text-delta', id: currentPartId, delta: phaseRunBuf })) break;
+                                                    streamStarted = true;
+                                                    hasEmittedTextContent = true;
+                                                    runMode = 'live';
+                                                    phaseRunBuf = '';
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else if (streamStarted) {
                                     if (!safeEnqueue({
                                         type: 'text-delta',

@@ -52,7 +52,7 @@ interface HistoryMessage {
  * live memory narration to data-memory-only, so this only affects history
  * replay parity, not new behavior in the live stream.
  */
-function buildPhaseParts(content: string, hasToolCalls = false): HistoryMessage['parts'] {
+function buildPhaseParts(content: string): HistoryMessage['parts'] {
     const { phase, text } = normalizeLegacyContent(content);
 
     if (phase === 'memory_recall' || phase === 'memory_save') {
@@ -64,11 +64,12 @@ function buildPhaseParts(content: string, hasToolCalls = false): HistoryMessage[
     if (phase === 'text') {
         return [{ type: 'text', text }];
     }
-    // Same classification the live stream applies (see route.ts's phaseRunBuf):
-    // a tool-free execution/final block IS the answer → text; an execution
-    // block that carried tool calls is process narration → reasoning;
-    // planner/reviser blocks persist the raw JSON plan → humanized reasoning.
-    const isAnswer = phase === 'final' || (phase === 'execution' && !hasToolCalls);
+    // Same classification the live stream applies (see route.ts's runMode):
+    // execution/final prose streams live as visible TEXT (answers AND
+    // inter-tool narration — the Claude-style grammar), so reloads render it
+    // as text too; planner/reviser blocks persist the raw JSON plan →
+    // humanized reasoning; reflection stays reasoning.
+    const isAnswer = phase === 'final' || phase === 'execution';
     return [
         { type: 'data-phase', data: { phase, node: 'history', ts: 0 } },
         isAnswer
@@ -113,7 +114,7 @@ function convertPlainMessage(msg: { role: string; content: string; metadata?: Re
     }
     if (role === 'ai') {
         const toolCalls = metadata?.tool_calls as Array<{ id?: string; name: string; args: Record<string, unknown> }> | undefined;
-        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content, (toolCalls?.length ?? 0) > 0) ?? [])] : [];
+        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
         for (const tc of toolCalls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args, state: 'call' });
         }
@@ -137,7 +138,7 @@ function convertMessage(msg: BaseMessage, index: number): HistoryMessage | null 
     }
     if (msgType === 'ai') {
         const aiMsg = msg as AIMessage;
-        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content, (aiMsg.tool_calls?.length ?? 0) > 0) ?? [])] : [];
+        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
         for (const tc of aiMsg.tool_calls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args as Record<string, unknown>, state: 'call' });
         }
