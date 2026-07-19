@@ -6,8 +6,8 @@
  * that do NOT require a live model backend, so they run in any environment
  * where the app boots and the user is authenticated.
  *
- * The message-send / streaming / plan-rail behaviors live in
- * agent-mission-control.spec.ts, gated behind E2E_LIVE_AGENT.
+ * The message-send / streaming / approval behaviors live in the
+ * "AI Ops Workspace — live agent" block below, gated behind E2E_LIVE_AGENT.
  *
  * Run: cd apps/web-ui-e2e && bunx playwright test agent-workspace.spec.ts
  */
