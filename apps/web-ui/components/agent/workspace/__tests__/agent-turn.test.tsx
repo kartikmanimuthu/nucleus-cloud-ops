@@ -169,6 +169,63 @@ describe('AgentTurn', () => {
   })
 })
 
+describe('AgentTurn — three-tier differentiation', () => {
+  it('elevates a final/revision report into a titled Report card when the turn ran tools', () => {
+    const events: TranscriptEvent[] = [
+      { kind: 'tool', id: 't1', toolCallId: 'c1', toolName: 'execute_command', input: { command: 'aws ecs describe-services' }, output: 'ok', status: 'done' },
+      { kind: 'answer', id: 'a1', phase: 'revision', text: 'Deployment Failure Investigation report.', streaming: false },
+    ]
+    render(<AgentTurn {...baseProps(events)} />)
+
+    const card = screen.getByTestId('report-card')
+    expect(card).toBeTruthy()
+    expect(card.textContent).toContain('Report')
+    expect(card.textContent).toContain('Deployment Failure Investigation report.')
+  })
+
+  it('does NOT card a report-phase answer when the turn ran no tools (plain chat)', () => {
+    const events: TranscriptEvent[] = [
+      { kind: 'answer', id: 'a1', phase: 'final', text: 'Just a chat reply.', streaming: false },
+    ]
+    render(<AgentTurn {...baseProps(events)} />)
+
+    expect(screen.queryByTestId('report-card')).toBeNull()
+    expect(screen.getByText('Just a chat reply.')).toBeTruthy()
+  })
+
+  it('demotes execution-phase narration into the work rail (hidden behind Show work)', () => {
+    const events: TranscriptEvent[] = [
+      { kind: 'tool', id: 't1', toolCallId: 'c1', toolName: 'execute_command', input: {}, output: 'ok', status: 'done' },
+      { kind: 'answer', id: 'a1', phase: 'execution', text: 'Found the cluster, now describing it.', streaming: false },
+      { kind: 'answer', id: 'a2', phase: 'revision', text: 'Final compiled report.', streaming: false },
+    ]
+    // showWork off: narration is work, so it collapses with the tools; only the
+    // report card remains visible.
+    render(<AgentTurn {...baseProps(events)} showWork={false} />)
+
+    expect(screen.queryByText('Found the cluster, now describing it.')).toBeNull()
+    expect(screen.getByTestId('report-card')).toBeTruthy()
+    // Narration + tool = 2 hidden steps.
+    expect(screen.getByRole('button', { name: /Show work \(2 steps\)/ })).toBeTruthy()
+  })
+
+  it('keeps execution narration in true order between tool rows when work is shown', () => {
+    const events: TranscriptEvent[] = [
+      { kind: 'tool', id: 't1', toolCallId: 'c1', toolName: 'first_tool', input: {}, output: 'ok', status: 'done' },
+      { kind: 'answer', id: 'a1', phase: 'execution', text: 'Step 1 complete, moving on.', streaming: false },
+      { kind: 'tool', id: 't2', toolCallId: 'c2', toolName: 'second_tool', input: {}, output: 'ok', status: 'done' },
+    ]
+    const { container } = render(<AgentTurn {...baseProps(events)} />)
+
+    const html = container.innerHTML
+    const firstTool = html.indexOf('first_tool')
+    const narration = html.indexOf('Step 1 complete')
+    const secondTool = html.indexOf('second_tool')
+    expect(narration).toBeGreaterThan(firstTool)
+    expect(secondTool).toBeGreaterThan(narration)
+  })
+})
+
 describe('Transcript', () => {
   const passthrough = {
     toolVisibility: new Map<string, string>(),

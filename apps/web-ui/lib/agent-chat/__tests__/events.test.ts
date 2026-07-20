@@ -40,7 +40,11 @@ describe('phase tracking', () => {
             { type: 'data-phase', data: { phase: 'execution' } },
             { type: 'text', text: 'executing now' },
         ]), noOpts);
-        expect(events.map((e: any) => e.phase ?? null)).toEqual(['planning', null]);
+        // Both the reasoning (thinking) event and the text (answer) event now
+        // carry the phase in effect when they streamed — the answer's phase is
+        // what lets the renderer treat 'execution' text as interstitial
+        // narration vs a 'final'/'revision' report.
+        expect(events.map((e: any) => e.phase ?? null)).toEqual(['planning', 'execution']);
     });
 });
 

@@ -37,7 +37,7 @@ export function MemoryRow({ event, defaultOpen = false }: { event: MemoryEvent; 
       <CollapsibleTrigger
         className={cn(
           "group flex w-full items-center gap-1.5 rounded px-2 py-1 text-left",
-          "text-xs text-muted-foreground hover:bg-muted/40",
+          "text-[15px] text-muted-foreground hover:bg-muted/40",
           "outline-none focus-visible:ring-1 focus-visible:ring-ring"
         )}
       >
@@ -47,7 +47,7 @@ export function MemoryRow({ event, defaultOpen = false }: { event: MemoryEvent; 
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="px-2 pb-2 pt-1">
-          <MarkdownContent content={event.summary} className="text-xs text-muted-foreground" />
+          <MarkdownContent content={event.summary} className="text-[15px] text-muted-foreground" />
         </div>
       </CollapsibleContent>
     </Collapsible>

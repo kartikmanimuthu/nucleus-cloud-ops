@@ -17,13 +17,8 @@ import {
     getCheckpointer,
     getStore,
     extractTextContent,
-    critiqueVerdict,
-    buildToolExecutionLog,
 } from "./agent-shared";
 
-// Maximum number of reflection cycles before accepting the answer as-is.
-// Distinct from MAX_ITERATIONS (which caps total tool-call loops).
-const MAX_REFLECT_ITERATIONS = 5;
 import {
     buildBaseIdentity,
     buildEffectiveSkillSection,
@@ -133,7 +128,8 @@ Review the full conversation history before responding:
 
 - Answer the user's request directly and completely.
 - If tools are needed, call them. If the question is factual or conversational, answer without tools.
-- If you receive a critique from the Reflector, address each identified issue specifically — do not restate the original answer unchanged.
+- No preamble or postamble: do not announce what you are about to do, and do not recap what you just did — the tool calls and results are already visible to the user. Give the answer itself.
+- Match the shape of the request: a direct question gets a direct answer; only use headings/tables when the content genuinely needs them.
 - Be precise: include resource IDs, command flags, numeric values, and account names in your responses where available.`);
 
         const safeMessages = sanitizeMessagesForBedrock(windowMessages);
@@ -193,128 +189,6 @@ Review the full conversation history before responding:
         return { ...result, toolResults: newToolResults };
     }
 
-    // ---------------------------------------------------------------------------
-    // REFLECTOR NODE
-    // ---------------------------------------------------------------------------
-    async function reflectNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        const { messages, toolResults } = state;
-        const lastMessage = messages[messages.length - 1];
-
-        // Ground-truth evidence for the reflector: ALL of the run's tool results
-        // (reducer-capped at 10). Reflection typically runs an iteration or two
-        // AFTER the tool calls, so a current-iteration-only filter handed the
-        // reflector an empty log and it falsely accused the agent of fabricating
-        // data it had genuinely fetched.
-        const toolExecutionLog = buildToolExecutionLog(toolResults);
-
-        // If only tool calls, skip reflection (need an answer to reflect on)
-        if ((lastMessage as AIMessage).tool_calls && ((lastMessage as AIMessage).tool_calls?.length ?? 0) > 0) {
-            return {};
-        }
-
-        console.log(`\n================================================================================`);
-        console.log(`🤔 [FAST REFLECTOR] Critiquing response`);
-        console.log(`================================================================================\n`);
-
-        const skillCritiqueContext = skillContent
-            ? `The assistant is operating under the "${selectedSkill}" skill. Use the following skill instructions to verify correctness and adherence:\n\n${skillContent}`
-            : `The assistant is operating as a general-purpose agentic assistant with no specific skill constraints.`;
-
-        const reflectorPrompt = new SystemMessage(`You are a senior AWS and DevOps engineer performing a strict quality review of an AI assistant's response.
-
-${skillCritiqueContext}
-
-Evaluate the assistant's response on these five dimensions:
-
-1. **Correctness**: Is the answer factually accurate? Are AWS CLI commands syntactically valid and semantically correct for the stated intent? Are resource IDs, service names, and flags correct?
-
-2. **Completeness**: Does the response fully address what the user asked? Are there unstated assumptions, missing steps, or gaps that would leave the user unable to act on the answer?
-
-3. **AWS CLI Quality** (if commands were used or suggested): Does the output use --output json? Is --profile used correctly? Is pagination handled for list/describe operations? Was state verified before any mutation was suggested or executed?
-
-4. **Skill Adherence** (if a skill is active): Does the response comply with the privilege rules, safety constraints, and workflow defined in the skill instructions?
-
-5. **Specificity**: Are findings specific (resource IDs, metric values, account names) or vague and generic? Vague responses are considered incomplete.
-
-If a <TOOL_EXECUTION_LOG> section is present, it contains verified tool calls and their outputs that the assistant executed. Use this as ground truth when evaluating correctness — do not claim the assistant fabricated data if the tool log confirms the data was retrieved.
-
-If the response is correct, complete, and specific — respond with exactly: COMPLETE
-
-If there are issues — list them as concise, actionable critique points for the assistant to fix. Be specific about what is wrong and what the correct approach is. Do not generate the fixed answer yourself — only provide the critique.`);
-
-        // Use the FIRST human message as the original query (not the latest, which may be a critique feedback message)
-        const userMessage = messages.find(m => m._getType() === 'human');
-        const originalQueryRaw = userMessage ? getStringContent(userMessage.content) : "Unknown query";
-        const agentResponseRaw = getStringContent(lastMessage.content);
-
-        // Cap inputs to keep the reflector prompt well within the 200k token limit.
-        // ~4 chars ≈ 1 token; 40k chars ≈ 10k tokens leaves ample headroom.
-        const MAX_QUERY_CHARS = 10_000;
-        const MAX_RESPONSE_CHARS = 40_000;
-        const originalQuery = originalQueryRaw.length > MAX_QUERY_CHARS
-            ? originalQueryRaw.slice(0, MAX_QUERY_CHARS) + '\n… [truncated for reflection]'
-            : originalQueryRaw;
-        const agentResponse = agentResponseRaw.length > MAX_RESPONSE_CHARS
-            ? agentResponseRaw.slice(0, MAX_RESPONSE_CHARS) + '\n… [truncated for reflection]'
-            : agentResponseRaw;
-
-        const critiqueInput = new HumanMessage({
-            content: `Here is the interaction to review:
-
-<USER_QUERY>
-${originalQuery}
-</USER_QUERY>
-${toolExecutionLog}
-<ASSISTANT_RESPONSE>
-${agentResponse}
-</ASSISTANT_RESPONSE>
-
-Please provide your critique.`
-        });
-
-        let response: Awaited<ReturnType<typeof reflectorModel.invoke>>;
-        try {
-            response = await reflectorModel.invoke([reflectorPrompt, critiqueInput]);
-        } catch (err: any) {
-            // If the model still rejects the prompt (e.g. token limit), skip reflection
-            // and treat the response as complete rather than crashing the whole request.
-            console.warn(`⚠️ [FAST REFLECTOR] Skipping reflection due to model error: ${err?.message ?? err}`);
-            return { isComplete: true };
-        }
-        // contentToText normalizes Claude Sonnet 5's block-array content — JSON.stringify-ing
-        // the array instead would hide the "COMPLETE" sentinel inside escaped JSON and make
-        // the critique unreadable if forwarded as feedback.
-        const content = contentToText(response.content);
-
-        if (!content) {
-            console.log(`⚠️ [FAST REFLECTOR] Empty content received!`);
-            console.log(`   Input Query Length: ${originalQuery.length}`);
-            console.log(`   Agent Response Length: ${agentResponse.length}`);
-            console.log(`   Raw Response:`, JSON.stringify(response));
-        }
-
-        console.log(`   Critique: ${truncateOutput(content, 200)}`);
-
-        if (critiqueVerdict(content) === 'accept') {
-            // COMPLETE — or an EMPTY critique (reflector spent its whole budget on a
-            // reasoning block, stopReason max_tokens): looping on empty feedback gives
-            // the agent nothing to fix, so accept the answer.
-            if (!content.trim()) console.warn(`⚠️ [FAST REFLECTOR] Empty critique — accepting answer instead of looping.`);
-            // Do NOT add the reflector's message to state — the agent's answer is already there.
-            // Adding "COMPLETE" would overwrite the last message and leak to the UI.
-            return { isComplete: true };
-        }
-
-        // Provide critique as a clearly labelled system-style instruction so the agent
-        // understands it is in a revision cycle, not receiving a new user request.
-        return {
-            messages: [new HumanMessage({
-                content: `[REFLECTION FEEDBACK] The following issues were identified in your last response. Please revise your answer to address each point:\n\n${content}`
-            })],
-            isComplete: false
-        };
-    }
-
     // Kept as a thin alias — the canonical implementation is extractTextContent()
     // in agent-shared.ts, which every graph now shares.
     const getStringContent = extractTextContent;
@@ -367,11 +241,10 @@ ${effectiveSkillSection}
 ${accountContext}
 ${memorySection}
 ${workingMemorySection}
-## Final Answer (iteration cap reached)
+## Final Answer
 
-You have reached the maximum number of tool-call iterations, so you can NOT run any more tools.
-Using ONLY the information already gathered (below), write a clear, complete answer to the
-user's original request.
+You can NOT run any more tools in this run. Using ONLY the information already gathered
+(below), write a clear, complete answer to the user's original request.
 
 ### Original request
 ${truncateOutput(originalQuery, 2000)}
@@ -380,9 +253,9 @@ ${truncateOutput(originalQuery, 2000)}
 ${toolSummary}
 
 Write a clear, markdown-formatted answer that:
-- States the key findings directly — include resource IDs, metrics, and command outputs where available.
-- Explicitly calls out anything that could not be verified or completed, and why.
-- Ends with concrete, actionable next steps.`);
+- Leads with the answer to the user's request — include resource IDs, metrics, and command outputs where available.
+- Calls out anything that could not be verified or completed, and why (this path was reached because the step budget ran out, so partial results are expected).
+- Suggests a next step only if one is genuinely warranted — otherwise stop.`);
 
         const finalizeInput = new HumanMessage({
             content: `Provide the final answer now, based only on what has already been gathered.`,
@@ -412,7 +285,10 @@ Please narrow the question or ask me to continue from here.`;
     // ---------------------------------------------------------------------------
     // CONDITIONAL EDGES
     // ---------------------------------------------------------------------------
-    function shouldContinue(state: ReflectionState): "guard" | "reflect" | "finalize" | "memory_save" {
+    // Pure ReAct decision: loop through tools while the model wants them, otherwise
+    // the model has produced its answer — persist memory and finish. No reflection/
+    // revision cycle (that rigor lives in the planning agent).
+    function shouldContinue(state: ReflectionState): "guard" | "finalize" | "memory_save" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
@@ -434,20 +310,16 @@ Please narrow the question or ask me to continue from here.`;
             return "guard";
         }
 
-        // Soft cap: if we've exceeded the reflection cycle limit, accept the answer as-is
-        if (iterationCount >= MAX_REFLECT_ITERATIONS) {
-            console.log(`⚠️ Max reflection cycles (${MAX_REFLECT_ITERATIONS}) reached. Accepting answer.`);
-            return "memory_save";
+        // Empty-answer guard: no tool calls AND no text (e.g. the model spent its
+        // whole output budget on a reasoning block). Ending here would stream
+        // nothing to the user — synthesize an answer from gathered results instead.
+        if (!contentToText(lastMessage.content ?? '').trim()) {
+            console.warn(`⚠️ [FAST AGENT] Empty final message — routing to finalize to synthesize an answer.`);
+            return "finalize";
         }
 
-        return "reflect";
-    }
-
-    function shouldContinueFromReflect(state: ReflectionState): "agent" | "memory_save" {
-        if (state.isComplete) {
-            return "memory_save";
-        }
-        return "agent";
+        // No pending tool calls means the model produced its final answer — done.
+        return "memory_save";
     }
 
     // ---------------------------------------------------------------------------
@@ -459,7 +331,6 @@ Please narrow the question or ask me to continue from here.`;
         .addNode("guard", guardNode)
         .addNode("approval_gate", approvalGateNode)
         .addNode("tools", collectingToolNode)
-        .addNode("reflect", reflectNode)
         .addNode("finalize", finalizeNode)
         .addNode("memory_save", memorySaveNode)
 
@@ -468,7 +339,6 @@ Please narrow the question or ask me to continue from here.`;
 
         .addConditionalEdges("agent", shouldContinue, {
             guard: "guard",
-            reflect: "reflect",
             finalize: "finalize",
             memory_save: "memory_save"
         })
@@ -478,11 +348,6 @@ Please narrow the question or ask me to continue from here.`;
             tools: "tools"
         })
         .addEdge("approval_gate", "tools")
-
-        .addConditionalEdges("reflect", shouldContinueFromReflect, {
-            agent: "agent",
-            memory_save: "memory_save"
-        })
 
         .addEdge("tools", "agent")
         .addEdge("finalize", "memory_save")
