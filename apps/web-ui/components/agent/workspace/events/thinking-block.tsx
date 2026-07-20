@@ -56,7 +56,7 @@ export function ThinkingBlock({
       <CollapsibleTrigger
         className={cn(
           "group flex w-full items-center gap-1.5 rounded px-2 py-1 text-left",
-          "text-xs italic text-muted-foreground hover:bg-muted/40",
+          "text-[15px] italic text-muted-foreground hover:bg-muted/40",
           "outline-none focus-visible:ring-1 focus-visible:ring-ring"
         )}
       >
@@ -64,13 +64,13 @@ export function ThinkingBlock({
         <span className={cn(event.streaming && "animate-pulse")}>{label}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="px-2 pb-2 pt-1 text-xs text-muted-foreground">
+        <div className="px-2 pb-2 pt-1 text-[15px] text-muted-foreground">
           {event.phase !== "execution" && (
             <span className="mb-1 mr-1 inline-block rounded bg-muted px-1.5 text-[10px]">
               {sentenceCasePhase(event.phase)}
             </span>
           )}
-          <MarkdownContent content={event.text} className="text-xs text-muted-foreground" />
+          <MarkdownContent content={event.text} className="text-[15px] text-muted-foreground" />
         </div>
       </CollapsibleContent>
     </Collapsible>

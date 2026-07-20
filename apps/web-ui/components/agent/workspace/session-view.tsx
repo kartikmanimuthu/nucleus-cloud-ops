@@ -60,8 +60,11 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
   const [inputValue, setInputValue] = useState("");
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
 
-  // ── Show-work toggle (default on) ───────────────────────────────────────────
-  const [showWork, setShowWork] = useState(true);
+  // ── Show-work toggle (default off) ──────────────────────────────────────────
+  // Collapsed by default: each turn shows just its answer/report, with the
+  // process rows (tools/thinking/narration) tucked behind the "Show work (N
+  // steps)" button until the user opts in.
+  const [showWork, setShowWork] = useState(false);
 
   // ── Right rail open pref (lg+ only) ─────────────────────────────────────────
   const [railOpen, setRailOpen] = useState(true);

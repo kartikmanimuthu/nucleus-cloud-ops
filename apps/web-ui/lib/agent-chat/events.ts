@@ -14,7 +14,13 @@ export type TranscriptEvent =
         output: unknown; status: 'running' | 'done' | 'error' | 'rejected';
     }
     | { kind: 'memory'; id: string; op: 'recall' | 'save'; summary: string; count: number | null }
-    | { kind: 'answer'; id: string; text: string; streaming: boolean }
+    // `phase` is the agent phase in effect when this text streamed. It lets the
+    // renderer tell interstitial execution narration ("Now describing the
+    // cluster…", phase 'execution') apart from the compiled deliverable (phase
+    // 'final'/'revision') — both arrive as plain text and were previously
+    // indistinguishable. Optional only for back-compat with hand-built test
+    // fixtures; the reducer always sets it.
+    | { kind: 'answer'; id: string; phase?: AgentPhaseName; text: string; streaming: boolean }
     | { kind: 'image'; id: string; url: string };
 
 export interface LoosePart {
@@ -178,7 +184,7 @@ export function buildTranscript(message: LooseMessage, opts: BuildTranscriptOpti
                 const text = part.text ?? '';
                 if (text.trim().length === 0) return;
                 flushThinking();
-                events.push({ kind: 'answer', id, text, streaming: false });
+                events.push({ kind: 'answer', id, phase, text, streaming: false });
                 return;
             }
             default: {

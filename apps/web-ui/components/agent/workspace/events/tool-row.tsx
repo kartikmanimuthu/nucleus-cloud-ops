@@ -59,7 +59,7 @@ function StatusGlyph({ status, durationMs }: { status: ToolEvent["status"]; dura
     <span className="inline-flex items-center gap-1">
       <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
       {durationMs != null && (
-        <span className="text-xs text-muted-foreground">{`${(durationMs / 1000).toFixed(1)}s`}</span>
+        <span className="text-[15px] text-muted-foreground">{`${(durationMs / 1000).toFixed(1)}s`}</span>
       )}
     </span>
   )
@@ -97,7 +97,7 @@ export function ToolRow({
       <CollapsibleTrigger
         className={cn(
           "group flex w-full items-center gap-1.5 rounded px-2 py-1 text-left",
-          "text-xs hover:bg-muted/40",
+          "text-[15px] hover:bg-muted/40",
           "outline-none focus-visible:ring-1 focus-visible:ring-ring"
         )}
       >
@@ -147,7 +147,7 @@ export function ToolGroupRow({ group, defaultOpen = false }: { group: ToolGroup;
       <CollapsibleTrigger
         className={cn(
           "group flex w-full items-center gap-1.5 rounded px-2 py-1 text-left",
-          "text-xs hover:bg-muted/40",
+          "text-[15px] hover:bg-muted/40",
           "outline-none focus-visible:ring-1 focus-visible:ring-ring"
         )}
       >
