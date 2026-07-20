@@ -284,10 +284,14 @@ Work through three phases when building the plan:
 
 ## Rules for Plan Steps
 
+- The plan is INTERNAL COORDINATION. The user sees it in a progress rail — it is never part of the answer, so optimize it for execution, not for presentation.
+- Keep the plan SHORT: 3–7 steps. Merge related read-only queries into a single step (e.g., one step for "inventory EC2 + RDS + EBS across regions", not one step per service per region).
+- Every step except the last must be a concrete tool action. Do NOT create steps for aggregating, analyzing, summarizing, cross-referencing, or "evaluating" data — that thinking happens inside execution, not as plan line items.
+- Do NOT add a knowledge-base search step unless the user asked for it or the task clearly depends on tenant-specific documented context.
+- The LAST step is always: compose the final answer to the user's request from the gathered data.
 - Order steps by dependency: a step that depends on the output of another must come after it.
 - For any AWS operation, the first step is always credential acquisition via get_aws_credentials (or list_aws_accounts + get_aws_credentials if the account is not known).
 - For multi-account tasks, add one credential acquisition step per account before any account-specific steps.
-- Break large tasks into the smallest independently executable unit — do not bundle unrelated actions into one step.
 - If a step is a mutation (create, update, delete, stop, start, deploy), the step immediately after it must be a verification step (describe, list, get, check status).
 - For file-system or code tasks: read before write, check before create.
 - If the task is ambiguous, the first step should be a targeted discovery to resolve the ambiguity before committing to an action plan.
@@ -295,7 +299,7 @@ ${reportStrategy}
 ${accountContext}
 
 IMPORTANT: Return your plan as a JSON array of concise, action-oriented step descriptions. Each step must be independently executable by the executor agent.
-Example: ["Call list_aws_accounts to identify the target account", "Call get_aws_credentials for the matched account ID", "Describe all running EC2 instances using --output json and the obtained profile", "Query CloudWatch for CPUUtilization metrics on each instance over the past 7 days", "Render the complete markdown report with all findings directly in your final response"]
+Example: ["Call list_aws_accounts to identify the target account", "Call get_aws_credentials for the matched account ID", "Describe all running EC2 instances using --output json and the obtained profile", "Query CloudWatch for CPUUtilization metrics on each instance over the past 7 days", "Compose the final answer to the user's request directly in the response, with all findings"]
 
 Only return the JSON array, nothing else.`);
 
@@ -394,10 +398,18 @@ ${accountContext}
 ## Execution Discipline
 
 - Execute exactly the current step — do not skip ahead or bundle future steps into a single call.
-- If a tool call returns an error, capture the full error message and include it in your summary; do not silently suppress it.
+- If a tool call returns an error, capture the full error message and diagnose it; do not silently suppress it.
 - If the current step is a simple question or greeting that requires no tools, answer directly and concisely.
-- After completing the step (with or without tools), provide a brief, factual summary: what was done, the key output or finding, and any error or unexpected result.
-- If you already presented a complete final report/deliverable earlier in this conversation and this step revises or corrects it, present the corrected COMPLETE version once, beginning with the exact line "Revised report (supersedes the earlier draft):" — never leave two competing unmarked versions of the same report in the conversation.
+- If the current step has nothing to execute (empty inventory, prerequisite returned no data), move on silently — NEVER run echo or other no-op commands just to mark a step done, and never write an explanation of why there was nothing to do.
+
+## Narration Discipline (critical)
+
+The user sees plan progress in a UI rail — your prose must NEVER duplicate it:
+- Between tool calls, write at most ONE short sentence of context, and only when it genuinely helps the user follow the work. Silence is fine.
+- NEVER write step ceremony: no "Step N complete", "Step N — COMPLETED", "Proceeding to step N", plan restatements, progress-checkpoint tables, or per-step summaries.
+- Do not narrate what you are about to do or recap what you just did — the tool calls and their results are already visible.
+- The final answer to the user's request is composed EXACTLY ONCE, when you reach the plan's compose step. Do not render intermediate aggregation tables, partial summaries, or draft versions of it along the way.
+- If you already composed the complete final answer earlier in this conversation and this step revises or corrects it, present the corrected COMPLETE version once, beginning with the exact line "Revised report (supersedes the earlier draft):" — never leave two competing unmarked versions in the conversation.
 
 ⚠️ **Never use write_file or write_file_to_s3 for reports**: Render all reports and summaries directly in your response. S3 tools are only for logs, raw API outputs, or backup artifacts.
 
@@ -549,6 +561,16 @@ Iteration: ${iterationCount}/${MAX_ITERATIONS}
 - The "Recent Assistant Output" you receive may be truncated FOR REVIEW ONLY. A "[TRUNCATED FOR REVIEW ONLY …]" marker means the real message continued past the cutoff — do NOT report it as an incomplete or truncated deliverable.
 - The Plan Status block reflects YOUR OWN last updatedPlan and may lag the assistant's narrative by one cycle — such lag is expected bookkeeping, not an error to flag.
 
+## Do NOT Flag (these are never issues)
+
+Flag only MATERIAL defects — things that make the answer wrong, incomplete, or unsafe. Never flag:
+- Plan-status bookkeeping (a step "still marked in_progress/pending" that the narrative already resolved or justifiably skipped). Fix it silently via updatedPlan; it is not an issue and never a reason to keep the run open.
+- Formatting, style, verbosity, or presentation of an already-correct answer.
+- Results already confirmed by tool output — do not request re-verification of data the tool log already shows.
+- Apparent truncation or rendering artifacts in tool output display.
+- Missing "nice-to-have" extras the user did not ask for (baselines, watch-items, cross-references, periodic re-check advice).
+Every issue you raise costs a full revision cycle. An empty issues list with isComplete=true is the EXPECTED verdict for a clean execution.
+
 ## Review Criteria
 
 Evaluate the execution against these five dimensions:
@@ -565,11 +587,13 @@ Evaluate the execution against these five dimensions:
 
 ## Completion Criteria
 
-Set isComplete to true ONLY when ALL of the following are true:
+Set isComplete to true when ALL of the following are true:
 - Every plan step is marked completed, or an explicit decision was made to skip it with justification.
 - The original task has been fully accomplished as stated by the user.
 - No critical errors remain unresolved.
 - Output is sufficient for the user to act on or understand the result.
+
+Lean toward completion: if the user's request has been answered and no unresolved errors remain, set isComplete=true NOW — do not keep the run open for polish, bookkeeping reconciliation, or optional extras.
 
 ## Output Format
 
@@ -771,63 +795,63 @@ ${accountContext}`);
     // FINAL OUTPUT NODE
     // ---------------------------------------------------------------------------
     async function finalNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
-        const { taskDescription, iterationCount, reflection, toolResults, plan } = state;
+        const { taskDescription, toolResults } = state;
 
         console.log(`\n================================================================================`);
-        console.log(`🏁 [FINAL] Generating comprehensive summary`);
+        console.log(`🏁 [FINAL] Generating the user-facing answer`);
         console.log(`================================================================================\n`);
 
-        // Did the executor already render the full deliverable in-chat? Any
-        // substantial execution-phase text message counts. When it did, this
-        // node must CLOSE OUT, not re-summarize: its inputs are only the last
-        // 3 truncated tool outputs, so a restated "summary" drifts from the
-        // real report (live testing produced a recap contradicting the report
-        // it sat directly below — wrong region coverage, wrong counts).
-        const deliverableAlreadyRendered = state.messages.some((m) =>
-            m._getType() === 'ai' &&
-            (m as unknown as { response_metadata?: { agentPhase?: string } }).response_metadata?.agentPhase === 'execution' &&
-            typeof m.content === 'string' &&
-            m.content.trim().length >= 800
-        );
+        // Did the executor (or reviser) already compose the full deliverable in-chat?
+        // Any substantial execution/revision-phase text message counts. When it did,
+        // PROMOTE that text verbatim as the final message — no LLM call. Rationale:
+        // the UI renders only final/revision-phase messages as the Report card
+        // (execution prose lands in the work rail), and an LLM "closing note" here
+        // has only the last 3 truncated tool outputs as context, so it invents
+        // follow-ups that contradict the real report (observed in live testing).
+        // Verbatim promotion = zero drift, zero hallucination surface, zero cost.
+        const deliverablePhases = new Set(['execution', 'revision']);
+        let renderedDeliverable: string | null = null;
+        for (const m of state.messages) {
+            if (
+                m._getType() === 'ai' &&
+                deliverablePhases.has((m as unknown as { response_metadata?: { agentPhase?: string } }).response_metadata?.agentPhase ?? '') &&
+                typeof m.content === 'string' &&
+                m.content.trim().length >= 800
+            ) {
+                renderedDeliverable = m.content; // keep scanning — last one wins (latest revision)
+            }
+        }
 
-        const summaryContext = `Original Task: ${taskDescription}
+        if (renderedDeliverable) {
+            console.log(`--- FINAL: Promoting already-rendered deliverable verbatim (no LLM call) ---`);
+            return {
+                messages: [tagMessagePhase(new AIMessage({ content: renderedDeliverable }), 'final')],
+                isComplete: true
+            };
+        }
 
-Execution Summary:
-- Iterations used: ${iterationCount}
-- Plan steps: ${plan.map(s => `${s.step} (${s.status})`).join(' | ')}
+        const summaryContext = `User's request: ${taskDescription}
 
 Key Tool Outputs (most recent):
-${toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}]\n${truncateOutput(e.output, 500)}`).join('\n\n---\n\n')}
+${toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}]\n${truncateOutput(e.output, 500)}`).join('\n\n---\n\n')}`;
 
-Final Review Notes: ${reflection}`;
+        const groundingRule = `STRICT GROUNDING: state only facts that literally appear in the Key Tool Outputs above. Never introduce or extrapolate counts, region lists, resource names, or metrics that are not present there — when a detail is unavailable, refer the user to the report above instead of estimating. Write in second person ("you"), never about "the agent", plan steps, or iteration counts.`;
 
-        const groundingRule = `STRICT GROUNDING: state only facts that literally appear in the Key Tool Outputs or Final Review Notes above. Never introduce or extrapolate counts, region lists, resource names, or metrics that are not present there — when a detail is unavailable, refer the user to the report above instead of estimating. Write in second person ("you"), never about "the agent" or iteration counts.`;
-
-        const summarySystemPrompt = new SystemMessage(deliverableAlreadyRendered
-            ? `You are a senior DevOps engineer closing out a completed automated task. The full report/deliverable has ALREADY been delivered to the user earlier in this conversation — do NOT restate, re-summarize, or re-tabulate any of it.
+        const summarySystemPrompt = new SystemMessage(`You are a senior DevOps engineer answering the user's request directly. Give them the answer — not a report about how it was produced.
 
 ${summaryContext}
 
-Write a SHORT closing note: under 80 words, plain prose, no headings, no lists, no tables. One sentence confirming completion and pointing to the report above; at most one sentence naming the single most important follow-up action.
-
-${groundingRule}`
-            : `You are a senior DevOps engineer writing the final delivery note for a completed automated task.
-
-${summaryContext}
-
-Write a clear, markdown-formatted summary for the user that includes:
-
-1. **What Was Accomplished** — state the outcome directly, not the process
-2. **Key Findings or Results** — bullet the most important data points, IDs, metrics, or decisions from the tool outputs
-3. **Errors or Limitations** — if any step failed or returned partial data, state it explicitly with the reason
-4. **Recommended Next Steps** — concrete actions the user should consider based on the findings
-
-Write for an engineer audience. Be specific — include resource IDs, account names, service names, and numeric values where the data is available.
+Write a clear, markdown-formatted answer to the user's request:
+- Lead with the actual answer. Match the length and shape of the request: a direct question gets a direct answer; a broad investigation may use headings and bullets. Do not force a fixed report structure.
+- Be specific — include resource IDs, account names, service names, and numeric values from the tool outputs.
+- Do NOT describe the process, iterations, plan steps, or any internal review. The user does not care how the answer was produced.
+- Mention a limitation ONLY if a step actually failed or returned partial data — one line, with the reason. Otherwise say nothing about limitations.
+- Suggest a next step ONLY if one is genuinely warranted. Otherwise stop.
 
 ${groundingRule}`);
 
         const summaryInput = new HumanMessage({
-            content: `Please provide the final summary for the completed task.`
+            content: `Provide your answer to the user's request now.`
         });
         const _auditInputs_fin = [summarySystemPrompt, summaryInput];
         const _auditStart_fin = Date.now();
@@ -837,34 +861,25 @@ ${groundingRule}`);
             llmAuditLog('FINAL', _auditInputs_fin, summaryResponse, _auditStart_fin);
             summaryContent = contentToText(summaryResponse.content);
         } catch (err: any) {
-            // A finalize failure must never crash the run — assemble a best-effort summary
-            // from the tool results and review notes already captured in state.
+            // A finalize failure must never crash the run — assemble a best-effort answer
+            // from the tool results already captured in state.
             console.error(`⚠️ [FINAL] Summary synthesis failed: ${err?.message ?? err}`);
             const toolDigest = toolResults.length > 0
                 ? toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}]\n${truncateOutput(e.output, 500)}`).join('\n\n---\n\n')
                 : '(no tool output was captured)';
-            summaryContent = `⚠️ I could not generate a polished summary due to a model/provider error (${err?.message ?? err}), but here is what was gathered:
+            summaryContent = `⚠️ I could not generate a polished answer due to a model/provider error (${err?.message ?? err}), but here is what was gathered:
 
 **Key tool outputs:**
-${toolDigest}
-
-**Review notes:** ${reflection || 'None'}`;
+${toolDigest}`;
         }
 
-        const finalMessage = `✅ **Task Complete**
+        console.log(`--- FINAL: Answer generated ---`);
 
-**Original Task:** ${taskDescription}
-
-**Iterations Used:** ${iterationCount}
-
----
-
-${summaryContent}`;
-
-        console.log(`--- FINAL: Summary generated ---`);
-
+        // Return the answer directly — no "Task Complete / Original Task / Iterations Used"
+        // telemetry wrapper. The user asked a question; they get the answer, not a report
+        // about how many loops the agent spun.
         return {
-            messages: [tagMessagePhase(new AIMessage({ content: finalMessage }), 'final')],
+            messages: [tagMessagePhase(new AIMessage({ content: summaryContent }), 'final')],
             isComplete: true
         };
     }
