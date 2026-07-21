@@ -816,6 +816,10 @@ export interface GraphConfig {
     userId?: string;  // For long-term memory store scoping
     knowledgeBaseIds?: string[] | null;
     maxIterations?: number;  // Agent Ops per-tenant graph iteration limit (executor loop + recursionLimit)
+    // Per-session "Auto skills" console toggle (default on). false hides the
+    // skill catalog from prompts and drops the load_skill tool — the agent can
+    // then only use a skill the user pinned manually.
+    autoLoadSkills?: boolean;
 }
 
 // --- MCP Integration ---

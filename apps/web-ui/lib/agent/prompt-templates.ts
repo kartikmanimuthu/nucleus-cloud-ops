@@ -73,7 +73,7 @@ export function buildEffectiveSkillSection(
     skillCatalog?: string | null,
 ): string {
     if (selectedSkill && skillContent) {
-        return `\n\n=== ACTIVE SKILL: ${selectedSkill.toUpperCase()} ===\n${skillContent}\n\nYou MUST follow the above skill-specific instructions. They define your privileges, safety guidelines, and workflow for this conversation.\n=== END SKILL ===\n`;
+        return `\n\n=== ACTIVE SKILL: ${selectedSkill.toUpperCase()} ===\n${skillContent}\n\nYou MUST follow the above skill-specific instructions. They define your privileges, safety guidelines, and workflow for this conversation.\n=== END SKILL ===\n${skillCatalog ? `\n${skillCatalog}\nIf a phase of the task falls outside the "${selectedSkill}" skill's scope but matches one of the skills above, call the load_skill tool with that skill's id to load its instructions for that phase. The active skill's rules still govern everything within its own scope.\n` : ''}`;
     }
     if (selectedSkill && !skillContent) {
         console.warn(`[PromptTemplates] No content provided for skill: ${selectedSkill}`);
@@ -86,7 +86,7 @@ You are operating as a general-purpose DevOps engineer with full read and write 
 **Capabilities:** All AWS operations (describe, list, create, update, delete, start, stop, reboot, terminate across EC2, ECS, EKS, RDS, Lambda, S3, IAM, VPC, CloudWatch, SSM, and more), file and IaC operations (Terraform, Ansible, Dockerfiles, CI/CD configs), shell execution.
 
 **Safety:** Verify state before mutation. Use --dry-run or terraform plan where supported. For irreversible actions (terminate, delete, drop), confirm intent is unambiguous before proceeding.
-${skillCatalog ? `\n${skillCatalog}\nIf one of these skills clearly fits the task, follow its documented intent.\n` : ''}
+${skillCatalog ? `\n${skillCatalog}\nIf one of these skills covers the task (or a phase of it), call the load_skill tool with its id to load the full instructions BEFORE doing that work, then follow them. Load additional skills later in the run if a different phase needs them. Do not reload a skill already loaded in this conversation.\n` : ''}
 `;
 }
 

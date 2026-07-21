@@ -11,17 +11,11 @@ import { contentToText, type ResolvedModelConfig } from './agent-shared';
 import { createAgentModels } from './model-factory';
 import { getSkillSummaries, getSkillById } from '@/lib/skill-service';
 
-export function autoSkillSelectionEnabled(): boolean {
-    const v = process.env.AUTO_SKILL_SELECTION_ENABLED?.toLowerCase();
-    return !(v === 'false' || v === '0');
-}
-
 export async function autoSelectSkill(params: {
     tenantId: string;
     message: string;
     model: ResolvedModelConfig;
 }): Promise<{ slug: string; reasoning: string } | null> {
-    if (!autoSkillSelectionEnabled()) return null;
     try {
         const catalog = await getSkillSummaries(params.tenantId);
         if (catalog.startsWith('No specialized skills')) return null;
