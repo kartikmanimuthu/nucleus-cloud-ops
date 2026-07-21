@@ -9,6 +9,7 @@
 import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getTelegramBotLinkRepository } from '@/lib/db/repository-factory';
+import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { env } from '@/env';
 import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
 import { ChannelRateLimiter } from '@/lib/gateway/utils/rate-limiter';
@@ -31,6 +32,12 @@ import type {
 // ─── Constants ────────────────────────────────────────────────────────
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
+
+/** A Telegram chat is one ongoing conversation until it goes quiet this long. */
+const CONVERSATION_IDLE_MS = 30 * 60 * 1000;
+
+/** Commands that end the current conversation and start a fresh one. */
+const RESET_COMMANDS = new Set(['/new', '/n']);
 
 // ─── Telegram Config Interface ────────────────────────────────────────
 
@@ -379,10 +386,10 @@ export class TelegramAdapter implements ChannelAdapter {
         ).catch(() => null);
     }
 
-    private parseMessage(
+    private async parseMessage(
         message: Record<string, unknown>,
         resolvedTenantId: string | null,
-    ): GatewayMessage {
+    ): Promise<GatewayMessage> {
         const from = message.from as Record<string, unknown> | undefined;
         const chat = message.chat as Record<string, unknown> | undefined;
         const userId = (from?.id as number) ?? 0;
@@ -398,13 +405,35 @@ export class TelegramAdapter implements ChannelAdapter {
         }
         const tenantId = resolvedTenantId || String(chatId);
 
-        // Check for bot command entity
         const botCommandEntity = entities.find(e => e.type === 'bot_command');
         if (botCommandEntity) {
             const offset = (botCommandEntity.offset as number) ?? 0;
             const length = (botCommandEntity.length as number) ?? 0;
+            const command = text.slice(offset, offset + length).split('@')[0].toLowerCase();
             const taskDescription = text.slice(offset + length).trim();
 
+            // /new (or /n) ends the current conversation. Bare → reset + confirm, and
+            // the next message begins fresh. With text → fall through to a brand-new
+            // task below (that new run simply supersedes the old one as the newest).
+            if (RESET_COMMANDS.has(command) && !taskDescription) {
+                const current = await this.findSessionRun(chatId);
+                return {
+                    channelType: 'telegram',
+                    tenantId,
+                    taskDescription: '',
+                    userId: String(userId),
+                    replyContext: {
+                        runId: current?.runId ?? '',
+                        action: 'reset',
+                        tenantId: current?.tenantId ?? tenantId,
+                    },
+                    channelMeta: { userId, chatId, messageId },
+                };
+            }
+
+            // Any other command (/cloudops …, /start) — or /new with text — begins a
+            // fresh task; commands are an explicit "new request" signal, never a
+            // continuation of the running conversation.
             return {
                 channelType: 'telegram',
                 tenantId,
@@ -414,30 +443,30 @@ export class TelegramAdapter implements ChannelAdapter {
             };
         }
 
-        // Check for reply to bot message (clarification response)
-        const replyToMessage = message.reply_to_message as Record<string, unknown> | undefined;
-        if (replyToMessage) {
-            const replyFrom = replyToMessage.from as Record<string, unknown> | undefined;
-            const isBot = replyFrom?.is_bot === true;
-
-            if (isBot) {
-                return {
-                    channelType: 'telegram',
-                    tenantId,
-                    taskDescription: text,
-                    userId: String(userId),
-                    replyContext: {
-                        runId: '', // Will be resolved by gateway orchestrator
-                        action: 'clarification_response',
-                        content: text,
-                        tenantId,
-                    },
-                    channelMeta: { userId, chatId, messageId },
-                };
-            }
+        // If a run is currently waiting for the user's answer, this message IS that
+        // answer — feed it into the same run/thread rather than spawning a new run.
+        // Telegram DMs have no thread concept, so the chatId is the conversation key;
+        // the user just types, no need for Telegram's native reply-to feature. Once a
+        // run has finished, findSessionRun returns null and the message below starts
+        // a fresh task.
+        const sessionRun = await this.findSessionRun(chatId);
+        if (sessionRun) {
+            return {
+                channelType: 'telegram',
+                tenantId,
+                taskDescription: text,
+                userId: String(userId),
+                replyContext: {
+                    runId: sessionRun.runId,
+                    action: 'clarification_response',
+                    content: text,
+                    tenantId: sessionRun.tenantId,
+                },
+                channelMeta: { userId, chatId, messageId },
+            };
         }
 
-        // Plain message (no command, no reply)
+        // Nothing awaiting input → a brand-new task (starts a fresh run/thread).
         return {
             channelType: 'telegram',
             tenantId,
@@ -445,6 +474,35 @@ export class TelegramAdapter implements ChannelAdapter {
             userId: String(userId),
             channelMeta: { userId, chatId, messageId },
         };
+    }
+
+    /** The run this chat's next message should continue, or null to start fresh. */
+    private findSessionRun(chatId: number) {
+        return agentOpsService.findResumableTelegramRun(
+            chatId,
+            new Date(Date.now() - CONVERSATION_IDLE_MS),
+        );
+    }
+
+    /** Confirm to the chat that /new started a fresh conversation. */
+    async sendSessionReset(tenantId: string, chatId: number): Promise<void> {
+        const config = await this.loadConfig(tenantId);
+        const botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || '';
+        if (!botToken) return;
+        const text = [
+            '*New conversation started*',
+            '',
+            escapeMarkdownV2('Your next message begins a fresh task — earlier context is cleared.'),
+        ].join('\n');
+        try {
+            await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'MarkdownV2' }),
+            });
+        } catch (err) {
+            console.error('[TelegramAdapter] sendSessionReset error:', err);
+        }
     }
 
     private parseCallbackQuery(

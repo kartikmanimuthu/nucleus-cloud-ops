@@ -186,6 +186,18 @@ export class GatewayService {
                 return ackResponse;
             }
 
+            case 'reset': {
+                // End the current conversation so the next message starts fresh.
+                if (runId) {
+                    await agentOpsService.closeTelegramSession(tenantId, runId);
+                }
+                const chatId = Number((message.channelMeta as { chatId?: number })?.chatId);
+                if (adapter.sendSessionReset && Number.isFinite(chatId)) {
+                    await adapter.sendSessionReset(tenantId, chatId);
+                }
+                return new Response(JSON.stringify({ ok: true }), { status: 200 });
+            }
+
             default:
                 return new Response(
                     JSON.stringify({ error: `Unknown action: ${action}` }),

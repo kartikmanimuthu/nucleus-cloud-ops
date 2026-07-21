@@ -57,4 +57,5 @@ export interface IAgentOpsRunRepository {
     findAwaitingApprovalRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null>;
     findAwaitingRunByJiraIssue(issueKey: string): Promise<AgentOpsRun | null>;
     findAwaitingRunBySlackThread(channelId: string, threadTs: string): Promise<AgentOpsRun | null>;
+    findResumableTelegramRun(chatId: number, idleCutoff: Date): Promise<AgentOpsRun | null>;
 }
