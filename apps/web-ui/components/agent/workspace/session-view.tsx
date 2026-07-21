@@ -351,6 +351,8 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
                 onAutoApproveChange={pickers.setAutoApprove}
                 showTools={showWork}
                 onShowToolsChange={setShowWork}
+                autoLoadSkills={pickers.autoLoadSkills}
+                onAutoLoadSkillsChange={pickers.setAutoLoadSkills}
                 onEnhance={handleEnhancePrompt}
                 isEnhancing={isEnhancing}
               />

@@ -25,6 +25,7 @@ import {
 } from "./tools";
 import { createGetRightSizingRecommendationsTool } from "./right-sizing-tool";
 import { createSearchKnowledgeBaseTool } from "./kb-tool";
+import { createLoadSkillTool } from "./skill-tool";
 import { getActiveMCPTools, isOpenAICompatibleProvider, type AccountContext, type ResolvedModelConfig } from "./agent-shared";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
@@ -182,6 +183,9 @@ export interface AssembleToolsOptions {
     includeS3Tools?: boolean;
     /** Include long-term memory tools (save_memory, search_memory). Enable when DynamoDBStore is active. */
     includeMemoryTools?: boolean;
+    /** Include the load_skill progressive-disclosure tool. Default: true. The
+     *  console "Auto skills" toggle sets this false to disable dynamic skill loading. */
+    includeSkillTool?: boolean;
     /** User ID for scoping memory operations. Required when includeMemoryTools is true. */
     userId?: string;
     /** MCP server IDs to dynamically load tools from. */
@@ -239,7 +243,7 @@ export function createMemoryTools(tenantId: string, userId: string) {
  * Logs MCP tool count when any are loaded.
  */
 export async function assembleTools(options: AssembleToolsOptions = {}) {
-    const { includeS3Tools = false, includeMemoryTools = false, userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds } = options;
+    const { includeS3Tools = false, includeMemoryTools = false, includeSkillTool = true, userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds } = options;
 
     const effectiveTenantId = tenantId || 'default';
     if (!tenantId) {
@@ -248,6 +252,9 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
 
     const memoryTools = (includeMemoryTools && tenantId && userId) ? createMemoryTools(tenantId, userId) : [];
     const kbTools = tenantId ? [createSearchKnowledgeBaseTool(tenantId, knowledgeBaseIds ?? undefined)] : [];
+    // Progressive skill disclosure: catalog lives in the system prompt, full
+    // content loads on demand via this tool (tenant-scoped, enabled-only).
+    const skillTools = includeSkillTool && tenantId ? [createLoadSkillTool(tenantId)] : [];
 
     const customTools = [
         executeCommandTool,
@@ -264,6 +271,7 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
         ...(includeS3Tools ? [writeFileToS3Tool, getFileFromS3Tool] : []),
         ...memoryTools,
         ...kbTools,
+        ...skillTools,
     ];
 
     const mcpTools = await getActiveMCPTools(mcpServerIds, tenantId, accounts);

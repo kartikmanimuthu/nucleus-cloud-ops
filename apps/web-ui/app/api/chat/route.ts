@@ -5,7 +5,8 @@ import { createReflectionGraph, createFastGraph, createDeepGraph } from '@/lib/a
 import { resolveModelConfig, resolveDefaultModelConfig } from '@/lib/agent/model-resolver';
 import { isProviderConfigError } from '@/lib/agent/provider-errors';
 import { buildClientErrorText } from '@/lib/agent/stream-error';
-import { autoSelectSkill } from '@/lib/agent/auto-skill-select';
+import { triageChatMessage } from '@/lib/agent/triage';
+import { respondDirect } from './direct-chat';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
 import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
@@ -78,6 +79,7 @@ export async function POST(req: Request) {
             accountId,      // Deprecated: single AWS account ID for backwards compatibility
             accountName,    // Deprecated: single AWS account name
             selectedSkill,  // Skill ID for dynamic skill loading
+            autoLoadSkills = true, // Console "Auto skills" toggle: auto-select + mid-run load_skill
             mcpServerIds,   // MCP server IDs to activate for this session
             knowledgeBaseIds, // Knowledge Base IDs manually selected in the console
             decisions       // Per-tool approval decisions (new resume contract)
@@ -172,14 +174,45 @@ export async function POST(req: Request) {
             throw e;
         }
 
-        // Hermes-style disclosure: when no skill is picked, one cheap reflector call
-        // matches the message against the skill catalog. Manual selection always wins.
+        // Chat-layer triage: ONE cheap classifier call decides direct-reply vs
+        // workflow AND doubles as the skill auto-selector (Hermes disclosure) —
+        // it replaced the standalone autoSelectSkill call, so the chat layer
+        // costs zero net new LLM calls. Manual skill selection always wins.
+        // Resume turns (HITL decisions / tool results) are workflow continuations
+        // and must never be re-triaged.
+        const isResumeTurn = Array.isArray(decisions) || messages[messages.length - 1]?.role === 'tool';
         let effectiveSkill: string | null = selectedSkill || null;
-        if (!effectiveSkill && mode !== 'deep') {
+        let triageRoute: 'direct' | 'task' = 'task';
+        if (!isResumeTurn && mode !== 'deep') {
             const lastMsg = messages[messages.length - 1];
             const lastUserText = typeof lastMsg?.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg?.content ?? '');
-            const auto = await autoSelectSkill({ tenantId: resolvedTenantId, message: lastUserText, model: resolvedModel });
-            if (auto) effectiveSkill = auto.slug;
+            const triage = await triageChatMessage({
+                tenantId: resolvedTenantId,
+                message: lastUserText,
+                model: resolvedModel,
+                // Skip skill matching when a skill is pinned OR the console
+                // "Auto skills" toggle is off (routing still runs either way).
+                skillAlreadySelected: !!effectiveSkill || autoLoadSkills === false,
+            });
+            triageRoute = triage.route;
+            if (!effectiveSkill && triage.skillId) effectiveSkill = triage.skillId;
+        }
+
+        // Direct path: conversational message → single plain LLM reply. Skips
+        // KB selection, graph creation, memory recall, and the plan rail
+        // entirely. respondDirect owns lock release on every outcome.
+        if (triageRoute === 'direct') {
+            console.log('🚦 [API] Triage → direct reply (no workflow)');
+            return await respondDirect({
+                messages,
+                resolvedModel,
+                threadId,
+                tenantId: resolvedTenantId,
+                userId: resolvedUserId,
+                stream: stream !== false,
+                releaseLock,
+                signal: req.signal,
+            });
         }
 
         // KB progressive disclosure: manual selection always wins. When none is picked,
@@ -199,6 +232,7 @@ export async function POST(req: Request) {
             accountId: accountId,       // Backwards compatibility
             accountName: accountName,
             selectedSkill: effectiveSkill,  // user pick, or auto-selected (Hermes disclosure), or null
+            autoLoadSkills: autoLoadSkills !== false, // console toggle → skill catalog + load_skill tool
             mcpServerIds: mcpServerIds || [],       // Pass MCP server IDs for dynamic tool loading
             knowledgeBaseIds: effectiveKbIds,       // user pick, or auto-selected KB ids, or []
             userId: resolvedUserId,                 // For memory store scoping

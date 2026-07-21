@@ -47,6 +47,8 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof Composer>> = {
     onAutoApproveChange: vi.fn(),
     showTools: false,
     onShowToolsChange: vi.fn(),
+    autoLoadSkills: true,
+    onAutoLoadSkillsChange: vi.fn(),
     ...overrides,
   }
 }

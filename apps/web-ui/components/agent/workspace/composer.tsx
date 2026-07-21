@@ -42,6 +42,8 @@ export interface ComposerProps {
   onAutoApproveChange: (value: boolean) => void;
   showTools: boolean;
   onShowToolsChange: (value: boolean) => void;
+  autoLoadSkills: boolean;
+  onAutoLoadSkillsChange: (value: boolean) => void;
   /** "Enhance prompt with AI" (Wand2) — rewrites the draft via /api/enhance-prompt. */
   onEnhance?: () => void;
   isEnhancing?: boolean;
@@ -63,6 +65,8 @@ export function Composer({
   onAutoApproveChange,
   showTools,
   onShowToolsChange,
+  autoLoadSkills,
+  onAutoLoadSkillsChange,
   onEnhance,
   isEnhancing = false,
 }: ComposerProps) {
@@ -216,6 +220,21 @@ export function Composer({
                   id="composer-show-tools"
                   checked={showTools}
                   onCheckedChange={onShowToolsChange}
+                  disabled={disabled}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label
+                  htmlFor="composer-auto-skills"
+                  className="text-xs font-normal text-muted-foreground"
+                  title="The agent auto-selects a matching skill for the task and can load additional skills mid-run. Off: only a manually pinned skill is used."
+                >
+                  Auto skills
+                </Label>
+                <Switch
+                  id="composer-auto-skills"
+                  checked={autoLoadSkills}
+                  onCheckedChange={onAutoLoadSkillsChange}
                   disabled={disabled}
                 />
               </div>

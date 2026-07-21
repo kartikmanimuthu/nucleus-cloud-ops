@@ -42,6 +42,8 @@ export interface UseSessionPickersResult {
   setAgentMode: (mode: string) => void;
   autoApprove: boolean;
   setAutoApprove: (value: boolean) => void;
+  autoLoadSkills: boolean;
+  setAutoLoadSkills: (value: boolean) => void;
 }
 
 export function useSessionPickers({
@@ -79,6 +81,8 @@ export function useSessionPickers({
   // ── Composer settings ───────────────────────────────────────────────────────
   const [agentMode, setAgentMode] = useState("fast");
   const [autoApprove, setAutoApprove] = useState(true);
+  // "Auto skills": auto-select a skill for the task + allow mid-run load_skill.
+  const [autoLoadSkills, setAutoLoadSkills] = useState(true);
 
   // Preselect the default provider's chat model; preserve an explicit user pick
   // across refetches (chat-interface.tsx:636-640).
@@ -166,6 +170,7 @@ export function useSessionPickers({
   bodyStateRef.current = {
     threadId,
     autoApprove,
+    autoLoadSkills,
     model: selectedModel,
     mode: agentMode,
     accounts:
@@ -246,5 +251,7 @@ export function useSessionPickers({
     setAgentMode,
     autoApprove,
     setAutoApprove,
+    autoLoadSkills,
+    setAutoLoadSkills,
   };
 }

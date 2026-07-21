@@ -33,7 +33,6 @@ import {
 } from "./prompt-templates";
 import { createAgentModels, assembleTools, deriveInputTokenBudget } from "./model-factory";
 import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
-import { autoSkillSelectionEnabled } from "./auto-skill-select";
 import { prepareContext, buildWorkingMemorySection, estimateTokens } from "./memory/working-memory";
 import { createGuardNode } from "./guard";
 import { routeAfterGuard } from "./gate-routing";
@@ -198,9 +197,13 @@ export async function createReflectionGraph(config: GraphConfig) {
         console.log(skillContent ? `[PlanningAgent] Loaded skill: ${selectedSkill}` : `[PlanningAgent] No content for skill: ${selectedSkill}`);
     }
 
-    // Catalog rides the auto-selection feature flag (true kill-switch) and the
-    // zero-skill sentinel string must not leak into the prompt.
-    const skillCatalog = !selectedSkill && tenantId && autoSkillSelectionEnabled()
+    // Skill catalog for progressive disclosure — gated by the console "Auto
+    // skills" toggle (default on). The zero-skill sentinel string must not leak
+    // into the prompt. Fetched even when a skill is pinned: the load_skill tool
+    // lets the agent pull ADDITIONAL skills mid-run for phases outside the
+    // active skill's scope.
+    const autoLoadSkills = config.autoLoadSkills !== false;
+    const skillCatalog = tenantId && autoLoadSkills
         ? await getSkillSummaries(tenantId)
             .then(s => (s.startsWith('No specialized skills') ? null : s))
             .catch(() => null)
@@ -220,7 +223,7 @@ export async function createReflectionGraph(config: GraphConfig) {
 
     // --- Tool Assembly ---
     // Memory tools excluded — memory_recall and memory_save graph nodes handle memory deterministically
-    const tools = await assembleTools({ includeS3Tools: true, includeMemoryTools: false, userId: config.userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds: config.knowledgeBaseIds });
+    const tools = await assembleTools({ includeS3Tools: true, includeMemoryTools: false, includeSkillTool: autoLoadSkills, userId: config.userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds: config.knowledgeBaseIds });
     const modelWithTools = model.bindTools!(tools);
     const toolNode = new ToolNode(tools);
 
