@@ -285,7 +285,8 @@ Work through three phases when building the plan:
 ## Rules for Plan Steps
 
 - The plan is INTERNAL COORDINATION. The user sees it in a progress rail — it is never part of the answer, so optimize it for execution, not for presentation.
-- Keep the plan SHORT: 3–7 steps. Merge related read-only queries into a single step (e.g., one step for "inventory EC2 + RDS + EBS across regions", not one step per service per region).
+- Match plan depth to the request. A simple lookup or single-command request needs only 1–2 steps (credentials + the query); a conversational or no-tool request gets exactly one step: ["Answer the user's request directly"]. Only genuinely multi-phase investigations warrant 5+ steps.
+- Keep the plan SHORT: never more than 7 steps. Merge related read-only queries into a single step (e.g., one step for "inventory EC2 + RDS + EBS across regions", not one step per service per region).
 - Every step except the last must be a concrete tool action. Do NOT create steps for aggregating, analyzing, summarizing, cross-referencing, or "evaluating" data — that thinking happens inside execution, not as plan line items.
 - Do NOT add a knowledge-base search step unless the user asked for it or the task clearly depends on tenant-specific documented context.
 - The LAST step is always: compose the final answer to the user's request from the gathered data.
@@ -433,9 +434,10 @@ The user sees plan progress in a UI rail — your prose must NEVER duplicate it:
             response = new AIMessage({ content: `⚠️ This step could not be executed due to a model/provider error (${err?.message ?? err}). Proceeding with the information gathered so far.` });
         }
 
-        if ('tool_calls' in response && response.tool_calls && response.tool_calls.length > 0) {
+        const genHasToolCalls = 'tool_calls' in response && !!response.tool_calls && response.tool_calls.length > 0;
+        if (genHasToolCalls) {
             console.log(`\n🛠️ [EXECUTOR] Tool Calls Generated:`);
-            for (const toolCall of response.tool_calls) {
+            for (const toolCall of response.tool_calls!) {
                 console.log(`   → Tool: ${toolCall.name}`);
                 console.log(`     Args: ${JSON.stringify(toolCall.args)}`);
             }
@@ -443,9 +445,14 @@ The user sees plan progress in a UI rail — your prose must NEVER duplicate it:
             console.log(`\n💬 [EXECUTOR] No tools called. Generating text response.`);
         }
 
+        // Tool turn: current step goes in_progress (tools node completes it after
+        // execution). Prose turn: the step WAS the prose (compose step, or a step
+        // with nothing to run) — mark it completed directly. This monotonic
+        // advancement is what makes the generate→generate continue-loop in
+        // shouldContinueFromGenerate terminate: every prose pass consumes a step.
         const updatedPlan = plan.map((s, i) => {
-            if (i === plan.findIndex(p => p.status === 'pending')) {
-                return { ...s, status: 'in_progress' as const };
+            if (i === plan.findIndex(p => p.status === 'pending' || p.status === 'in_progress')) {
+                return { ...s, status: genHasToolCalls ? 'in_progress' as const : 'completed' as const };
             }
             return s;
         });
@@ -887,7 +894,7 @@ ${toolDigest}`;
     // ---------------------------------------------------------------------------
     // CONDITIONAL EDGES
     // ---------------------------------------------------------------------------
-    function shouldContinueFromGenerate(state: ReflectionState): "guard" | "reflect" | "final" {
+    function shouldContinueFromGenerate(state: ReflectionState): "guard" | "generate" | "reflect" | "final" {
         const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
         const { iterationCount } = state;
@@ -907,6 +914,18 @@ ${toolDigest}`;
             return "final";
         }
 
+        // Reflect-at-completion: a prose turn mid-plan is just a step that needed no
+        // tools (generateNode already marked it completed) — keep executing the
+        // remaining steps instead of spending an LLM review on every prose pass.
+        // Reflection runs ONCE, when the plan is exhausted. Terminates because each
+        // prose pass completes a step and iterationCount is hard-capped above.
+        const hasOpenSteps = state.plan.some(s => s.status === 'pending' || s.status === 'in_progress');
+        if (hasOpenSteps) {
+            console.log(`▶️ [Continue] Prose turn with open plan steps — continuing execution (no mid-run reflection).`);
+            return "generate";
+        }
+
+        console.log(`🔍 [Completion Check] Plan exhausted — running the single completion review.`);
         return "reflect";
     }
 
@@ -965,6 +984,7 @@ ${toolDigest}`;
 
         .addConditionalEdges("generate", shouldContinueFromGenerate, {
             guard: "guard",
+            generate: "generate",
             reflect: "reflect",
             final: "final"
         })
