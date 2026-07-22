@@ -4,6 +4,7 @@ import { getChatHistory } from '@/lib/agent/persistence';
 import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
 import { normalizeLegacyContent } from '@/lib/agent-chat/legacy-normalizer';
+import { reconstructAiContentParts } from '@/lib/agent-chat/ai-content-parts';
 import { humanizePlanning, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
 
 interface HistoryMessage {
@@ -114,12 +115,19 @@ function convertPlainMessage(msg: { role: string; content: string; metadata?: Re
     }
     if (role === 'ai') {
         const toolCalls = metadata?.tool_calls as Array<{ id?: string; name: string; args: Record<string, unknown> }> | undefined;
-        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
+        // Content-block arrays (extended-thinking) are reconstructed block-by-block; everything else keeps the marker path.
+        const reconstructed = reconstructAiContentParts(msg.content);
+        const parts: HistoryMessage['parts'] = reconstructed !== null
+            ? [...reconstructed]
+            : (content ? [...(buildPhaseParts(content) ?? [])] : []);
+        const displayContent = reconstructed !== null
+            ? reconstructed.filter((p) => p.type === 'text').map((p) => p.text).join('')
+            : content;
         for (const tc of toolCalls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args, state: 'call' });
         }
         if (parts.length === 0) return null;
-        return { id: `history-${index}`, role: 'assistant', content, parts };
+        return { id: `history-${index}`, role: 'assistant', content: displayContent, parts };
     }
     if (role === 'tool') {
         const toolCallId = metadata?.tool_call_id as string | undefined;
@@ -138,12 +146,18 @@ function convertMessage(msg: BaseMessage, index: number): HistoryMessage | null 
     }
     if (msgType === 'ai') {
         const aiMsg = msg as AIMessage;
-        const parts: HistoryMessage['parts'] = content ? [...(buildPhaseParts(content) ?? [])] : [];
+        const reconstructed = reconstructAiContentParts(aiMsg.content);
+        const parts: HistoryMessage['parts'] = reconstructed !== null
+            ? [...reconstructed]
+            : (content ? [...(buildPhaseParts(content) ?? [])] : []);
+        const displayContent = reconstructed !== null
+            ? reconstructed.filter((p) => p.type === 'text').map((p) => p.text).join('')
+            : (content || '');
         for (const tc of aiMsg.tool_calls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args as Record<string, unknown>, state: 'call' });
         }
         if (parts.length === 0) return null;
-        return { id: `history-${index}`, role: 'assistant', content: content || '', parts };
+        return { id: `history-${index}`, role: 'assistant', content: displayContent, parts };
     }
     if (msgType === 'tool') {
         const toolMsg = msg as ToolMessage;
