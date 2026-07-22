@@ -14,8 +14,8 @@ import { AccountChip, KbSection, ModelChip, SkillChip, ToolsSection, type Compos
 
 export type { ComposerContext } from "./composer-pickers";
 
-const MAX_CHARS = 2000;
-const CHAR_WARNING_THRESHOLD = 1800;
+const MAX_CHARS = 6000;
+const CHAR_WARNING_THRESHOLD = 5400;
 const TEXTAREA_MAX_HEIGHT_PX = 192; // matches max-h-48
 
 // Must stay in sync with the modes /api/chat accepts (fast | plan | deep) —
