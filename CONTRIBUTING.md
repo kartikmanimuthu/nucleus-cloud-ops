@@ -25,7 +25,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 ## Code of Conduct
 
 This project and everyone participating in it is governed by the
-[Nucleus Cloud Ops Code of Conduct](CODE_OF_CONDUCT.md).
+[Nucleus Ops Code of Conduct](CODE_OF_CONDUCT.md).
 By participating, you are expected to uphold this code. Please report unacceptable behavior
 to the project maintainers.
 
@@ -67,7 +67,7 @@ We use GitHub issues to track bugs and errors. If you run into an issue with the
 
 ### Suggesting Enhancements
 
-This section guides you through submitting an enhancement suggestion for Nucleus Cloud Ops, **including completely new features and minor improvements to existing functionality**. Following these guidelines will help maintainers and the community to understand your suggestion and find related suggestions.
+This section guides you through submitting an enhancement suggestion for Nucleus Ops, **including completely new features and minor improvements to existing functionality**. Following these guidelines will help maintainers and the community to understand your suggestion and find related suggestions.
 
 #### Before Submitting an Enhancement
 
@@ -84,7 +84,7 @@ Enhancement suggestions are tracked as [GitHub issues](/issues).
 - Provide a **step-by-step description of the suggested enhancement** in as many details as possible.
 - **Describe the current behavior** and **explain which behavior you expected to see instead** and why. At this point you can also tell which alternatives you do not like.
 - You may want to include **screenshots and animated GIFs** which help you demonstrate the steps or point out the part which the suggestion is related to.
-- **Explain why this enhancement would be useful** to most Nucleus Cloud Ops users. You may also want to point out the other projects that solved it better and which could serve as inspiration.
+- **Explain why this enhancement would be useful** to most Nucleus Ops users. You may also want to point out the other projects that solved it better and which could serve as inspiration.
 
 ### Your First Code Contribution
 
@@ -94,6 +94,71 @@ Enhancement suggestions are tracked as [GitHub issues](/issues).
 4. Commit your changes (`git commit -m 'Add some amazing feature'`)
 5. Push to the branch (`git push origin feature/amazing-feature`)
 6. Open a Pull Request
+
+#### Setting up your development environment
+
+Nucleus Ops is an **Nx 21 + Bun** monorepo. Requires Node.js 20+, Bun, and Docker.
+
+```bash
+bun install                            # single install at the root, hoists to all apps
+cp .env.example .env                   # one root .env, loaded by both apps
+docker compose up -d postgres          # local PostgreSQL with pgvector
+cd apps/web-ui && bun run db:migrate   # apply migrations
+```
+
+Run the two services (in separate terminals):
+
+```bash
+bun run dev            # web-ui on http://localhost:3001
+bun run dev:workers    # pg-boss background workers
+```
+
+#### Before opening a pull request
+
+Always invoke tasks through the root scripts so Nx caching and project graph work:
+
+```bash
+bun run lint           # ESLint across all projects
+bun run typecheck      # TypeScript, no emit
+bun run test           # Vitest (web-ui + workers) and Jest (root)
+bun run build          # verify both apps build
+bun run e2e            # Playwright E2E (starts the dev server automatically)
+```
+
+`bun run verify` runs typecheck, test, and build for **affected** projects only — a
+faster pre-push check on a focused change.
+
+> **Note:** the `web-ui` project currently has pre-existing `@typescript-eslint/no-explicit-any`
+> errors. Please don't add new ones, but don't feel obliged to fix unrelated ones in your PR.
+
+#### Repository layout
+
+| Path | Contains |
+|---|---|
+| `apps/web-ui/` | Next.js App Router — pages, API routes, services, LangGraph agents |
+| `apps/workers/` | pg-boss background jobs (scheduler, discovery, right-sizing, kb-sync) |
+| `apps/web-ui-e2e/` | Playwright end-to-end tests |
+| `libs/prisma/` | Prisma schema and migrations, shared by both apps |
+| `infra/` | Pulumi stacks (`networking` → `compute`) and CI/CD specs |
+| `docs/` | Architecture docs, PRDs, and screenshots |
+
+#### Conventions that will come up in review
+
+- **Data access:** never call Prisma directly from an API route or service — go through the
+  repository factory (`@/lib/db/repository-factory`).
+- **Multi-tenancy:** always scope queries with `getTenantClient(tenantId)`. `$executeRaw` is
+  *not* intercepted by the tenant extension — scope it manually.
+- **Authorization:** every mutating API route calls `authorize(action, Subject)` from
+  `@/lib/rbac/authorize`.
+- **Auditing:** anything that modifies an AWS resource must be logged via `AuditService`.
+- **Frontend:** server state uses TanStack Query hooks in `lib/queries/`, forms use React Hook
+  Form + Zod, toasts import `toast` from `sonner`. Don't hand-roll `useEffect` + `fetch`.
+- **UI primitives** in `components/ui/` are shadcn/ui-generated — consume them, don't modify them.
+- **Naming:** components are `kebab-case.tsx` exporting `PascalCase` named exports; services are
+  `kebab-case-service.ts`.
+
+Database schema changes go in `libs/prisma/schema.prisma`, followed by
+`bun run db:migrate` in `apps/web-ui` and `bun run db:generate` in **both** apps.
 
 ## Styleguides
 

@@ -126,11 +126,11 @@ new HumanMessage({
 ## Supported Models
 
 All models in the platform support multimodal:
-- ✅ Claude 4.5 Sonnet
-- ✅ Claude 4.5 Haiku
-- ✅ Claude 4.5 Opus
-- ✅ Claude 4.6 Sonnet
-- ✅ Claude 4.6 Opus
+- ✅ Claude Sonnet 4.5
+- ✅ Claude Haiku 4.5
+- ✅ Claude Opus 4.5
+- ✅ Claude Sonnet 4.6
+- ✅ Claude Opus 4.6
 - ✅ Nova 2 Lite
 
 ## Agent Compatibility
@@ -193,7 +193,7 @@ Covers:
 
 ### Token Usage
 - Images increase token consumption significantly
-- Claude 4.5 Sonnet: ~1,600 tokens per 1024x1024 image
+- Claude Sonnet 4.5: ~1,600 tokens per 1024x1024 image
 - Larger/more complex images = more tokens
 
 ### Response Time

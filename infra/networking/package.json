@@ -1,7 +1,7 @@
 {
   "name": "nucleus-networking",
   "version": "1.0.0",
-  "description": "Nucleus Cloud Ops — VPC and networking (Pulumi)",
+  "description": "Nucleus Ops — VPC and networking (Pulumi)",
   "main": "index.ts",
   "scripts": {
     "preview": "pulumi preview",

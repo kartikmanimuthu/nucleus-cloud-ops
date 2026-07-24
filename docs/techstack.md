@@ -1,4 +1,4 @@
-# Nucleus Cloud Ops — Tech Stack
+# Nucleus Ops — Tech Stack
 
 A multi-tenant **AWS Cloud Operations Platform**: multi-account resource scheduling + an AI Ops agent powered by AWS Bedrock. This document catalogs the full stack from a full-stack development standpoint, sourced from the live `package.json` manifests and `CLAUDE.md`.
 
@@ -10,9 +10,9 @@ A multi-tenant **AWS Cloud Operations Platform**: multi-account resource schedul
 |---|---|
 | Monorepo orchestrator | **Nx 21** (bare `nx` invoked from root npm scripts) |
 | Package manager / runtime | **Bun 1.2.12** (workspaces, single hoisted install) |
-| Node baseline | **Node.js 20.x** (`>=20.0.0`; Lambda requires 20+) |
-| Language | **TypeScript ~5.6.2** (infra/root) · `^5.7.2` (workers) · `^5` (web-ui) · `^5.0.0` (lambdas) |
-| Build bundlers | esbuild (scheduler Lambda), tsc (workers, kb_sync Lambda), Next webpack (web-ui), Pulumi (infra) |
+| Node baseline | **Node.js 20.x** (`>=20.0.0`) |
+| Language | **TypeScript ~5.6.2** (infra/root) · `^5.7.2` (workers) · `^5` (web-ui) |
+| Build bundlers | tsc (workers), Next webpack (web-ui), Pulumi (infra) |
 | Task visualization | `nx graph` |
 
 ---
@@ -27,7 +27,7 @@ A multi-tenant **AWS Cloud Operations Platform**: multi-account resource schedul
 | Component primitives | **Radix UI** (≈27 primitives: dialog, dropdown-menu, select, tabs, toast, tooltip, accordion, etc.) in shadcn/ui style; `class-variance-authority`, `clsx`, `tailwind-merge` (`cn()`), `cmdk`, `vaul`, `sonner`, `input-otp`, `embla-carousel-react`, `react-resizable-panels` |
 | Icons | **lucide-react** ^0.454.0 |
 | Tables | **TanStack React Table** ^8.21.3 |
-| Forms/validation | **react-hook-form** ^7.54.1 + `@hookform/resolvers` + **Zod** ^3.24.1 |
+| Forms/validation | **react-hook-form** ^7.54.1 + `@hookform/resolvers` + **Zod** ^4.0.0 |
 | Charts | **Recharts** (latest) |
 | Code editor | **Monaco** (`@monaco-editor/react` ^4.7.0) |
 | Docs/MDX | **fumadocs** (`fumadocs-core` ^14.7.7, `fumadocs-ui` ^14.7.7, `fumadocs-mdx` ^10.0.2) + `@mdx-js/react`, `remark-gfm`, `react-markdown` |
@@ -71,7 +71,7 @@ A multi-tenant **AWS Cloud Operations Platform**: multi-account resource schedul
 |---|---|
 | Agent orchestration | **LangGraph** ^1.2.0 + **LangChain** ^1.2.28 (`@langchain/core` ^1.1.39, `@langchain/aws` ^1.3.0, `@langchain/openai` ^1.3.0) |
 | Streaming hooks (UI) | **Vercel AI SDK** (`ai` ^5.0.115, `@ai-sdk/react`, `@ai-sdk/amazon-bedrock`, `@ai-sdk/anthropic`, `@ai-sdk/langchain`) |
-| LLM provider | **AWS Bedrock** — Claude 4.5 Sonnet |
+| LLM provider | **AWS Bedrock** — Claude Sonnet 4.6 (`anthropic.claude-sonnet-4-6`) |
 | MCP integration | `@modelcontextprotocol/sdk` ^1.26.0 |
 | Deep agent framework | `deepagents` ^1.8.1 |
 | Observability | **Langfuse** (`langfuse-langchain` ^3.38.6) |
@@ -84,7 +84,7 @@ A multi-tenant **AWS Cloud Operations Platform**: multi-account resource schedul
 | Concern | Choice |
 |---|---|
 | Worker process | Single Node process via **pg-boss** (`pg-boss` ^10.1.5) |
-| Jobs | scheduler/, discovery/, kb-sync/ |
+| Jobs | scheduler/, discovery/, right-sizing/, kb-sync/, agent-ops-scheduler/, certificate-expiry-monitor/ |
 | AWS SDK | **AWS SDK v3** — ~30 service clients across web-ui + workers (EC2, ECS, RDS, S3, SQS, STS, EventBridge, CloudWatch, IAM, Cognito, Lambda, ACM, WAFv2, EKS, EFS, Elasticache, CodePipeline, Secrets Manager, SSM, Backup, etc.) |
 | Cross-account | STS `AssumeRole` exclusively (never hardcoded creds) |
 | Concurrency | `p-limit` ^7.3.0 |
@@ -93,14 +93,20 @@ A multi-tenant **AWS Cloud Operations Platform**: multi-account resource schedul
 
 ---
 
-## AWS Lambda Functions (`lambda/`)
+## Background Jobs (`apps/workers/src/jobs/`)
 
-| Function | Language | Build | Tests |
-|---|---|---|---|
-| `scheduler/` | TypeScript ^5.7.2 | esbuild | Vitest ^2.1.8 |
-| `discovery/` | Python 3.12 (boto3, pyiceberg, pyarrow, pandas) | — | — |
-| `vector_processor/` | Python + TypeScript | — | — |
-| `kb_sync_processor/` | TypeScript ^5.0.0 | tsc | — |
+There are **no AWS Lambda functions** in this repository. The former Lambdas were migrated
+to pg-boss jobs that run inside the `workers` ECS service, and the Python discovery
+function was rewritten in TypeScript.
+
+| Job | Purpose |
+|---|---|
+| `scheduler/` | Evaluates schedules and starts/stops resources across accounts |
+| `discovery/` | Multi-account, multi-region resource scan (AWS SDK v3) |
+| `right-sizing/` | CloudWatch-based recommendations + weekly pricing refresh |
+| `kb-sync/` | Knowledge-base ingestion and embedding (S3, Bitbucket, Confluence) |
+| `agent-ops-scheduler/` | Fires scheduled autonomous agent runs |
+| `certificate-expiry-monitor/` | Flags ACM certificates nearing expiry |
 
 ---
 
@@ -109,7 +115,7 @@ A multi-tenant **AWS Cloud Operations Platform**: multi-account resource schedul
 | Stack | Manages | Libs |
 |---|---|---|
 | `infra/networking` | VPC, subnets, subnet groups | `@pulumi/pulumi` ^3.228, `@pulumi/aws` ^7.23, `@pulumi/awsx` ^3.3.1 |
-| `infra/compute` | ECS Fargate, RDS PostgreSQL, Cognito, CloudFront, Lambda, SQS, EventBridge, S3 | `@pulumi/pulumi`, `@pulumi/aws`, `@pulumi/awsx` ^3.4, `@pulumi/command` ^1.2.1, `@pulumi/random` ^4.19.1 |
+| `infra/compute` | ECS Fargate (web-ui + workers), RDS PostgreSQL, Cognito, CloudFront, S3 (no Lambda) | `@pulumi/pulumi`, `@pulumi/aws`, `@pulumi/awsx` ^3.4, `@pulumi/command` ^1.2.1, `@pulumi/random` ^4.19.1 |
 
 Deploy order: **networking → compute**. State backend: S3 (`s3://nucleus-pulumi-state`), secrets via KMS (`awskms://alias/pulumi-secrets`). Prod profile: `PLATFORM-ADMIN`.
 
@@ -121,7 +127,6 @@ Deploy order: **networking → compute**. State backend: S3 (`s3://nucleus-pulum
 |---|---|
 | Unit — web-ui | **Vitest** ^4.0.18 + `@vitest/coverage-v8` |
 | Unit — workers | **Vitest** ^2.1.8 |
-| Unit — scheduler Lambda | Vitest ^2.1.8 (own setup) |
 | Unit — root | Jest ^29.7.0 + ts-jest ^29.2.5 |
 | Property-based | `fast-check` ^4.5.3 |
 | E2E browser | **Playwright** ^1.58.2 (`apps/web-ui-e2e/`, `implicitDependencies: ["web-ui"]`, `webServer` auto-starts `bun run dev` on :3001) |
@@ -141,10 +146,10 @@ Deploy order: **networking → compute**. State backend: S3 (`s3://nucleus-pulum
 
 | Concern | Choice |
 |---|---|
-| Container runtime | **ECS Fargate** (web-ui on `node:20.9.0-slim` + AWS Lambda Web Adapter 0.8.4) |
+| Container runtime | **ECS Fargate** — two services: `web-ui` and `workers`, both on `node:20-slim` |
 | Image build | Dockerfile installs with Bun, builds under `node:20-slim` via `npm run build` (real Node + fresh `.next`) |
 | CDN | **AWS CloudFront** in front of ALB + S3 — https://d11lr8aqp8vqde.cloudfront.net |
-| Compute Lambdas | scheduler (EventBridge cron every 30 min), discovery, vector_processor, kb_sync_processor |
+| Background jobs | pg-boss jobs in the `workers` service (per-tenant cron); no AWS Lambda |
 | Audit | Every AWS-mutating action logged via `AuditService` (`audit_log` table, 30-day TTL) |
 
 ---
