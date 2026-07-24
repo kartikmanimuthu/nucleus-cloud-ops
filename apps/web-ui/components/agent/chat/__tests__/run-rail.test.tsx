@@ -13,6 +13,7 @@ const EMPTY_RUN_STATE: RunState = {
   pendingClarifications: [],
   hasStructuredData: false,
   hasApprovalData: false,
+  tokenUsage: { input: 0, output: 0 },
 }
 
 const CONTEXT = { accountNames: [], modelLabel: '', skillName: null, toolCount: null, kbLabel: 'No knowledge base' }

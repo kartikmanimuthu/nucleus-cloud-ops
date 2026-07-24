@@ -5,6 +5,7 @@ import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
 import { normalizeLegacyContent } from '@/lib/agent-chat/legacy-normalizer';
 import { reconstructAiContentParts } from '@/lib/agent-chat/ai-content-parts';
+import { parseUsageMetadata } from '@/lib/agent-chat/token-usage';
 import { humanizePlanning, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
 
 interface HistoryMessage {
@@ -125,6 +126,10 @@ function convertPlainMessage(msg: { role: string; content: string; metadata?: Re
             : content;
         for (const tc of toolCalls ?? []) {
             parts.push({ type: 'tool-invocation', toolCallId: tc.id ?? `tool-${index}-${tc.name}`, toolName: tc.name, args: tc.args, state: 'call' });
+        }
+        const usage = parseUsageMetadata(metadata?.usage_metadata);
+        if (usage && parts.length > 0) {
+            parts.push({ type: 'data-usage', data: { input: usage.input, output: usage.output } });
         }
         if (parts.length === 0) return null;
         return { id: `history-${index}`, role: 'assistant', content: displayContent, parts };
