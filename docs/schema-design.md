@@ -1,5 +1,9 @@
 # DynamoDB Schema Design - Nucleus Platform
 
+> **⚠️ Historical document.** This describes the original DynamoDB single-table design,
+> which has been **fully replaced by PostgreSQL + Prisma**. It is kept for context on the
+> migration only. The current data model is `libs/prisma/schema.prisma`.
+
 ## 1. Overview
 The platform utilizes two distinct DynamoDB tables:
 1.  **NucleusAppTable**: Stores configuration logic (Accounts, Schedules, Mappings) using Single Table Design.

@@ -1,4 +1,4 @@
-# Nucleus Cloud Ops — CI/CD Pipeline
+# Nucleus Ops — CI/CD Pipeline
 
 AWS CodePipeline that builds, previews, and deploys the Pulumi infrastructure on every push to `master-v1`.
 

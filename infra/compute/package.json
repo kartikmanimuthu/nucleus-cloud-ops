@@ -1,7 +1,7 @@
 {
   "name": "nucleus-compute",
   "version": "1.0.0",
-  "description": "Nucleus Cloud Ops — ECS, Lambda, DynamoDB, Cognito, CloudFront (Pulumi)",
+  "description": "Nucleus Ops — ECS, RDS PostgreSQL, Cognito, CloudFront (Pulumi)",
   "main": "index.ts",
   "scripts": {
     "preview": "pulumi preview",

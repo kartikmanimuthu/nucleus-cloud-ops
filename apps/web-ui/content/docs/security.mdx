@@ -1,0 +1,71 @@
+---
+title: Security Model
+description: How Nucleus Ops handles AWS credentials, tenant isolation, authorization, and agent actions.
+---
+
+Nucleus Ops is designed to be given access to production AWS accounts, so it's worth being explicit about what it does and does not do with that access. If you are evaluating whether to run this, read this page first.
+
+## AWS credentials
+
+**Nucleus Ops never stores credentials for the AWS accounts it manages.**
+
+Access works through `sts:AssumeRole`. Each connected account grants a role that the Nucleus Ops task role is allowed to assume; at request time the platform assumes it, receives short-lived credentials, performs the operation, and discards them. There are no access keys for target accounts anywhere in the database, environment, or logs.
+
+Practical consequences:
+
+- Revoking access is a one-line IAM change in the target account — no coordination needed.
+- The blast radius of a compromised Nucleus Ops instance is bounded by the trust policies and permissions of the roles you granted.
+- **Scope the role to what you actually need.** If you only want inventory and right-sizing, grant read-only permissions. The scheduler needs start/stop permissions; nothing needs delete.
+
+The CloudFormation template for the role is generated in-app under **AWS Accounts → Integrate Account** — read it before you deploy it.
+
+## Authentication
+
+Authentication is handled by NextAuth.js, backed by AWS Cognito (with an optional credentials provider for local development). Sessions are JWT-based with configurable expiry. Because you self-host, your user directory never leaves your environment.
+
+## Authorization (RBAC)
+
+Every mutating API route calls `authorize(action, Subject)` before doing anything. Authorization uses CASL and is **module-scoped**: a role grants an action (`read`, `create`, `update`, `delete`) on a subject (`Account`, `Schedule`, `Skill`, `RightSizing`, …), and subjects map to product modules.
+
+Roles are assigned per tenant, so the same user can be an admin in one organisation and a viewer in another.
+
+## Tenant isolation
+
+Nucleus Ops is multi-tenant. All tenants share tables and are separated by a `tenant_id` column, enforced in the data-access layer rather than by convention:
+
+```typescript
+const db = getTenantClient(tenantId);
+await db.account.findMany();   // automatically scoped: WHERE tenant_id = tenantId
+```
+
+<Callout type="warn">
+`$executeRaw` bypasses the tenant extension. Raw SQL must add `WHERE tenant_id = $1`
+manually. If you are auditing this codebase or contributing to it, raw SQL is the first
+place to look.
+</Callout>
+
+Agent memory is deliberately **shared within a tenant** — a lesson learned by one user is available to their teammates. It is never shared across tenants.
+
+## Agent actions
+
+The AI agent can call tools that change real infrastructure, so it is gated:
+
+- **Approval by default.** Mutating tool calls pause and wait for a human decision. Auto-approve exists but is opt-in, per session.
+- **Everything is audited.** Any action that touches an AWS resource is written to the audit log with the actor, target, and outcome.
+- **Tool access is filtered.** Only enabled Skills, MCP servers, and knowledge bases are reachable at runtime — disabling one removes it from the agent's options, not just from the picker.
+- **Autonomous skills need a human.** Skills synthesised from learned rules are created read-only and require explicit approval; disabling a skill acts as a veto.
+
+## Encryption and secrets
+
+- RDS PostgreSQL is encrypted at rest with AWS KMS; S3 buckets use server-side encryption.
+- Application secrets live in AWS Secrets Manager; Pulumi state is encrypted with a KMS key.
+- Provider credentials stored by the platform (for example LLM provider keys) are encrypted with AES-GCM before being written.
+- Secrets shown in settings are masked by default; revealing one requires the right permission and writes an audit entry.
+
+## Auditing
+
+The audit log is append-only and records user and system actions with severity, actor, target resource, and result. It supports filtering and CSV export for compliance reviews.
+
+## Reporting a vulnerability
+
+Please **do not** open a public GitHub issue. Report privately via GitHub Security Advisories or email — see [SECURITY.md](https://github.com/kartikmanimuthu/nucleus-cloud-ops/blob/master-v1/SECURITY.md) for the process and response times.

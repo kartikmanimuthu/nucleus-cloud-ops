@@ -1,65 +1,132 @@
 ---
 title: Installation
-description: Deploy Nucleus Ops to your AWS environment using CDK or run it locally.
+description: Run Nucleus Ops locally, or deploy it to your own AWS account with Pulumi.
 ---
 
-## Option A: Run Locally
+Nucleus Ops is a Bun + Nx monorepo containing two deployable services:
+
+- **`web-ui`** — the Next.js app (UI, REST API, and the LangGraph AI agents)
+- **`workers`** — the pg-boss background job runner (scheduling, discovery, right-sizing, knowledge-base sync)
+
+Both share one PostgreSQL database and one root `.env` file.
+
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| Node.js 20+ | The container images run Node 20 |
+| [Bun](https://bun.sh) | Workspace package manager and Nx task runner |
+| Docker | For the local PostgreSQL (pgvector) instance |
+| AWS CLI + a named profile | Needs access to Amazon Bedrock |
+| [Pulumi CLI](https://www.pulumi.com/docs/install/) | Only for deploying to AWS |
+
+## Option A: Run locally
 
 ```bash
 git clone https://github.com/kartikmanimuthu/nucleus-cloud-ops.git
 cd nucleus-cloud-ops
 
-npm install
-cd web-ui && npm install
+# Install once at the root — Bun workspaces hoist to every app
+bun install
 
-cp web-ui/.env.local.example web-ui/.env.local
-# Edit .env.local with your settings
+# Single root .env, loaded by both apps
+cp .env.example .env
 
-cd web-ui
-AWS_PROFILE=your-profile npm run dev
+# Start PostgreSQL with the pgvector extension
+docker compose up -d postgres
+
+# Create the schema
+cd apps/web-ui && bun run db:migrate && cd ../..
+
+# Run the app and the workers in separate terminals
+bun run dev            # http://localhost:3001
+bun run dev:workers
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3001](http://localhost:3001).
 
-## Option B: Deploy to AWS with CDK
+<Callout>
+`bun install` runs `prisma generate` automatically. After changing
+`libs/prisma/schema.prisma`, re-run `bun run db:generate` inside both
+`apps/web-ui` and `apps/workers`.
+</Callout>
 
-### Prerequisites
+### Environment variables
 
-```bash
-npm install -g aws-cdk
-```
-
-### Deploy
-
-```bash
-# Bootstrap CDK (first time only)
-npx cdk bootstrap --profile your-profile
-
-# Deploy all stacks
-npx cdk deploy --all --profile your-profile
-```
-
-This deploys:
-- **NetworkingStack** — VPC, subnets, security groups
-- **ComputeStack** — ECS Fargate, ALB, CloudFront
-- **WebUIStack** — Next.js app container
-
-### Environment Variables
+The full annotated list lives in `.env.example`. The minimum needed to boot:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `AWS_REGION` | ✅ | AWS region (e.g. `ap-south-1`) |
-| `DYNAMODB_TABLE_NAME` | ✅ | Main DynamoDB table |
-| `DYNAMODB_AUDIT_TABLE_NAME` | ✅ | Audit log table |
-| `NEXTAUTH_SECRET` | ✅ | Random secret for NextAuth |
-| `NEXTAUTH_URL` | ✅ | Your app URL |
-| `DYNAMODB_CHECKPOINT_TABLE` | Optional | AI agent checkpoints |
-| `TAVILY_API_KEY` | Optional | Web search for AI agent |
+| `DATABASE_URL` | ✅ | PostgreSQL connection string. Append `?connection_limit=10` in production. |
+| `AWS_REGION` | ✅ | Primary AWS region (e.g. `ap-south-1`) |
+| `NEXTAUTH_SECRET` | ✅ | Random secret used to sign session JWTs |
+| `NEXTAUTH_URL` | ✅ | Base URL of the app (e.g. `http://localhost:3001`) |
+| `COGNITO_USER_POOL_ID` | ✅ | Cognito user pool for authentication |
+| `COGNITO_APP_CLIENT_ID` | ✅ | Cognito app client ID |
+| `COGNITO_APP_CLIENT_SECRET` | ✅ | Cognito app client secret |
+| `ASK_AI_GENERATION_MODEL` | — | Bedrock model for the agent (defaults to Claude Sonnet 4.6) |
+| `BEDROCK_MODEL_ID` | — | Embedding model (must be 1024-dimensional) |
+| `TAVILY_API_KEY` | — | Enables the agent's web-search tool |
+| `LANGFUSE_*` | — | Optional LLM observability |
+
+## Option B: Deploy to AWS with Pulumi
+
+Infrastructure lives in two Pulumi stacks. **Networking must be deployed before compute** — the compute stack imports its VPC and subnet outputs.
+
+```bash
+# Install stack dependencies (first time only)
+cd infra/networking && npm install && pulumi install
+cd ../compute      && npm install && pulumi install
+```
+
+Preview before you apply:
+
+```bash
+cd infra/compute && AWS_PROFILE=your-profile pulumi preview --stack prod
+```
+
+Then deploy, in order:
+
+```bash
+cd infra/networking && AWS_PROFILE=your-profile pulumi up --stack prod --yes
+cd ../compute       && AWS_PROFILE=your-profile pulumi up --stack prod --yes
+```
+
+This provisions:
+
+- **networking** — VPC, public/private subnets, and subnet groups
+- **compute** — ECS Fargate cluster running the `web-ui` and `workers` services, RDS PostgreSQL, Cognito, S3, and CloudFront
+
+`pulumi up` hashes the source directories and uses the digest as the image tag, so changing `apps/web-ui/`, `apps/workers/`, or `libs/prisma/` automatically rebuilds the affected Docker image, pushes it to ECR, registers a new ECS task definition, and rolls out the service. Database migrations run on container start via the entrypoint.
+
+<Callout type="warn">
+There are no AWS Lambda functions in this project. Everything that used to be a
+Lambda — scheduling, discovery, knowledge-base sync — now runs as a pg-boss job
+inside the `workers` ECS service.
+</Callout>
+
+### Verify the deployment
+
+```bash
+cd infra/compute && AWS_PROFILE=your-profile pulumi stack output --stack prod
+```
+
+1. The CloudFront URL from the stack output returns HTTP 200
+2. Both ECS services show `running == desired` task counts
+3. No errors in the CloudWatch task logs for the five minutes after rollout
+
+### Rollback
+
+```bash
+git revert HEAD
+cd infra/compute && AWS_PROFILE=your-profile pulumi up --stack prod
+```
 
 ## Docker
 
+The `web-ui` image installs dependencies with Bun and builds under `node:20-slim`. The runtime must be Node, not Bun — stdio-based MCP servers require `node`/`npx` on the PATH.
+
 ```bash
-cd web-ui
-docker build -t nucleus-ops .
-docker run -p 3000:3000 --env-file .env.local nucleus-ops
+docker build -f apps/web-ui/Dockerfile -t nucleus-ops-web .
+docker run -p 3000:3000 --env-file .env nucleus-ops-web
 ```

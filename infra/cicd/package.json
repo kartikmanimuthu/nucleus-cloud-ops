@@ -1,7 +1,7 @@
 {
   "name": "nucleus-cicd",
   "version": "1.0.0",
-  "description": "Nucleus Cloud Ops — CodePipeline CI/CD (Pulumi)",
+  "description": "Nucleus Ops — CodePipeline CI/CD (Pulumi)",
   "main": "index.ts",
   "scripts": {
     "preview": "pulumi preview",
