@@ -9,7 +9,7 @@ import { triageChatMessage } from '@/lib/agent/triage';
 import { respondDirect } from './direct-chat';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
-import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
+import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, buildUsagePart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
 
@@ -707,6 +707,8 @@ function processStream(
             // annotate persisted AI messages with phase markers for history replay.
             const phaseList: AgentPhase[] = [];
 
+            const runUsage = { input: 0, output: 0 };
+
             // Flag to track if we're resuming from a HITL approval
             // and need to use the original toolCallId
             let isResumedFromApproval = !!resumedToolCallId;
@@ -930,6 +932,16 @@ function processStream(
                             }
                         }
                         else if (event.event === "on_chat_model_end") {
+                            const endUsage = (event.data?.output as { usage_metadata?: { input_tokens?: number; output_tokens?: number } } | undefined)?.usage_metadata;
+                            if (endUsage) {
+                                const inTok = Number(endUsage.input_tokens) || 0;
+                                const outTok = Number(endUsage.output_tokens) || 0;
+                                if (inTok || outTok) {
+                                    runUsage.input += inTok;
+                                    runUsage.output += outTok;
+                                    safeEnqueue(buildUsagePart(inTok, outTok) as UIMessageChunk);
+                                }
+                            }
                             if (streamStarted) {
                                 if (!safeEnqueue({ type: 'text-end', id: currentPartId })) break;
                                 streamStarted = false;
@@ -1217,6 +1229,18 @@ function processStream(
                                 }
                                 return { role, content, metadata: Object.keys(metadata).length ? metadata : undefined };
                             });
+
+                            if (runUsage.input || runUsage.output) {
+                                for (let i = mapped.length - 1; i >= 0; i--) {
+                                    if (mapped[i].role === 'ai') {
+                                        mapped[i].metadata = {
+                                            ...(mapped[i].metadata ?? {}),
+                                            usage_metadata: { input_tokens: runUsage.input, output_tokens: runUsage.output },
+                                        };
+                                        break;
+                                    }
+                                }
+                            }
 
                             // Insert display-only memory messages so history matches the live view.
                             // Phase markers are prepended here (these aren't graph-state messages, so

@@ -12,6 +12,10 @@ export function buildPhasePart(phase: string, node: string): DataPart {
     return { type: 'data-phase', data: { phase, node, ts: Date.now() } };
 }
 
+export function buildUsagePart(input: number, output: number): DataPart {
+    return { type: 'data-usage', data: { input, output } };
+}
+
 /**
  * One data-memory part per memory model run (recall or save). `count` is the
  * number of markdown bullet lines in the accumulated summary (matches
