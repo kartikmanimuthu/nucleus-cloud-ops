@@ -74,6 +74,6 @@ export default withAuth(
 
 export const config = {
     matcher: [
-        "/((?!api/auth|api/health|api/v1/trigger|_next/static|_next/image|favicon.ico|placeholder.*|smc-global-securities-logo.jpg|login|signup).*)",
+        "/((?!api/auth|api/health|api/v1/trigger|api/v1/gateway|_next/static|_next/image|favicon.ico|placeholder.*|smc-global-securities-logo.jpg|login|signup).*)",
     ],
 };

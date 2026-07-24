@@ -30,7 +30,7 @@ export interface GatewayMessage {
 
 export interface ReplyContext {
     runId: string;
-    action: 'clarification_response' | 'approve' | 'reject';
+    action: 'clarification_response' | 'approve' | 'reject' | 'reset';
     content?: string;
     tenantId?: string;
 }
@@ -86,6 +86,12 @@ export interface ChannelAdapter {
      * from TenantConfig via run.tenantId. Implementations must never throw.
      */
     sendScheduledNotification?(task: ScheduledTask, run: AgentOpsRun, outcome: ScheduledOutcome): Promise<void>;
+
+    /**
+     * Confirm to a channel that its conversation was reset (e.g. Telegram /new).
+     * Optional — only channels with a persistent per-chat conversation implement it.
+     */
+    sendSessionReset?(tenantId: string, chatId: number): Promise<void>;
 
     getConfig(tenantId: string): Promise<Record<string, unknown>>;
 }
