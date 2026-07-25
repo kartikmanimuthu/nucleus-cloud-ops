@@ -1841,7 +1841,7 @@ export function AiopsSubagentSettings() {
 
       <Button type="submit" disabled={saveMutation.isPending || !platformEnabled}>
         {saveMutation.isPending ? (
-          <Spinner className="h-4 w-4 mr-2" />
+          <Spinner size="sm" className="mr-2" />
         ) : (
           <Save className="h-4 w-4 mr-2" />
         )}
