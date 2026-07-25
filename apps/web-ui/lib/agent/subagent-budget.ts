@@ -3,7 +3,7 @@
  *
  * web-ui runs as a SHARED ECS task, so these limits cannot be purely
  * tenant-controlled: one tenant setting concurrency to 50 would saturate the
- * container's event loop for every co-tenant and flood their Bedrock quota.
+ * container's event loop for every co-tenant and flood their LLM provider quota.
  * Env vars are therefore CEILINGS, not overrides:
  *
  *     effective = clamp(tenantConfig ?? default, MIN, envCeiling)
@@ -100,6 +100,12 @@ export function validateBudgetInput(input: unknown): string | null {
 
     for (const key of Object.keys(BOUNDS_SPEC) as NumericKey[]) {
         if (body[key] === undefined) continue;
+        // Type-check BEFORE coercing: this function is the trust boundary for the
+        // PUT /api/settings/aiops route, and Number() would silently accept
+        // `true` as 1 or "3" as 3.
+        if (typeof body[key] !== 'number') {
+            return `${key} must be a number`;
+        }
         const spec = BOUNDS_SPEC[key];
         const value = Number(body[key]);
         const ceiling = ceilingFor(key);

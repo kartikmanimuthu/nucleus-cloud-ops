@@ -63,6 +63,15 @@ describe('clampBudget', () => {
         process.env.SUBAGENT_MAX_CONCURRENCY = '2';
         expect(clampBudget({ maxConcurrentSubagents: 6 }).maxConcurrentSubagents).toBe(2);
     });
+
+    it('IGNORES an env ceiling above the built-in max', () => {
+        // The load-bearing multi-tenant isolation invariant: web-ui is a shared
+        // ECS task, so no operator misconfiguration may let a tenant exceed the
+        // hard cap and saturate the box for co-tenants.
+        process.env.SUBAGENT_MAX_CONCURRENCY = '100';
+        expect(clampBudget({ maxConcurrentSubagents: 100 }).maxConcurrentSubagents)
+            .toBe(BUDGET_BOUNDS.maxConcurrentSubagents.max);
+    });
 });
 
 describe('resolveSubagentBudget', () => {
@@ -112,6 +121,17 @@ describe('validateBudgetInput', () => {
 
     it('rejects an out-of-range number with a message naming the field', () => {
         expect(validateBudgetInput({ enabled: true, maxConcurrentSubagents: 999 }))
+            .toMatch(/maxConcurrentSubagents/);
+    });
+
+    it('rejects non-number types rather than coercing them', () => {
+        // This function guards the PUT /api/settings/aiops trust boundary, so it
+        // must not accept `true` as 1 or "3" as 3.
+        expect(validateBudgetInput({ enabled: true, maxConcurrentSubagents: true }))
+            .toMatch(/maxConcurrentSubagents/);
+        expect(validateBudgetInput({ enabled: true, maxConcurrentSubagents: '3' }))
+            .toMatch(/maxConcurrentSubagents/);
+        expect(validateBudgetInput({ enabled: true, maxConcurrentSubagents: null }))
             .toMatch(/maxConcurrentSubagents/);
     });
 });
