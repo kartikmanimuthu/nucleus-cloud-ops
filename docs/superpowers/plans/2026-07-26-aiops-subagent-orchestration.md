@@ -334,6 +334,82 @@ write atomically via rename, and cache profiles with refresh-on-near-expiry
 so fan-out does not multiply AssumeRole calls."
 ```
 
+- [ ] **Step 9: Make profile names collision-proof**
+
+Added after Task 3 surfaced this as an intermittent failure of Step 1's
+"re-assumes when the cached profile is near expiry" test (roughly 1 run in 3).
+
+`generateProfileName` derives the name from `Date.now()` alone:
+
+```typescript
+function generateProfileName(accountId: string): string {
+    const timestamp = Date.now();
+    return `${PROFILE_PREFIX}${accountId}_${timestamp}`;
+}
+```
+
+Two profiles for the same account created within the same millisecond therefore
+get **identical names**, and the second silently overwrites the first's section in
+the credentials file — the same lost-profile bug class this task exists to remove,
+just reached by a different route. The mutex cannot help: each call is individually
+serialized and still produces a colliding name. Parallel fan-out (Task 3) and
+parallel sub-agents (Task 8) make same-millisecond creation routine rather than
+theoretical.
+
+Replace it with:
+
+```typescript
+function generateProfileName(accountId: string): string {
+    // Date.now() alone collides when two profiles for one account are created in
+    // the same millisecond — which parallel get_aws_credentials calls do routinely.
+    // A colliding name means the second profile overwrites the first's section and
+    // the first caller's handle silently points at someone else's credentials.
+    return `${PROFILE_PREFIX}${accountId}_${Date.now()}_${randomUUID().slice(0, 8)}`;
+}
+```
+
+`randomUUID` is already imported at the top of the file from Step 3.
+
+Add this regression test to `session-manager.test.ts`, inside the
+`describe('createSessionProfile concurrency', ...)` block:
+
+```typescript
+    it('gives every profile a unique name even within the same millisecond', async () => {
+        // 50 back-to-back creations for ONE account will land many in the same ms.
+        const profiles = await Promise.all(
+            Array.from({ length: 50 }, () => createSessionProfile('999999999999', creds(), TENANT)),
+        );
+
+        const names = new Set(profiles.map(p => p.profileName));
+        expect(names.size).toBe(50);
+
+        // And every one of them must actually be present in the file.
+        const contents = await fs.readFile(getTenantCredentialsFilePath(TENANT), 'utf-8');
+        for (const name of names) {
+            expect(contents).toContain(`[${name}]`);
+        }
+    });
+```
+
+Run: `cd apps/web-ui && bunx vitest run lib/agent/session-manager.test.ts` — expect 6/6.
+
+Then run it **five times in a row** and confirm 6/6 every time; the bug this fixes
+is intermittent, so a single green run proves nothing:
+
+```bash
+cd apps/web-ui && for i in 1 2 3 4 5; do bunx vitest run lib/agent/session-manager.test.ts 2>&1 | grep -E "^ +Tests "; done
+```
+
+```bash
+git add apps/web-ui/lib/agent/session-manager.ts apps/web-ui/lib/agent/session-manager.test.ts
+git commit -m "fix(agent): make session profile names collision-proof
+
+Date.now() alone collides when two profiles for one account are created in the
+same millisecond, so the second silently overwrote the first's section — the
+same lost-profile bug the mutex was added to prevent, reached by a different
+route. Surfaced as an intermittent test failure once parallel tool calls landed."
+```
+
 ---
 
 ### Task 2: Per-run timing summary
@@ -730,20 +806,21 @@ export class Semaphore {
     }
 
     async run<T>(fn: () => Promise<T>): Promise<T> {
-        await this.acquire();
+        // Deliberately NOT `await this.acquire()` here: awaiting any promise —
+        // even one already resolved — yields a microtask before continuing, so
+        // a caller that finds a free slot would still run `fn` one tick late.
+        // Callers (and this file's own tests) rely on a free slot starting
+        // `fn` synchronously within the `run()` call.
+        if (this.available > 0) {
+            this.available--;
+        } else {
+            await new Promise<void>(resolve => this.waiters.push(resolve));
+        }
         try {
             return await fn();
         } finally {
             this.release();
         }
-    }
-
-    private acquire(): Promise<void> {
-        if (this.available > 0) {
-            this.available--;
-            return Promise.resolve();
-        }
-        return new Promise<void>(resolve => this.waiters.push(resolve));
     }
 
     private release(): void {
