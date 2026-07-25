@@ -1995,6 +1995,16 @@ describe('isReadOnlyForSubagent', () => {
     it('blocks ask_user — no human is reachable inside a tool call', () => {
         expect(isReadOnlyForSubagent('ask_user').allowed).toBe(false);
     });
+
+    it('blocks denylisted tools regardless of case', () => {
+        // classifyTool lowercases internally, so once dispatch_agent joins its
+        // READ_ONLY_ALLOWLIST (Task 8) a case-sensitive denylist would let
+        // "Dispatch_Agent" through as allowlisted-read-only — re-enabling
+        // sub-agent recursion. Pin the lowercasing.
+        for (const name of ['Dispatch_Agent', 'DISPATCH_AGENT', 'Ask_User', 'ASK_USER']) {
+            expect(isReadOnlyForSubagent(name).allowed).toBe(false);
+        }
+    });
 });
 
 describe('filterReadOnlyTools', () => {
@@ -2172,7 +2182,12 @@ export function isReadOnlyForSubagent(
     name: string,
     args?: Record<string, unknown>,
 ): { allowed: boolean; reason: string } {
-    if (SUBAGENT_TOOL_DENYLIST.has(name)) {
+    // Lowercased: classifyTool() lowercases internally, so once Task 8 adds
+    // dispatch_agent to its READ_ONLY_ALLOWLIST a case variant like
+    // "Dispatch_Agent" would miss a case-SENSITIVE denylist and then be waved
+    // through as allowlisted-read-only. The tool-name lookup below would still
+    // catch it, but a safety boundary must not depend on its own backstop.
+    if (SUBAGENT_TOOL_DENYLIST.has(name.toLowerCase())) {
         return { allowed: false, reason: `${name} is not available to sub-agents` };
     }
 
