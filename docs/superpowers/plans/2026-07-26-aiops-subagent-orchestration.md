@@ -1632,7 +1632,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Bot, Gauge, Loader2, Save } from 'lucide-react';
+import { Bot, Gauge, Save } from 'lucide-react';
 
 import {
   useAiopsSubagentSettings,
@@ -1729,6 +1729,12 @@ export function AiopsSubagentSettings() {
   const platformEnabled = data?.platformEnabled ?? false;
   const bounds = data?.bounds;
 
+  // Zod rejects a blank number input as NaN before onSubmit ever runs. Without an
+  // invalid handler the click is a silent no-op with zero feedback, so surface it.
+  const onInvalid = () => {
+    toast.error('Some values are invalid — check the highlighted fields.');
+  };
+
   const onSubmit = async (values: FormValues) => {
     // Bounds are enforced server-side too; this only produces a friendlier message.
     for (const field of FIELDS) {
@@ -1748,7 +1754,7 @@ export function AiopsSubagentSettings() {
   };
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="flex-1 max-w-3xl mx-auto space-y-6">
+    <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="flex-1 max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Sub-Agents</h1>
         <p className="text-muted-foreground mt-1">
@@ -1761,8 +1767,8 @@ export function AiopsSubagentSettings() {
       {!platformEnabled && (
         <Alert>
           <AlertDescription>
-            Sub-agents are disabled for this deployment. These settings are saved but will not take
-            effect until an administrator enables the feature.
+            Sub-agents are disabled for this deployment, so these settings are read-only. An
+            administrator must enable the feature before they can be changed.
           </AlertDescription>
         </Alert>
       )}
@@ -1822,6 +1828,11 @@ export function AiopsSubagentSettings() {
                     Allowed: {bound.min}–{bound.max}. Default {bound.default}.
                   </p>
                 )}
+                {form.formState.errors[field.name] && (
+                  <p className="text-xs text-destructive">
+                    Enter a whole number between {bound?.min} and {bound?.max}.
+                  </p>
+                )}
               </div>
             );
           })}
@@ -1830,7 +1841,7 @@ export function AiopsSubagentSettings() {
 
       <Button type="submit" disabled={saveMutation.isPending || !platformEnabled}>
         {saveMutation.isPending ? (
-          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          <Spinner className="h-4 w-4 mr-2" />
         ) : (
           <Save className="h-4 w-4 mr-2" />
         )}
