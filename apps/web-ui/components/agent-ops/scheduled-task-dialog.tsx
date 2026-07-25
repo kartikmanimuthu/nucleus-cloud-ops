@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { DictationTextarea } from "@/components/voice/dictation-textarea"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -181,11 +181,11 @@ export function ScheduledTaskDialog({ tenantId = "default", task, prefill, onSav
 
                     <div className="space-y-1.5">
                         <Label>Objective</Label>
-                        <Textarea
+                        <DictationTextarea
                             placeholder="What should the agent do on each run?"
                             className="min-h-[80px]"
                             value={form.description}
-                            onChange={e => set("description", e.target.value)}
+                            onValueChange={v => set("description", v)}
                         />
                     </div>
 

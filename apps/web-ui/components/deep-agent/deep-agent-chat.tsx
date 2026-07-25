@@ -11,6 +11,7 @@ import { TodoPanel } from './todo-panel';
 import { ApprovalDialog } from './approval-dialog';
 import { McpSkillSelector } from './mcp-skill-selector';
 import { AccountSelector } from './account-selector';
+import { MicButton } from '@/components/voice/mic-button';
 import {
   Send,
   Bot,
@@ -478,10 +479,16 @@ export function DeepAgentChat() {
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
-    const el = e.target;
+  }
+
+  // Keyed on `input` rather than done inside handleInput so programmatic writes
+  // (voice dictation, clearing on send) resize the box too.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-  }
+  }, [input]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -618,7 +625,8 @@ export function DeepAgentChat() {
                 className="w-full bg-transparent px-4 pt-3 pb-11 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none overflow-y-auto"
                 disabled={isLoading}
               />
-              <div className="absolute bottom-2.5 right-2.5">
+              <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1">
+                <MicButton value={input} onChange={setInput} disabled={isLoading} size="sm" />
                 <button
                   onClick={handleSend}
                   disabled={!input.trim() || isLoading}

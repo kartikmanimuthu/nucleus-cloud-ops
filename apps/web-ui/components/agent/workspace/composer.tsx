@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FileUpload, type FileAttachment } from "@/components/agent/file-upload";
+import { MicButton } from "@/components/voice/mic-button";
 import { AccountChip, KbSection, ModelChip, SkillChip, ToolsSection, type ComposerContext } from "./composer-pickers";
 
 export type { ComposerContext } from "./composer-pickers";
@@ -240,6 +241,13 @@ export function Composer({
               </div>
             </PopoverContent>
           </Popover>
+
+          <MicButton
+            value={value}
+            onChange={onChange}
+            disabled={disabled || isStreaming}
+            maxLength={MAX_CHARS}
+          />
 
           {onEnhance && (
             <Button

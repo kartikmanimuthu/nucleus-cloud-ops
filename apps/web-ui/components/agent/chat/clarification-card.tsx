@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { MicButton } from "@/components/voice/mic-button";
 import { Check, HelpCircle, Send } from "lucide-react";
 import type { PendingClarification } from "./run-state";
 
@@ -85,6 +86,7 @@ export function ClarificationCard({
                 }
               }}
             />
+            <MicButton value={text} onChange={setText} size="sm" />
             <Button size="sm" className="h-8 shrink-0" disabled={!text.trim()} onClick={() => submit(text)} aria-label="Send answer">
               <Send className="h-3.5 w-3.5" />
             </Button>

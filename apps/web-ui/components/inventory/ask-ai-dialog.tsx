@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { MicButton } from "@/components/voice/mic-button";
 import { Bot, Send, Sparkles, User, RefreshCw, Trash2, ChevronDown } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -366,6 +367,12 @@ export function AskAIDialog({ open, onOpenChange, filters }: AskAIDialogProps) {
                             disabled={isLoading || isStreaming}
                             className="flex-1"
                             autoFocus
+                        />
+                        <MicButton
+                            value={input}
+                            onChange={setInput}
+                            disabled={isLoading || isStreaming}
+                            className="self-center"
                         />
                         <Button type="submit" disabled={isLoading || isStreaming || !input.trim()}>
                             <Send className="h-4 w-4" />

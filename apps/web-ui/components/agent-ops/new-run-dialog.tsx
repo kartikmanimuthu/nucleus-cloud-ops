@@ -13,7 +13,7 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
+import { DictationTextarea } from "@/components/voice/dictation-textarea"
 import { Label } from "@/components/ui/label"
 
 export function NewRunDialog({
@@ -79,11 +79,11 @@ export function NewRunDialog({
                     {/* Task Description */}
                     <div className="space-y-2">
                         <Label>Objective</Label>
-                        <Textarea
+                        <DictationTextarea
                             placeholder="What do you want the agent to do? e.g., 'Check all Lambda functions in us-east-1 for public access'"
                             className="min-h-[100px]"
                             value={taskDescription}
-                            onChange={(e) => setTaskDescription(e.target.value)}
+                            onValueChange={setTaskDescription}
                         />
                     </div>
 
