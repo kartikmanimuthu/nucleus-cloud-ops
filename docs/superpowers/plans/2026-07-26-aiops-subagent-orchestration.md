@@ -401,6 +401,33 @@ describe('run timings', () => {
     it('returns null for an unknown thread', () => {
         expect(summarizeRun('never-seen')).toBeNull();
     });
+
+    it('does not evict a run that is still recording', () => {
+        // The eviction backstop must target the most IDLE run, not the
+        // oldest-started one. A 10-minute agent run is exactly the run whose
+        // numbers matter most, and it is also the one that has been in the map
+        // longest — evicting it would silently discard the measurement.
+        recordNodeTiming('long-runner', 'EXECUTOR', 1000, 10, 10);
+
+        // Fill past capacity with other threads, while the long runner keeps working.
+        for (let i = 0; i < 250; i++) {
+            recordNodeTiming(`other-${i}`, 'EXECUTOR', 1, 1, 1);
+            recordNodeTiming('long-runner', 'EXECUTOR', 1000, 10, 10);
+        }
+
+        const summary = summarizeRun('long-runner');
+        expect(summary).not.toBeNull();
+        expect(summary!.byNode.EXECUTOR.calls).toBe(251);
+    });
+
+    it('still bounds the map when runs never reach teardown', () => {
+        for (let i = 0; i < 300; i++) {
+            recordNodeTiming(`abandoned-${i}`, 'EXECUTOR', 1, 1, 1);
+        }
+        // The earliest abandoned runs must have been evicted.
+        expect(summarizeRun('abandoned-0')).toBeNull();
+        expect(summarizeRun('abandoned-299')).not.toBeNull();
+    });
 });
 ```
 
@@ -457,13 +484,18 @@ export function recordNodeTiming(
     let byNode = runs.get(threadId);
     if (!byNode) {
         if (runs.size >= MAX_TRACKED_RUNS) {
-            // Evict the oldest insertion — Map preserves insertion order.
             const oldest = runs.keys().next().value;
             if (oldest !== undefined) runs.delete(oldest);
         }
         byNode = {};
-        runs.set(threadId, byNode);
+    } else {
+        // Refresh position: Map keeps INSERTION order, and .set() on an
+        // existing key does not move it. Without this, eviction targets the
+        // oldest-STARTED run — which is exactly the long run we most want to
+        // measure. Delete-then-set makes it least-recently-ACTIVE.
+        runs.delete(threadId);
     }
+    runs.set(threadId, byNode);
 
     const entry = byNode[node] ?? { calls: 0, ms: 0, tokensIn: 0, tokensOut: 0 };
     entry.calls += 1;
