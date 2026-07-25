@@ -91,8 +91,11 @@ export function getTenantCredentialsFilePath(tenantId: string): string {
  * Generate a unique profile name
  */
 function generateProfileName(accountId: string): string {
-    const timestamp = Date.now();
-    return `${PROFILE_PREFIX}${accountId}_${timestamp}`;
+    // Date.now() alone collides when two profiles for one account are created in
+    // the same millisecond — which parallel get_aws_credentials calls do routinely.
+    // A colliding name means the second profile overwrites the first's section and
+    // the first caller's handle silently points at someone else's credentials.
+    return `${PROFILE_PREFIX}${accountId}_${Date.now()}_${randomUUID().slice(0, 8)}`;
 }
 
 /**

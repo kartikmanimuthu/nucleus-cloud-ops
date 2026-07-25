@@ -53,6 +53,22 @@ describe('createSessionProfile concurrency', () => {
         const leftovers = (await fs.readdir(dir)).filter(f => f.endsWith('.tmp'));
         expect(leftovers).toEqual([]);
     });
+
+    it('gives every profile a unique name even within the same millisecond', async () => {
+        // 50 back-to-back creations for ONE account will land many in the same ms.
+        const profiles = await Promise.all(
+            Array.from({ length: 50 }, () => createSessionProfile('999999999999', creds(), TENANT)),
+        );
+
+        const names = new Set(profiles.map(p => p.profileName));
+        expect(names.size).toBe(50);
+
+        // And every one of them must actually be present in the file.
+        const contents = await fs.readFile(getTenantCredentialsFilePath(TENANT), 'utf-8');
+        for (const name of names) {
+            expect(contents).toContain(`[${name}]`);
+        }
+    });
 });
 
 describe('getOrCreateSessionProfile caching', () => {
