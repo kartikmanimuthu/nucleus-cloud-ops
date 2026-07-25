@@ -100,6 +100,10 @@ export const queryKeys = {
         all: ['threads'] as const,
         lists: () => [...queryKeys.threads.all, 'list'] as const,
     },
+    aiopsSettings: {
+        all: ['aiops-settings'] as const,
+        subagents: () => [...queryKeys.aiopsSettings.all, 'subagents'] as const,
+    },
     dashboard: {
         all: ['dashboard'] as const,
         hero: (range: string) => [...queryKeys.dashboard.all, 'hero', range] as const,
