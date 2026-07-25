@@ -226,14 +226,6 @@ guarded orchestrator path, so `guard.ts`, `gate-routing.ts`, and `interruptBefor
 Run-scoped, in-memory, keyed by `threadId`. A run executes on a single ECS replica, so in-process
 state is sufficient; no distributed coordination.
 
-| Control | Default | Env override |
-|---|---|---|
-| Max concurrent sub-agents | 3 | `SUBAGENT_MAX_CONCURRENCY` |
-| Max sub-agents per run | 8 | `SUBAGENT_MAX_PER_RUN` |
-| Max sub-agent tokens per run | 400 000 | `SUBAGENT_MAX_TOKENS_PER_RUN` |
-| Max iterations per sub-agent | 8 | `SUBAGENT_MAX_ITERATIONS` |
-| Sub-agent timeout | 180 s | `SUBAGENT_TIMEOUT_MS` |
-
 - Tokens metered from `usage_metadata` on each sub-agent model response.
 - **On exhaustion `dispatch_agent` does not throw.** It returns *"Sub-agent budget exhausted; perform
   this work yourself, serially."* The run degrades to current behaviour rather than failing.
@@ -242,9 +234,52 @@ state is sufficient; no distributed coordination.
 - Budget entries are removed when the run ends, and are bounded by a max-entries LRU so an abandoned
   run cannot leak memory.
 
-The whole of Layer B is gated by `SUBAGENTS_ENABLED` (default off at first deploy), matching the
-existing `WORKING_MEMORY_ENABLED` / `EPISODIC_MEMORY_ENABLED` convention. Per-tenant configurability
-is deliberately out of scope — bounded defaults were chosen over configurability.
+### 5a. Per-tenant configuration
+
+The budget controls are tenant-configurable from AI Ops settings. **They are not purely
+tenant-controlled**, because web-ui runs as a shared ECS task: a tenant setting concurrency to 50
+would saturate the container's event loop for every other tenant on that replica and flood their
+Bedrock account with `ThrottlingException`.
+
+**Resolution order** — `effective = clamp(tenantConfig ?? default, MIN, envCeiling)`:
+
+| Control | Default | Min | Env ceiling |
+|---|---|---|---|
+| `enabled` | `false` | — | `SUBAGENTS_ENABLED` (absolute kill-switch) |
+| `maxConcurrentSubagents` | 3 | 1 | `SUBAGENT_MAX_CONCURRENCY` (default 6) |
+| `maxSubagentsPerRun` | 8 | 1 | `SUBAGENT_MAX_PER_RUN` (default 16) |
+| `maxSubagentTokensPerRun` | 400 000 | 50 000 | `SUBAGENT_MAX_TOKENS_PER_RUN` (default 1 000 000) |
+| `subagentMaxIterations` | 8 | 2 | `SUBAGENT_MAX_ITERATIONS` (default 16) |
+| `subagentTimeoutMs` | 180 000 | 30 000 | `SUBAGENT_TIMEOUT_MS` (default 300 000) |
+
+`SUBAGENTS_ENABLED=false` is absolute: tenant config cannot re-enable the feature. The separate
+`enabled` field exists so `maxSubagentsPerRun: 0` is never the accidental off-switch; the minimum of
+1 makes that explicit.
+
+Clamping happens **server-side on read**, not only on write, so a config row written before a ceiling
+was lowered cannot exceed the new ceiling.
+
+**Storage:** `TenantConfigService` under config key `aiops-subagents`, matching the existing
+`discovery-cron` / `mcp-servers` convention. No new table.
+
+**API:** `GET`/`PUT /api/settings/aiops`, modelled directly on
+`apps/web-ui/app/api/settings/discovery/route.ts`:
+
+- `authorize('read' | 'update', 'Agent')` — `Agent` already maps to the `AIOps` module
+  (`rbac/types.ts:33`), so no RBAC changes are needed.
+- Zod 4 schema validating and clamping the payload; `GET` returns effective values plus the
+  ceilings, so the UI can show what a slider is bounded by and why.
+- `AuditService.logUserAction` on save, matching the discovery route.
+
+**UI:** `apps/web-ui/components/settings/aiops-settings.tsx`, following `discovery-settings.tsx` and
+`scheduler-settings.tsx` — React Hook Form + Zod resolver, a typed TanStack Query hook in
+`lib/queries/settings.ts` keyed via `query-keys.ts`, sonner toast on save. When the platform
+kill-switch is off, the panel renders read-only with an explanatory note rather than silently
+accepting values that will not take effect.
+
+**Wiring:** resolved once during `createReflectionGraph` (alongside the existing `getSkillContent`
+lookup) and passed into the sub-agent runtime via `GraphConfig` — not re-fetched per
+`dispatch_agent` call, which would add a DB round-trip to every dispatch.
 
 ### 6. Streaming, UI, and heartbeat
 
@@ -349,6 +384,8 @@ Follows the existing never-crash-the-run convention throughout `planning-agent.t
   permitted.
 - Report truncation at the token cap, with marker.
 - Sub-agent timeout returns partial findings.
+- Budget resolution: tenant value below MIN clamps up; above the env ceiling clamps down; absent
+  tenant config falls back to defaults; `SUBAGENTS_ENABLED=false` overrides a tenant `enabled: true`.
 - `stream-parts`: `data-subagent` part construction.
 - `run-state`: `data-subagent` reducer builds and updates the map correctly.
 
@@ -383,8 +420,9 @@ rather than assumed.
 | 1 | Per-run timing summary from `llmAuditLog` | Baseline before changes |
 | 2 | Layer A — parallel tool calls | Measure against baseline |
 | 3 | Layer B — `dispatch_agent`, jail, budget governor | Behind `SUBAGENTS_ENABLED` |
-| 4 | `data-subagent` streaming, heartbeat, collapsed cards | With 3 |
-| 5 | `AgentSubagentRun` persistence + expand-after-reload | With 4 |
+| 4 | AI Ops settings: `/api/settings/aiops` + `aiops-settings.tsx` | With 3 |
+| 5 | `data-subagent` streaming, heartbeat, collapsed cards | With 3 |
+| 6 | `AgentSubagentRun` persistence + expand-after-reload | With 5 |
 
 ## Explicitly out of scope
 
@@ -398,7 +436,6 @@ rather than assumed.
 - **Agent debate / critic panels.** The reflector already fills the critique role.
 - **Shared scratchpad files between sub-agents.** Reintroduces exactly the race condition being fixed
   in step 0.
-- **Per-tenant budget configuration UI.** Bounded defaults were chosen over configurability.
 - **Agent Ops adoption.** The runtime is written to be surface-agnostic, but wiring it into
   `executor-graphs.ts` is separate work.
 - **Raising `DurationSeconds` beyond 900 s.** The refresh-on-near-expiry fix in step 0 covers the
