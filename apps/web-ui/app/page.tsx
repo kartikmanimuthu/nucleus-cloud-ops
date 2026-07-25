@@ -15,7 +15,7 @@ const features = [
   {
     icon: Bot,
     title: "AI Ops Agent",
-    description: "Natural language cloud operations powered by Claude 4.6 Sonnet via AWS Bedrock. Plan → Execute → Reflect → Revise with auto-approve mode.",
+    description: "Natural language cloud operations powered by Claude Sonnet 4.6 via AWS Bedrock. Plan → Execute → Reflect → Revise with auto-approve mode.",
   },
   {
     icon: Zap,
@@ -92,7 +92,7 @@ export default function MarketingPage() {
             <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Sign in
             </Link>
-            <Link href="/login" className="text-sm bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-lg transition-colors">
+            <Link href="/docs/getting-started" className="text-sm bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-lg transition-colors">
               Get Started
             </Link>
           </div>
@@ -101,24 +101,26 @@ export default function MarketingPage() {
 
       {/* Hero */}
       <section className="max-w-6xl mx-auto px-6 pt-24 pb-20 text-center">
-        <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-medium px-3 py-1.5 rounded-full mb-4">
-          <Github className="w-3 h-3" />
-          Open Source · MIT License
-        </div>
-        <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-medium px-3 py-1.5 rounded-full mb-6 ml-2">
-          <Zap className="w-3 h-3" />
-          Powered by AWS Bedrock + Claude 4.6 Sonnet
+        <div className="inline-flex flex-wrap items-center justify-center gap-2 mb-6">
+          <span className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-medium px-3 py-1.5 rounded-full">
+            <Github className="w-3 h-3" />
+            Open Source · MIT License
+          </span>
+          <span className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-medium px-3 py-1.5 rounded-full">
+            <Zap className="w-3 h-3" />
+            AWS Bedrock + Claude Sonnet 4.6
+          </span>
         </div>
         <h1 className="text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-tight">
-          AWS Cloud Ops,<br />
-          <span className="text-primary">Automated & Intelligent</span>
+          Self-hosted AI Ops<br />
+          <span className="text-primary">for AWS</span>
         </h1>
         <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
-          Stop paying for idle cloud resources. Nucleus Ops automates EC2, RDS, and ECS scheduling across all your AWS accounts — with an AI agent that speaks your language. Free and open source.
+          Stop paying for idle cloud resources. Nucleus Ops automates EC2, RDS, and ECS scheduling across all your AWS accounts — with an AI agent that speaks your language. Free, open source, and running on infrastructure you own.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link href="/login" className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-3 rounded-lg font-medium transition-colors">
-            Start for free <ArrowRight className="w-4 h-4" />
+          <Link href="/docs/installation" className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-3 rounded-lg font-medium transition-colors">
+            Deploy your own <ArrowRight className="w-4 h-4" />
           </Link>
           <Link
             href="https://github.com/kartikmanimuthu/nucleus-cloud-ops"
@@ -134,9 +136,9 @@ export default function MarketingPage() {
         {/* Stats */}
         <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-2xl mx-auto">
           {[
-            { value: "70%", label: "avg. cost reduction" },
-            { value: "91+", label: "AWS accounts" },
-            { value: "31K+", label: "resources discovered" },
+            { value: "~70%", label: "off idle non-prod compute" },
+            { value: "91", label: "AWS accounts in production" },
+            { value: "31K+", label: "resources under management" },
             { value: "MIT", label: "open source license" },
           ].map((stat) => (
             <div key={stat.label}>
@@ -145,6 +147,9 @@ export default function MarketingPage() {
             </div>
           ))}
         </div>
+        <p className="text-xs text-muted-foreground mt-6">
+          Account and resource counts are from the maintainer&rsquo;s production deployment. Savings reflect shutting non-production resources outside a 50-hour work week.
+        </p>
       </section>
 
       {/* Demo screenshot placeholder */}
@@ -154,7 +159,7 @@ export default function MarketingPage() {
             <div className="w-3 h-3 rounded-full bg-red-400" />
             <div className="w-3 h-3 rounded-full bg-yellow-400" />
             <div className="w-3 h-3 rounded-full bg-green-400" />
-            <span className="ml-2 text-xs text-muted-foreground">nucleus-ops.io/app/dashboard</span>
+            <span className="ml-2 text-xs text-muted-foreground">localhost:3001/app/dashboard</span>
           </div>
           <div className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
@@ -214,108 +219,51 @@ export default function MarketingPage() {
               <Github className="w-3 h-3" />
               Proudly Open Source
             </div>
-            <h2 className="text-3xl font-bold mb-4">Free forever. No hidden costs.</h2>
+            <h2 className="text-3xl font-bold mb-4">The whole product. MIT licensed.</h2>
             <p className="text-muted-foreground max-w-xl mx-auto">
-              Nucleus Ops is MIT licensed. Self-host it on your own AWS account, contribute to the codebase, or fork it for your needs.
+              There is no paid tier, no feature gate, and no &ldquo;open core&rdquo; split. Everything you see here is in the repository — self-host it on your own AWS account, contribute to it, or fork it.
             </p>
           </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                name: "Self-Hosted",
-                price: "$0",
-                period: "forever",
-                description: "Deploy to your own AWS account",
-                features: [
-                  "All features included",
-                  "Unlimited AWS accounts",
-                  "Unlimited schedules",
-                  "AI Ops Agent",
-                  "Slack & Jira integration",
-                  "Knowledge Base",
-                  "Full source code access",
-                  "MIT License",
-                ],
-                cta: "Deploy Now",
-                highlight: false,
-              },
-              {
-                name: "Cloud Hosted",
-                price: "Coming",
-                period: "soon",
-                description: "Managed hosting — no infra to maintain",
-                features: [
-                  "All self-hosted features",
-                  "Managed infrastructure",
-                  "Automatic updates",
-                  "99.9% uptime SLA",
-                  "Backups included",
-                  "Priority support",
-                ],
-                cta: "Join Waitlist",
-                highlight: true,
-              },
-              {
-                name: "Enterprise",
-                price: "Custom",
-                period: "contact us",
-                description: "For large-scale operations",
-                features: [
-                  "Everything in Cloud Hosted",
-                  "SSO / SAML",
-                  "Custom SLA",
-                  "Dedicated support",
-                  "On-premise deployment",
-                  "Custom integrations",
-                ],
-                cta: "Contact Us",
-                highlight: false,
-              },
-            ].map((plan) => (
-              <div
-                key={plan.name}
-                className={`rounded-2xl p-8 border ${
-                  plan.highlight
-                    ? "border-primary bg-primary text-primary-foreground shadow-xl"
-                    : "border-border bg-card"
-                }`}
+          <div className="max-w-3xl mx-auto rounded-2xl border border-border bg-card p-8">
+            <ul className="grid sm:grid-cols-2 gap-x-8 gap-y-3 mb-8">
+              {[
+                "Every feature included",
+                "Unlimited AWS accounts",
+                "Unlimited schedules and agent runs",
+                "AI Ops Agent + Agent Ops",
+                "Inventory discovery & right-sizing",
+                "Knowledge Base (pgvector RAG)",
+                "Slack, Jira, Telegram & MCP",
+                "RBAC, multi-tenancy & audit logs",
+                "Full source code access",
+                "No telemetry, no phone-home",
+              ].map((feat) => (
+                <li key={feat} className="flex items-center gap-2 text-sm">
+                  <Check className="w-4 h-4 flex-shrink-0 text-green-500" />
+                  {feat}
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Link
+                href="/docs/installation"
+                className="flex-1 block text-center py-2.5 rounded-lg font-medium text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
               >
-                <div className="mb-6">
-                  <div className={`text-sm font-medium mb-1 ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                    {plan.name}
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold">{plan.price}</span>
-                    <span className={`text-sm ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                      /{plan.period}
-                    </span>
-                  </div>
-                  <p className={`text-sm mt-2 ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                    {plan.description}
-                  </p>
-                </div>
-                <ul className="space-y-3 mb-8">
-                  {plan.features.map((feat) => (
-                    <li key={feat} className="flex items-center gap-2 text-sm">
-                      <Check className={`w-4 h-4 flex-shrink-0 ${plan.highlight ? "text-primary-foreground/70" : "text-green-500"}`} />
-                      {feat}
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  href={plan.name === "Self-Hosted" ? "https://github.com/kartikmanimuthu/nucleus-cloud-ops" : "/login"}
-                  target={plan.name === "Self-Hosted" ? "_blank" : undefined}
-                  rel={plan.name === "Self-Hosted" ? "noopener noreferrer" : undefined}
-                  className={`w-full block text-center py-2.5 rounded-lg font-medium text-sm transition-colors ${
-                    plan.highlight
-                      ? "bg-background text-primary hover:bg-background/90"
-                      : "bg-primary text-primary-foreground hover:bg-primary/90"
-                  }`}
-                >
-                  {plan.cta}
-                </Link>
-              </div>
-            ))}
+                Read the install guide
+              </Link>
+              <Link
+                href="https://github.com/kartikmanimuthu/nucleus-cloud-ops"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 inline-flex items-center justify-center gap-2 text-center py-2.5 rounded-lg font-medium text-sm border border-border hover:border-foreground/40 transition-colors"
+              >
+                <Github className="w-4 h-4" />
+                Browse the source
+              </Link>
+            </div>
+            <p className="text-xs text-muted-foreground mt-6 text-center">
+              A managed hosting option may come later for teams who&rsquo;d rather not run it themselves. It would run this same MIT-licensed codebase — self-hosting will never be the crippled tier.
+            </p>
           </div>
         </div>
       </section>
@@ -324,10 +272,10 @@ export default function MarketingPage() {
       <section className="bg-primary py-20">
         <div className="max-w-3xl mx-auto px-6 text-center text-primary-foreground">
           <h2 className="text-3xl font-bold mb-4">Ready to cut your AWS bill?</h2>
-          <p className="text-primary-foreground/70 mb-8">Connect your first AWS account in under 5 minutes. Free and open source.</p>
+          <p className="text-primary-foreground/70 mb-8">Clone it, run it, and connect your first AWS account in under 5 minutes. Free and open source.</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/login" className="inline-flex items-center gap-2 bg-background text-primary hover:bg-background/90 px-8 py-3 rounded-lg font-medium transition-colors">
-              Get started free <ArrowRight className="w-4 h-4" />
+            <Link href="/docs/installation" className="inline-flex items-center gap-2 bg-background text-primary hover:bg-background/90 px-8 py-3 rounded-lg font-medium transition-colors">
+              Deploy your own <ArrowRight className="w-4 h-4" />
             </Link>
             <Link
               href="https://github.com/kartikmanimuthu/nucleus-cloud-ops"

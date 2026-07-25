@@ -128,17 +128,17 @@ flowchart TB
 ### AI & Data
 | Technology | Purpose |
 |------------|---------|
-| AWS Bedrock | LLM Provider (Claude Sonnet for logic, Amazon Titan for Embeddings) |
-| DynamoDB | Real-time state (LangGraph checkpoints, App data, RBAC, Single Table Design) |
-| Amazon S3 Tables | Apache Iceberg formatted Data Lake for multi-account resource inventory |
-| cdk-s3-vectors | Vector embeddings store for RAG and semantic search operations |
+| AWS Bedrock | LLM Provider (Claude Sonnet 4.6 for reasoning, Amazon Titan for embeddings) |
+| PostgreSQL (RDS) | All persistent state — app data, RBAC, inventory, audit, LangGraph checkpoints, chat history |
+| pgvector | Vector embeddings (HNSW index) for RAG, semantic search, and long-term agent memory |
+| Amazon S3 | Blob storage — agent scratch space, knowledge-base sources, large checkpoint offload |
 
 ### Infrastructure
 | Technology | Purpose |
 |------------|---------|
-| AWS CDK | Infrastructure as Code |
-| AWS ECS Fargate | Serverless execution environment for Next.js and LangGraph Agent |
-| AWS Lambda | Event-driven processors (Vector embeddings generation, Schedulers) |
+| Pulumi | Infrastructure as Code (two stacks: `infra/networking` then `infra/compute`) |
+| AWS ECS Fargate | Runs both services — `web-ui` (Next.js + LangGraph agents) and `workers` |
+| pg-boss | Background job runner inside the `workers` service (no AWS Lambda is used) |
 | AWS Cognito | User Identity & Authentication |
 
 ## AI Ops Agent Workflow

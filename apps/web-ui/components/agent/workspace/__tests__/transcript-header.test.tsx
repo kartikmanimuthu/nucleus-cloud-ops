@@ -29,6 +29,7 @@ const EMPTY_RUN_STATE: RunState = {
   pendingClarifications: [],
   hasStructuredData: false,
   hasApprovalData: false,
+  tokenUsage: { input: 0, output: 0 },
 }
 
 function planOf(doneCount: number, total: number): RunState['plan'] {
@@ -52,6 +53,43 @@ describe('TranscriptHeader', () => {
 
     expect(screen.getByText('Untitled conversation')).toBeTruthy()
     expect(screen.queryByTestId('phase-stepper')).toBeNull()
+  })
+
+  it('shows the token counter when tokenUsage is nonzero', () => {
+    const runState: RunState = {
+      ...EMPTY_RUN_STATE,
+      tokenUsage: { input: 48200, output: 6100 },
+    }
+
+    render(
+      <TranscriptHeader
+        title="Untitled conversation"
+        runState={runState}
+        isStreaming={false}
+        elapsedMs={null}
+        onMenuAction={vi.fn()}
+      />
+    )
+
+    const counter = screen.getByTestId('token-usage')
+    expect(counter.textContent).toContain('48.2k')
+    expect(counter.textContent).toContain('6.1k')
+    expect(counter.getAttribute('title')).toContain('Incoming')
+    expect(counter.getAttribute('title')).toContain('Outgoing')
+  })
+
+  it('hides the token counter when tokenUsage is zero', () => {
+    render(
+      <TranscriptHeader
+        title="Untitled conversation"
+        runState={EMPTY_RUN_STATE}
+        isStreaming={false}
+        elapsedMs={null}
+        onMenuAction={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByTestId('token-usage')).toBeNull()
   })
 
   it('execution phase with 12/19 plan: Plan done, Execute active showing 12/19', () => {

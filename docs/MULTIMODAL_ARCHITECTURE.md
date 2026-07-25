@@ -121,7 +121,7 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      AWS BEDROCK                                     │
 │  ┌────────────────────────────────────────────────────────────┐    │
-│  │  Claude 4.5 Sonnet (Vision Model)                          │    │
+│  │  Claude Sonnet 4.5 (Vision Model)                          │    │
 │  │                                                              │    │
 │  │  1. Processes text prompt                                   │    │
 │  │  2. Analyzes image content                                  │    │

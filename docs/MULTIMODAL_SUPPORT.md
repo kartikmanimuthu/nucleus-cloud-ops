@@ -15,11 +15,11 @@ Nucleus Cloud Ops now supports multimodal interactions, allowing users to upload
 ## Supported Models
 
 All Claude models in the platform support multimodal inputs:
-- Claude 4.5 Sonnet
-- Claude 4.5 Haiku  
-- Claude 4.5 Opus
-- Claude 4.6 Sonnet
-- Claude 4.6 Opus
+- Claude Sonnet 4.5
+- Claude Haiku 4.5  
+- Claude Opus 4.5
+- Claude Sonnet 4.6
+- Claude Opus 4.6
 
 Amazon Nova models also support multimodal:
 - Nova 2 Lite

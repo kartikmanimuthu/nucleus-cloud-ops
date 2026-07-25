@@ -241,3 +241,23 @@ describe('isRejectedToolResult', () => {
         expect(isRejectedToolResult(['Rejected by user'])).toBe(false);
     });
 });
+
+describe('deriveRunState token usage', () => {
+    const asst = (parts: any[]) => ({ role: 'assistant', id: 'm', parts });
+
+    it('sums data-usage parts across the thread', () => {
+        const state = deriveRunState([
+            asst([
+                { type: 'data-usage', data: { input: 100, output: 20 } },
+                { type: 'data-usage', data: { input: 50, output: 10 } },
+            ]),
+            asst([{ type: 'data-usage', data: { input: 5, output: 1 } }]),
+        ], new Set());
+        expect(state.tokenUsage).toEqual({ input: 155, output: 31 });
+    });
+
+    it('defaults to zero when there are no data-usage parts', () => {
+        const state = deriveRunState([asst([{ type: 'text', text: 'hi' }])], new Set());
+        expect(state.tokenUsage).toEqual({ input: 0, output: 0 });
+    });
+});

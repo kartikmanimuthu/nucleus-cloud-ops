@@ -32,6 +32,7 @@ model Tenant {
   configs TenantConfig[]
   providerModels ProviderModel[]
   slackWorkspaceLinks SlackWorkspaceLink[]
+  telegramBotLinks TelegramBotLink[]
 
   @@index([status])
   @@map("tenants")
@@ -72,6 +73,25 @@ model SlackWorkspaceLink {
 
   @@index([tenantId])
   @@map("slack_workspace_links")
+}
+
+// TelegramBotLink — reverse index from a Telegram bot's webhook secret token to
+// the tenant that registered it. Unlike Slack (which carries team_id on every
+// payload), Telegram updates carry no tenant-identifying field at all — the
+// secret token echoed back in the X-Telegram-Bot-Api-Secret-Token header is
+// the only value that ties a request back to the tenant who registered that
+// bot's webhook, so it doubles as both the auth check and the tenant lookup key.
+model TelegramBotLink {
+  id          String   @id @default(cuid())
+  secretToken String   @unique
+  tenantId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("telegram_bot_links")
 }
 
 // ProviderModel — tenant-scoped self-hosted LLM provider configurations
