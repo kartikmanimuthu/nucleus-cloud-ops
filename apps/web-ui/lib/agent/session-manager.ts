@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { randomUUID } from 'crypto';
 
 /**
  * AWS Session Profile Manager
@@ -53,6 +54,30 @@ const TENANT_CREDS_ROOT = path.join(os.tmpdir(), 'nucleus-aws-creds');
 const PROFILE_PREFIX = 'nucleus_agent_';
 
 /**
+ * Serializes read-modify-write cycles per credentials file.
+ *
+ * Node is single-threaded, but `await` between the read and the write yields the
+ * event loop: two concurrent callers both read the old content and the second
+ * write clobbers the first caller's profile. The victim then runs
+ * `aws --profile <name>` against a profile that is not in the file and gets
+ * "The config profile could not be found". Chaining every mutation onto a
+ * per-path promise removes the interleaving window.
+ *
+ * The map is keyed by resolved file path, so the legacy shared-file path is
+ * covered too. Key count is bounded by tenant count, so it is not a leak.
+ */
+const fileLocks = new Map<string, Promise<unknown>>();
+
+function withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+    const previous = fileLocks.get(filePath) ?? Promise.resolve();
+    // Run `fn` whether the predecessor resolved or rejected — one caller's
+    // failure must not deadlock every later caller on the same file.
+    const next = previous.then(fn, fn);
+    fileLocks.set(filePath, next.catch(() => undefined));
+    return next;
+}
+
+/**
  * Resolve the absolute credentials-file path for a tenant.
  * Deterministic so execute_command (which only has the tenantId) can point
  * AWS_SHARED_CREDENTIALS_FILE at the same file this module writes to.
@@ -90,7 +115,17 @@ async function readCredentialsFile(filePath: string): Promise<string> {
 async function writeCredentialsFile(filePath: string, content: string): Promise<void> {
     const dir = path.dirname(filePath);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(filePath, content, { mode: 0o600 });
+    // Write-then-rename: a concurrent reader (the AWS CLI) never observes a
+    // half-written credentials file. The temp file is created in the same
+    // directory so the rename stays on one filesystem and is therefore atomic.
+    const tmpPath = path.join(dir, `.credentials.${process.pid}.${randomUUID()}.tmp`);
+    try {
+        await fs.writeFile(tmpPath, content, { mode: 0o600 });
+        await fs.rename(tmpPath, filePath);
+    } catch (error) {
+        await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+        throw error;
+    }
 }
 
 /**
@@ -156,20 +191,19 @@ export async function createSessionProfile(
         credentialsFile,
     };
 
-    // Read current credentials file
-    const content = await readCredentialsFile(credentialsFile);
-    const profiles = parseCredentialsFile(content);
+    await withFileLock(credentialsFile, async () => {
+        const content = await readCredentialsFile(credentialsFile);
+        const profiles = parseCredentialsFile(content);
 
-    // Add new profile
-    const profileCreds = new Map<string, string>();
-    profileCreds.set('aws_access_key_id', credentials.accessKeyId);
-    profileCreds.set('aws_secret_access_key', credentials.secretAccessKey);
-    profileCreds.set('aws_session_token', credentials.sessionToken);
-    profileCreds.set('region', credentials.region);
-    profiles.set(profileName, profileCreds);
+        const profileCreds = new Map<string, string>();
+        profileCreds.set('aws_access_key_id', credentials.accessKeyId);
+        profileCreds.set('aws_secret_access_key', credentials.secretAccessKey);
+        profileCreds.set('aws_session_token', credentials.sessionToken);
+        profileCreds.set('region', credentials.region);
+        profiles.set(profileName, profileCreds);
 
-    // Write back to file
-    await writeCredentialsFile(credentialsFile, serializeCredentialsFile(profiles));
+        await writeCredentialsFile(credentialsFile, serializeCredentialsFile(profiles));
+    });
 
     console.log(`[SessionManager] Created profile: ${profileName} in ${credentialsFile}`);
 
@@ -227,6 +261,52 @@ export async function cleanupAllAgentProfiles(): Promise<void> {
     } catch (error) {
         console.error('[SessionManager] Error during cleanup:', error);
     }
+}
+
+/**
+ * Re-assume when a cached profile has less than this much life left. STS
+ * credentials here last 900s (see assumeRoleForAccount); handing back a profile
+ * with 10s remaining guarantees the next AWS CLI call fails mid-flight.
+ */
+const PROFILE_REFRESH_MARGIN_MS = 120_000;
+
+const profileCache = new Map<string, SessionProfile>();
+
+function profileCacheKey(tenantId: string, accountId: string): string {
+    return `${tenantId}:${accountId}`;
+}
+
+/**
+ * Return a usable session profile for (tenant, account), assuming fresh
+ * credentials only when there is no cached profile or the cached one is within
+ * PROFILE_REFRESH_MARGIN_MS of expiry.
+ *
+ * Fan-out makes this matter twice over: N sub-agents auditing the same account
+ * previously triggered N AssumeRole calls, and a long run could hand out a
+ * profile that expired before it was used.
+ */
+export async function getOrCreateSessionProfile(
+    accountId: string,
+    tenantId: string,
+    assume: () => Promise<AwsCredentials>,
+): Promise<SessionProfile> {
+    const key = profileCacheKey(tenantId, accountId);
+    const cached = profileCache.get(key);
+    if (cached && cached.expiresAt.getTime() - Date.now() > PROFILE_REFRESH_MARGIN_MS) {
+        console.log(`[SessionManager] Reusing cached profile ${cached.profileName} for ${key}`);
+        return cached;
+    }
+
+    const credentials = await assume();
+    const profile = await createSessionProfile(accountId, credentials, tenantId);
+    profileCache.set(key, profile);
+    return profile;
+}
+
+/** Test seam — clears the in-process profile cache between test cases. */
+export function __resetProfileCacheForTests(): void {
+    profileCache.clear();
+    fileLocks.clear();
 }
 
 // Run cleanup on module load (server startup)
