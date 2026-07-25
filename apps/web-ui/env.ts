@@ -50,6 +50,13 @@ export const env = createEnv({
         LANGFUSE_SECRET_KEY: z.string().optional(),
         LLM_AUDIT: z.string().optional(),
         SKIP_AUDIT_LOGGING: z.string().optional(),
+        SUBAGENTS_ENABLED: z.string().optional(),
+        SUBAGENT_MAX_CONCURRENCY: z.string().optional(),
+        SUBAGENT_MAX_PER_RUN: z.string().optional(),
+        SUBAGENT_MAX_TOKENS_PER_RUN: z.string().optional(),
+        SUBAGENT_MAX_ITERATIONS: z.string().optional(),
+        SUBAGENT_TIMEOUT_MS: z.string().optional(),
+        TOOL_CONCURRENCY: z.string().optional(),
 
         // Storage
         APP_BUCKET_NAME: z.string().optional(),
