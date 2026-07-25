@@ -10,6 +10,7 @@ import { Readable } from 'stream';
 import { env } from '@/env';
 import { getTenantCredentialsFilePath } from './session-manager';
 import { AuditService } from '@/lib/audit-service';
+import { Semaphore } from './concurrency';
 
 // Re-export AWS credentials tool factories
 export { createGetAwsCredentialsTool, createListAwsAccountsTool } from './aws-credentials-tool';
@@ -81,6 +82,14 @@ function buildCommandEnv(tenantId?: string): Record<string, string> {
 
 // Helper to truncate large tool outputs to prevent prompt token limits
 const MAX_OUTPUT_LENGTH = 100000;
+/**
+ * Caps concurrent shell subprocesses across the whole process. Other tools
+ * (AWS SDK, Prisma, MCP) are network/DB calls that are already pooled by their
+ * own clients, so only execute_command needs an explicit bound.
+ */
+const TOOL_CONCURRENCY = Number(process.env.TOOL_CONCURRENCY) || 6;
+const commandSemaphore = new Semaphore(TOOL_CONCURRENCY);
+
 const truncateToolOutput = (output: string) => {
     if (output && output.length > MAX_OUTPUT_LENGTH) {
         return output.substring(0, MAX_OUTPUT_LENGTH) + `\n\n...[Output truncated due to length. Total length: ${output.length} characters]...`;
@@ -128,12 +137,12 @@ export const executeCommandTool = tool(
         };
 
         try {
-            const { stdout, stderr } = await execAsync(command, {
+            const { stdout, stderr } = await commandSemaphore.run(() => execAsync(command, {
                 shell: '/bin/bash',
                 timeout: 120000, // 2 minute timeout for long-running AWS CLI commands
                 maxBuffer: 1024 * 1024 * 10, // 10MB buffer
                 env: buildCommandEnv(tenantId) as NodeJS.ProcessEnv,
-            });
+            }));
 
             const output = stdout || stderr || 'Command executed successfully (no output)';
             console.log(`[Tool] Command Output Length: ${output.length}`);

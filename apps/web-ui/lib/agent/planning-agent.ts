@@ -290,7 +290,7 @@ Work through three phases when building the plan:
 
 - The plan is INTERNAL COORDINATION. The user sees it in a progress rail — it is never part of the answer, so optimize it for execution, not for presentation.
 - Match plan depth to the request. A simple lookup or single-command request needs only 1–2 steps (credentials + the query); a conversational or no-tool request gets exactly one step: ["Answer the user's request directly"]. Only genuinely multi-phase investigations warrant 5+ steps.
-- Keep the plan SHORT: never more than 7 steps. Merge related read-only queries into a single step (e.g., one step for "inventory EC2 + RDS + EBS across regions", not one step per service per region).
+- Keep the plan SHORT: never more than 7 steps. Merge related read-only queries into a single step (e.g., one step for "inventory EC2 + RDS + EBS across regions", not one step per service per region). The executor issues the individual queries in that step as parallel tool calls, so a merged step costs no more time than a narrow one.
 - Every step except the last must be a concrete tool action. Do NOT create steps for aggregating, analyzing, summarizing, cross-referencing, or "evaluating" data — that thinking happens inside execution, not as plan line items.
 - Do NOT add a knowledge-base search step unless the user asked for it or the task clearly depends on tenant-specific documented context.
 - The LAST step is always: compose the final answer to the user's request from the gathered data.
@@ -404,7 +404,10 @@ ${accountContext}
 
 ## Execution Discipline
 
-- Execute exactly the current step — do not skip ahead or bundle future steps into a single call.
+- Execute the current step. When that step covers several INDEPENDENT read-only lookups (different accounts, regions, or services), issue them as MULTIPLE tool calls in this single turn — they run in parallel. One call per turn for independent reads wastes minutes.
+- Calls that DEPEND on each other must stay sequential: if call B needs call A's output (an account id, a resource id, a profile name), make call A now and call B on the next turn.
+- Never batch mutations. Issue at most ONE state-changing call per turn so each is reviewed and approved individually.
+- Do not skip ahead to later plan steps.
 - If a tool call returns an error, capture the full error message and diagnose it; do not silently suppress it.
 - If the current step is a simple question or greeting that requires no tools, answer directly and concisely.
 - If the current step has nothing to execute (empty inventory, prerequisite returned no data), move on silently — NEVER run echo or other no-op commands just to mark a step done, and never write an explanation of why there was nothing to do.
@@ -764,6 +767,7 @@ Issues to Address: ${errors.join(', ') || 'None'}
 6. For errors returned by tools: diagnose the root cause (permissions, resource not found, wrong region, wrong account) and fix the underlying issue rather than retrying the same command unchanged.
 7. Do not repeat actions that the reviewer marked as correctly completed — focus only on the open issues.
 8. After fixing all issues, provide a brief summary of what was corrected and what the result now shows.
+9. When the fix requires several independent read-only re-checks, issue them as multiple tool calls in this single turn rather than one per turn.
 ${accountContext}`);
 
         const recentMessages = windowMessages;
