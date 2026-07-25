@@ -72,6 +72,16 @@ describe('isReadOnlyForSubagent', () => {
         expect(isReadOnlyForSubagent('dispatch_agent').allowed).toBe(false);
     });
 
+    it('blocks denylisted tools regardless of case', () => {
+        // classifyTool lowercases internally, so once dispatch_agent joins its
+        // READ_ONLY_ALLOWLIST (Task 8) a case-sensitive denylist would let
+        // "Dispatch_Agent" through as allowlisted-read-only — re-enabling
+        // sub-agent recursion. Pin the lowercasing.
+        for (const name of ['Dispatch_Agent', 'DISPATCH_AGENT', 'Ask_User', 'ASK_USER']) {
+            expect(isReadOnlyForSubagent(name).allowed).toBe(false);
+        }
+    });
+
     it('blocks ask_user — no human is reachable inside a tool call', () => {
         expect(isReadOnlyForSubagent('ask_user').allowed).toBe(false);
     });

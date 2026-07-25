@@ -73,7 +73,12 @@ export function isReadOnlyForSubagent(
     name: string,
     args?: Record<string, unknown>,
 ): { allowed: boolean; reason: string } {
-    if (SUBAGENT_TOOL_DENYLIST.has(name)) {
+    // Lowercased: classifyTool() lowercases internally, so once Task 8 adds
+    // dispatch_agent to its READ_ONLY_ALLOWLIST a case variant like
+    // "Dispatch_Agent" would miss a case-SENSITIVE denylist and then be waved
+    // through as allowlisted-read-only. The tool-name lookup below would still
+    // catch it, but a safety boundary must not depend on its own backstop.
+    if (SUBAGENT_TOOL_DENYLIST.has(name.toLowerCase())) {
         return { allowed: false, reason: `${name} is not available to sub-agents` };
     }
 
@@ -96,10 +101,13 @@ export function isReadOnlyForSubagent(
 /** Drop everything a sub-agent may not call, before the model ever sees it. */
 export function filterReadOnlyTools<T extends { name: string }>(tools: T[]): T[] {
     return tools.filter(tool => {
-        if (SUBAGENT_TOOL_DENYLIST.has(tool.name)) return false;
+        // Lowercased for the same reason as isReadOnlyForSubagent above — the
+        // filtered list and the runtime re-check must agree on case handling.
+        const lower = tool.name.toLowerCase();
+        if (SUBAGENT_TOOL_DENYLIST.has(lower)) return false;
         // Bash-like tools are judged per call (the command string decides), so keep
         // them in the list and let the runtime check gate each invocation.
-        if (tool.name === 'execute_command') return true;
+        if (lower === 'execute_command') return true;
         return isReadOnlyForSubagent(tool.name).allowed;
     });
 }
