@@ -208,9 +208,10 @@ describe('Composer', () => {
     expect(screen.queryByTestId('char-counter')).toBeNull()
   })
 
+  // Thresholds live in composer.tsx: MAX_CHARS 6000, CHAR_WARNING_THRESHOLD 5400.
   it('char counter is visible near the limit', () => {
-    render(<Composer {...baseProps({ value: 'a'.repeat(1900) })} />)
-    expect(screen.getByTestId('char-counter').textContent).toBe('1900/2000')
+    render(<Composer {...baseProps({ value: 'a'.repeat(5500) })} />)
+    expect(screen.getByTestId('char-counter').textContent).toBe('5500/6000')
   })
 
   it('shows Send while idle and calls onSubmit when clicked', () => {

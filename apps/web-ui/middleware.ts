@@ -72,8 +72,18 @@ export default withAuth(
     }
 );
 
+// Only the externally-signed webhook channels are exempted from the NextAuth gate —
+// each verifies its own signature/secret in the adapter's validateRequest (Telegram's
+// X-Telegram-Bot-Api-Secret-Token, Slack's HMAC signature, Discord's Ed25519, Jira's
+// shared secret), and none of them can carry a session cookie.
+//
+// Deliberately NOT exempted: api/v1/gateway/api and api/v1/gateway/stream. Those are
+// session-authenticated UI paths — ApiAdapter.validateRequest accepts ANY Authorization
+// or x-api-key header without validating it, and this middleware is what overwrites a
+// client-supplied x-tenant-id with the session's real tenantId. Exempting them would
+// let an unauthenticated caller start an agent run under an arbitrary tenant.
 export const config = {
     matcher: [
-        "/((?!api/auth|api/health|api/v1/trigger|_next/static|_next/image|favicon.ico|placeholder.*|smc-global-securities-logo.jpg|login|signup).*)",
+        "/((?!api/auth|api/health|api/v1/trigger|api/v1/gateway/telegram|api/v1/gateway/slack|api/v1/gateway/discord|api/v1/gateway/jira|api/v1/gateway/webhook|_next/static|_next/image|favicon.ico|placeholder.*|smc-global-securities-logo.jpg|login|signup).*)",
     ],
 };

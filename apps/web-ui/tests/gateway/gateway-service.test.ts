@@ -19,6 +19,7 @@ vi.mock('@/lib/agent-ops/agent-ops-service', () => ({
         }),
         updateRunStatus: vi.fn().mockResolvedValue(undefined),
         recordEvent: vi.fn().mockResolvedValue(undefined),
+        closeTelegramSession: vi.fn().mockResolvedValue(undefined),
         findAwaitingApprovalRun: vi.fn().mockResolvedValue({
             runId: 'run-1', tenantId: 'tenant-1', source: 'slack',
             status: 'awaiting_approval', taskDescription: 'test', trigger: {},
@@ -54,6 +55,7 @@ function makeMockAdapter(): ChannelAdapter {
         sendError: vi.fn().mockResolvedValue(undefined),
         sendClarification: vi.fn().mockResolvedValue(undefined),
         sendApprovalRequest: vi.fn().mockResolvedValue(undefined),
+        sendSessionReset: vi.fn().mockResolvedValue(undefined),
         getConfig: vi.fn().mockResolvedValue({}),
     } as any;
 }
@@ -98,6 +100,20 @@ describe('GatewayService', () => {
         expect(res.status).toBe(400);
     });
 
+    it('acks with 200 (not 400) when task description is empty on a streaming channel', async () => {
+        // 'streaming' channels (Telegram, Discord) push updates async and retry
+        // forever on a non-2xx — e.g. Telegram's automatic /start handshake has
+        // no text. A 400 here would jam the whole channel behind an endless retry.
+        (adapter as any).deliveryMode = 'streaming';
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '', channelMeta: {},
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'text=' });
+        const res = await service.handleInbound('slack', req as any);
+        expect(res.status).toBe(200);
+        expect(adapter.sendAck).not.toHaveBeenCalled();
+    });
+
     it('routes HIL resume when replyContext is present (approve)', async () => {
         (adapter.parseInbound as any).mockResolvedValue({
             channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
@@ -133,6 +149,19 @@ describe('GatewayService', () => {
         const res = await service.handleInbound('slack', req as any);
         await new Promise(r => setTimeout(r, 50));
         expect(executeAgentRun).toHaveBeenCalled();
+        expect(res.status).toBe(200);
+    });
+
+    it('resets a conversation: closes the session run and confirms to the channel', async () => {
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
+            channelMeta: { chatId: 67890 }, replyContext: { runId: 'run-1', action: 'reset', tenantId: 'tenant-1' },
+        });
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        const req = new Request('http://localhost', { method: 'POST', body: 'payload={}' });
+        const res = await service.handleInbound('slack', req as any);
+        expect(agentOpsService.closeTelegramSession).toHaveBeenCalledWith('tenant-1', 'run-1');
+        expect(adapter.sendSessionReset).toHaveBeenCalledWith('tenant-1', 67890);
         expect(res.status).toBe(200);
     });
 });

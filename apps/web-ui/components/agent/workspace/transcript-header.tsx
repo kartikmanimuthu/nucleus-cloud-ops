@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { RunState } from "@/components/agent/chat/run-state";
+import { formatTokens } from "@/lib/agent-chat/token-usage";
 
 export type TranscriptMenuAction = "export-report" | "export-md" | "export-pdf" | "copy" | "schedule" | "skill" | "clear";
 
@@ -137,6 +138,15 @@ export function TranscriptHeader({ title, runState, isStreaming, elapsedMs, onMe
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        {(runState.tokenUsage.input > 0 || runState.tokenUsage.output > 0) && (
+          <span
+            data-testid="token-usage"
+            className="font-mono text-xs text-muted-foreground"
+            title={`Incoming ${runState.tokenUsage.input.toLocaleString()} tokens · Outgoing ${runState.tokenUsage.output.toLocaleString()} tokens`}
+          >
+            ↓ {formatTokens(runState.tokenUsage.input)} · ↑ {formatTokens(runState.tokenUsage.output)}
+          </span>
+        )}
         {elapsedMs != null && (
           <span data-testid="elapsed-timer" className="font-mono text-xs text-muted-foreground">
             {formatElapsed(elapsedMs)}

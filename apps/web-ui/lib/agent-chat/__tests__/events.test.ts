@@ -322,3 +322,10 @@ describe('rail/card-only parts', () => {
         expect(events).toEqual([]);
     });
 });
+
+describe('data-usage parts', () => {
+    it('produce no transcript event', () => {
+        const events = buildTranscript(msg([{ type: 'data-usage', data: { input: 10, output: 2 } }]), noOpts);
+        expect(events).toEqual([]);
+    });
+});
