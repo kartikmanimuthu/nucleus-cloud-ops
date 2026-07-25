@@ -12,6 +12,7 @@ import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/l
 import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, buildUsagePart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
+import { logRunSummary } from '@/lib/agent/run-timings';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -1169,6 +1170,10 @@ function processStream(
                     // Ignore if already closed
                 }
             } finally {
+
+                // Emit the per-run timing breakdown regardless of how the run ended,
+                // so aborted and errored runs are measured too.
+                if (threadId) logRunSummary(threadId);
 
                 // Persist NEW messages from this turn to chat history
                 if (threadId && graph && config && resolvedUserId) {

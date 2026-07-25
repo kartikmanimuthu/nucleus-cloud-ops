@@ -36,6 +36,7 @@ import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 import { prepareContext, buildWorkingMemorySection, estimateTokens } from "./memory/working-memory";
 import { createGuardNode } from "./guard";
 import { routeAfterGuard } from "./gate-routing";
+import { recordNodeTiming } from "./run-timings";
 
 const PLAN_STATUSES = new Set<PlanStep['status']>(['completed', 'in_progress', 'pending', 'failed']);
 
@@ -253,7 +254,7 @@ export async function createReflectionGraph(config: GraphConfig) {
     // ---------------------------------------------------------------------------
     // PLANNER NODE
     // ---------------------------------------------------------------------------
-    async function planNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    async function planNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         const { messages, memoryContext } = state;
         const workingMemorySection = buildWorkingMemorySection(
             state.runningSummary || (state.scratchpad?.openGoals?.length ?? 0) > 0
@@ -313,6 +314,8 @@ Only return the JSON array, nothing else.`);
         try {
             response = await model.invoke(_auditInputs_plan) as AIMessage;
             llmAuditLog('PLANNER', _auditInputs_plan, response, _auditStart_plan);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'PLANNER', Date.now() - _auditStart_plan,
+                (response as any).usage_metadata?.input_tokens ?? 0, (response as any).usage_metadata?.output_tokens ?? 0);
         } catch (err: any) {
             // A provider hiccup while planning must not abort the run — fall back to a
             // trivial single-step plan (the empty content flows through the parse fallback below).
@@ -430,6 +433,8 @@ The user sees plan progress in a UI rail — your prose must NEVER duplicate it:
         try {
             response = await modelWithTools.invoke(_auditInputs_exec) as AIMessage;
             llmAuditLog('EXECUTOR', _auditInputs_exec, response, _auditStart_exec);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'EXECUTOR', Date.now() - _auditStart_exec,
+                (response as any).usage_metadata?.input_tokens ?? 0, (response as any).usage_metadata?.output_tokens ?? 0);
         } catch (err: any) {
             // Provider error mid-step: don't crash the run. Emit a text note (no tool calls)
             // so the graph routes on to reflection/finalization with whatever was gathered.
@@ -533,7 +538,7 @@ The user sees plan progress in a UI rail — your prose must NEVER duplicate it:
     // ---------------------------------------------------------------------------
     // REFLECTOR NODE
     // ---------------------------------------------------------------------------
-    async function reflectNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    async function reflectNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         const { messages, taskDescription, iterationCount, plan, toolResults, memoryContext } = state;
 
         console.log(`\n================================================================================`);
@@ -646,6 +651,8 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
         try {
             response = await reflectorModel.invoke(_auditInputs_ref);
             llmAuditLog('REFLECTOR', _auditInputs_ref, response, _auditStart_ref);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'REFLECTOR', Date.now() - _auditStart_ref,
+                (response as any).usage_metadata?.input_tokens ?? 0, (response as any).usage_metadata?.output_tokens ?? 0);
         } catch (err: any) {
             // If the reflector fails (throttle, context overflow, parse-impossible), treat the
             // work as complete and force finalization rather than aborting the whole run.
@@ -770,6 +777,8 @@ ${accountContext}`);
         try {
             response = await modelWithTools.invoke(_auditInputs_rev) as AIMessage;
             llmAuditLog('REVISER', _auditInputs_rev, response, _auditStart_rev);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'REVISER', Date.now() - _auditStart_rev,
+                (response as any).usage_metadata?.input_tokens ?? 0, (response as any).usage_metadata?.output_tokens ?? 0);
         } catch (err: any) {
             // Provider error while revising: emit a text note (no tool calls) so the graph
             // routes back to reflection and can finalize instead of aborting.
@@ -804,7 +813,7 @@ ${accountContext}`);
     // ---------------------------------------------------------------------------
     // FINAL OUTPUT NODE
     // ---------------------------------------------------------------------------
-    async function finalNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    async function finalNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         const { taskDescription, toolResults } = state;
 
         console.log(`\n================================================================================`);
@@ -869,6 +878,8 @@ ${groundingRule}`);
         try {
             const summaryResponse = await model.invoke(_auditInputs_fin);
             llmAuditLog('FINAL', _auditInputs_fin, summaryResponse, _auditStart_fin);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'FINAL', Date.now() - _auditStart_fin,
+                (summaryResponse as any).usage_metadata?.input_tokens ?? 0, (summaryResponse as any).usage_metadata?.output_tokens ?? 0);
             summaryContent = contentToText(summaryResponse.content);
         } catch (err: any) {
             // A finalize failure must never crash the run — assemble a best-effort answer
