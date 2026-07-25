@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Textarea } from "@/components/ui/textarea"
+import { DictationTextarea } from "@/components/voice/dictation-textarea"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -187,10 +187,10 @@ export default function RunDetailPage() {
               <div className="mb-3 rounded-md border bg-background p-3">
                 <MarkdownContent content={run.clarification.question} />
               </div>
-              <Textarea
+              <DictationTextarea
                 placeholder="Type your response…"
                 value={clarificationText}
-                onChange={e => setClarificationText(e.target.value)}
+                onValueChange={setClarificationText}
                 rows={3}
                 disabled={resumeRun.isPending}
               />

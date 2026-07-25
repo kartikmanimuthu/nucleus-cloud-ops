@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import { DictationTextarea } from '@/components/voice/dictation-textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -129,11 +129,12 @@ export default function RespondPage() {
                                 <p className="text-sm font-medium">Clarification needed:</p>
                                 <p className="text-sm mt-1">{run.clarification.question}</p>
                             </div>
-                            <Textarea
+                            <DictationTextarea
                                 placeholder="Type your response..."
                                 value={clarificationText}
-                                onChange={e => setClarificationText(e.target.value)}
+                                onValueChange={setClarificationText}
                                 rows={4}
+                                disabled={submitting}
                             />
                             <Button onClick={handleClarification} disabled={submitting || !clarificationText.trim()}>
                                 {submitting ? 'Submitting...' : 'Submit Response'}

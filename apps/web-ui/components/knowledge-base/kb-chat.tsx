@@ -12,6 +12,7 @@ import remarkGfm from "remark-gfm";
 import { KBChatSources, KBSource } from "./kb-chat-sources";
 import { KBChatSidebar } from "./kb-chat-sidebar";
 import { FileUpload, FileAttachment } from "@/components/agent/file-upload";
+import { MicButton } from "@/components/voice/mic-button";
 import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
 import { useKBChatMessages } from "@/lib/queries/kb-chat";
 import { useProviderModels, defaultModelId } from "@/lib/queries/providers";
@@ -402,6 +403,7 @@ export function KBChat({ initialKbId }: KBChatProps) {
                   rows={1}
                   className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground min-h-[24px] max-h-[160px] py-0.5 leading-relaxed"
                 />
+                <MicButton value={input} onChange={setInput} disabled={isBusy} />
                 <Button
                   type="button"
                   size="icon"
