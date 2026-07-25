@@ -40,4 +40,31 @@ describe('run timings', () => {
     it('returns null for an unknown thread', () => {
         expect(summarizeRun('never-seen')).toBeNull();
     });
+
+    it('does not evict a run that is still recording', () => {
+        // The eviction backstop must target the most IDLE run, not the
+        // oldest-started one. A 10-minute agent run is exactly the run whose
+        // numbers matter most, and it is also the one that has been in the map
+        // longest — evicting it would silently discard the measurement.
+        recordNodeTiming('long-runner', 'EXECUTOR', 1000, 10, 10);
+
+        // Fill past capacity with other threads, while the long runner keeps working.
+        for (let i = 0; i < 250; i++) {
+            recordNodeTiming(`other-${i}`, 'EXECUTOR', 1, 1, 1);
+            recordNodeTiming('long-runner', 'EXECUTOR', 1000, 10, 10);
+        }
+
+        const summary = summarizeRun('long-runner');
+        expect(summary).not.toBeNull();
+        expect(summary!.byNode.EXECUTOR.calls).toBe(251);
+    });
+
+    it('still bounds the map when runs never reach teardown', () => {
+        for (let i = 0; i < 300; i++) {
+            recordNodeTiming(`abandoned-${i}`, 'EXECUTOR', 1, 1, 1);
+        }
+        // The earliest abandoned runs must have been evicted.
+        expect(summarizeRun('abandoned-0')).toBeNull();
+        expect(summarizeRun('abandoned-299')).not.toBeNull();
+    });
 });

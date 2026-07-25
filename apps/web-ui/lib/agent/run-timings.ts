@@ -46,8 +46,14 @@ export function recordNodeTiming(
             if (oldest !== undefined) runs.delete(oldest);
         }
         byNode = {};
-        runs.set(threadId, byNode);
+    } else {
+        // Refresh position: Map keeps INSERTION order, and .set() on an
+        // existing key does not move it. Without this, eviction targets the
+        // oldest-STARTED run — which is exactly the long run we most want to
+        // measure. Delete-then-set makes it least-recently-ACTIVE.
+        runs.delete(threadId);
     }
+    runs.set(threadId, byNode);
 
     const entry = byNode[node] ?? { calls: 0, ms: 0, tokensIn: 0, tokensOut: 0 };
     entry.calls += 1;
