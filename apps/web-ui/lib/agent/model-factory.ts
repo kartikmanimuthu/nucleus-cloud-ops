@@ -40,10 +40,10 @@ export interface AgentModels {
     reflector: BaseChatModel;
 }
 
-/** Conservative default output-token cap when a provider record doesn't specify one.
- *  4096 is safe across small/local models and matches the Anthropic/Bedrock defaults —
- *  the previous 40000 OpenAI-path default overflowed 8k–32k context windows. */
-export const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
+/** Default output-token cap when a provider record doesn't specify one. 8192 suits the
+ *  Anthropic/Bedrock Claude models used by AI Ops; a small/local model with a lower hard
+ *  output limit should set maxTokens on its ProviderModel record to override this. */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
 /** Provider-level context-window estimates (tokens). The ProviderModel schema has no
  *  per-model context-window field, so we approximate at the provider family level — no

@@ -286,4 +286,22 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         if (trigger?.threadTs !== threadTs) return null;
         return toAgentOpsRun(record);
     }
+
+    // Cross-tenant: a Telegram follow-up continues a run ONLY while that run is
+    // paused waiting for the user's answer (awaiting_input) — a message then feeds
+    // that answer into the same run/thread. Once a run has completed and returned a
+    // result, the next message is a brand-new task. /new cancels a pending run, so
+    // 'cancelled' is naturally excluded; the idle window abandons a stale question.
+    async findResumableTelegramRun(chatId: number, idleCutoff: Date): Promise<AgentOpsRun | null> {
+        const record = await getPrismaClient().agentOpsRun.findFirst({
+            where: {
+                source: 'telegram',
+                status: 'awaiting_input',
+                updatedAt: { gte: idleCutoff },
+                trigger: { path: ['chatId'], equals: chatId },
+            },
+            orderBy: { updatedAt: 'desc' },
+        });
+        return record ? toAgentOpsRun(record) : null;
+    }
 }

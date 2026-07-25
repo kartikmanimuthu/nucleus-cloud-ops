@@ -18,6 +18,7 @@ const EMPTY_RUN_STATE: RunState = {
   pendingClarifications: [],
   hasStructuredData: false,
   hasApprovalData: false,
+  tokenUsage: { input: 0, output: 0 },
 }
 
 function baseProps(events: TranscriptEvent[]) {

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TelegramAdapter } from '@/lib/gateway/adapters/telegram-adapter';
 import { TenantConfigService } from '@/lib/tenant-config-service';
+import { getTelegramBotLinkRepository } from '@/lib/db/repository-factory';
+import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import type { ScheduledTask, AgentOpsRun } from '@/lib/agent-ops/types';
 
 vi.mock('@/lib/tenant-config-service', () => ({
@@ -13,12 +15,39 @@ vi.mock('@/lib/tenant-config-service', () => ({
     },
 }));
 
+vi.mock('@/lib/agent-ops/agent-ops-service', () => ({
+    agentOpsService: {
+        findResumableTelegramRun: vi.fn().mockResolvedValue(null),
+        closeTelegramSession: vi.fn().mockResolvedValue(undefined),
+    },
+}));
+
+// chat.id is Telegram's own bookkeeping, never our tenantId — it must be
+// translated via TelegramBotLink (the secret token is the only tenant-identifying
+// value Telegram ever sends back), so every test needs this mocked.
+vi.mock('@/lib/db/repository-factory', () => ({
+    getTelegramBotLinkRepository: vi.fn().mockReturnValue({
+        findTenantIdBySecretToken: vi.fn().mockResolvedValue('tenant-1'),
+        upsertLink: vi.fn().mockResolvedValue(undefined),
+        getLinkForTenant: vi.fn().mockResolvedValue(null),
+        deleteLinkForTenant: vi.fn().mockResolvedValue(0),
+    }),
+}));
+
 describe('TelegramAdapter', () => {
     let adapter: TelegramAdapter;
 
     beforeEach(() => {
         adapter = new TelegramAdapter();
         vi.restoreAllMocks();
+        vi.mocked(getTelegramBotLinkRepository).mockReturnValue({
+            findTenantIdBySecretToken: vi.fn().mockResolvedValue('tenant-1'),
+            upsertLink: vi.fn().mockResolvedValue(undefined),
+            getLinkForTenant: vi.fn().mockResolvedValue(null),
+            deleteLinkForTenant: vi.fn().mockResolvedValue(0),
+        } as any);
+        vi.mocked(agentOpsService.findResumableTelegramRun).mockResolvedValue(null);
+        vi.mocked(agentOpsService.closeTelegramSession).mockResolvedValue(undefined);
     });
 
     it('has correct channel metadata', () => {
@@ -72,6 +101,42 @@ describe('TelegramAdapter', () => {
         expect(msg.channelMeta).toMatchObject({ userId: 12345, chatId: 67890 });
     });
 
+    it('parseInbound resolves tenantId from the secret token link, not chat.id', async () => {
+        const payload = {
+            message: {
+                message_id: 100,
+                from: { id: 12345 },
+                chat: { id: 67890 }, // Telegram's own id — must NOT leak through as tenantId
+                text: 'hello',
+            },
+        };
+        const req = new Request('http://localhost/api/v1/gateway/telegram', {
+            method: 'POST',
+            headers: { 'x-telegram-bot-api-secret-token': 'tg-secret', 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const msg = await adapter.parseInbound(req as any);
+        expect(msg.tenantId).toBe('tenant-1');
+        expect(msg.tenantId).not.toBe(String(payload.message.chat.id));
+    });
+
+    it('parseInbound falls back to raw chat.id when no bot link exists', async () => {
+        vi.mocked(getTelegramBotLinkRepository).mockReturnValue({
+            findTenantIdBySecretToken: vi.fn().mockResolvedValue(null),
+            upsertLink: vi.fn().mockResolvedValue(undefined),
+            getLinkForTenant: vi.fn().mockResolvedValue(null),
+            deleteLinkForTenant: vi.fn().mockResolvedValue(0),
+        } as any);
+        const payload = { message: { message_id: 1, from: { id: 1 }, chat: { id: 67890 }, text: 'hello' } };
+        const req = new Request('http://localhost/api/v1/gateway/telegram', {
+            method: 'POST',
+            headers: { 'x-telegram-bot-api-secret-token': 'tg-secret', 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const msg = await adapter.parseInbound(req as any);
+        expect(msg.tenantId).toBe('67890');
+    });
+
     it('parseInbound detects callback query as ReplyContext', async () => {
         const payload = {
             callback_query: {
@@ -92,6 +157,77 @@ describe('TelegramAdapter', () => {
             action: 'approve',
             tenantId: 'tenant-1',
         });
+    });
+
+    const plainMessageReq = (text: string, chatId = 67890) => {
+        const payload = { message: { message_id: 100, from: { id: 12345 }, chat: { id: chatId }, text } };
+        return new Request('http://localhost/api/v1/gateway/telegram', {
+            method: 'POST',
+            headers: { 'x-telegram-bot-api-secret-token': 'tg-secret', 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+    };
+
+    const commandReq = (text: string, commandLen: number) => {
+        const payload = {
+            message: {
+                message_id: 100, from: { id: 12345 }, chat: { id: 67890 }, text,
+                entities: [{ type: 'bot_command', offset: 0, length: commandLen }],
+            },
+        };
+        return new Request('http://localhost/api/v1/gateway/telegram', {
+            method: 'POST',
+            headers: { 'x-telegram-bot-api-secret-token': 'tg-secret', 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+    };
+
+    it('answers the pending clarification when a run is awaiting the user input', async () => {
+        vi.mocked(agentOpsService.findResumableTelegramRun).mockResolvedValue({
+            runId: 'run-9', tenantId: 'tenant-1', status: 'awaiting_input',
+        } as unknown as AgentOpsRun);
+        const msg = await adapter.parseInbound(plainMessageReq('use ap-south-1') as any);
+        expect(vi.mocked(agentOpsService.findResumableTelegramRun)).toHaveBeenCalledWith(67890, expect.any(Date));
+        expect(msg.replyContext).toEqual({
+            runId: 'run-9',
+            action: 'clarification_response',
+            content: 'use ap-south-1',
+            tenantId: 'tenant-1',
+        });
+    });
+
+    it('starts a new run when nothing is awaiting input (finished/no conversation)', async () => {
+        vi.mocked(agentOpsService.findResumableTelegramRun).mockResolvedValue(null);
+        const msg = await adapter.parseInbound(plainMessageReq('now show me the RDS databases') as any);
+        expect(msg.replyContext).toBeUndefined();
+        expect(msg.taskDescription).toBe('now show me the RDS databases');
+    });
+
+    it('"/new" with no text resets the session, referencing the current run', async () => {
+        vi.mocked(agentOpsService.findResumableTelegramRun).mockResolvedValue({
+            runId: 'run-9', tenantId: 'tenant-1', status: 'completed',
+        } as unknown as AgentOpsRun);
+        const msg = await adapter.parseInbound(commandReq('/new', 4) as any);
+        expect(msg.replyContext).toEqual({ runId: 'run-9', action: 'reset', tenantId: 'tenant-1' });
+        expect(msg.taskDescription).toBe('');
+    });
+
+    it('"/new <text>" starts a fresh task without continuing the old run', async () => {
+        vi.mocked(agentOpsService.findResumableTelegramRun).mockResolvedValue({
+            runId: 'run-9', tenantId: 'tenant-1', status: 'completed',
+        } as unknown as AgentOpsRun);
+        const msg = await adapter.parseInbound(commandReq('/new list RDS databases', 4) as any);
+        expect(msg.replyContext).toBeUndefined();
+        expect(msg.taskDescription).toBe('list RDS databases');
+    });
+
+    it('bot command "/cloudops ..." starts a new task even with an active session', async () => {
+        vi.mocked(agentOpsService.findResumableTelegramRun).mockResolvedValue({
+            runId: 'run-9', tenantId: 'tenant-1', status: 'completed',
+        } as unknown as AgentOpsRun);
+        const msg = await adapter.parseInbound(commandReq('/cloudops Check Lambda configs', 9) as any);
+        expect(msg.replyContext).toBeUndefined();
+        expect(msg.taskDescription).toBe('Check Lambda configs');
     });
 
     it('sendAck returns 200', async () => {

@@ -674,6 +674,28 @@ function stripReasoningBlocks(msg: BaseMessage): BaseMessage {
     });
 }
 
+// Empty AI content (post-strip) with no tool calls — rewritten, not dropped, so Bedrock role alternation is preserved.
+function isEmptyAiMessageContent(ai: AIMessage): boolean {
+    if (Array.isArray(ai.tool_calls) && ai.tool_calls.length > 0) return false;
+
+    const content = ai.content;
+    if (content == null) return true;
+    if (typeof content === 'string') return content.trim() === '';
+    if (!Array.isArray(content)) return false; // unknown non-array content — treat as present
+    if (content.length === 0) return true;
+
+    // Non-empty array: empty only if EVERY block is an empty/whitespace text block.
+    return (content as unknown[]).every((block) => {
+        if (block && typeof block === 'object') {
+            const b = block as Record<string, unknown>;
+            if (b.type === 'text') {
+                return typeof b.text !== 'string' || b.text.trim() === '';
+            }
+        }
+        return false; // tool_use, image, or any other block => real content
+    });
+}
+
 export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage[] {
     // Bedrock requires every toolResult to IMMEDIATELY follow the assistant
     // toolUse that owns it — "answered somewhere in the array" is not enough.
@@ -710,7 +732,22 @@ export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage
 
         // Strip reasoning/thinking blocks from AI messages — they come back with a
         // null reasoningText after a checkpoint round-trip and Bedrock rejects them.
-        const cleaned = stripReasoningBlocks(msg);
+        let cleaned = stripReasoningBlocks(msg);
+
+        // Rewrite (never drop) an emptied reasoning-only message: empty content crashes Bedrock, and dropping breaks role alternation.
+        if (cleaned._getType() === 'ai' && isEmptyAiMessageContent(cleaned as AIMessage)) {
+            const ai = cleaned as AIMessage;
+            cleaned = new AIMessage({
+                content: '(reasoning omitted)',
+                tool_calls: ai.tool_calls,
+                additional_kwargs: ai.additional_kwargs,
+                response_metadata: ai.response_metadata,
+                id: ai.id,
+                name: ai.name,
+                usage_metadata: ai.usage_metadata,
+            });
+        }
+
         result.push(cleaned);
 
         if (msg._getType() !== 'ai') continue;

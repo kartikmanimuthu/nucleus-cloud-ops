@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
+import { buildUsagePart } from '../stream-parts';
 
 const WM_JSON = JSON.stringify({
     summary: 'User asked to connect Jira; site resource retrieved.',
@@ -227,5 +228,11 @@ describe('stripWorkingMemoryPrelude', () => {
     it('leaves a leading non-WM code fence untouched', () => {
         const raw = '```json\n{"result": "ok"}\n```\nExplanation follows.';
         expect(stripWorkingMemoryPrelude(raw)).toBe(raw);
+    });
+});
+
+describe('buildUsagePart', () => {
+    it('builds a data-usage part', () => {
+        expect(buildUsagePart(3, 4)).toEqual({ type: 'data-usage', data: { input: 3, output: 4 } });
     });
 });

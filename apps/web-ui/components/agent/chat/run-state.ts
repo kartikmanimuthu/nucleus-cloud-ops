@@ -24,6 +24,8 @@ export interface RunState {
     /** True when ANY data-approval part was seen in the thread — such threads use
      *  Mission Control batch cards, never the legacy inline per-tool Confirmation. */
     hasApprovalData: boolean;
+    /** Cumulative billed token totals summed from every data-usage part in the thread. */
+    tokenUsage: { input: number; output: number };
 }
 
 interface LoosePart { type: string; data?: any; text?: string }
@@ -40,6 +42,8 @@ export function deriveRunState(
     const clarifications: PendingClarification[] = [];
     let hasStructuredData = false;
     let hasApprovalData = false;
+    let tokenIn = 0;
+    let tokenOut = 0;
     // Tool calls with an output-bearing tool part ANYWHERE in the thread. An
     // executed / rejected / answered tool can never be pending again, no matter
     // what a stale data-approval or data-clarification part claims (defense
@@ -92,6 +96,11 @@ export function deriveRunState(
                     }
                     break;
                 }
+                case 'data-usage': {
+                    tokenIn += Number(part.data?.input) || 0;
+                    tokenOut += Number(part.data?.output) || 0;
+                    break;
+                }
             }
         }
     }
@@ -112,6 +121,7 @@ export function deriveRunState(
         pendingClarifications,
         hasStructuredData,
         hasApprovalData,
+        tokenUsage: { input: tokenIn, output: tokenOut },
     };
 }
 

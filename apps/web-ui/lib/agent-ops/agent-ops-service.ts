@@ -202,6 +202,25 @@ export async function findAwaitingRunBySlackThread(
 }
 
 /**
+ * Resolve the run a Telegram follow-up should feed into: the chat's run that is
+ * currently awaiting the user's answer (within the idle window). Once a run has
+ * completed, the next message is a new task — so this only ever returns a run
+ * that is actively waiting on input.
+ */
+export async function findResumableTelegramRun(chatId: number, idleCutoff: Date): Promise<AgentOpsRun | null> {
+    return getAgentOpsRunRepository().findResumableTelegramRun(chatId, idleCutoff);
+}
+
+/**
+ * End the current Telegram conversation (the /new command): cancel the run that is
+ * awaiting input so the pending question is dropped and the next message starts a
+ * fresh run instead of being read as the answer.
+ */
+export async function closeTelegramSession(tenantId: string, runId: string): Promise<void> {
+    await updateRunStatus(tenantId, runId, 'cancelled');
+}
+
+/**
  * Update the slackMessageTs on an existing approvalRequest (after posting Block Kit message).
  */
 export async function updateApprovalMessageTs(
@@ -235,5 +254,7 @@ export const agentOpsService = {
     findAwaitingRunByJiraIssue,
     findAwaitingApprovalRunByJiraIssue,
     findAwaitingRunBySlackThread,
+    findResumableTelegramRun,
+    closeTelegramSession,
     findAwaitingApprovalRun,
 };
