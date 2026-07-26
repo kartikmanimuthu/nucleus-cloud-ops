@@ -40,6 +40,11 @@ export interface RunState {
     /** Sub-agents dispatched in this thread, in first-seen order. Later parts for
      *  the same id replace the earlier entry in place. */
     subagents: SubagentState[];
+    /** True when this thread fanned out at all — set by a live data-subagent part
+     *  OR by a persisted dispatch_agent tool call. data-subagent parts are not
+     *  persisted, so after a reload this is the ONLY signal that the rail should
+     *  rebuild the cards from agent_subagent_runs rather than render nothing. */
+    usedSubagents: boolean;
 }
 
 interface LoosePart { type: string; data?: any; text?: string }
@@ -59,6 +64,7 @@ export function deriveRunState(
     let tokenIn = 0;
     let tokenOut = 0;
     const subagents = new Map<string, SubagentState>();
+    let usedSubagents = false;
     // Tool calls with an output-bearing tool part ANYWHERE in the thread. An
     // executed / rejected / answered tool can never be pending again, no matter
     // what a stale data-approval or data-clarification part claims (defense
@@ -77,6 +83,11 @@ export function deriveRunState(
                     p.state === 'output-available' ||
                     p.state === 'output-error';
                 if (hasOutput) executedIds.add(String(p.toolCallId));
+                // `tool-invocation` + toolName is the reloaded history shape;
+                // `tool-dispatch_agent` is the streamed typed-part shape.
+                if (p.toolName === 'dispatch_agent' || p.type === 'tool-dispatch_agent') {
+                    usedSubagents = true;
+                }
             }
             switch (part.type) {
                 case 'data-plan': {
@@ -118,6 +129,7 @@ export function deriveRunState(
                 }
                 case 'data-subagent': {
                     hasStructuredData = true;
+                    usedSubagents = true;
                     const id = String(part.data?.id ?? '');
                     if (!id) break;
                     // Map.set on an existing key preserves insertion order, so the
@@ -157,6 +169,7 @@ export function deriveRunState(
         hasApprovalData,
         tokenUsage: { input: tokenIn, output: tokenOut },
         subagents: Array.from(subagents.values()),
+        usedSubagents,
     };
 }
 

@@ -296,3 +296,47 @@ describe('deriveRunState — subagents', () => {
         expect(deriveRunState([msg([{ type: 'text', text: 'hi' }])] as any, new Set()).subagents).toEqual([]);
     });
 });
+
+// data-subagent parts are NOT persisted (history is rebuilt from the LangGraph
+// checkpointer), so after a reload `subagents` is empty even for a thread that
+// fanned out. The dispatch_agent tool call IS persisted, and it is what tells the
+// rail to reconstruct the cards from agent_subagent_runs instead of showing nothing.
+describe('deriveRunState — usedSubagents', () => {
+    it('is false for a thread that never dispatched', () => {
+        expect(deriveRunState([msg([{ type: 'text', text: 'hi' }])] as any, new Set()).usedSubagents).toBe(false);
+    });
+
+    it('is true from a live data-subagent part', () => {
+        const state = deriveRunState([msg([
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'done', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+        ])] as any, new Set());
+
+        expect(state.usedSubagents).toBe(true);
+    });
+
+    it('is true from a reloaded dispatch_agent tool part, whose data parts are gone', () => {
+        // Shape emitted by /api/threads/[threadId]/history on reload.
+        const state = deriveRunState([msg([
+            { type: 'tool-invocation', toolCallId: 'c1', toolName: 'dispatch_agent', state: 'call' } as any,
+        ])] as any, new Set());
+
+        expect(state.subagents).toEqual([]);
+        expect(state.usedSubagents).toBe(true);
+    });
+
+    it('is true from the streamed typed tool part name', () => {
+        const state = deriveRunState([msg([
+            { type: 'tool-dispatch_agent', toolCallId: 'c1', state: 'output-available', output: 'report' } as any,
+        ])] as any, new Set());
+
+        expect(state.usedSubagents).toBe(true);
+    });
+
+    it('is not tripped by an unrelated tool', () => {
+        const state = deriveRunState([msg([
+            { type: 'tool-invocation', toolCallId: 'c1', toolName: 'aws_read', state: 'call' } as any,
+        ])] as any, new Set());
+
+        expect(state.usedSubagents).toBe(false);
+    });
+});

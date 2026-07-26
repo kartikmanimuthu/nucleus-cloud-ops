@@ -627,6 +627,36 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
+// AgentSubagentRun — one row per dispatch_agent sub-agent, so a collapsed card
+// can be expanded after a page reload. The transcript lives here and NEVER in
+// the orchestrator's message list: putting it there would defeat the context
+// isolation that makes sub-agents worthwhile.
+//
+// Written through SubagentRunPostgresRepository, which redacts secrets before
+// the row is persisted (see lib/agent/subagent-redact.ts) — aws_read permits
+// `lambda get-function-configuration`, whose Environment.Variables are plaintext.
+model AgentSubagentRun {
+  id         String   @id @default(cuid())
+  tenantId   String
+  threadId   String
+  subagentId String
+  role       String
+  task       String
+  status     String // running|done|failed
+  toolCount  Int      @default(0)
+  tokensIn   Int      @default(0)
+  tokensOut  Int      @default(0)
+  summary    String?
+  transcript Json?
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime // 30-day TTL, matching ChatMessage
+
+  @@unique([tenantId, threadId, subagentId])
+  @@index([tenantId, threadId, createdAt])
+  @@index([expiresAt])
+  @@map("agent_subagent_runs")
+}
+
 // ChatSession — thread metadata for AI agent chat sessions
 // Tracks thread title, owner, timestamps for sidebar listing
 model ChatSession {

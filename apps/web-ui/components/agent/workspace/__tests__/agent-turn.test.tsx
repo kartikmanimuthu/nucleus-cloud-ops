@@ -20,6 +20,7 @@ const EMPTY_RUN_STATE: RunState = {
   hasApprovalData: false,
   tokenUsage: { input: 0, output: 0 },
   subagents: [],
+  usedSubagents: false,
 }
 
 function baseProps(events: TranscriptEvent[]) {

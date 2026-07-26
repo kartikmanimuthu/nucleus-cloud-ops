@@ -30,6 +30,7 @@ import type { ISkillRepository } from './repositories/skill/interface';
 import type { ISlackWorkspaceLinkRepository } from './repositories/slack-workspace-link/interface';
 import type { IDashboardRepository } from './repositories/dashboard/interface';
 import type { ITelegramBotLinkRepository } from './repositories/telegram-bot-link/interface';
+import type { SubagentRunRepository } from './repositories/subagent/interface';
 
 export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -149,6 +150,12 @@ export function getTelegramBotLinkRepository(): ITelegramBotLinkRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { TelegramBotLinkPostgresRepository } = require('./repositories/telegram-bot-link/postgres');
     return new TelegramBotLinkPostgresRepository();
+}
+
+export function getSubagentRunRepository(): SubagentRunRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { SubagentRunPostgresRepository } = require('./repositories/subagent/postgres');
+    return new SubagentRunPostgresRepository();
 }
 
 /**

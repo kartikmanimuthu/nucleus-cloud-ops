@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Bot, CheckCircle2, ChevronDown, ChevronRight, Loader2, XCircle } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { useSubagentRuns } from '@/lib/queries/subagents';
 import type { SubagentState } from './run-state';
 
 function formatTokens(n: number): string {
@@ -21,13 +22,19 @@ export function SubagentCard({
   threadId,
 }: {
   subagent: SubagentState;
-  /** Reserved for fetching a persisted sub-agent transcript when a card is
-   *  expanded after a reload — not used yet; the findings panel below reads
-   *  purely from the live `subagent.summary`. */
+  /** Thread whose persisted sub-agent runs hold the transcript. Optional: without
+   *  it the card still renders the live task + findings, just no transcript. */
   threadId?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const canExpand = subagent.status !== 'running' && !!subagent.summary;
+
+  // Loaded only on expand — the transcript is never streamed (three interleaved
+  // sub-agent narrations are unreadable) and never persisted in the message
+  // history, so it comes from agent_subagent_runs on demand. Keyed per thread, so
+  // expanding a second card in the same thread is served from cache.
+  const { data: runs } = useSubagentRuns(threadId, expanded);
+  const transcript = runs?.find(r => r.subagentId === subagent.id)?.transcript ?? [];
 
   return (
     <div className="rounded-md border bg-muted/30 text-sm">
@@ -60,6 +67,22 @@ export function SubagentCard({
           <p className="mb-3 whitespace-pre-wrap text-xs text-muted-foreground">{subagent.task}</p>
           <p className="mb-1 text-xs font-medium text-muted-foreground">Findings</p>
           <p className="whitespace-pre-wrap text-xs">{subagent.summary}</p>
+
+          {transcript.length > 0 && (
+            <div className="mt-3 border-t pt-2">
+              <p className="mb-1 text-xs font-medium text-muted-foreground">Transcript</p>
+              <div className="space-y-1.5">
+                {transcript.map((entry, i) => (
+                  <div key={i} className="text-xs">
+                    <span className="text-muted-foreground">
+                      {entry.kind === 'tool' ? `${entry.name ?? 'tool'} → ` : 'thinking: '}
+                    </span>
+                    <span className="whitespace-pre-wrap">{entry.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -59,6 +59,10 @@ export const queryKeys = {
         content: (id: string, versionId?: string) =>
             [...queryKeys.certificates.detail(id), 'content', versionId ?? 'active'] as const,
     },
+    subagents: {
+        all: ['subagents'] as const,
+        byThread: (threadId: string) => [...queryKeys.subagents.all, 'thread', threadId] as const,
+    },
     kbChat: {
         all: ['kb-chat'] as const,
         sessions: () => [...queryKeys.kbChat.all, 'sessions'] as const,

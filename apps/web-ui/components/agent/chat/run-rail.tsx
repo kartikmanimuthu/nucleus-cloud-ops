@@ -6,7 +6,8 @@ import { Activity, AlertTriangle, Bot, ChevronsDownUp, ChevronsUpDown, Cloud, Cp
 import { Plan, PlanContent, PlanStep } from "@/components/ai-elements/plan";
 import { Spinner } from "@/components/ui/spinner";
 import { SubagentCard } from "./subagent-card";
-import type { RunState } from "./run-state";
+import { useSubagentRuns } from "@/lib/queries/subagents";
+import type { RunState, SubagentState } from "./run-state";
 
 const PHASE_LABELS: Record<string, string> = {
   planning: "Planning", execution: "Executing", reflection: "Reflecting",
@@ -57,6 +58,25 @@ export function RunRail({
   threadId?: string;
 }) {
   const { plan, currentPhase, pendingApproval, pendingClarifications } = runState;
+
+  // A reloaded thread has no data-subagent parts (they are not persisted), so the
+  // cards are rebuilt from agent_subagent_runs. Only fetched when the thread is
+  // known to have fanned out — a persisted dispatch_agent tool call — and only when
+  // there is no live state to prefer.
+  const needsPersistedSubagents = runState.usedSubagents && runState.subagents.length === 0;
+  const { data: persistedRuns } = useSubagentRuns(threadId, needsPersistedSubagents);
+  const subagents: SubagentState[] = needsPersistedSubagents
+    ? (persistedRuns ?? []).map((run) => ({
+        id: run.subagentId,
+        role: run.role,
+        task: run.task,
+        status: run.status === "done" || run.status === "failed" ? run.status : "running",
+        toolCount: run.toolCount,
+        tokensIn: run.tokensIn,
+        tokensOut: run.tokensOut,
+        ...(run.summary ? { summary: run.summary } : {}),
+      }))
+    : runState.subagents;
   const done = plan.filter((s) => s.status === "completed").length;
   const mutativePending = pendingApproval?.tools.some((t) => t.guard?.isMutative) ?? false;
 
@@ -150,13 +170,13 @@ export function RunRail({
 
       {/* Dispatched sub-agents — collapsed cards so their prose never lands in
           the transcript; each one expands to its own task + findings. */}
-      {runState.subagents.length > 0 && (
+      {subagents.length > 0 && (
         <RailSection
           icon={Bot}
-          title={`Sub-agents (${runState.subagents.filter((s) => s.status === "running").length} running)`}
+          title={`Sub-agents (${subagents.filter((s) => s.status === "running").length} running)`}
         >
           <div className="space-y-1.5">
-            {runState.subagents.map((subagent) => (
+            {subagents.map((subagent) => (
               <SubagentCard key={subagent.id} subagent={subagent} threadId={threadId} />
             ))}
           </div>

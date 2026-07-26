@@ -14,6 +14,7 @@ import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool
 import type { PlanStep } from '@/lib/agent/agent-shared';
 import { logRunSummary } from '@/lib/agent/run-timings';
 import type { SubagentEvent } from '@/lib/agent/dispatch-agent-tool';
+import { getSubagentRunRepository } from '@/lib/db/repository-factory';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -241,7 +242,25 @@ export async function POST(req: Request) {
         const subagentSinkRef: { sink: ((chunk: UIMessageChunk) => void) | null } = { sink: null };
         const emitSubagent = (event: SubagentEvent) => {
             liveSubagents.set(event.id, event);
-            if (event.status !== 'running') liveSubagents.delete(event.id);
+            if (event.status !== 'running') {
+                liveSubagents.delete(event.id);
+                // Persist so a collapsed card survives a reload. Fire-and-forget: a
+                // persistence failure must never break the run. The repository redacts
+                // secrets before the write.
+                getSubagentRunRepository().save({
+                    tenantId: resolvedTenantId,
+                    threadId,
+                    subagentId: event.id,
+                    role: event.role,
+                    task: event.task,
+                    status: event.status,
+                    toolCount: event.toolCount,
+                    tokensIn: event.tokensIn,
+                    tokensOut: event.tokensOut,
+                    summary: event.summary ?? null,
+                    transcript: event.transcript ?? null,
+                }).catch(err => console.error('[Chat] Failed to persist sub-agent run:', err));
+            }
             try {
                 subagentSinkRef.sink?.(buildSubagentPart(event) as UIMessageChunk);
             } catch {
