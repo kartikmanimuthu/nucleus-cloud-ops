@@ -73,21 +73,51 @@ export const ALLOWED_OPS: Record<string, ReadonlySet<string>> = {
         'describe-network-interfaces', 'describe-route-tables', 'describe-nat-gateways',
         'describe-internet-gateways', 'describe-regions', 'describe-availability-zones',
         'describe-instance-types', 'describe-tags',
+        'describe-instance-status', 'describe-vpc-endpoints', 'describe-flow-logs',
+        // NOT describe-instance-attribute: --attribute userData returns the instance's
+        // user-data script, which routinely carries bootstrap credentials. Permanently out.
     ]),
-    rds: new Set(['describe-db-instances', 'describe-db-clusters', 'describe-db-snapshots']),
-    elbv2: new Set(['describe-load-balancers', 'describe-target-groups', 'describe-target-health']),
+    rds: new Set(['describe-db-instances', 'describe-db-clusters', 'describe-db-snapshots', 'describe-db-cluster-snapshots']),
+    elbv2: new Set([
+        'describe-load-balancers', 'describe-target-groups', 'describe-target-health',
+        'describe-listeners', 'describe-rules',
+    ]),
     autoscaling: new Set(['describe-auto-scaling-groups', 'describe-auto-scaling-instances']),
     ecs: new Set(['list-clusters', 'list-services', 'list-tasks', 'describe-clusters', 'describe-services', 'describe-tasks']),
     eks: new Set(['list-clusters', 'describe-cluster', 'list-nodegroups', 'describe-nodegroup']),
+    // NOTE: get-function-configuration returns Environment.Variables in plaintext,
+    // which routinely holds DB passwords and API keys. Kept because it is the only
+    // way to answer ordinary Lambda configuration questions — but sub-agent reports
+    // reach orchestrator context and, once Task 11 lands, Postgres. Revisit before
+    // transcript persistence ships.
     lambda: new Set(['list-functions', 'get-function-configuration']),
-    s3api: new Set(['list-buckets', 'get-bucket-location', 'get-bucket-tagging', 'get-bucket-encryption', 'get-bucket-versioning']),
-    cloudwatch: new Set(['get-metric-statistics', 'list-metrics', 'describe-alarms']),
-    logs: new Set(['describe-log-groups', 'describe-log-streams', 'filter-log-events']),
+    s3api: new Set([
+        'list-buckets', 'get-bucket-location', 'get-bucket-tagging', 'get-bucket-encryption',
+        'get-bucket-versioning', 'get-bucket-policy', 'get-bucket-acl', 'get-public-access-block',
+        'get-bucket-logging', 'list-objects-v2',
+        // NOT get-object: its outfile is a POSITIONAL, i.e. an arbitrary local file write.
+    ]),
+    cloudwatch: new Set(['get-metric-statistics', 'get-metric-data', 'list-metrics', 'describe-alarms']),
+    logs: new Set(['describe-log-groups', 'describe-log-streams', 'filter-log-events', 'get-log-events']),
     cloudformation: new Set(['list-stacks', 'describe-stacks', 'describe-stack-resources']),
-    iam: new Set(['list-roles', 'list-policies', 'get-role', 'get-policy', 'list-attached-role-policies']),
+    cloudtrail: new Set(['lookup-events']),
+    iam: new Set([
+        'list-roles', 'list-policies', 'get-role', 'get-policy', 'list-attached-role-policies',
+        'get-policy-version', 'list-role-policies', 'get-role-policy', 'list-users',
+        'list-attached-user-policies',
+        // NOT get-credential-report.
+    ]),
+    organizations: new Set(['list-accounts', 'describe-organization', 'list-accounts-for-parent', 'list-tags-for-resource']),
+    acm: new Set(['list-certificates', 'describe-certificate']),
+    kms: new Set(['list-keys', 'describe-key', 'list-aliases']),
+    route53: new Set(['list-hosted-zones', 'list-resource-record-sets']),
+    cloudfront: new Set(['list-distributions']),
     sts: new Set(['get-caller-identity']),
-    ce: new Set(['get-cost-and-usage']),
+    ce: new Set(['get-cost-and-usage', 'get-cost-forecast', 'get-dimension-values']),
     tag: new Set(['get-resources']),
+    // Deliberately absent: ssm (get-parameter returns SecureString plaintext),
+    // secretsmanager, sso, ecr, redshift, cognito-identity, and the `s3` command set
+    // (cp/sync/mv write files and mutate buckets — s3api is the read-only surface).
 };
 
 /**
@@ -100,45 +130,143 @@ export const ALLOWED_OPS: Record<string, ReadonlySet<string>> = {
  * --profile, --region and --output are deliberately absent: the builder supplies
  * them from validated fields, and allowing them here would let a later duplicate
  * override the validated one (the AWS CLI takes the last occurrence).
+ *
+ * Every entry is a resource selector, a filter, or pagination — the parameters an
+ * allowlisted operation needs to be callable at all. An operation on ALLOWED_OPS
+ * whose required parameter is missing here is not actually available (e.g.
+ * `elbv2 describe-target-health` without --target-group-arn), which is the
+ * uselessness that pushes users back toward a shell. Nothing here changes WHERE the
+ * CLI connects, WHAT credentials it uses, or WHERE it writes.
  */
 export const ALLOWED_FLAGS: Record<string, 'none' | 'one' | 'many'> = {
+    // Filters, queries and pagination (cross-service)
     '--filters': 'many',
+    '--filter': 'many',
+    '--query': 'one',
+    '--max-items': 'one',
+    '--max-results': 'one',
+    '--max-keys': 'one',
+    '--limit': 'one',
+    '--starting-token': 'one',
+    '--continuation-token': 'one',
+    '--page-size': 'one',
+    '--no-paginate': 'none',
+    '--include-deleted': 'none',
+
+    // EC2
     '--instance-ids': 'many',
+    '--instance-types': 'many',
     '--volume-ids': 'many',
     '--snapshot-ids': 'many',
+    '--owner-ids': 'many',
+    '--owners': 'many',
+    '--image-ids': 'many',
     '--group-ids': 'many',
-    '--names': 'many',
-    '--auto-scaling-group-names': 'many',
+    '--group-names': 'many',
+    '--vpc-ids': 'many',
+    '--subnet-ids': 'many',
+    '--route-table-ids': 'many',
+    '--network-interface-ids': 'many',
+    '--nat-gateway-ids': 'many',
+    '--internet-gateway-ids': 'many',
+    '--vpc-endpoint-ids': 'many',
+    '--flow-log-ids': 'many',
+    '--allocation-ids': 'many',
+    '--public-ips': 'many',
+    '--region-names': 'many',
+    '--zone-names': 'many',
+    '--include-all-instances': 'none',
+
+    // RDS
     '--db-instance-identifier': 'one',
     '--db-cluster-identifier': 'one',
+    '--db-snapshot-identifier': 'one',
+    '--snapshot-type': 'one',
+
+    // ELBv2
+    '--load-balancer-arn': 'one',
+    '--load-balancer-arns': 'many',
+    '--target-group-arn': 'one',
+    '--target-group-arns': 'many',
+    '--listener-arn': 'one',
+    '--listener-arns': 'many',
+    '--rule-arns': 'many',
+
+    // Auto Scaling / ECS / EKS
+    '--auto-scaling-group-names': 'many',
     '--cluster': 'one',
+    '--clusters': 'many',
+    '--cluster-name': 'one',
+    '--nodegroup-name': 'one',
     '--service': 'one',
     '--services': 'many',
     '--tasks': 'many',
+    '--name': 'one',
+    '--names': 'many',
+
+    // Lambda
     '--function-name': 'one',
+    '--qualifier': 'one',
+
+    // S3 (s3api)
     '--bucket': 'one',
-    '--log-group-name': 'one',
-    '--log-stream-names': 'many',
-    '--stack-name': 'one',
-    '--role-name': 'one',
-    '--policy-arn': 'one',
+    '--prefix': 'one',
+    '--delimiter': 'one',
+
+    // CloudWatch
     '--metric-name': 'one',
+    '--metric': 'one',
     '--namespace': 'one',
     '--dimensions': 'many',
     '--statistics': 'many',
     '--period': 'one',
+    '--metric-data-queries': 'many',
+    '--scan-by': 'one',
+    '--alarm-names': 'many',
+    '--state-value': 'one',
+
+    // Logs / CloudTrail
+    '--log-group-name': 'one',
+    '--log-group-name-prefix': 'one',
+    '--log-stream-name': 'one',
+    '--log-stream-names': 'many',
+    '--filter-pattern': 'one',
+    '--start-from-head': 'none',
+    '--lookup-attributes': 'many',
+
+    // CloudFormation
+    '--stack-name': 'one',
+
+    // IAM
+    '--role-name': 'one',
+    '--user-name': 'one',
+    '--policy-arn': 'one',
+    '--policy-name': 'one',
+    '--version-id': 'one',
+    '--path-prefix': 'one',
+
+    // Organizations / ACM / KMS / Route 53
+    '--parent-id': 'one',
+    '--resource-id': 'one',
+    '--certificate-arn': 'one',
+    '--certificate-statuses': 'many',
+    '--key-id': 'one',
+    '--hosted-zone-id': 'one',
+    '--start-record-name': 'one',
+
+    // Time windows and Cost Explorer
     '--start-time': 'one',
     '--end-time': 'one',
     '--time-period': 'one',
     '--granularity': 'one',
     '--metrics': 'many',
+    '--group-by': 'many',
+    '--dimension': 'one',
+    '--search-string': 'one',
+
+    // Resource Groups Tagging
     '--resource-type-filters': 'many',
-    '--query': 'one',
-    '--max-items': 'one',
-    '--starting-token': 'one',
-    '--page-size': 'one',
-    '--no-paginate': 'none',
-    '--include-deleted': 'none',
+    '--tag-filters': 'many',
 };
 
 export type ParamValue = string | string[] | true;

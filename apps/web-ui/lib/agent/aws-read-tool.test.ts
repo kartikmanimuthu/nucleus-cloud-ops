@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateAwsReadRequest, buildAwsReadArgv, ALLOWED_FLAGS, ALLOWED_OPS } from './aws-read-tool';
+import { validateAwsReadRequest, buildAwsReadArgv, ALLOWED_FLAGS, ALLOWED_OPS, type ParamValue } from './aws-read-tool';
 import { isReadOnlyForSubagent, filterReadOnlyTools } from './subagent';
 
 const ok = { service: 'ec2', operation: 'describe-instances' };
@@ -127,6 +127,68 @@ describe('validateAwsReadRequest — the argv invariant (no value may look like 
                 '--start-time': '2026-07-01T00:00:00Z',
             },
         })).toBeNull();
+    });
+
+    it('does not reject any of the legitimate value shapes', () => {
+        // The invariant is only free if no real AWS value begins with "-". Each of
+        // these is a shape a sub-agent will actually produce.
+        const cases: Array<[string, ParamValue]> = [
+            ['--filters', 'Name=instance-state-name,Values=running'],
+            ['--query', 'Reservations[].Instances[]'],
+            ['--start-time', '2026-07-01T00:00:00Z'],
+            ['--start-time', '1751328000'],
+            ['--instance-ids', ['i-1', 'i-2']],
+            ['--no-paginate', true],
+        ];
+        for (const [flag, value] of cases) {
+            expect(validateAwsReadRequest({ ...ok, params: { [flag]: value } }), `${flag} ${JSON.stringify(value)}`).toBeNull();
+        }
+    });
+});
+
+describe('ALLOWED_OPS — the approved audit surface is callable', () => {
+    it('covers the operations a multi-account audit needs', () => {
+        const required: Array<[string, string]> = [
+            ['organizations', 'list-accounts'], ['organizations', 'describe-organization'],
+            ['cloudtrail', 'lookup-events'], ['cloudwatch', 'get-metric-data'],
+            ['s3api', 'get-bucket-policy'], ['s3api', 'get-public-access-block'],
+            ['s3api', 'list-objects-v2'], ['iam', 'get-policy-version'],
+            ['iam', 'get-role-policy'], ['acm', 'describe-certificate'],
+            ['kms', 'describe-key'], ['route53', 'list-resource-record-sets'],
+            ['cloudfront', 'list-distributions'], ['ec2', 'describe-instance-status'],
+            ['elbv2', 'describe-listeners'], ['rds', 'describe-db-cluster-snapshots'],
+            ['logs', 'get-log-events'], ['ce', 'get-cost-forecast'],
+        ];
+        for (const [service, operation] of required) {
+            expect(validateAwsReadRequest({ service, operation }), `${service} ${operation}`).toBeNull();
+        }
+    });
+
+    it('gives every allowlisted operation its required parameters', () => {
+        // An operation whose required flag is missing from ALLOWED_FLAGS is on the
+        // list but not actually callable — the uselessness that pushes users back
+        // toward a shell.
+        const required: Array<[string, string, Record<string, ParamValue>]> = [
+            ['elbv2', 'describe-target-health', { '--target-group-arn': 'arn:aws:elasticloadbalancing:x' }],
+            ['elbv2', 'describe-rules', { '--listener-arn': 'arn:aws:elasticloadbalancing:y' }],
+            ['eks', 'describe-cluster', { '--name': 'prod' }],
+            ['eks', 'describe-nodegroup', { '--cluster-name': 'prod', '--nodegroup-name': 'ng-1' }],
+            ['iam', 'get-policy-version', { '--policy-arn': 'arn:aws:iam::1:policy/p', '--version-id': 'v3' }],
+            ['iam', 'get-role-policy', { '--role-name': 'r', '--policy-name': 'p' }],
+            ['route53', 'list-resource-record-sets', { '--hosted-zone-id': 'Z123' }],
+            ['kms', 'describe-key', { '--key-id': 'alias/aws/s3' }],
+            ['acm', 'describe-certificate', { '--certificate-arn': 'arn:aws:acm::1:certificate/c' }],
+            ['cloudtrail', 'lookup-events', { '--lookup-attributes': ['AttributeKey=EventName,AttributeValue=RunInstances'], '--max-results': '50' }],
+            ['cloudwatch', 'get-metric-data', { '--metric-data-queries': ['file-free-json'], '--start-time': '2026-07-01T00:00:00Z', '--end-time': '2026-07-02T00:00:00Z' }],
+            ['s3api', 'list-objects-v2', { '--bucket': 'b', '--prefix': 'logs/', '--max-keys': '100' }],
+            ['organizations', 'list-accounts-for-parent', { '--parent-id': 'ou-1234' }],
+            ['logs', 'get-log-events', { '--log-group-name': '/aws/lambda/f', '--log-stream-name': 's', '--start-from-head': true }],
+            ['ce', 'get-dimension-values', { '--time-period': 'Start=2026-07-01,End=2026-07-02', '--dimension': 'SERVICE' }],
+            ['ec2', 'describe-instance-status', { '--include-all-instances': true }],
+        ];
+        for (const [service, operation, params] of required) {
+            expect(validateAwsReadRequest({ service, operation, params }), `${service} ${operation}`).toBeNull();
+        }
     });
 });
 
