@@ -30,6 +30,7 @@ const EMPTY_RUN_STATE: RunState = {
   hasStructuredData: false,
   hasApprovalData: false,
   tokenUsage: { input: 0, output: 0 },
+  subagents: [],
 }
 
 function planOf(doneCount: number, total: number): RunState['plan'] {

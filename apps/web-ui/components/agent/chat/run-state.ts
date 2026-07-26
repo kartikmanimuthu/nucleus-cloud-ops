@@ -13,6 +13,17 @@ export interface PendingApprovalTool {
 }
 export interface PendingClarification { toolCallId: string; question: string; options: string[] }
 
+export interface SubagentState {
+    id: string;
+    role: string;
+    task: string;
+    status: 'running' | 'done' | 'failed';
+    toolCount: number;
+    tokensIn: number;
+    tokensOut: number;
+    summary?: string;
+}
+
 export interface RunState {
     plan: RunPlanStep[];
     planUpdatedBy: string | null;
@@ -26,6 +37,9 @@ export interface RunState {
     hasApprovalData: boolean;
     /** Cumulative billed token totals summed from every data-usage part in the thread. */
     tokenUsage: { input: number; output: number };
+    /** Sub-agents dispatched in this thread, in first-seen order. Later parts for
+     *  the same id replace the earlier entry in place. */
+    subagents: SubagentState[];
 }
 
 interface LoosePart { type: string; data?: any; text?: string }
@@ -44,6 +58,7 @@ export function deriveRunState(
     let hasApprovalData = false;
     let tokenIn = 0;
     let tokenOut = 0;
+    const subagents = new Map<string, SubagentState>();
     // Tool calls with an output-bearing tool part ANYWHERE in the thread. An
     // executed / rejected / answered tool can never be pending again, no matter
     // what a stale data-approval or data-clarification part claims (defense
@@ -101,6 +116,25 @@ export function deriveRunState(
                     tokenOut += Number(part.data?.output) || 0;
                     break;
                 }
+                case 'data-subagent': {
+                    hasStructuredData = true;
+                    const id = String(part.data?.id ?? '');
+                    if (!id) break;
+                    // Map.set on an existing key preserves insertion order, so the
+                    // card stays put as it updates from running → done.
+                    subagents.set(id, {
+                        id,
+                        role: String(part.data?.role ?? ''),
+                        task: String(part.data?.task ?? ''),
+                        status: (part.data?.status === 'done' || part.data?.status === 'failed')
+                            ? part.data.status : 'running',
+                        toolCount: Number(part.data?.toolCount) || 0,
+                        tokensIn: Number(part.data?.tokensIn) || 0,
+                        tokensOut: Number(part.data?.tokensOut) || 0,
+                        ...(part.data?.summary ? { summary: String(part.data.summary) } : {}),
+                    });
+                    break;
+                }
             }
         }
     }
@@ -122,6 +156,7 @@ export function deriveRunState(
         hasStructuredData,
         hasApprovalData,
         tokenUsage: { input: tokenIn, output: tokenOut },
+        subagents: Array.from(subagents.values()),
     };
 }
 

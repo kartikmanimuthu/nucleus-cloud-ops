@@ -369,7 +369,7 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
           )}
         >
           <div className="h-full w-72 xl:w-80">
-            <RunRail runState={runState} isStreaming={isStreaming} context={pickers.railContext} />
+            <RunRail runState={runState} isStreaming={isStreaming} context={pickers.railContext} threadId={threadId} />
           </div>
         </div>
       </div>

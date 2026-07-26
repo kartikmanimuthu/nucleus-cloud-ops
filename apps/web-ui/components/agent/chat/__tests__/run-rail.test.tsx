@@ -14,6 +14,7 @@ const EMPTY_RUN_STATE: RunState = {
   hasStructuredData: false,
   hasApprovalData: false,
   tokenUsage: { input: 0, output: 0 },
+  subagents: [],
 }
 
 const CONTEXT = { accountNames: [], modelLabel: '', skillName: null, toolCount: null, kbLabel: 'No knowledge base' }
@@ -102,6 +103,26 @@ describe('RunRail', () => {
     }
     render(<RunRail runState={runState} isStreaming context={CONTEXT} />)
     expect(screen.queryByText('Generating...')).toBeNull()
+  })
+
+  it('renders one card per sub-agent and counts only the running ones in the heading', () => {
+    const runState: RunState = {
+      ...EMPTY_RUN_STATE,
+      subagents: [
+        { id: 's1', role: 'EC2 scanner', task: 'Scan EC2', status: 'running', toolCount: 2, tokensIn: 100, tokensOut: 20 },
+        { id: 's2', role: 'RDS scanner', task: 'Scan RDS', status: 'done', toolCount: 5, tokensIn: 900, tokensOut: 80, summary: 'found it' },
+      ],
+    }
+    render(<RunRail runState={runState} isStreaming context={CONTEXT} />)
+
+    expect(screen.getByText('Sub-agents (1 running)')).toBeTruthy()
+    expect(screen.getByText('EC2 scanner')).toBeTruthy()
+    expect(screen.getByText('RDS scanner')).toBeTruthy()
+  })
+
+  it('renders no sub-agent section when the run dispatched none', () => {
+    render(<RunRail runState={EMPTY_RUN_STATE} isStreaming={false} context={CONTEXT} />)
+    expect(screen.queryByText(/^Sub-agents/)).toBeNull()
   })
 
   it('still shows the pending-approval status row', () => {

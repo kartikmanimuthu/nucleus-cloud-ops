@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Activity, AlertTriangle, ChevronsDownUp, ChevronsUpDown, Cloud, Cpu, HelpCircle, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
+import { Activity, AlertTriangle, Bot, ChevronsDownUp, ChevronsUpDown, Cloud, Cpu, HelpCircle, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
 import { Plan, PlanContent, PlanStep } from "@/components/ai-elements/plan";
 import { Spinner } from "@/components/ui/spinner";
+import { SubagentCard } from "./subagent-card";
 import type { RunState } from "./run-state";
 
 const PHASE_LABELS: Record<string, string> = {
@@ -46,10 +47,14 @@ export function RunRail({
   runState,
   isStreaming,
   context,
+  threadId,
 }: {
   runState: RunState;
   isStreaming: boolean;
   context: { accountNames: string[]; modelLabel: string; skillName: string | null; toolCount: number | null; kbLabel: string };
+  /** Needed to fetch a persisted sub-agent transcript when a card is expanded
+   *  after a reload. Optional so the existing rail tests keep compiling. */
+  threadId?: string;
 }) {
   const { plan, currentPhase, pendingApproval, pendingClarifications } = runState;
   const done = plan.filter((s) => s.status === "completed").length;
@@ -140,6 +145,21 @@ export function RunRail({
               })}
             </PlanContent>
           </Plan>
+        </RailSection>
+      )}
+
+      {/* Dispatched sub-agents — collapsed cards so their prose never lands in
+          the transcript; each one expands to its own task + findings. */}
+      {runState.subagents.length > 0 && (
+        <RailSection
+          icon={Bot}
+          title={`Sub-agents (${runState.subagents.filter((s) => s.status === "running").length} running)`}
+        >
+          <div className="space-y-1.5">
+            {runState.subagents.map((subagent) => (
+              <SubagentCard key={subagent.id} subagent={subagent} threadId={threadId} />
+            ))}
+          </div>
         </RailSection>
       )}
 

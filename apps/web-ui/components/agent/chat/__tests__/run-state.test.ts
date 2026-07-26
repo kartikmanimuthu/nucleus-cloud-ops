@@ -7,6 +7,8 @@ const msg = (parts: Array<{ type: string; data?: unknown; text?: string }>) =>
 const msgWithId = (id: string, parts: Array<Record<string, unknown> & { type: string }>) =>
     ({ role: 'assistant', id, parts });
 
+const subagentPart = (data: Record<string, unknown>) => ({ type: 'data-subagent', data });
+
 describe('deriveRunState', () => {
     it('takes the LAST data-plan part as the live plan', () => {
         const rs = deriveRunState([
@@ -259,5 +261,38 @@ describe('deriveRunState token usage', () => {
     it('defaults to zero when there are no data-usage parts', () => {
         const state = deriveRunState([asst([{ type: 'text', text: 'hi' }])], new Set());
         expect(state.tokenUsage).toEqual({ input: 0, output: 0 });
+    });
+});
+
+describe('deriveRunState — subagents', () => {
+    it('collects sub-agents in first-seen order', () => {
+        const state = deriveRunState([msg([
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+            subagentPart({ id: 'b', role: 'B', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+        ])] as any, new Set());
+
+        expect(state.subagents.map(s => s.id)).toEqual(['a', 'b']);
+    });
+
+    it('replaces an earlier update for the same id rather than duplicating', () => {
+        const state = deriveRunState([msg([
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'running', toolCount: 1, tokensIn: 10, tokensOut: 2 }),
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'done', toolCount: 5, tokensIn: 900, tokensOut: 80, summary: 'found it' }),
+        ])] as any, new Set());
+
+        expect(state.subagents).toHaveLength(1);
+        expect(state.subagents[0]).toMatchObject({ status: 'done', toolCount: 5, summary: 'found it' });
+    });
+
+    it('marks the run as having structured data', () => {
+        const state = deriveRunState([msg([
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+        ])] as any, new Set());
+
+        expect(state.hasStructuredData).toBe(true);
+    });
+
+    it('returns an empty list when no sub-agent parts are present', () => {
+        expect(deriveRunState([msg([{ type: 'text', text: 'hi' }])] as any, new Set()).subagents).toEqual([]);
     });
 });
