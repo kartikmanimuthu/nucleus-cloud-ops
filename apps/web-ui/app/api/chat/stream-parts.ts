@@ -1,6 +1,7 @@
 import { pendingToolCallsOf } from '@/lib/agent/guard';
 import { extractJsonObject } from '@/lib/agent/llm-json';
 import type { GuardVerdict, PlanStep, ReflectionState } from '@/lib/agent/agent-shared';
+import type { SubagentEvent } from '@/lib/agent/dispatch-agent-tool';
 
 export interface DataPart { type: `data-${string}`; id?: string; data: unknown }
 
@@ -25,6 +26,32 @@ export function buildMemoryPart(op: 'recall' | 'save', summary: string): DataPar
     const bulletMatches = summary.match(/^[-*•]\s/gm);
     const count = bulletMatches ? bulletMatches.length : null;
     return { type: 'data-memory', data: { op, summary, count } };
+}
+
+/**
+ * One data-subagent part per sub-agent state change. The `id` is stable per
+ * sub-agent so the client replaces the card in place rather than appending a new
+ * one on every progress tick.
+ *
+ * The transcript is deliberately NOT sent: it can be large, and the whole point
+ * of sub-agents is keeping bulk out of the transcript. It is persisted
+ * separately and fetched on demand when a card is expanded.
+ */
+export function buildSubagentPart(event: SubagentEvent): DataPart {
+    return {
+        type: 'data-subagent',
+        id: `subagent-${event.id}`,
+        data: {
+            id: event.id,
+            role: event.role,
+            task: event.task,
+            status: event.status,
+            toolCount: event.toolCount,
+            tokensIn: event.tokensIn,
+            tokensOut: event.tokensOut,
+            ...(event.summary ? { summary: event.summary } : {}),
+        },
+    };
 }
 
 // Exact markers from planning-agent.ts's reflectNode `feedback` template (do not

@@ -9,10 +9,11 @@ import { triageChatMessage } from '@/lib/agent/triage';
 import { respondDirect } from './direct-chat';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
-import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, buildUsagePart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
+import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, buildUsagePart, buildSubagentPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
 import { logRunSummary } from '@/lib/agent/run-timings';
+import type { SubagentEvent } from '@/lib/agent/dispatch-agent-tool';
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -225,6 +226,29 @@ export async function POST(req: Request) {
             effectiveKbIds = await resolveKnowledgeBaseIds({ tenantId: resolvedTenantId, selectedIds: null, message: lastUserText, model: resolvedModel });
         }
 
+        // --- Sub-agent progress ---------------------------------------------
+        // Sub-agent tokens deliberately never reach the transcript: three
+        // concurrent streams interleaved into one column are unreadable, and the
+        // narration was never the deliverable. Collapsed cards instead.
+        //
+        // The graph — and dispatch_agent's closure over onSubagentEvent — is
+        // constructed below, before the ReadableStream (and its `controller`)
+        // exists, so emitSubagent cannot enqueue directly here. It buffers
+        // in-flight state into `liveSubagents` and forwards through
+        // `subagentSinkRef.sink`, which processStream's start(controller) wires
+        // up once `controller` is available.
+        const liveSubagents = new Map<string, SubagentEvent>();
+        const subagentSinkRef: { sink: ((chunk: UIMessageChunk) => void) | null } = { sink: null };
+        const emitSubagent = (event: SubagentEvent) => {
+            liveSubagents.set(event.id, event);
+            if (event.status !== 'running') liveSubagents.delete(event.id);
+            try {
+                subagentSinkRef.sink?.(buildSubagentPart(event) as UIMessageChunk);
+            } catch {
+                // Client disconnected — the stream teardown handles it.
+            }
+        };
+
         // Create graph with configuration - supports multi-account
         const graphConfig = {
             model: resolvedModel,
@@ -238,6 +262,7 @@ export async function POST(req: Request) {
             knowledgeBaseIds: effectiveKbIds,       // user pick, or auto-selected KB ids, or []
             userId: resolvedUserId,                 // For memory store scoping
             tenantId: resolvedTenantId,             // For tenant-scoped memory operations
+            onSubagentEvent: emitSubagent,
         };
 
         let graph;
@@ -530,7 +555,9 @@ export async function POST(req: Request) {
                     resolvedTenantId,
                     preRunMessageCount,
                     resumedPendingCalls,
-                    syntheticDecisionResults
+                    syntheticDecisionResults,
+                    liveSubagents,
+                    subagentSinkRef
                 )
             });
         } else {
@@ -695,7 +722,9 @@ function processStream(
     resolvedTenantId?: string,
     preRunMessageCount = 0,
     resumedPendingCalls: ResumedPendingCall[] = [],
-    syntheticDecisionResults: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown>; output: string }> = []
+    syntheticDecisionResults: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown>; output: string }> = [],
+    liveSubagents: Map<string, SubagentEvent> = new Map(),
+    subagentSinkRef: { sink: ((chunk: UIMessageChunk) => void) | null } = { sink: null }
 ): ReadableStream<UIMessageChunk> {
     return new ReadableStream({
         async start(controller) {
@@ -795,6 +824,22 @@ function processStream(
                     return false;
                 }
             };
+
+            // --- Sub-agent progress ---------------------------------------------
+            // `controller` only exists here, so connect the sink that emitSubagent
+            // (bound into dispatch_agent's closure back in POST(), before the
+            // graph existed) has been buffering into `liveSubagents` for.
+            subagentSinkRef.sink = (chunk) => { safeEnqueue(chunk); };
+
+            // CloudFront's originReadTimeout is 60s (infra/compute/index.ts:962). A
+            // sub-agent can think for 90s without producing a byte, so re-emit the
+            // in-flight cards on a timer to keep the connection alive.
+            const HEARTBEAT_MS = 15_000;
+            const heartbeat = setInterval(() => {
+                for (const event of liveSubagents.values()) {
+                    safeEnqueue(buildSubagentPart(event) as UIMessageChunk);
+                }
+            }, HEARTBEAT_MS);
 
             try {
                 if (!safeEnqueue({ type: 'start' })) return;
@@ -1170,6 +1215,13 @@ function processStream(
                     // Ignore if already closed
                 }
             } finally {
+                // Stop the sub-agent heartbeat on every exit path (normal completion,
+                // client abort, or error) — a leaked interval holding a closed
+                // controller is a real leak. Detach the sink too, so a late
+                // emitSubagent call (a sub-agent finishing just as teardown starts)
+                // can't reach a closed controller through safeEnqueue's stale closure.
+                clearInterval(heartbeat);
+                subagentSinkRef.sink = null;
 
                 // Emit the per-run timing breakdown regardless of how the run ended,
                 // so aborted and errored runs are measured too.

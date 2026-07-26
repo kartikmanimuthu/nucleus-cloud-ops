@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
 import { buildUsagePart } from '../stream-parts';
+import { buildSubagentPart } from '../stream-parts';
 
 const WM_JSON = JSON.stringify({
     summary: 'User asked to connect Jira; site resource retrieved.',
@@ -234,5 +235,32 @@ describe('stripWorkingMemoryPrelude', () => {
 describe('buildUsagePart', () => {
     it('builds a data-usage part', () => {
         expect(buildUsagePart(3, 4)).toEqual({ type: 'data-usage', data: { input: 3, output: 4 } });
+    });
+});
+
+describe('buildSubagentPart', () => {
+    const base = {
+        id: 'sa-1', role: 'EC2 auditor', task: 'audit account 1',
+        toolCount: 3, tokensIn: 900, tokensOut: 120,
+    };
+
+    it('builds a stable id so updates replace rather than append', () => {
+        const part = buildSubagentPart({ ...base, status: 'running' });
+        expect(part.type).toBe('data-subagent');
+        expect(part.id).toBe('subagent-sa-1');
+    });
+
+    it('carries progress counters', () => {
+        const part = buildSubagentPart({ ...base, status: 'running' });
+        expect(part.data).toMatchObject({ role: 'EC2 auditor', status: 'running', toolCount: 3, tokensIn: 900 });
+    });
+
+    it('omits the transcript from the stream payload', () => {
+        const part = buildSubagentPart({
+            ...base, status: 'done', summary: 'found things',
+            transcript: [{ kind: 'ai', text: 'internal reasoning' }],
+        });
+        expect(JSON.stringify(part.data)).not.toContain('internal reasoning');
+        expect((part.data as { summary?: string }).summary).toBe('found things');
     });
 });
