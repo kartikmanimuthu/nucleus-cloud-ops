@@ -137,4 +137,21 @@ describe('dispatch_agent tool', () => {
 
         expect(peak).toBeLessThanOrEqual(2);
     });
+
+    it('does not reject when the progress sink throws', async () => {
+        // The chat route's sink enqueues onto a ReadableStream, which throws once
+        // the client disconnects — so a throwing sink is the normal client-abort
+        // case, not a hypothetical. The tool must still return its report.
+        const budget = BUDGET;
+        const tool = createDispatchAgentTool({
+            model: {},
+            subagentTools: [],
+            ledger: createRunBudgetLedger(budget),
+            budget,
+            onSubagentEvent: () => { throw new Error('sink exploded'); },
+        });
+
+        await expect(tool.invoke({ role: 'a', task: 't', expectedOutput: 'e' }))
+            .resolves.toContain('i-123 idle');
+    });
 });
