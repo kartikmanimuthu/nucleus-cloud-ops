@@ -54,6 +54,22 @@ describe('deriveRunState', () => {
         expect(rs.pendingApproval).toBeNull();
     });
 
+    // The heartbeat's keep-alive (buildHeartbeatChunks in app/api/chat/stream-parts.ts)
+    // is a transient part, so it should never land in message.parts at all — but if it
+    // ever does, it must move NOTHING: no UI affordance may light up because the
+    // connection was merely kept open.
+    it('ignores a data-keepalive part entirely — no structured data, no phase, no subagents', () => {
+        const rs = deriveRunState([msg([{ type: 'data-keepalive', data: {} }])] as any, new Set());
+        expect(rs.hasStructuredData).toBe(false);
+        expect(rs.usedSubagents).toBe(false);
+        expect(rs.subagents).toEqual([]);
+        expect(rs.phases).toEqual([]);
+        expect(rs.currentPhase).toBe('text');
+        expect(rs.pendingApproval).toBeNull();
+        expect(rs.pendingClarifications).toEqual([]);
+        expect(rs.tokenUsage).toEqual({ input: 0, output: 0 });
+    });
+
     it('legacy thread (no data parts) → hasStructuredData false, empty plan', () => {
         const rs = deriveRunState([msg([{ type: 'reasoning', text: 'PLANNING_PHASE_START\nsteps…' }])] as any, new Set());
         expect(rs.hasStructuredData).toBe(false);

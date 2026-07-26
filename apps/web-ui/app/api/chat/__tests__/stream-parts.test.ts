@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
 import { buildUsagePart } from '../stream-parts';
-import { buildSubagentPart } from '../stream-parts';
+import { buildSubagentPart, buildHeartbeatChunks } from '../stream-parts';
 
 const WM_JSON = JSON.stringify({
     summary: 'User asked to connect Jira; site resource retrieved.',
@@ -262,5 +262,58 @@ describe('buildSubagentPart', () => {
         });
         expect(JSON.stringify(part.data)).not.toContain('internal reasoning');
         expect((part.data as { summary?: string }).summary).toBe('found things');
+    });
+});
+
+// The heartbeat exists solely to keep bytes flowing so CloudFront's 60s
+// originReadTimeout (infra/compute/index.ts:962) can't kill a long run. Its tick
+// body lives here — not inline in route.ts — because nothing in the suite imports
+// route.ts, so an inline tick is untested by construction.
+describe('buildHeartbeatChunks', () => {
+    const base = {
+        id: 'sa-1', role: 'EC2 auditor', task: 'audit account 1',
+        toolCount: 3, tokensIn: 900, tokensOut: 120,
+    };
+
+    it('re-emits one data-subagent part per in-flight sub-agent and no keep-alive', () => {
+        const chunks = buildHeartbeatChunks([
+            { ...base, id: 'sa-1', status: 'running' },
+            { ...base, id: 'sa-2', status: 'running' },
+        ]);
+        expect(chunks).toHaveLength(2);
+        expect(chunks.map((c) => c.type)).toEqual(['data-subagent', 'data-subagent']);
+        expect(chunks.map((c: any) => c.id)).toEqual(['subagent-sa-1', 'subagent-sa-2']);
+        expect(chunks.some((c) => c.type === 'data-keepalive')).toBe(false);
+    });
+
+    // REGRESSION GUARD for F1. `liveSubagents` empties as sub-agents reach their
+    // terminal event, so a tick that only walks that map writes ZERO bytes during
+    // the orchestrator's post-fan-out call — the longest silence and the largest
+    // context in the run, exactly when the 60s origin timeout bites. A tick MUST
+    // write something. This test fails if the empty-case branch is removed.
+    it('emits exactly one keep-alive chunk when no sub-agent is in flight', () => {
+        const chunks = buildHeartbeatChunks([]);
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].type).toBe('data-keepalive');
+    });
+
+    it('marks the keep-alive transient and gives it no sub-agent fields', () => {
+        const [chunk] = buildHeartbeatChunks([]) as any[];
+        // transient parts are delivered to the client but never appended to
+        // message.parts, so a keep-alive cannot bloat the message or move the reducer.
+        expect(chunk.transient).toBe(true);
+        expect(chunk.id).toBeUndefined();
+        expect(chunk.data).toEqual({});
+        expect(JSON.stringify(chunk)).not.toMatch(/sa-1|EC2 auditor|audit account|transcript/);
+    });
+
+    it('still omits the transcript for a terminal event passed through the tick', () => {
+        const chunks = buildHeartbeatChunks([{
+            ...base, status: 'done', summary: 'found things',
+            transcript: [{ kind: 'ai', text: 'internal reasoning' }],
+        }]);
+        expect(chunks).toHaveLength(1);
+        expect(JSON.stringify(chunks[0])).not.toContain('internal reasoning');
+        expect(JSON.stringify(chunks[0])).not.toContain('transcript');
     });
 });

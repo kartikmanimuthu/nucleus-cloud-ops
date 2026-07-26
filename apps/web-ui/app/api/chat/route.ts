@@ -9,7 +9,7 @@ import { triageChatMessage } from '@/lib/agent/triage';
 import { respondDirect } from './direct-chat';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
-import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, buildUsagePart, buildSubagentPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
+import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, buildUsagePart, buildSubagentPart, buildHeartbeatChunks, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
 import { logRunSummary } from '@/lib/agent/run-timings';
@@ -852,11 +852,17 @@ function processStream(
 
             // CloudFront's originReadTimeout is 60s (infra/compute/index.ts:962). A
             // sub-agent can think for 90s without producing a byte, so re-emit the
-            // in-flight cards on a timer to keep the connection alive.
+            // in-flight cards on a timer to keep the connection alive. The tick body
+            // is buildHeartbeatChunks (stream-parts.ts) — pure and tested — and it
+            // ALWAYS yields at least one chunk: `liveSubagents` empties as sub-agents
+            // finish, and the orchestrator's post-fan-out call is the longest silence
+            // in the run, so a map-dependent tick would go quiet exactly when the
+            // timeout bites. Nothing may be inserted between this setInterval and the
+            // `try` below — the matching clearInterval lives in that try's finally.
             const HEARTBEAT_MS = 15_000;
             const heartbeat = setInterval(() => {
-                for (const event of liveSubagents.values()) {
-                    safeEnqueue(buildSubagentPart(event) as UIMessageChunk);
+                for (const chunk of buildHeartbeatChunks(liveSubagents.values())) {
+                    safeEnqueue(chunk);
                 }
             }, HEARTBEAT_MS);
 

@@ -1,3 +1,4 @@
+import type { UIMessageChunk } from 'ai';
 import { pendingToolCallsOf } from '@/lib/agent/guard';
 import { extractJsonObject } from '@/lib/agent/llm-json';
 import type { GuardVerdict, PlanStep, ReflectionState } from '@/lib/agent/agent-shared';
@@ -52,6 +53,38 @@ export function buildSubagentPart(event: SubagentEvent): DataPart {
             ...(event.summary ? { summary: event.summary } : {}),
         },
     };
+}
+
+/**
+ * The body of the sub-agent heartbeat tick, as a pure function so it is testable
+ * (nothing in the suite imports route.ts, so an inline tick body has no coverage
+ * at all).
+ *
+ * Two jobs, and the second one is the whole reason the heartbeat exists:
+ *  - re-emit a card for every sub-agent still in flight, so a sub-agent that
+ *    thinks for 90s without producing a byte still refreshes its card;
+ *  - guarantee the tick writes SOMETHING even when nothing is in flight. The
+ *    caller's live map empties as sub-agents reach their terminal event, and the
+ *    orchestrator's post-fan-out call — every sub-agent's findings in the prompt —
+ *    is both the longest silence and the largest context in the run. A
+ *    map-dependent tick would protect the cheap window and go silent through the
+ *    expensive one, which is exactly the connection CloudFront's 60s
+ *    originReadTimeout (infra/compute/index.ts:962) drops.
+ *
+ * The keep-alive is `transient`, so the client receives the bytes but never
+ * appends the part to `message.parts`: it cannot bloat the message and
+ * `deriveRunState` (components/agent/chat/run-state.ts) has no case for
+ * `data-keepalive`, so it touches no UI state.
+ */
+export function buildHeartbeatChunks(live: Iterable<SubagentEvent>): UIMessageChunk[] {
+    const chunks: UIMessageChunk[] = [];
+    for (const event of live) {
+        chunks.push(buildSubagentPart(event));
+    }
+    if (chunks.length === 0) {
+        chunks.push({ type: 'data-keepalive', data: {}, transient: true });
+    }
+    return chunks;
 }
 
 // Exact markers from planning-agent.ts's reflectNode `feedback` template (do not
