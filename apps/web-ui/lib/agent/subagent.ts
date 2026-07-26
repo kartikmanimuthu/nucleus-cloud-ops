@@ -71,6 +71,19 @@ export interface SubagentDeps {
 }
 
 /**
+ * Tools built specifically for sub-agents, whose safety is enforced by their own
+ * implementation rather than by classifyTool. aws_read validates against explicit
+ * service/operation/flag allowlists and never invokes a shell.
+ *
+ * Needed because classifyTool matches no rule for these names and the fail-closed
+ * branch below therefore refuses them: without this, aws_read was refused on every
+ * call and the sub-agent's only route to AWS had never actually run. The permission
+ * lives here rather than in tool-classifier.ts because the guard node's
+ * human-approval path depends on the classifier's current behaviour.
+ */
+const SUBAGENT_ALLOWED_TOOLS = new Set(['aws_read']);
+
+/**
  * The jail. Fail-closed by design: `classifyTool` returns
  * `{ isMutative: false, matchedRule: false }` for a tool whose name matched no
  * rule at all. In the orchestrator that ambiguity routes to a human; inside a
@@ -87,6 +100,12 @@ export function isReadOnlyForSubagent(
     // catch it, but a safety boundary must not depend on its own backstop.
     if (SUBAGENT_TOOL_DENYLIST.has(name.toLowerCase())) {
         return { allowed: false, reason: `${name} is not available to sub-agents` };
+    }
+
+    // After the denylist, never before: a denied name must stay denied even if it
+    // were ever also listed here.
+    if (SUBAGENT_ALLOWED_TOOLS.has(name.toLowerCase())) {
+        return { allowed: true, reason: 'sub-agent read-only tool' };
     }
 
     let classification;
@@ -133,8 +152,9 @@ ${spec.expectedOutput}
 - You are READ-ONLY. You cannot create, modify, delete, start, stop, or write anything. If the task appears to need a change, do NOT attempt it — describe the recommended change in your findings and the main agent will carry it out under human approval.
 - You cannot ask the user questions. If something is ambiguous, investigate the most likely interpretation and say what you assumed.
 - You see none of the parent conversation. Everything you need is in the task above.
-- You have NO shell. Reach AWS only through aws_read, passing the service and operation separately. Call get_aws_credentials first to obtain a profile name.
+- You have NO shell. Reach AWS only through aws_read, giving the service and operation separately. Call get_aws_credentials first to obtain a profile name.
 - Batch independent aws_read calls into a single turn — they run in parallel.
+- If aws_read refuses an operation you need, report that in your findings; do not try to work around it.
 
 ## Output
 
