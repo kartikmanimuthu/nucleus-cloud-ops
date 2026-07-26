@@ -2444,40 +2444,54 @@ export function filterReadOnlyTools<T extends { name: string }>(tools: T[]): T[]
 }
 ```
 
-- [ ] **Step 7: Add the structured `aws_read` tool**
+- [ ] **Step 7: Add the structured `aws_read` tool (allowlists on BOTH axes)**
 
 **Files:** create `apps/web-ui/lib/agent/aws-read-tool.ts`, create
-`apps/web-ui/lib/agent/aws-read-tool.test.ts`.
+`apps/web-ui/lib/agent/aws-read-tool.test.ts`, export `buildCommandEnv` from
+`apps/web-ui/lib/agent/tools.ts`.
 
-The whole point: there is **no command string**, so there is nothing to parse. The
-server builds `argv` and calls `execFile` with `shell: false`. Metacharacters, quoting,
-flag-order confusion, `VAR=value` prefixes, and `$(...)` cease to exist as a category —
-they are inert data in an argv element, never interpreted.
+> **Design history — read before changing anything here.** Three designs failed
+> adversarial review. (1) A blocklist over shell strings: escaped 23 ways. (2) An
+> allowlist that *parsed* shell strings: escaped to RCE. (3) This structured tool with
+> **denylists** for flags and operations: escaped to RCE again, because
+> `DENIED_FLAGS` was defeated by argparse abbreviation (`--endpoint` is accepted for
+> the denied `--endpoint-url`) and a zero-arity flag smuggled a positional into
+> `s3api get-object`'s outfile slot.
+>
+> The structural half — no shell, server-built argv, `execFile` with `shell: false`,
+> a fully replaced environment — held against every attack and is **not** what to
+> change. What failed, three times, is enumerating what is forbidden. Everything
+> below enumerates what is *permitted*, on every axis: service, operation, flag, and
+> flag arity.
 
 ```typescript
 /**
  * aws_read — the ONLY route from a sub-agent to AWS.
  *
  * Sub-agents have no shell (see subagent.ts's denylist). This tool takes a
- * structured request and builds argv itself, then runs `execFile` with
- * shell: false. Nothing the model supplies is ever interpreted by a shell, so the
- * escape classes that broke two previous designs — metacharacters, quoting,
- * flag-order confusion, LD_PRELOAD prefixes, command substitution — are not
- * merely blocked here, they are unrepresentable.
+ * structured request, builds argv itself, and runs execFile with shell: false, so
+ * metacharacters, quoting, command substitution and LD_PRELOAD-style env prefixes
+ * are unrepresentable rather than blocked.
  *
- * Three further restrictions close what a structured call could still reach:
- *  - no positional arguments, so `s3api get-object … OUTFILE` cannot write a file;
- *  - a denied-flag set, so --endpoint-url cannot exfiltrate and --cli-input-json
- *    cannot smuggle parameters past validation;
- *  - a denied-operation set, so credential-minting reads (sts get-session-token,
- *    ecr get-login-password) and mutating "get-" operations
- *    (redshift get-cluster-credentials --auto-create) are refused by name.
+ * ALLOWLISTS ONLY. An earlier revision used denylists and was escaped twice:
+ *  - argparse has allow_abbrev=True, so every denied flag had an accepted
+ *    abbreviation (--endpoint for --endpoint-url). A denylist over an abbreviating
+ *    parser is structurally unsound.
+ *  - a zero-arity flag ("--no-cli-pager": "/tmp/x") emitted `flag value`, and the
+ *    CLI read the value as a POSITIONAL — which for `s3api get-object` is the
+ *    outfile. That wrote an arbitrary local file, and a credential_process entry in
+ *    ~/.aws/config turned it into arbitrary code execution.
+ *
+ * Hence every flag declares its ARITY. A zero-arity flag never emits a value token,
+ * so no positional can be produced by construction — not by policy.
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { buildCommandEnv } from './tools';
+import { Semaphore } from './concurrency';
+import { AuditService } from '@/lib/audit-service';
 
 const execFileAsync = promisify(execFile);
 
@@ -2485,86 +2499,210 @@ const AWS_READ_TIMEOUT_MS = 120_000;
 const AWS_READ_MAX_BUFFER = 10 * 1024 * 1024;
 export const AWS_READ_OUTPUT_MAX_CHARS = 100_000;
 
-/** Read-only operation prefixes, by AWS CLI convention. */
-const READ_OPERATION_PREFIX = /^(describe|list|get|head|search|lookup|check|batch-get)-/;
+/**
+ * Bounds concurrent `aws` subprocesses. execute_command already has this bound
+ * (TOOL_CONCURRENCY) precisely because subprocesses need one; N sub-agents each
+ * issuing a parallel turn would otherwise fan out unbounded ~100MB processes in
+ * the ECS task.
+ */
+const AWS_READ_CONCURRENCY = Number(process.env.TOOL_CONCURRENCY) || 6;
+const awsReadSemaphore = new Semaphore(AWS_READ_CONCURRENCY);
 
-/** Operations that match the read prefix but mint credentials or mutate. */
-const DENIED_OPERATIONS = new Set([
-    'get-session-token', 'get-federation-token', 'get-login-password',
-    'get-token', 'get-password-data', 'get-cluster-credentials',
-    'get-instance-access-details', 'get-credential-report', 'get-authorization-token',
-]);
+/**
+ * Permitted (service, operation) pairs. Explicit, not prefix-matched: a `get-`
+ * prefix proves nothing — `redshift get-cluster-credentials` mutates, and
+ * `sts get-session-token`, `sso get-role-credentials`, `ecr get-login-password`
+ * and `secretsmanager get-secret-value` all return usable credentials.
+ *
+ * Add entries as the audit use case needs them. A refusal here is a feature
+ * request, never a security incident.
+ */
+export const ALLOWED_OPS: Record<string, ReadonlySet<string>> = {
+    ec2: new Set([
+        'describe-instances', 'describe-volumes', 'describe-snapshots', 'describe-images',
+        'describe-security-groups', 'describe-vpcs', 'describe-subnets', 'describe-addresses',
+        'describe-network-interfaces', 'describe-route-tables', 'describe-nat-gateways',
+        'describe-internet-gateways', 'describe-regions', 'describe-availability-zones',
+        'describe-instance-types', 'describe-tags',
+    ]),
+    rds: new Set(['describe-db-instances', 'describe-db-clusters', 'describe-db-snapshots']),
+    elbv2: new Set(['describe-load-balancers', 'describe-target-groups', 'describe-target-health']),
+    autoscaling: new Set(['describe-auto-scaling-groups', 'describe-auto-scaling-instances']),
+    ecs: new Set(['list-clusters', 'list-services', 'list-tasks', 'describe-clusters', 'describe-services', 'describe-tasks']),
+    eks: new Set(['list-clusters', 'describe-cluster', 'list-nodegroups', 'describe-nodegroup']),
+    lambda: new Set(['list-functions', 'get-function-configuration']),
+    s3api: new Set(['list-buckets', 'get-bucket-location', 'get-bucket-tagging', 'get-bucket-encryption', 'get-bucket-versioning']),
+    cloudwatch: new Set(['get-metric-statistics', 'list-metrics', 'describe-alarms']),
+    logs: new Set(['describe-log-groups', 'describe-log-streams', 'filter-log-events']),
+    cloudformation: new Set(['list-stacks', 'describe-stacks', 'describe-stack-resources']),
+    iam: new Set(['list-roles', 'list-policies', 'get-role', 'get-policy', 'list-attached-role-policies']),
+    sts: new Set(['get-caller-identity']),
+    ce: new Set(['get-cost-and-usage']),
+    tag: new Set(['get-resources']),
+};
 
-/** Flags that would let a structured call reach outside its intent. */
-const DENIED_FLAGS = new Set([
-    '--endpoint-url', '--cli-input-json', '--cli-input-yaml', '--outfile',
-    '--debug', '--no-sign-request', '--ca-bundle', '--cli-binary-format',
-]);
+/**
+ * Permitted flags and how many values each consumes.
+ *  - 'none' — a boolean flag. Value MUST be `true`; the flag is emitted alone, so
+ *    no value token exists to be mistaken for a positional.
+ *  - 'one'  — exactly one value.
+ *  - 'many' — one or more values (e.g. --instance-ids i-1 i-2).
+ *
+ * --profile, --region and --output are deliberately absent: the builder supplies
+ * them from validated fields, and allowing them here would let a later duplicate
+ * override the validated one (the AWS CLI takes the last occurrence).
+ */
+export const ALLOWED_FLAGS: Record<string, 'none' | 'one' | 'many'> = {
+    '--filters': 'many',
+    '--instance-ids': 'many',
+    '--volume-ids': 'many',
+    '--snapshot-ids': 'many',
+    '--group-ids': 'many',
+    '--names': 'many',
+    '--auto-scaling-group-names': 'many',
+    '--db-instance-identifier': 'one',
+    '--db-cluster-identifier': 'one',
+    '--cluster': 'one',
+    '--service': 'one',
+    '--services': 'many',
+    '--tasks': 'many',
+    '--function-name': 'one',
+    '--bucket': 'one',
+    '--log-group-name': 'one',
+    '--log-stream-names': 'many',
+    '--stack-name': 'one',
+    '--role-name': 'one',
+    '--policy-arn': 'one',
+    '--metric-name': 'one',
+    '--namespace': 'one',
+    '--dimensions': 'many',
+    '--statistics': 'many',
+    '--period': 'one',
+    '--start-time': 'one',
+    '--end-time': 'one',
+    '--time-period': 'one',
+    '--granularity': 'one',
+    '--metrics': 'many',
+    '--resource-type-filters': 'many',
+    '--query': 'one',
+    '--max-items': 'one',
+    '--starting-token': 'one',
+    '--page-size': 'one',
+    '--no-paginate': 'none',
+    '--include-deleted': 'none',
+};
 
-const IDENT = /^[a-z0-9][a-z0-9-]*$/;
+export type ParamValue = string | string[] | true;
+
+const SERVICE = /^[a-z0-9][a-z0-9-]*$/;
 const REGION = /^[a-z0-9-]+$/;
 const PROFILE = /^[A-Za-z0-9_-]+$/;
-const FLAG = /^--[a-z0-9][a-z0-9-]*$/;
 
-export function validateAwsReadRequest(input: {
-    service: string; operation: string; region?: string; profile?: string;
-    params?: Record<string, string>;
-}): string | null {
-    if (!IDENT.test(input.service)) return `service "${input.service}" is not a valid AWS service name`;
-    if (!IDENT.test(input.operation)) return `operation "${input.operation}" is not a valid operation name`;
-    if (DENIED_OPERATIONS.has(input.operation)) {
-        return `operation "${input.operation}" returns credentials or mutates state and is not available to sub-agents`;
+export interface AwsReadRequest {
+    service: string;
+    operation: string;
+    region?: string;
+    profile?: string;
+    params?: Record<string, ParamValue>;
+}
+
+/** Returns an error string for a refusal, or null when the request is permitted. */
+export function validateAwsReadRequest(input: AwsReadRequest): string | null {
+    if (typeof input?.service !== 'string' || !SERVICE.test(input.service)) {
+        return `service "${input?.service}" is not a permitted AWS service`;
     }
-    if (!READ_OPERATION_PREFIX.test(input.operation)) {
-        return `operation "${input.operation}" is not a read-only operation (must start with describe-, list-, get-, head-, search-, lookup-, check-, or batch-get-)`;
+    const operations = ALLOWED_OPS[input.service];
+    if (!operations) {
+        return `service "${input.service}" is not available to sub-agents (permitted: ${Object.keys(ALLOWED_OPS).join(', ')})`;
     }
-    if (input.region !== undefined && !REGION.test(input.region)) return `invalid region "${input.region}"`;
-    if (input.profile !== undefined && !PROFILE.test(input.profile)) return `invalid profile "${input.profile}"`;
+    if (typeof input.operation !== 'string' || !operations.has(input.operation)) {
+        return `operation "${input.operation}" is not a permitted read-only operation for ${input.service}`;
+    }
+    if (input.region !== undefined && (typeof input.region !== 'string' || !REGION.test(input.region))) {
+        return `invalid region "${input.region}"`;
+    }
+    if (input.profile !== undefined && (typeof input.profile !== 'string' || !PROFILE.test(input.profile))) {
+        return `invalid profile "${input.profile}"`;
+    }
 
     for (const [flag, value] of Object.entries(input.params ?? {})) {
-        if (!FLAG.test(flag)) return `parameter "${flag}" is not a valid --flag name`;
-        if (DENIED_FLAGS.has(flag)) return `parameter "${flag}" is not available to sub-agents`;
-        if (typeof value !== 'string') return `parameter "${flag}" must have a string value`;
+        const arity = Object.prototype.hasOwnProperty.call(ALLOWED_FLAGS, flag)
+            ? ALLOWED_FLAGS[flag] : undefined;
+        if (!arity) return `parameter "${flag}" is not a permitted flag`;
+
+        if (arity === 'none') {
+            // A value here is exactly the positional-smuggling vector.
+            if (value !== true) return `parameter "${flag}" takes no value — pass true`;
+            continue;
+        }
+        const values = Array.isArray(value) ? value : [value];
+        if (values.length === 0) return `parameter "${flag}" requires a value`;
+        if (arity === 'one' && values.length !== 1) return `parameter "${flag}" takes exactly one value`;
+        for (const v of values) {
+            if (typeof v !== 'string' || v.length === 0) return `parameter "${flag}" values must be non-empty strings`;
+        }
     }
     return null;
 }
 
-/** Build argv. Exported so tests can assert the exact array without executing anything. */
-export function buildAwsReadArgv(input: {
-    service: string; operation: string; region?: string; profile?: string;
-    params?: Record<string, string>;
-}): string[] {
+/**
+ * Build argv. Exported so tests can assert the exact array without executing.
+ * Every emitted token is either a flag or a value belonging to a flag of declared
+ * non-zero arity — so a positional argument cannot be produced.
+ */
+export function buildAwsReadArgv(input: AwsReadRequest): string[] {
     const argv = [input.service, input.operation];
     if (input.region) argv.push('--region', input.region);
     if (input.profile) argv.push('--profile', input.profile);
-    for (const [flag, value] of Object.entries(input.params ?? {})) argv.push(flag, value);
+    for (const [flag, value] of Object.entries(input.params ?? {})) {
+        if (ALLOWED_FLAGS[flag] === 'none') { argv.push(flag); continue; }
+        argv.push(flag, ...(Array.isArray(value) ? value : [value as string]));
+    }
     argv.push('--output', 'json');
     return argv;
 }
 
-export function createAwsReadTool(tenantId: string) {
+export function createAwsReadTool(tenantId: string, userId?: string) {
     return tool(
-        async (input: {
-            service: string; operation: string; region?: string; profile?: string;
-            params?: Record<string, string>;
-        }): Promise<string> => {
+        async (input: AwsReadRequest): Promise<string> => {
             const error = validateAwsReadRequest(input);
             if (error) return `REFUSED: ${error}`;
 
             const argv = buildAwsReadArgv(input);
+
+            // Sub-agent AWS activity has no human gate, so it must be auditable.
+            // Fire-and-forget: an audit failure must never block the read.
+            AuditService.logResourceAction({
+                eventType: 'agent.subagent.aws_read',
+                action: 'aws_read',
+                resourceType: 'agent_tool',
+                resourceId: 'aws_read',
+                resourceName: 'Sub-agent AWS read',
+                status: 'success',
+                details: `aws ${argv.join(' ')}`.slice(0, 2000),
+                user: userId || 'subagent',
+                userType: userId ? 'user' : 'system',
+                source: 'agent',
+                severity: 'low',
+                tenantId,
+                metadata: { tenantId, service: input.service, operation: input.operation },
+            }).catch(() => {});
+
             try {
-                // shell: false is the entire safety argument — argv elements are passed
-                // to execve directly and are never tokenised or interpreted.
-                const { stdout, stderr } = await execFileAsync('aws', argv, {
-                    shell: false,
-                    timeout: AWS_READ_TIMEOUT_MS,
-                    maxBuffer: AWS_READ_MAX_BUFFER,
-                    env: buildCommandEnv(tenantId) as NodeJS.ProcessEnv,
+                return await awsReadSemaphore.run(async () => {
+                    // shell: false is the safety argument — argv elements go to execve
+                    // directly and are never tokenised or interpreted.
+                    const { stdout, stderr } = await execFileAsync('aws', argv, {
+                        shell: false,
+                        timeout: AWS_READ_TIMEOUT_MS,
+                        maxBuffer: AWS_READ_MAX_BUFFER,
+                        env: buildCommandEnv(tenantId) as NodeJS.ProcessEnv,
+                    });
+                    const output = stdout || stderr || '(no output)';
+                    return output.length > AWS_READ_OUTPUT_MAX_CHARS
+                        ? `${output.slice(0, AWS_READ_OUTPUT_MAX_CHARS)}\n…[truncated]`
+                        : output;
                 });
-                const output = stdout || stderr || '(no output)';
-                return output.length > AWS_READ_OUTPUT_MAX_CHARS
-                    ? `${output.slice(0, AWS_READ_OUTPUT_MAX_CHARS)}\n…[truncated]`
-                    : output;
             } catch (err) {
                 const e = err as { message?: string; stderr?: string };
                 return `ERROR: ${e.message ?? String(err)}\n${e.stderr ?? ''}`.trim();
@@ -2572,147 +2710,205 @@ export function createAwsReadTool(tenantId: string) {
         },
         {
             name: 'aws_read',
-            description: `Run a READ-ONLY AWS CLI operation. This is your only route to AWS — you have no shell.
+            description: `Run a permitted READ-ONLY AWS CLI operation. This is your only route to AWS — you have no shell.
 
-Provide the service and operation separately; do not write a command line. Parameters are passed as a map of flag to value.
+Give the service and operation separately; never write a command line. Parameters are a map of flag to value, where a value is a string, an array of strings for multi-value flags, or true for flags that take no value.
 
-Example: { "service": "ec2", "operation": "describe-instances", "region": "us-east-1", "profile": "nucleus_agent_123456789012_...", "params": { "--filters": "Name=instance-state-name,Values=running" } }
+Example:
+{ "service": "ec2", "operation": "describe-instances", "region": "us-east-1", "profile": "nucleus_agent_...", "params": { "--instance-ids": ["i-1", "i-2"], "--no-paginate": true } }
 
-Only read operations are permitted (describe-, list-, get-, head-, search-, lookup-, check-, batch-get-). Mutations are refused: report what should change in your findings and the main agent will carry it out under human approval.`,
+Only an explicit allowlist of services and operations is permitted. If you need one that is refused, say so in your findings rather than trying to work around it — mutations and credential-returning operations are deliberately unavailable, and the main agent will carry out any change under human approval.`,
             schema: z.object({
                 service: z.string().describe('AWS service, e.g. "ec2", "rds", "cloudwatch"'),
                 operation: z.string().describe('Read-only operation, e.g. "describe-instances"'),
                 region: z.string().optional().describe('AWS region'),
                 profile: z.string().optional().describe('Profile name from get_aws_credentials'),
-                params: z.record(z.string(), z.string()).optional()
-                    .describe('CLI flags as a map, e.g. { "--instance-ids": "i-123" }'),
+                params: z.record(z.string(), z.union([z.string(), z.array(z.string()), z.literal(true)]))
+                    .optional()
+                    .describe('Flags: string, string[] for multi-value, or true for valueless flags'),
             }),
         },
     );
 }
 ```
 
-`buildCommandEnv` is currently module-private in `tools.ts` — export it. It already
-curates the environment (`session-manager`'s per-tenant credentials file, no app
-secrets), which is what makes `execFile` safe to hand a tenant profile.
+`buildCommandEnv` is module-private in `tools.ts` — export it. It already replaces
+(not merges) the environment and its `ALLOWED_KEYS` carries no loader variables, which
+is why `LD_PRELOAD`/`NODE_OPTIONS` cannot be inherited or injected.
 
-- [ ] **Step 8: Wire `aws_read` into the sub-agent tool list**
+- [ ] **Step 8: Let the jail permit `aws_read`, and wire it in**
 
-In `subagent.ts`, `runSubagentLoop` builds `allowedTools` from `deps.tools`. The
-orchestrator passes its own tool list, which contains `execute_command` — now denied.
-Add `aws_read` as a sub-agent-only tool. In `dispatch-agent-tool.ts` (Task 8) the
-`subagentTools` array becomes:
+`isReadOnlyForSubagent` currently refuses `aws_read`: `classifyTool` matches no rule for
+that name, returns `matchedRule: false`, and the fail-closed branch rejects it — so this
+tool was refused on every call and **the design had never actually run**.
+
+Fix it in `subagent.ts`, not `tool-classifier.ts` (the guard node's human-approval path
+must stay untouched). Add above `isReadOnlyForSubagent`:
 
 ```typescript
-subagentTools: [...filterReadOnlyTools(baseTools as never[]), createAwsReadTool(tenantId)],
+/**
+ * Tools built specifically for sub-agents, whose safety is enforced by their own
+ * implementation rather than by classifyTool. aws_read validates against explicit
+ * service/operation/flag allowlists and never invokes a shell.
+ */
+const SUBAGENT_ALLOWED_TOOLS = new Set(['aws_read']);
 ```
 
-Sub-agents keep `get_aws_credentials` (it returns a profile name, mutates nothing), so
-the flow is unchanged: acquire a profile, then pass it to `aws_read`.
+and, immediately after the denylist check:
 
-Update the sub-agent system prompt in `buildSystemPrompt` — replace the batching line
-with:
+```typescript
+    if (SUBAGENT_ALLOWED_TOOLS.has(name.toLowerCase())) {
+        return { allowed: true, reason: 'sub-agent read-only tool' };
+    }
+```
+
+Update the sub-agent system prompt in `buildSystemPrompt`:
 
 ```
-- You have NO shell. Reach AWS only through aws_read, passing the service and operation separately. Call get_aws_credentials first to obtain a profile name.
+- You have NO shell. Reach AWS only through aws_read, giving the service and operation separately. Call get_aws_credentials first to obtain a profile name.
 - Batch independent aws_read calls into a single turn — they run in parallel.
+- If aws_read refuses an operation you need, report that in your findings; do not try to work around it.
 ```
+
+Task 8 appends the tool after filtering:
+`subagentTools: [...filterReadOnlyTools(baseTools as never[]), createAwsReadTool(tenantId!, userId)]`.
 
 - [ ] **Step 9: Tests**
 
-Add `apps/web-ui/lib/agent/aws-read-tool.test.ts`:
+Replace `aws-read-tool.test.ts` entirely. Note the previous suite's positional test
+asserted argv *shape* (`!t.startsWith('--') && !a[i-1]?.startsWith('--')`), which a
+smuggled positional satisfies by construction — it passed while the hole was open. Assert
+the semantic property instead: for every emitted token, either it is a flag, or the flag
+it follows has non-zero declared arity.
 
 ```typescript
 import { describe, it, expect } from 'vitest';
-import { validateAwsReadRequest, buildAwsReadArgv } from './aws-read-tool';
+import { validateAwsReadRequest, buildAwsReadArgv, ALLOWED_FLAGS, ALLOWED_OPS } from './aws-read-tool';
+import { isReadOnlyForSubagent, filterReadOnlyTools } from './subagent';
 
 const ok = { service: 'ec2', operation: 'describe-instances' };
 
-describe('validateAwsReadRequest', () => {
-    it('accepts a read operation', () => {
-        expect(validateAwsReadRequest(ok)).toBeNull();
-    });
+describe('validateAwsReadRequest — service/operation allowlist', () => {
+    it('accepts a permitted pair', () => expect(validateAwsReadRequest(ok)).toBeNull());
 
-    it('refuses a mutating operation', () => {
-        for (const operation of ['terminate-instances', 'delete-bucket', 'sync', 'cp', 'run-instances']) {
-            expect(validateAwsReadRequest({ ...ok, operation })).toMatch(/not a read-only operation/);
+    it('refuses a service that is not allowlisted', () => {
+        for (const service of ['redshift', 'sso', 'cognito-identity', 'secretsmanager', 'ssm', 'gamelift', 'configure', 'ddb']) {
+            expect(validateAwsReadRequest({ service, operation: 'get-x' })).toMatch(/not available to sub-agents|not a permitted/);
         }
     });
 
-    it('refuses credential-minting reads that match the read prefix', () => {
-        for (const operation of [
-            'get-session-token', 'get-federation-token', 'get-login-password',
-            'get-token', 'get-password-data', 'get-cluster-credentials',
-        ]) {
-            expect(validateAwsReadRequest({ ...ok, service: 'sts', operation }))
-                .toMatch(/credentials or mutates/);
-        }
+    it('refuses credential-returning operations even on allowlisted services', () => {
+        // These defeated the previous denylist by simply not being on it.
+        expect(validateAwsReadRequest({ service: 'sts', operation: 'get-session-token' })).toMatch(/not a permitted/);
+        expect(validateAwsReadRequest({ service: 'sts', operation: 'get-federation-token' })).toMatch(/not a permitted/);
+        expect(validateAwsReadRequest({ service: 'ec2', operation: 'get-console-output' })).toMatch(/not a permitted/);
+        expect(validateAwsReadRequest({ service: 'ec2', operation: 'get-password-data' })).toMatch(/not a permitted/);
+        expect(validateAwsReadRequest({ service: 'iam', operation: 'get-credential-report' })).toMatch(/not a permitted/);
     });
 
-    it('refuses flags that reach outside the request', () => {
-        for (const flag of ['--endpoint-url', '--cli-input-json', '--outfile', '--no-sign-request']) {
-            expect(validateAwsReadRequest({ ...ok, params: { [flag]: 'x' } }))
-                .toMatch(/not available to sub-agents/);
+    it('refuses the file-write primitive', () => {
+        expect(validateAwsReadRequest({ service: 's3api', operation: 'get-object' })).toMatch(/not a permitted/);
+    });
+
+    it('refuses mutations', () => {
+        for (const operation of ['terminate-instances', 'delete-bucket', 'run-instances', 'sync', 'cp']) {
+            expect(validateAwsReadRequest({ ...ok, operation })).toMatch(/not a permitted/);
         }
     });
 
     it('refuses malformed identifiers rather than passing them through', () => {
-        expect(validateAwsReadRequest({ ...ok, service: 'ec2; rm -rf /' })).toMatch(/not a valid AWS service/);
-        expect(validateAwsReadRequest({ ...ok, operation: 'describe-instances && pulumi destroy' })).toMatch(/not a valid operation/);
+        expect(validateAwsReadRequest({ service: 'ec2; rm -rf /', operation: 'describe-instances' })).toMatch(/not a permitted AWS service/);
         expect(validateAwsReadRequest({ ...ok, region: 'us-east-1$(id)' })).toMatch(/invalid region/);
         expect(validateAwsReadRequest({ ...ok, profile: '../../etc/passwd' })).toMatch(/invalid profile/);
-        expect(validateAwsReadRequest({ ...ok, params: { 'notaflag': 'x' } })).toMatch(/not a valid --flag/);
+    });
+});
+
+describe('validateAwsReadRequest — flag allowlist and arity', () => {
+    it('refuses any flag that is not allowlisted, including abbreviations', () => {
+        // argparse has allow_abbrev=True, which defeated the previous denylist:
+        // --endpoint was accepted for the denied --endpoint-url and turned the CLI
+        // into an unauthenticated downloader.
+        for (const flag of ['--endpoint-url', '--endpoint', '--endpoint-ur', '--cli-input-json',
+                            '--cli-input-jso', '--no-sign-request', '--no-sign-reques', '--debug',
+                            '--debu', '--ca-bundle', '--ca-bundl', '--profile', '--region', '--output']) {
+            expect(validateAwsReadRequest({ ...ok, params: { [flag]: 'x' } })).toMatch(/not a permitted flag/);
+        }
+    });
+
+    it('refuses a value for a zero-arity flag — the positional-smuggling vector', () => {
+        expect(validateAwsReadRequest({ ...ok, params: { '--no-paginate': '/app/config.json' } }))
+            .toMatch(/takes no value/);
+    });
+
+    it('accepts true for a zero-arity flag', () => {
+        expect(validateAwsReadRequest({ ...ok, params: { '--no-paginate': true } })).toBeNull();
+    });
+
+    it('accepts multi-value flags', () => {
+        expect(validateAwsReadRequest({ ...ok, params: { '--instance-ids': ['i-1', 'i-2'] } })).toBeNull();
+    });
+
+    it('refuses multiple values for a single-value flag, and empty values', () => {
+        expect(validateAwsReadRequest({ ...ok, params: { '--query': ['a', 'b'] } })).toMatch(/exactly one value/);
+        expect(validateAwsReadRequest({ ...ok, params: { '--query': [] } })).toMatch(/requires a value/);
+        expect(validateAwsReadRequest({ ...ok, params: { '--query': '' } })).toMatch(/non-empty strings/);
+    });
+
+    it('is not fooled by inherited Object properties', () => {
+        expect(validateAwsReadRequest({ ...ok, params: { 'constructor': 'x' } as never })).toMatch(/not a permitted flag/);
+        expect(validateAwsReadRequest({ ...ok, params: { '__proto__': 'x' } as never })).toMatch(/not a permitted flag/);
     });
 });
 
 describe('buildAwsReadArgv', () => {
-    it('emits service, operation, flags and json output — never a shell string', () => {
-        expect(buildAwsReadArgv({
-            service: 'ec2', operation: 'describe-instances',
-            region: 'us-east-1', profile: 'nucleus_agent_1',
-            params: { '--instance-ids': 'i-123' },
-        })).toEqual([
-            'ec2', 'describe-instances', '--region', 'us-east-1',
-            '--profile', 'nucleus_agent_1', '--instance-ids', 'i-123',
-            '--output', 'json',
-        ]);
+    it('emits service, operation, validated region/profile and json output', () => {
+        expect(buildAwsReadArgv({ ...ok, region: 'us-east-1', profile: 'nucleus_agent_1', params: { '--instance-ids': ['i-1', 'i-2'] } }))
+            .toEqual(['ec2', 'describe-instances', '--region', 'us-east-1', '--profile', 'nucleus_agent_1',
+                      '--instance-ids', 'i-1', 'i-2', '--output', 'json']);
     });
 
-    it('emits no positional arguments, so an outfile cannot be supplied', () => {
-        const argv = buildAwsReadArgv({ service: 's3api', operation: 'get-object', params: { '--bucket': 'b', '--key': 'k' } });
-        // Every element after the leading service+operation is a flag or a flag's value.
-        expect(argv.slice(2).filter((t, i, a) => !t.startsWith('--') && !a[i - 1]?.startsWith('--'))).toEqual([]);
+    it('emits a zero-arity flag alone, with no value token', () => {
+        expect(buildAwsReadArgv({ ...ok, params: { '--no-paginate': true } }))
+            .toEqual(['ec2', 'describe-instances', '--no-paginate', '--output', 'json']);
     });
 
-    it('treats injection attempts as inert argv data', () => {
-        // These never reach a shell, so they are values — not code. Validation
-        // refuses them anyway; this pins that argv construction does not concatenate.
-        const argv = buildAwsReadArgv({ service: 'ec2', operation: 'describe-instances', params: { '--filters': 'a; rm -rf /' } });
-        expect(argv).toContain('a; rm -rf /');
-        expect(argv.join(' ')).not.toContain('&&');
-    });
-});
-```
-
-Replace the shell-allowlist block in `subagent.test.ts` with a much simpler assertion —
-shell is simply gone:
-
-```typescript
-describe('shell is unavailable to sub-agents', () => {
-    it('refuses every bash-like tool name in any case', () => {
-        for (const name of ['bash', 'shell', 'run_command', 'execute_command', 'Execute_Command', 'EXECUTE_COMMAND']) {
-            const verdict = isReadOnlyForSubagent(name, { command: 'aws ec2 describe-instances' });
-            expect(verdict.allowed).toBe(false);
-            expect(verdict.reason).toMatch(/not available to sub-agents/);
+    it('can never emit a positional argument (semantic, not shape-based)', () => {
+        // The previous suite checked argv SHAPE, which a smuggled positional satisfies
+        // by construction since it does follow a flag. Check the real property: every
+        // non-flag token must belong to a flag of declared non-zero arity.
+        const argv = buildAwsReadArgv({
+            ...ok, region: 'us-east-1', profile: 'p',
+            params: { '--instance-ids': ['i-1', 'i-2'], '--no-paginate': true, '--query': 'Reservations[]' },
+        });
+        const builderFlags = new Set(['--region', '--profile', '--output']);
+        let owner: string | null = null;
+        for (const token of argv.slice(2)) {
+            if (token.startsWith('--')) {
+                const arity = builderFlags.has(token) ? 'one' : ALLOWED_FLAGS[token];
+                expect(arity, `unexpected flag ${token}`).toBeDefined();
+                owner = arity === 'none' ? null : token;
+                continue;
+            }
+            expect(owner, `orphan positional "${token}"`).not.toBeNull();
         }
     });
 
-    it('drops shell tools from the filtered list', () => {
-        const kept = filterReadOnlyTools([
-            { name: 'describe_instances' }, { name: 'execute_command' },
-            { name: 'bash' }, { name: 'dispatch_agent' }, { name: 'ask_user' },
-        ]);
-        expect(kept.map(t => t.name)).toEqual(['describe_instances']);
+    it('treats injection attempts as inert argv data', () => {
+        const argv = buildAwsReadArgv({ ...ok, params: { '--query': 'a; rm -rf /' } });
+        expect(argv).toContain('a; rm -rf /');
+    });
+});
+
+describe('the jail permits aws_read and still refuses shell', () => {
+    it('allows aws_read — without this the tool is refused on every call', () => {
+        expect(isReadOnlyForSubagent('aws_read').allowed).toBe(true);
+    });
+
+    it('keeps aws_read through the filter alongside other read-only tools', () => {
+        expect(filterReadOnlyTools([
+            { name: 'aws_read' }, { name: 'get_aws_credentials' },
+            { name: 'execute_command' }, { name: 'dispatch_agent' },
+        ]).map(t => t.name)).toEqual(['aws_read', 'get_aws_credentials']);
     });
 });
 ```
@@ -2720,25 +2916,27 @@ describe('shell is unavailable to sub-agents', () => {
 Run: `cd apps/web-ui && bunx vitest run lib/agent/subagent.test.ts lib/agent/aws-read-tool.test.ts`
 
 ```bash
-git add apps/web-ui/lib/agent/subagent.ts apps/web-ui/lib/agent/subagent.test.ts \
-        apps/web-ui/lib/agent/aws-read-tool.ts apps/web-ui/lib/agent/aws-read-tool.test.ts \
+git add apps/web-ui/lib/agent/aws-read-tool.ts apps/web-ui/lib/agent/aws-read-tool.test.ts \
+        apps/web-ui/lib/agent/subagent.ts apps/web-ui/lib/agent/subagent.test.ts \
         apps/web-ui/lib/agent/tools.ts
-git commit -m "fix(agent)!: replace sub-agent shell parsing with a structured aws_read tool
+git commit -m "fix(agent)!: allowlist aws_read on every axis
 
-Two designs for gating a shell command string inside a sub-agent failed
-adversarial review. The second was escaped to full RCE: s3api get-object with
---endpoint-url fetches an arbitrary file from an arbitrary host to an arbitrary
-local path (the outfile positional was never examined), then an LD_PRELOAD
-prefix executes it. A boolean global flag also shifted which token was read as
-the operation, restoring 'aws s3 sync … --delete' against a production bucket.
+The structured tool still used DENYLISTS for flags and operations, and both were
+escaped. argparse has allow_abbrev=True, so --endpoint was accepted for the
+denied --endpoint-url, turning the CLI into an unauthenticated downloader; and a
+zero-arity flag (\"--no-cli-pager\": \"/tmp/x\") emitted \`flag value\`, whose value
+the CLI read as the positional outfile of s3api get-object. Chained, that wrote
+a credential_process entry into ~/.aws/config and executed arbitrary commands.
 
-Gating a shell string means modelling all of bash and all of AWS CLI semantics.
-Sub-agents now have no shell at all: aws_read takes service and operation
-separately, builds argv server-side, and runs execFile with shell: false, so
-metacharacters, quoting, flag-order confusion and env prefixes are
-unrepresentable rather than merely blocked. No positionals (so no outfile
-write), a denied-flag set (no --endpoint-url exfiltration, no --cli-input-json),
-and a denied-operation set (no credential-minting reads)."
+Enumerate the permitted instead: explicit (service, operation) pairs, explicit
+flags, and a declared arity per flag so a zero-arity flag emits no value token
+and a positional cannot be produced by construction. Arity also makes
+multi-value flags (--instance-ids i-1 i-2) and boolean flags expressible, which
+the previous revision could not do.
+
+Also: permit aws_read in the sub-agent jail (it was refused on every call, so
+this path had never run), bound concurrent aws subprocesses, and audit-log every
+call — sub-agent AWS activity has no human gate."
 ```
 
 ---
@@ -3117,7 +3315,7 @@ Then replace the tool-assembly block at line 226 with:
             model,
             // Sub-agents have NO shell (Task 7 Step 6). aws_read is their only
             // route to AWS; it builds argv and runs execFile with shell: false.
-            subagentTools: [...filterReadOnlyTools(baseTools as never[]), createAwsReadTool(tenantId!)],
+            subagentTools: [...filterReadOnlyTools(baseTools as never[]), createAwsReadTool(tenantId!, config.userId)],
             ledger: createRunBudgetLedger(subagentBudget),
             budget: subagentBudget,
             onSubagentEvent: config.onSubagentEvent,
