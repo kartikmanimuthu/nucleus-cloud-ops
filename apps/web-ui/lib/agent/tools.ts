@@ -8,7 +8,7 @@ import * as os from 'os';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { env } from '@/env';
-import { getTenantCredentialsFilePath } from './session-manager';
+import { getTenantCredentialsFilePath, getTenantConfigFilePath } from './session-manager';
 import { AuditService } from '@/lib/audit-service';
 import { Semaphore } from './concurrency';
 
@@ -60,12 +60,29 @@ const JAIL_ERROR = (p: string) =>
  * simple `env`/`printenv` would otherwise dump them. Full OS/container sandboxing
  * (seccomp, read-only rootfs, network egress policy, dropped capabilities) is a
  * separate infrastructure follow-up tracked outside this change.
+ *
+ * TWO OMISSIONS FROM THE ALLOWLIST ARE LOAD-BEARING — do not "fix" them:
+ *
+ *  - AWS_CONTAINER_CREDENTIALS_RELATIVE_URI (and AWS_CONTAINER_CREDENTIALS_FULL_URI)
+ *  - AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
+ *
+ * Without them, an AWS call made with no --profile simply fails to find credentials.
+ * WITH them it would silently fall back to the ECS TASK ROLE — the platform's own
+ * identity, which is outside every tenant's scoping and every audit trail that keys
+ * off the assumed-role session. A sub-agent's aws_read reaches AWS through this same
+ * environment and has no human gate behind it, so "no profile" must mean "no
+ * credentials", never "the platform's credentials".
+ *
+ * AWS_CONFIG_FILE is likewise NOT inherited: an ambient ~/.aws/config can enable
+ * `cli_follow_urlparam` (making http:// parameter values fetch a URL),
+ * `credential_process` (an arbitrary command run during profile resolution) and
+ * `sso_*`. It is pinned per tenant below instead.
  */
 export function buildCommandEnv(tenantId?: string): Record<string, string> {
     const ALLOWED_KEYS = [
         'PATH', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'TMPDIR',
         'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_PROFILE', 'AWS_DEFAULT_PROFILE',
-        'AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE', 'AWS_STS_REGIONAL_ENDPOINTS', 'AWS_CA_BUNDLE',
+        'AWS_SHARED_CREDENTIALS_FILE', 'AWS_STS_REGIONAL_ENDPOINTS', 'AWS_CA_BUNDLE',
     ];
     const childEnv: Record<string, string> = {};
     for (const key of ALLOWED_KEYS) {
@@ -74,8 +91,12 @@ export function buildCommandEnv(tenantId?: string): Record<string, string> {
     }
     // Point the AWS CLI/SDK at this tenant's isolated credentials file so profiles
     // created by get_aws_credentials resolve — without exposing other tenants' files.
+    // The config path is pinned to the same tenant directory so CLI configuration is
+    // ours (and, in practice, absent) rather than whatever the container image or a
+    // written-to home directory happens to carry.
     if (tenantId) {
         childEnv.AWS_SHARED_CREDENTIALS_FILE = getTenantCredentialsFilePath(tenantId);
+        childEnv.AWS_CONFIG_FILE = getTenantConfigFilePath(tenantId);
     }
     return childEnv;
 }

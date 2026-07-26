@@ -88,6 +88,19 @@ export function getTenantCredentialsFilePath(tenantId: string): string {
 }
 
 /**
+ * Resolve the absolute CLI-config path for a tenant. Nothing writes this file; it
+ * exists so buildCommandEnv can PIN AWS_CONFIG_FILE at a path we own instead of
+ * letting the child inherit an ambient ~/.aws/config, which could set
+ * `cli_follow_urlparam` (turning http:// parameter values into fetches),
+ * `credential_process` (arbitrary command execution on profile resolution) or
+ * `sso_*`. A missing config file is not an error for the AWS CLI.
+ */
+export function getTenantConfigFilePath(tenantId: string): string {
+    const sanitized = tenantId.replace(/[^a-zA-Z0-9_-]/g, '_') || 'default';
+    return path.join(TENANT_CREDS_ROOT, sanitized, 'config');
+}
+
+/**
  * Generate a unique profile name
  */
 function generateProfileName(accountId: string): string {

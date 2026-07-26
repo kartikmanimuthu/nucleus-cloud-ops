@@ -14,6 +14,7 @@
  */
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { classifyTool } from './tool-classifier';
+import { hasSubagentReadOnlyMarker } from './subagent-tool-marker';
 import { contentToText, truncateOutput } from './agent-shared';
 import type { SubagentBudgetConfig } from './subagent-budget';
 
@@ -71,27 +72,27 @@ export interface SubagentDeps {
 }
 
 /**
- * Tools built specifically for sub-agents, whose safety is enforced by their own
- * implementation rather than by classifyTool. aws_read validates against explicit
- * service/operation/flag allowlists and never invokes a shell.
- *
- * Needed because classifyTool matches no rule for these names and the fail-closed
- * branch below therefore refuses them: without this, aws_read was refused on every
- * call and the sub-agent's only route to AWS had never actually run. The permission
- * lives here rather than in tool-classifier.ts because the guard node's
- * human-approval path depends on the classifier's current behaviour.
- */
-const SUBAGENT_ALLOWED_TOOLS = new Set(['aws_read']);
-
-/**
  * The jail. Fail-closed by design: `classifyTool` returns
  * `{ isMutative: false, matchedRule: false }` for a tool whose name matched no
  * rule at all. In the orchestrator that ambiguity routes to a human; inside a
  * sub-agent there is no human, so an unverified tool is refused.
+ *
+ * `instance` is the ACTUAL tool object about to be invoked. Tools built for
+ * sub-agents (aws_read) are safe by their own implementation rather than by
+ * anything classifyTool knows about their name — classifyTool matches no rule for
+ * them, so without an exemption the fail-closed branch refuses them on every call.
+ * That exemption is bound to the instance's marker, never to its name: MCP tool
+ * names arrive unprefixed from tenant-configured servers (mcp-manager.ts), so a
+ * name-based exemption is a claim any remote server can make. A bare-string call
+ * therefore gets NO exemption — `isReadOnlyForSubagent('aws_read')` is false.
+ *
+ * The exemption lives here rather than in tool-classifier.ts because the guard
+ * node's human-approval path depends on the classifier's current behaviour.
  */
 export function isReadOnlyForSubagent(
     name: string,
     args?: Record<string, unknown>,
+    instance?: unknown,
 ): { allowed: boolean; reason: string } {
     // Lowercased: classifyTool() lowercases internally, so once Task 8 adds
     // dispatch_agent to its READ_ONLY_ALLOWLIST a case variant like
@@ -102,10 +103,10 @@ export function isReadOnlyForSubagent(
         return { allowed: false, reason: `${name} is not available to sub-agents` };
     }
 
-    // After the denylist, never before: a denied name must stay denied even if it
-    // were ever also listed here.
-    if (SUBAGENT_ALLOWED_TOOLS.has(name.toLowerCase())) {
-        return { allowed: true, reason: 'sub-agent read-only tool' };
+    // After the denylist, never before: a denied name must stay denied even if the
+    // instance were somehow also marked.
+    if (hasSubagentReadOnlyMarker(instance)) {
+        return { allowed: true, reason: 'sub-agent read-only tool (marked instance)' };
     }
 
     let classification;
@@ -130,9 +131,14 @@ export function isReadOnlyForSubagent(
  * Delegates wholly to `isReadOnlyForSubagent` so the two layers cannot disagree:
  * this function previously hardcoded `execute_command` as a keep-and-gate-later
  * exception, which is exactly the special case the shell removal deleted.
+ *
+ * The tool OBJECT is passed through, not just its name: the aws_read exemption is
+ * bound to the instance marker, so an impostor named `aws_read` is dropped here
+ * (and therefore never reaches `toolsByName`, where last-wins would have let it
+ * shadow the real tool).
  */
 export function filterReadOnlyTools<T extends { name: string }>(tools: T[]): T[] {
-    return tools.filter(tool => isReadOnlyForSubagent(tool.name).allowed);
+    return tools.filter(tool => isReadOnlyForSubagent(tool.name, undefined, tool).allowed);
 }
 
 function buildSystemPrompt(spec: SubagentSpec): SystemMessage {
@@ -244,7 +250,11 @@ async function runSubagentLoop(
         // Independent calls in one turn run concurrently — the same parallelism
         // the orchestrator gets from ToolNode.
         const results = await Promise.all(toolCalls.map(async call => {
-            const verdict = isReadOnlyForSubagent(call.name, call.args ?? {});
+            // The verdict is taken on the instance that will actually be invoked —
+            // `toolsByName` holds only tools that already passed the filter, so a
+            // marker-less impostor is never in here to be exempted.
+            const tool = toolsByName.get(call.name);
+            const verdict = isReadOnlyForSubagent(call.name, call.args ?? {}, tool);
             if (!verdict.allowed) {
                 return {
                     call,
@@ -253,7 +263,6 @@ async function runSubagentLoop(
                 };
             }
 
-            const tool = toolsByName.get(call.name);
             if (!tool) {
                 return { call, executed: false, output: `REFUSED: ${call.name} is not available to sub-agents.` };
             }
