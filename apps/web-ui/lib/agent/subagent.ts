@@ -24,11 +24,18 @@ export const SUBAGENT_REPORT_MAX_CHARS = 6000;
 const SUBAGENT_TOOL_OUTPUT_MAX_CHARS = 4000;
 
 /**
- * Never available to a sub-agent regardless of what the classifier says.
- * - dispatch_agent: depth cap of 1. Recursion makes cost and latency unbounded.
+ * Never available to a sub-agent, regardless of what classifyTool says.
+ * - dispatch_agent: depth cap of 1; recursion makes cost and latency unbounded.
  * - ask_user: pauses for a human, and no human is reachable inside a tool call.
+ * - shell: two designs for gating a command string were escaped (the second to RCE
+ *   via `s3api get-object` writing an arbitrary local path, then LD_PRELOAD). A
+ *   sub-agent reaches AWS through the structured aws_read tool instead, which builds
+ *   argv itself and never invokes a shell.
  */
-const SUBAGENT_TOOL_DENYLIST = new Set(['dispatch_agent', 'ask_user']);
+const SHELL_TOOL_NAMES = new Set(['bash', 'shell', 'run_command', 'execute_command']);
+const SUBAGENT_TOOL_DENYLIST = new Set([
+    'dispatch_agent', 'ask_user', ...SHELL_TOOL_NAMES,
+]);
 
 export interface SubagentSpec {
     role: string;
@@ -64,112 +71,6 @@ export interface SubagentDeps {
 }
 
 /**
- * Shell commands are ALLOWLISTED, not blocklisted.
- *
- * classifyTool treats any bash-like call that misses its mutative regexes as
- * "read-only bash command" WITH matchedRule: true — so the fail-closed
- * !matchedRule rule never fires for shell. That is adequate for the guard node
- * (a human reviews the call) but not here: a sub-agent runs inside a tool call,
- * which LangGraph cannot interrupt, so nothing downstream can stop the command.
- *
- * An adversarial review escaped the blocklist 23 ways — a flag before the
- * service name, a quote around the verb, a verb missing from the list, or simply
- * a different binary (pulumi, psql, python3). Enumerating mutations is
- * unwinnable; enumerating the reads we actually need is not.
- */
-const SHELL_TOOL_NAMES = new Set(['bash', 'shell', 'run_command', 'execute_command']);
-
-/** Metacharacters that allow chaining, substitution, or redirection out of the allowlist. */
-const SHELL_METACHAR = /[;&|`$><\n\r]/;
-
-/** Binaries a sub-agent may invoke at all. */
-const ALLOWED_SHELL_BINARIES = new Set([
-    'aws', 'kubectl', 'cat', 'ls', 'grep', 'head', 'tail', 'wc', 'jq', 'echo',
-]);
-
-/** AWS operation prefixes that are read-only by CLI convention. */
-const READ_ONLY_AWS_OP_PREFIX = /^(describe|list|get|head|search|lookup|check|batch-get)-/;
-
-/** Read-only AWS operations that do not follow the prefix convention. */
-const READ_ONLY_AWS_OP_EXACT = new Set(['ls', 'filter-log-events', 'query', 'scan', 'help']);
-
-/** Read-only kubectl verbs. */
-const READ_ONLY_KUBECTL_VERBS = new Set([
-    'get', 'describe', 'logs', 'top', 'version', 'api-resources', 'explain',
-]);
-
-/** Strip one layer of surrounding quotes: `aws ec2 "terminate-instances"` must not hide the verb. */
-function unquote(token: string): string {
-    return token.replace(/^['"]|['"]$/g, '');
-}
-
-/**
- * Resolve the command string from a bash-like tool's args. Returns null when the
- * args carry no usable command — an array, a number, an empty object. classifyTool
- * fails open on `{}` and stringifies an array into a comma-joined string that
- * matches no pattern, so both must be refused here.
- */
-export function resolveShellCommand(args?: Record<string, unknown>): string | null {
-    for (const key of ['command', 'cmd', 'input']) {
-        const value = args?.[key];
-        if (typeof value === 'string' && value.trim().length > 0) return value;
-        if (value !== undefined) return null; // present but not a usable string
-    }
-    return null;
-}
-
-/** Allowlist verdict for one shell command string. */
-export function isReadOnlyShellCommand(cmd: string): { allowed: boolean; reason: string } {
-    if (SHELL_METACHAR.test(cmd)) {
-        return { allowed: false, reason: 'command contains shell metacharacters (chaining, substitution, or redirection)' };
-    }
-
-    // Quotes are stripped per token, so splitting on whitespace is sufficient once
-    // metacharacters are already refused.
-    const tokens = cmd.trim().split(/\s+/).map(unquote).filter(t => t.length > 0);
-    // Drop leading VAR=value assignments (`AWS_PROFILE=x aws ...`).
-    while (tokens.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) tokens.shift();
-    if (tokens.length === 0) return { allowed: false, reason: 'empty command' };
-
-    const binary = tokens[0];
-    if (!ALLOWED_SHELL_BINARIES.has(binary)) {
-        return { allowed: false, reason: `binary "${binary}" is not on the sub-agent read-only allowlist` };
-    }
-
-    if (binary === 'aws') {
-        // Walk past global flags AND their values to find <service> then <operation>.
-        // This is what defeated the old regex: it assumed `aws <service> <verb>` adjacency.
-        const positional: string[] = [];
-        for (let i = 1; i < tokens.length; i++) {
-            const token = tokens[i];
-            if (token.startsWith('-')) {
-                // A flag's value is the next token when it is not itself a flag.
-                if (i + 1 < tokens.length && !tokens[i + 1].startsWith('-')) i++;
-                continue;
-            }
-            positional.push(token);
-            if (positional.length === 2) break;
-        }
-        const operation = positional[1];
-        if (!operation) return { allowed: false, reason: 'aws command has no resolvable operation' };
-        if (!READ_ONLY_AWS_OP_PREFIX.test(operation) && !READ_ONLY_AWS_OP_EXACT.has(operation)) {
-            return { allowed: false, reason: `aws operation "${operation}" is not a verified read-only operation` };
-        }
-        return { allowed: true, reason: `aws read-only operation "${operation}"` };
-    }
-
-    if (binary === 'kubectl') {
-        const verb = tokens.slice(1).find(t => !t.startsWith('-'));
-        if (!verb || !READ_ONLY_KUBECTL_VERBS.has(verb)) {
-            return { allowed: false, reason: `kubectl verb "${verb ?? '(none)'}" is not read-only` };
-        }
-        return { allowed: true, reason: `kubectl read-only verb "${verb}"` };
-    }
-
-    return { allowed: true, reason: `read-only utility "${binary}"` };
-}
-
-/**
  * The jail. Fail-closed by design: `classifyTool` returns
  * `{ isMutative: false, matchedRule: false }` for a tool whose name matched no
  * rule at all. In the orchestrator that ambiguity routes to a human; inside a
@@ -188,19 +89,6 @@ export function isReadOnlyForSubagent(
         return { allowed: false, reason: `${name} is not available to sub-agents` };
     }
 
-    // Shell is allowlisted here rather than delegated to classifyTool, whose
-    // bash handling is a blocklist that reports matchedRule: true on a miss.
-    if (SHELL_TOOL_NAMES.has(name.toLowerCase())) {
-        const cmd = resolveShellCommand(args);
-        if (cmd === null) {
-            return { allowed: false, reason: `${name} called without a usable command string` };
-        }
-        const verdict = isReadOnlyShellCommand(cmd);
-        return verdict.allowed
-            ? { allowed: true, reason: verdict.reason }
-            : { allowed: false, reason: `shell call refused: ${verdict.reason}` };
-    }
-
     let classification;
     try {
         classification = classifyTool(name, args);
@@ -217,18 +105,15 @@ export function isReadOnlyForSubagent(
     return { allowed: true, reason: classification.reason };
 }
 
-/** Drop everything a sub-agent may not call, before the model ever sees it. */
+/**
+ * Drop everything a sub-agent may not call, before the model ever sees it.
+ *
+ * Delegates wholly to `isReadOnlyForSubagent` so the two layers cannot disagree:
+ * this function previously hardcoded `execute_command` as a keep-and-gate-later
+ * exception, which is exactly the special case the shell removal deleted.
+ */
 export function filterReadOnlyTools<T extends { name: string }>(tools: T[]): T[] {
-    return tools.filter(tool => {
-        // Lowercased for the same reason as isReadOnlyForSubagent above — the
-        // filtered list and the runtime re-check must agree on case handling.
-        const lower = tool.name.toLowerCase();
-        if (SUBAGENT_TOOL_DENYLIST.has(lower)) return false;
-        // Bash-like tools are judged per call (the command string decides), so keep
-        // them in the list and let the runtime check gate each invocation.
-        if (lower === 'execute_command') return true;
-        return isReadOnlyForSubagent(tool.name).allowed;
-    });
+    return tools.filter(tool => isReadOnlyForSubagent(tool.name).allowed);
 }
 
 function buildSystemPrompt(spec: SubagentSpec): SystemMessage {
@@ -248,7 +133,8 @@ ${spec.expectedOutput}
 - You are READ-ONLY. You cannot create, modify, delete, start, stop, or write anything. If the task appears to need a change, do NOT attempt it — describe the recommended change in your findings and the main agent will carry it out under human approval.
 - You cannot ask the user questions. If something is ambiguous, investigate the most likely interpretation and say what you assumed.
 - You see none of the parent conversation. Everything you need is in the task above.
-- Batch independent read-only calls into a single turn — they run in parallel.
+- You have NO shell. Reach AWS only through aws_read, passing the service and operation separately. Call get_aws_credentials first to obtain a profile name.
+- Batch independent aws_read calls into a single turn — they run in parallel.
 
 ## Output
 

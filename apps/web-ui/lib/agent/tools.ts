@@ -61,7 +61,7 @@ const JAIL_ERROR = (p: string) =>
  * (seccomp, read-only rootfs, network egress policy, dropped capabilities) is a
  * separate infrastructure follow-up tracked outside this change.
  */
-function buildCommandEnv(tenantId?: string): Record<string, string> {
+export function buildCommandEnv(tenantId?: string): Record<string, string> {
     const ALLOWED_KEYS = [
         'PATH', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'TMPDIR',
         'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_PROFILE', 'AWS_DEFAULT_PROFILE',

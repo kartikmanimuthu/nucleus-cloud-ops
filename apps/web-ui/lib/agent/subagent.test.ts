@@ -45,18 +45,19 @@ describe('isReadOnlyForSubagent', () => {
         expect(isReadOnlyForSubagent('describe_instances').allowed).toBe(true);
     });
 
-    it('allows a read-only shell command', () => {
-        expect(isReadOnlyForSubagent('execute_command', { command: 'aws ec2 describe-instances' }).allowed).toBe(true);
+    it('blocks a shell command however read-only it looks', () => {
+        // Sub-agents have no shell at all. Two designs that judged the command
+        // string were escaped, the second to RCE, so the string is never parsed:
+        // the tool name alone decides.
+        const verdict = isReadOnlyForSubagent('execute_command', { command: 'aws ec2 describe-instances' });
+        expect(verdict.allowed).toBe(false);
+        expect(verdict.reason).toMatch(/not available to sub-agents/);
     });
 
     it('blocks a mutative shell command', () => {
         const verdict = isReadOnlyForSubagent('execute_command', { command: 'aws ec2 terminate-instances --instance-ids i-1' });
         expect(verdict.allowed).toBe(false);
-        // Step 6 replaced the shell blocklist with an allowlist, so the reason is
-        // now non-membership ("not a verified read-only operation") rather than a
-        // matched mutative pattern. The refusal itself is what matters.
-        expect(verdict.reason).toMatch(/shell call refused/i);
-        expect(verdict.reason).toContain('terminate-instances');
+        expect(verdict.reason).toMatch(/not available to sub-agents/);
     });
 
     it('blocks a mutative tool name', () => {
@@ -94,7 +95,7 @@ describe('isReadOnlyForSubagent', () => {
 describe('filterReadOnlyTools', () => {
     it('keeps read-only tools and drops the rest', () => {
         const kept = filterReadOnlyTools([readTool, shellRead, writeTool, { name: 'dispatch_agent' }]);
-        expect(kept.map(t => t.name)).toEqual(['describe_instances', 'execute_command']);
+        expect(kept.map(t => t.name)).toEqual(['describe_instances']);
     });
 });
 
@@ -180,80 +181,21 @@ describe('runSubagent', () => {
     });
 });
 
-describe('shell allowlist — proven bypasses of the old blocklist', () => {
-    const REFUSED = [
-        'aws --region us-east-1 ec2 terminate-instances --instance-ids i-1',
-        'aws --profile prod ec2 stop-instances --instance-ids i-1',
-        'aws ec2 "terminate-instances" --instance-ids i-1',
-        "aws ec2 'delete-security-group' --group-id sg-1",
-        'aws ec2 authorize-security-group-ingress --group-id sg-1 --port 22 --cidr 0.0.0.0/0',
-        'aws ecs execute-command --cluster c --task t --command /bin/sh',
-        'aws s3 sync ./evil s3://prod-bucket --delete',
-        'aws s3 cp ./evil.sh s3://prod-bucket/boot.sh',
-        'aws rds restore-db-instance-from-db-snapshot --db-instance-identifier x',
-        'aws kms schedule-key-deletion --key-id k --pending-window-in-days 7',
-        'aws cloudformation cancel-update-stack --stack-name s',
-        'pulumi up --stack prod --yes',
-        'pulumi destroy --yes',
-        'python3 -c import boto3',
-        'rm important.tf',
-        'rm -r /app/data',
-        'kubectl run evil --image=alpine',
-        'kubectl delete pod x',
-        'npm run deploy:prod',
-        'bash deploy.sh',
-        'node ./scripts/wipe.js',
-        'echo pwned > /app/config.json',                 // metacharacter
-        'aws ec2 describe-instances && rm -rf /',         // metacharacter
-        'aws ec2 describe-instances; pulumi destroy',     // metacharacter
-        'aws ec2 describe-instances $(rm -rf /)',         // metacharacter
-    ];
-
-    for (const cmd of REFUSED) {
-        it(`refuses: ${cmd}`, () => {
-            expect(isReadOnlyForSubagent('execute_command', { command: cmd }).allowed).toBe(false);
-        });
-    }
-
-    const ALLOWED = [
-        'aws ec2 describe-instances --output json',
-        'aws --region us-east-1 ec2 describe-instances',
-        'AWS_PROFILE=nucleus_agent_1 aws ec2 describe-instances',
-        'aws --profile p --region r rds describe-db-instances',
-        'aws sts get-caller-identity',
-        'aws cloudwatch get-metric-statistics --metric-name CPUUtilization',
-        'aws logs filter-log-events --log-group-name x',
-        'aws s3 ls s3://bucket',
-        'kubectl get pods -n default',
-        'kubectl describe pod x',
-        'kubectl logs pod/x',
-        'cat /tmp/report.json',
-        'ls -la /tmp',
-        'grep -r error /var/log',
-        'jq .Reservations /tmp/out.json',
-    ];
-
-    for (const cmd of ALLOWED) {
-        it(`allows: ${cmd}`, () => {
-            expect(isReadOnlyForSubagent('execute_command', { command: cmd }).allowed).toBe(true);
-        });
-    }
-
-    it('refuses a bash-like call with no usable command string', () => {
-        // classifyTool fails OPEN on {} and stringifies an array into a
-        // comma-joined string that matches no mutative pattern.
-        expect(isReadOnlyForSubagent('execute_command', {}).allowed).toBe(false);
-        expect(isReadOnlyForSubagent('execute_command', undefined).allowed).toBe(false);
-        expect(isReadOnlyForSubagent('execute_command', { command: ['aws', 'ec2', 'terminate-instances'] } as never).allowed).toBe(false);
-        expect(isReadOnlyForSubagent('execute_command', { command: '' }).allowed).toBe(false);
-        expect(isReadOnlyForSubagent('execute_command', { command: 0 } as never).allowed).toBe(false);
+describe('shell is unavailable to sub-agents', () => {
+    it('refuses every bash-like tool name in any case', () => {
+        for (const name of ['bash', 'shell', 'run_command', 'execute_command', 'Execute_Command', 'EXECUTE_COMMAND']) {
+            const verdict = isReadOnlyForSubagent(name, { command: 'aws ec2 describe-instances' });
+            expect(verdict.allowed).toBe(false);
+            expect(verdict.reason).toMatch(/not available to sub-agents/);
+        }
     });
 
-    it('applies the allowlist to every bash-like tool name, any case', () => {
-        for (const name of ['bash', 'shell', 'run_command', 'EXECUTE_COMMAND', 'Bash']) {
-            expect(isReadOnlyForSubagent(name, { command: 'pulumi destroy --yes' }).allowed).toBe(false);
-            expect(isReadOnlyForSubagent(name, { command: 'aws ec2 describe-instances' }).allowed).toBe(true);
-        }
+    it('drops shell tools from the filtered list', () => {
+        const kept = filterReadOnlyTools([
+            { name: 'describe_instances' }, { name: 'execute_command' },
+            { name: 'bash' }, { name: 'dispatch_agent' }, { name: 'ask_user' },
+        ]);
+        expect(kept.map(t => t.name)).toEqual(['describe_instances']);
     });
 });
 
