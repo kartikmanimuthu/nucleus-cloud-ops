@@ -2390,6 +2390,385 @@ dispatch_agent (depth cap 1) and ask_user (no human inside a tool call), so
 LangGraph's inability to interrupt mid-tool-call is never a safety hole."
 ```
 
+- [ ] **Step 6: Replace the shell blocklist with an allowlist (CRITICAL)**
+
+Added after an adversarial review broke the shell layer 23 different ways. **This is a
+design error in the spec above, not an implementation slip.**
+
+The spec assumed `classifyTool`'s fail-closed default (`matchedRule: false`) covered
+shell commands. It does not. For bash-like tool names `classifyTool` returns
+`{ isMutative: false, matchedRule: **true**, reason: 'read-only bash command' }` for
+*any* command string that misses its seven `MUTATIVE_BASH_PATTERNS` regexes
+(`tool-classifier.ts:178`). So `isReadOnlyForSubagent`'s `!matchedRule` branch — this
+task's entire premise — **is unreachable for `execute_command`**. Shell was gated by a
+blocklist, and inside a tool call (where LangGraph cannot interrupt and no human can
+approve) a blocklist is not a boundary.
+
+Proven bypasses, all classified read-only, all reaching `/bin/bash` with live tenant
+AWS credentials via `buildCommandEnv(tenantId)`:
+
+```
+aws --region us-east-1 ec2 terminate-instances --instance-ids i-1   # a flag before the service
+aws ec2 "terminate-instances" --instance-ids i-1                    # one quote
+aws ec2 authorize-security-group-ingress --port 22 --cidr 0.0.0.0/0 # verb absent from the list
+aws s3 sync ./evil s3://prod-bucket --delete
+aws kms schedule-key-deletion --key-id k --pending-window-in-days 7
+pulumi destroy --yes                                                # binary need not be aws
+python3 -c "import boto3; boto3.client('ec2').terminate_instances(InstanceIds=['i-1'])"
+psql $DATABASE_URL -c "DROP TABLE accounts"
+rm -r /app/data                                                     # only `rm -rf` was patterned
+```
+
+The fix lives in `subagent.ts` only. **Do not touch `tool-classifier.ts`** — the guard
+node depends on its current behaviour for the human-approval path, where ambiguity
+correctly routes to a person.
+
+Add to `apps/web-ui/lib/agent/subagent.ts`, above `isReadOnlyForSubagent`:
+
+```typescript
+/**
+ * Shell commands are ALLOWLISTED, not blocklisted.
+ *
+ * classifyTool treats any bash-like call that misses its mutative regexes as
+ * "read-only bash command" WITH matchedRule: true — so the fail-closed
+ * !matchedRule rule never fires for shell. That is adequate for the guard node
+ * (a human reviews the call) but not here: a sub-agent runs inside a tool call,
+ * which LangGraph cannot interrupt, so nothing downstream can stop the command.
+ *
+ * An adversarial review escaped the blocklist 23 ways — a flag before the
+ * service name, a quote around the verb, a verb missing from the list, or simply
+ * a different binary (pulumi, psql, python3). Enumerating mutations is
+ * unwinnable; enumerating the reads we actually need is not.
+ */
+const SHELL_TOOL_NAMES = new Set(['bash', 'shell', 'run_command', 'execute_command']);
+
+/** Metacharacters that allow chaining, substitution, or redirection out of the allowlist. */
+const SHELL_METACHAR = /[;&|`$><\n\r]/;
+
+/** Binaries a sub-agent may invoke at all. */
+const ALLOWED_SHELL_BINARIES = new Set([
+    'aws', 'kubectl', 'cat', 'ls', 'grep', 'head', 'tail', 'wc', 'jq', 'echo',
+]);
+
+/** AWS operation prefixes that are read-only by CLI convention. */
+const READ_ONLY_AWS_OP_PREFIX = /^(describe|list|get|head|search|lookup|check|batch-get)-/;
+
+/** Read-only AWS operations that do not follow the prefix convention. */
+const READ_ONLY_AWS_OP_EXACT = new Set(['ls', 'filter-log-events', 'query', 'scan', 'help']);
+
+/** Read-only kubectl verbs. */
+const READ_ONLY_KUBECTL_VERBS = new Set([
+    'get', 'describe', 'logs', 'top', 'version', 'api-resources', 'explain',
+]);
+
+/** Strip one layer of surrounding quotes: `aws ec2 "terminate-instances"` must not hide the verb. */
+function unquote(token: string): string {
+    return token.replace(/^['"]|['"]$/g, '');
+}
+
+/**
+ * Resolve the command string from a bash-like tool's args. Returns null when the
+ * args carry no usable command — an array, a number, an empty object. classifyTool
+ * fails open on `{}` and stringifies an array into a comma-joined string that
+ * matches no pattern, so both must be refused here.
+ */
+export function resolveShellCommand(args?: Record<string, unknown>): string | null {
+    for (const key of ['command', 'cmd', 'input']) {
+        const value = args?.[key];
+        if (typeof value === 'string' && value.trim().length > 0) return value;
+        if (value !== undefined) return null; // present but not a usable string
+    }
+    return null;
+}
+
+/** Allowlist verdict for one shell command string. */
+export function isReadOnlyShellCommand(cmd: string): { allowed: boolean; reason: string } {
+    if (SHELL_METACHAR.test(cmd)) {
+        return { allowed: false, reason: 'command contains shell metacharacters (chaining, substitution, or redirection)' };
+    }
+
+    // Quotes are stripped per token, so splitting on whitespace is sufficient once
+    // metacharacters are already refused.
+    const tokens = cmd.trim().split(/\s+/).map(unquote).filter(t => t.length > 0);
+    // Drop leading VAR=value assignments (`AWS_PROFILE=x aws ...`).
+    while (tokens.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) tokens.shift();
+    if (tokens.length === 0) return { allowed: false, reason: 'empty command' };
+
+    const binary = tokens[0];
+    if (!ALLOWED_SHELL_BINARIES.has(binary)) {
+        return { allowed: false, reason: `binary "${binary}" is not on the sub-agent read-only allowlist` };
+    }
+
+    if (binary === 'aws') {
+        // Walk past global flags AND their values to find <service> then <operation>.
+        // This is what defeated the old regex: it assumed `aws <service> <verb>` adjacency.
+        const positional: string[] = [];
+        for (let i = 1; i < tokens.length; i++) {
+            const token = tokens[i];
+            if (token.startsWith('-')) {
+                // A flag's value is the next token when it is not itself a flag.
+                if (i + 1 < tokens.length && !tokens[i + 1].startsWith('-')) i++;
+                continue;
+            }
+            positional.push(token);
+            if (positional.length === 2) break;
+        }
+        const operation = positional[1];
+        if (!operation) return { allowed: false, reason: 'aws command has no resolvable operation' };
+        if (!READ_ONLY_AWS_OP_PREFIX.test(operation) && !READ_ONLY_AWS_OP_EXACT.has(operation)) {
+            return { allowed: false, reason: `aws operation "${operation}" is not a verified read-only operation` };
+        }
+        return { allowed: true, reason: `aws read-only operation "${operation}"` };
+    }
+
+    if (binary === 'kubectl') {
+        const verb = tokens.slice(1).find(t => !t.startsWith('-'));
+        if (!verb || !READ_ONLY_KUBECTL_VERBS.has(verb)) {
+            return { allowed: false, reason: `kubectl verb "${verb ?? '(none)'}" is not read-only` };
+        }
+        return { allowed: true, reason: `kubectl read-only verb "${verb}"` };
+    }
+
+    return { allowed: true, reason: `read-only utility "${binary}"` };
+}
+```
+
+Then, in `isReadOnlyForSubagent`, intercept bash-like tools **before** delegating to
+`classifyTool`. Insert immediately after the denylist check:
+
+```typescript
+    // Shell is allowlisted here rather than delegated to classifyTool, whose
+    // bash handling is a blocklist that reports matchedRule: true on a miss.
+    if (SHELL_TOOL_NAMES.has(name.toLowerCase())) {
+        const cmd = resolveShellCommand(args);
+        if (cmd === null) {
+            return { allowed: false, reason: `${name} called without a usable command string` };
+        }
+        const verdict = isReadOnlyShellCommand(cmd);
+        return verdict.allowed
+            ? { allowed: true, reason: verdict.reason }
+            : { allowed: false, reason: `shell call refused: ${verdict.reason}` };
+    }
+```
+
+- [ ] **Step 7: Make the timeout actually cancel the loop (IMPORTANT)**
+
+`Promise.race` abandons `runSubagentLoop` but nothing stops it. Measured: `runSubagent`
+returned after 2 model calls while the orphaned loop ran **8 more model calls and 9 more
+tool calls** against customer AWS — invisible to `maxSubagentTokensPerRun`, and with
+Task 8's concurrency semaphore already released, so real concurrency exceeds its cap.
+
+Give the loop a cancellation token and shared progress. Change `runSubagentLoop`'s
+signature to accept a control object:
+
+```typescript
+interface SubagentControl {
+    cancelled: boolean;
+    progress: { toolCount: number; tokensIn: number; tokensOut: number };
+}
+```
+
+Inside the loop, update `control.progress` wherever the local counters are updated, and
+bail at two checkpoints — the top of each lap and immediately before each tool invoke:
+
+```typescript
+        if (control.cancelled) {
+            return {
+                report: finishReport(lastText, 'CANCELLED — the sub-agent exceeded its time limit. Findings above are partial.'),
+                toolCount, tokensIn, tokensOut, status: 'done', transcript,
+            };
+        }
+```
+
+In `runSubagent`, create the control object, pass it in, and on the timeout branch set
+`control.cancelled = true` and report the REAL usage from `control.progress` rather than
+hardcoded zeros (the same applies to the catch branch):
+
+```typescript
+        if (outcome === 'timeout') {
+            control.cancelled = true;
+            return {
+                report: finishReport('', `TIMED OUT after ${Math.round(timeoutMs / 1000)}s — no findings were returned in time.`),
+                toolCount: control.progress.toolCount,
+                tokensIn: control.progress.tokensIn,
+                tokensOut: control.progress.tokensOut,
+                status: 'failed', transcript: [],
+            };
+        }
+```
+
+Also move the `const timeoutMs = deps.budget.subagentTimeoutMs` read **inside** the
+`try` — it currently sits outside, so a malformed `deps.budget` throws out of a function
+whose contract is that it never throws.
+
+And replace the `toolCount` string-sniffing (`if (!output.startsWith('REFUSED:'))`) with
+a boolean carried from the verdict — a real tool whose output happens to begin with
+`REFUSED:` (an echoed IAM denial) currently goes uncounted.
+
+- [ ] **Step 8: Add the bypass regression tests**
+
+Every command below is a **proven** bypass of the old blocklist, so these tests have
+teeth by construction. Add to `subagent.test.ts`:
+
+```typescript
+describe('shell allowlist — proven bypasses of the old blocklist', () => {
+    const REFUSED = [
+        'aws --region us-east-1 ec2 terminate-instances --instance-ids i-1',
+        'aws --profile prod ec2 stop-instances --instance-ids i-1',
+        'aws ec2 "terminate-instances" --instance-ids i-1',
+        "aws ec2 'delete-security-group' --group-id sg-1",
+        'aws ec2 authorize-security-group-ingress --group-id sg-1 --port 22 --cidr 0.0.0.0/0',
+        'aws ecs execute-command --cluster c --task t --command /bin/sh',
+        'aws s3 sync ./evil s3://prod-bucket --delete',
+        'aws s3 cp ./evil.sh s3://prod-bucket/boot.sh',
+        'aws rds restore-db-instance-from-db-snapshot --db-instance-identifier x',
+        'aws kms schedule-key-deletion --key-id k --pending-window-in-days 7',
+        'aws cloudformation cancel-update-stack --stack-name s',
+        'pulumi up --stack prod --yes',
+        'pulumi destroy --yes',
+        'python3 -c import boto3',
+        'rm important.tf',
+        'rm -r /app/data',
+        'kubectl run evil --image=alpine',
+        'kubectl delete pod x',
+        'npm run deploy:prod',
+        'bash deploy.sh',
+        'node ./scripts/wipe.js',
+        'echo pwned > /app/config.json',                 // metacharacter
+        'aws ec2 describe-instances && rm -rf /',         // metacharacter
+        'aws ec2 describe-instances; pulumi destroy',     // metacharacter
+        'aws ec2 describe-instances $(rm -rf /)',         // metacharacter
+    ];
+
+    for (const cmd of REFUSED) {
+        it(`refuses: ${cmd}`, () => {
+            expect(isReadOnlyForSubagent('execute_command', { command: cmd }).allowed).toBe(false);
+        });
+    }
+
+    const ALLOWED = [
+        'aws ec2 describe-instances --output json',
+        'aws --region us-east-1 ec2 describe-instances',
+        'AWS_PROFILE=nucleus_agent_1 aws ec2 describe-instances',
+        'aws --profile p --region r rds describe-db-instances',
+        'aws sts get-caller-identity',
+        'aws cloudwatch get-metric-statistics --metric-name CPUUtilization',
+        'aws logs filter-log-events --log-group-name x',
+        'aws s3 ls s3://bucket',
+        'kubectl get pods -n default',
+        'kubectl describe pod x',
+        'kubectl logs pod/x',
+        'cat /tmp/report.json',
+        'ls -la /tmp',
+        'grep -r error /var/log',
+        'jq .Reservations /tmp/out.json',
+    ];
+
+    for (const cmd of ALLOWED) {
+        it(`allows: ${cmd}`, () => {
+            expect(isReadOnlyForSubagent('execute_command', { command: cmd }).allowed).toBe(true);
+        });
+    }
+
+    it('refuses a bash-like call with no usable command string', () => {
+        // classifyTool fails OPEN on {} and stringifies an array into a
+        // comma-joined string that matches no mutative pattern.
+        expect(isReadOnlyForSubagent('execute_command', {}).allowed).toBe(false);
+        expect(isReadOnlyForSubagent('execute_command', undefined).allowed).toBe(false);
+        expect(isReadOnlyForSubagent('execute_command', { command: ['aws', 'ec2', 'terminate-instances'] } as never).allowed).toBe(false);
+        expect(isReadOnlyForSubagent('execute_command', { command: '' }).allowed).toBe(false);
+        expect(isReadOnlyForSubagent('execute_command', { command: 0 } as never).allowed).toBe(false);
+    });
+
+    it('applies the allowlist to every bash-like tool name, any case', () => {
+        for (const name of ['bash', 'shell', 'run_command', 'EXECUTE_COMMAND', 'Bash']) {
+            expect(isReadOnlyForSubagent(name, { command: 'pulumi destroy --yes' }).allowed).toBe(false);
+            expect(isReadOnlyForSubagent(name, { command: 'aws ec2 describe-instances' }).allowed).toBe(true);
+        }
+    });
+});
+
+describe('timeout cancellation', () => {
+    it('stops the loop instead of leaving it running', async () => {
+        let laps = 0;
+        const model: any = {
+            bindTools: () => model,
+            invoke: async () => {
+                laps++;
+                await new Promise(r => setTimeout(r, 30));
+                return { content: '', tool_calls: [{ id: `${laps}`, name: 'describe_instances', args: {} }], usage_metadata: { input_tokens: 10, output_tokens: 5 } };
+            },
+        };
+        const tool = { name: 'describe_instances', invoke: async () => 'ok' };
+
+        await runSubagent(SPEC, { model, tools: [tool], budget: { ...BUDGET, subagentMaxIterations: 20, subagentTimeoutMs: 60 } });
+        const lapsAtReturn = laps;
+
+        // If the loop were abandoned rather than cancelled it would keep going.
+        await new Promise(r => setTimeout(r, 300));
+        expect(laps).toBeLessThanOrEqual(lapsAtReturn + 1);
+    });
+
+    it('reports real usage on timeout rather than zeros', async () => {
+        const model: any = {
+            bindTools: () => model,
+            invoke: async () => {
+                await new Promise(r => setTimeout(r, 30));
+                return { content: '', tool_calls: [{ id: '1', name: 'describe_instances', args: {} }], usage_metadata: { input_tokens: 100, output_tokens: 20 } };
+            },
+        };
+        const tool = { name: 'describe_instances', invoke: async () => 'ok' };
+
+        const result = await runSubagent(SPEC, { model, tools: [tool], budget: { ...BUDGET, subagentMaxIterations: 20, subagentTimeoutMs: 80 } });
+        expect(result.tokensIn).toBeGreaterThan(0);
+    });
+});
+
+describe('runSubagent totality', () => {
+    it('does not throw on a malformed budget', async () => {
+        const model: any = { bindTools: () => model, invoke: async () => ({ content: 'x', tool_calls: [] }) };
+        await expect(
+            runSubagent(SPEC, { model, tools: [], budget: undefined as never }),
+        ).resolves.toMatchObject({ status: 'failed' });
+    });
+});
+
+describe('hallucinated tool names', () => {
+    it('refuses a tool that passes the jail but is not in the tool list', async () => {
+        // The second layer's whole purpose: the model invents a name it was never given.
+        const model: any = {
+            bindTools: () => model,
+            invoke: vi.fn()
+                .mockResolvedValueOnce({ content: '', tool_calls: [{ id: '1', name: 'describe_instances', args: {} }], usage_metadata: {} })
+                .mockResolvedValueOnce({ content: 'Could not read it.', tool_calls: [], usage_metadata: {} }),
+        };
+        const result = await runSubagent(SPEC, { model, tools: [], budget: BUDGET });
+        expect(result.status).toBe('done');
+        expect(result.transcript.some(e => e.text.includes('REFUSED'))).toBe(true);
+    });
+});
+```
+
+Run: `cd apps/web-ui && bunx vitest run lib/agent/subagent.test.ts`
+
+```bash
+git add apps/web-ui/lib/agent/subagent.ts apps/web-ui/lib/agent/subagent.test.ts
+git commit -m "fix(agent): allowlist sub-agent shell commands and cancel on timeout
+
+An adversarial review escaped the shell blocklist 23 ways: a flag before the
+service name, a quote around the verb, a verb missing from the pattern list, or
+simply a different binary (pulumi, psql, python3). classifyTool reports
+matchedRule:true for any bash command that misses its regexes, so the
+fail-closed rule never applied to shell — and a sub-agent runs inside a tool
+call, where LangGraph cannot interrupt and no human can approve.
+
+Replace it with an allowlist: refuse shell metacharacters, then require an
+allowlisted binary and a read-only operation resolved by tokenising past global
+flags. Also cancel the loop on timeout (it previously ran on unsupervised,
+spending untracked tokens), refuse bash-like calls with no usable command
+string, and report real usage on the timeout path."
+```
+
 ---
 
 ### Task 8: `dispatch_agent` tool and orchestrator wiring
