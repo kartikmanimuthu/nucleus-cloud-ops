@@ -52,7 +52,11 @@ describe('isReadOnlyForSubagent', () => {
     it('blocks a mutative shell command', () => {
         const verdict = isReadOnlyForSubagent('execute_command', { command: 'aws ec2 terminate-instances --instance-ids i-1' });
         expect(verdict.allowed).toBe(false);
-        expect(verdict.reason).toMatch(/mutat/i);
+        // Step 6 replaced the shell blocklist with an allowlist, so the reason is
+        // now non-membership ("not a verified read-only operation") rather than a
+        // matched mutative pattern. The refusal itself is what matters.
+        expect(verdict.reason).toMatch(/shell call refused/i);
+        expect(verdict.reason).toContain('terminate-instances');
     });
 
     it('blocks a mutative tool name', () => {
@@ -173,5 +177,142 @@ describe('runSubagent', () => {
 
         expect(result.status).toBe('done');
         expect(result.report).toContain('AccessDenied');
+    });
+});
+
+describe('shell allowlist — proven bypasses of the old blocklist', () => {
+    const REFUSED = [
+        'aws --region us-east-1 ec2 terminate-instances --instance-ids i-1',
+        'aws --profile prod ec2 stop-instances --instance-ids i-1',
+        'aws ec2 "terminate-instances" --instance-ids i-1',
+        "aws ec2 'delete-security-group' --group-id sg-1",
+        'aws ec2 authorize-security-group-ingress --group-id sg-1 --port 22 --cidr 0.0.0.0/0',
+        'aws ecs execute-command --cluster c --task t --command /bin/sh',
+        'aws s3 sync ./evil s3://prod-bucket --delete',
+        'aws s3 cp ./evil.sh s3://prod-bucket/boot.sh',
+        'aws rds restore-db-instance-from-db-snapshot --db-instance-identifier x',
+        'aws kms schedule-key-deletion --key-id k --pending-window-in-days 7',
+        'aws cloudformation cancel-update-stack --stack-name s',
+        'pulumi up --stack prod --yes',
+        'pulumi destroy --yes',
+        'python3 -c import boto3',
+        'rm important.tf',
+        'rm -r /app/data',
+        'kubectl run evil --image=alpine',
+        'kubectl delete pod x',
+        'npm run deploy:prod',
+        'bash deploy.sh',
+        'node ./scripts/wipe.js',
+        'echo pwned > /app/config.json',                 // metacharacter
+        'aws ec2 describe-instances && rm -rf /',         // metacharacter
+        'aws ec2 describe-instances; pulumi destroy',     // metacharacter
+        'aws ec2 describe-instances $(rm -rf /)',         // metacharacter
+    ];
+
+    for (const cmd of REFUSED) {
+        it(`refuses: ${cmd}`, () => {
+            expect(isReadOnlyForSubagent('execute_command', { command: cmd }).allowed).toBe(false);
+        });
+    }
+
+    const ALLOWED = [
+        'aws ec2 describe-instances --output json',
+        'aws --region us-east-1 ec2 describe-instances',
+        'AWS_PROFILE=nucleus_agent_1 aws ec2 describe-instances',
+        'aws --profile p --region r rds describe-db-instances',
+        'aws sts get-caller-identity',
+        'aws cloudwatch get-metric-statistics --metric-name CPUUtilization',
+        'aws logs filter-log-events --log-group-name x',
+        'aws s3 ls s3://bucket',
+        'kubectl get pods -n default',
+        'kubectl describe pod x',
+        'kubectl logs pod/x',
+        'cat /tmp/report.json',
+        'ls -la /tmp',
+        'grep -r error /var/log',
+        'jq .Reservations /tmp/out.json',
+    ];
+
+    for (const cmd of ALLOWED) {
+        it(`allows: ${cmd}`, () => {
+            expect(isReadOnlyForSubagent('execute_command', { command: cmd }).allowed).toBe(true);
+        });
+    }
+
+    it('refuses a bash-like call with no usable command string', () => {
+        // classifyTool fails OPEN on {} and stringifies an array into a
+        // comma-joined string that matches no mutative pattern.
+        expect(isReadOnlyForSubagent('execute_command', {}).allowed).toBe(false);
+        expect(isReadOnlyForSubagent('execute_command', undefined).allowed).toBe(false);
+        expect(isReadOnlyForSubagent('execute_command', { command: ['aws', 'ec2', 'terminate-instances'] } as never).allowed).toBe(false);
+        expect(isReadOnlyForSubagent('execute_command', { command: '' }).allowed).toBe(false);
+        expect(isReadOnlyForSubagent('execute_command', { command: 0 } as never).allowed).toBe(false);
+    });
+
+    it('applies the allowlist to every bash-like tool name, any case', () => {
+        for (const name of ['bash', 'shell', 'run_command', 'EXECUTE_COMMAND', 'Bash']) {
+            expect(isReadOnlyForSubagent(name, { command: 'pulumi destroy --yes' }).allowed).toBe(false);
+            expect(isReadOnlyForSubagent(name, { command: 'aws ec2 describe-instances' }).allowed).toBe(true);
+        }
+    });
+});
+
+describe('timeout cancellation', () => {
+    it('stops the loop instead of leaving it running', async () => {
+        let laps = 0;
+        const model: any = {
+            bindTools: () => model,
+            invoke: async () => {
+                laps++;
+                await new Promise(r => setTimeout(r, 30));
+                return { content: '', tool_calls: [{ id: `${laps}`, name: 'describe_instances', args: {} }], usage_metadata: { input_tokens: 10, output_tokens: 5 } };
+            },
+        };
+        const tool = { name: 'describe_instances', invoke: async () => 'ok' };
+
+        await runSubagent(SPEC, { model, tools: [tool], budget: { ...BUDGET, subagentMaxIterations: 20, subagentTimeoutMs: 60 } });
+        const lapsAtReturn = laps;
+
+        // If the loop were abandoned rather than cancelled it would keep going.
+        await new Promise(r => setTimeout(r, 300));
+        expect(laps).toBeLessThanOrEqual(lapsAtReturn + 1);
+    });
+
+    it('reports real usage on timeout rather than zeros', async () => {
+        const model: any = {
+            bindTools: () => model,
+            invoke: async () => {
+                await new Promise(r => setTimeout(r, 30));
+                return { content: '', tool_calls: [{ id: '1', name: 'describe_instances', args: {} }], usage_metadata: { input_tokens: 100, output_tokens: 20 } };
+            },
+        };
+        const tool = { name: 'describe_instances', invoke: async () => 'ok' };
+
+        const result = await runSubagent(SPEC, { model, tools: [tool], budget: { ...BUDGET, subagentMaxIterations: 20, subagentTimeoutMs: 80 } });
+        expect(result.tokensIn).toBeGreaterThan(0);
+    });
+});
+
+describe('runSubagent totality', () => {
+    it('does not throw on a malformed budget', async () => {
+        const model: any = { bindTools: () => model, invoke: async () => ({ content: 'x', tool_calls: [] }) };
+        await expect(
+            runSubagent(SPEC, { model, tools: [], budget: undefined as never }),
+        ).resolves.toMatchObject({ status: 'failed' });
+    });
+});
+
+describe('hallucinated tool names', () => {
+    it('refuses a tool that passes the jail but is not in the tool list', async () => {
+        // The second layer's whole purpose: the model invents a name it was never given.
+        const model: any = {
+            bindTools: () => model,
+            invoke: vi.fn()
+                .mockResolvedValueOnce({ content: '', tool_calls: [{ id: '1', name: 'describe_instances', args: {} }], usage_metadata: {} })
+                .mockResolvedValueOnce({ content: 'Could not read it.', tool_calls: [], usage_metadata: {} }),
+        };
+        const result = await runSubagent(SPEC, { model, tools: [], budget: BUDGET });
+        expect(result.status).toBe('done');
+        expect(result.transcript.some(e => e.text.includes('REFUSED'))).toBe(true);
     });
 });
