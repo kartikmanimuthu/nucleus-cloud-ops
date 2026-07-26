@@ -37,6 +37,10 @@ import { prepareContext, buildWorkingMemorySection, estimateTokens } from "./mem
 import { createGuardNode } from "./guard";
 import { routeAfterGuard } from "./gate-routing";
 import { recordNodeTiming } from "./run-timings";
+import { resolveSubagentBudget } from "./subagent-budget";
+import { createRunBudgetLedger, createDispatchAgentTool } from "./dispatch-agent-tool";
+import { filterReadOnlyTools } from "./subagent";
+import { createAwsReadTool } from "./aws-read-tool";
 
 const PLAN_STATUSES = new Set<PlanStep['status']>(['completed', 'in_progress', 'pending', 'failed']);
 
@@ -224,7 +228,32 @@ export async function createReflectionGraph(config: GraphConfig) {
 
     // --- Tool Assembly ---
     // Memory tools excluded — memory_recall and memory_save graph nodes handle memory deterministically
-    const tools = await assembleTools({ includeS3Tools: true, includeMemoryTools: false, includeSkillTool: autoLoadSkills, userId: config.userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds: config.knowledgeBaseIds });
+    // Sub-agent tools are assembled FIRST and without dispatch_agent, so the
+    // sub-agents' tool list can never contain the tool that spawns sub-agents.
+    const baseTools = await assembleTools({ includeS3Tools: true, includeMemoryTools: false, includeSkillTool: autoLoadSkills, userId: config.userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds: config.knowledgeBaseIds });
+
+    const subagentBudget = tenantId
+        ? await resolveSubagentBudget(tenantId)
+        : { enabled: false, maxConcurrentSubagents: 1, maxSubagentsPerRun: 1, maxSubagentTokensPerRun: 0, subagentMaxIterations: 2, subagentTimeoutMs: 30_000 };
+
+    const dispatchAgentTool = subagentBudget.enabled
+        ? createDispatchAgentTool({
+            model,
+            // Sub-agents have NO shell (Task 7 Step 6). aws_read is their only
+            // route to AWS; it builds argv and runs execFile with shell: false.
+            // createAwsReadTool's return type is a DynamicStructuredTool whose
+            // `invoke` is generically typed over its own zod schema; it satisfies
+            // the runtime SubagentToolLike shape (name + invoke(args)) but not
+            // structurally, hence the cast.
+            subagentTools: [...filterReadOnlyTools(baseTools as never[]), createAwsReadTool(tenantId!, config.userId) as never],
+            ledger: createRunBudgetLedger(subagentBudget),
+            budget: subagentBudget,
+            onSubagentEvent: config.onSubagentEvent,
+        })
+        : null;
+
+    const tools = dispatchAgentTool ? [...baseTools, dispatchAgentTool] : baseTools;
+    console.log(`[PlanningAgent] Sub-agents ${subagentBudget.enabled ? `enabled (concurrency=${subagentBudget.maxConcurrentSubagents})` : 'disabled'}`);
     const modelWithTools = model.bindTools!(tools);
     const toolNode = new ToolNode(tools);
 
@@ -411,6 +440,13 @@ ${accountContext}
 - If a tool call returns an error, capture the full error message and diagnose it; do not silently suppress it.
 - If the current step is a simple question or greeting that requires no tools, answer directly and concisely.
 - If the current step has nothing to execute (empty inventory, prerequisite returned no data), move on silently — NEVER run echo or other no-op commands just to mark a step done, and never write an explanation of why there was nothing to do.
+
+## Delegation
+
+- When the current step splits into INDEPENDENT investigations — one per account, region, or service — emit several dispatch_agent calls in THIS turn. They run in parallel and each returns a compressed report.
+- Write each sub-agent brief so it stands completely alone: it sees none of this conversation, so spell out account ids, regions, time windows, and what the report must contain.
+- Do NOT delegate work that changes state — sub-agents are read-only. Do NOT delegate a single quick lookup. Do NOT chain sub-agents; they cannot see each other's results.
+- If dispatch_agent replies that the budget is exhausted, simply do that work yourself with your own tools.
 
 ## Narration Discipline (critical)
 

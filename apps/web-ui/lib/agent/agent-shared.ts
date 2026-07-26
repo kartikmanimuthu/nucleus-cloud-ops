@@ -857,6 +857,9 @@ export interface GraphConfig {
     // skill catalog from prompts and drops the load_skill tool — the agent can
     // then only use a skill the user pinned manually.
     autoLoadSkills?: boolean;
+    /** Live sub-agent progress sink. Set by the chat route so dispatch_agent
+     *  activity can be streamed as data-subagent parts. */
+    onSubagentEvent?: (event: import('./dispatch-agent-tool').SubagentEvent) => void;
 }
 
 // --- MCP Integration ---

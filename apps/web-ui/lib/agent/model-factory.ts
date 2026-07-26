@@ -196,6 +196,8 @@ export interface AssembleToolsOptions {
     accounts?: AccountContext[];
     /** Knowledge base ids to default-scope the search_knowledge_base tool to. Omit/null to search tenant-wide. */
     knowledgeBaseIds?: string[] | null;
+    /** When set, adds the dispatch_agent fan-out tool built from these deps. */
+    dispatchAgentTool?: unknown;
 }
 
 /**
@@ -268,6 +270,7 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
         createListAwsAccountsTool(effectiveTenantId),
         createGetRightSizingRecommendationsTool(effectiveTenantId),
         askUserTool,
+        ...(options.dispatchAgentTool ? [options.dispatchAgentTool as never] : []),
         ...(includeS3Tools ? [writeFileToS3Tool, getFileFromS3Tool] : []),
         ...memoryTools,
         ...kbTools,
