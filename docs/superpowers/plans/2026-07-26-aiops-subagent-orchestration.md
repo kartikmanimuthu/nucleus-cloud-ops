@@ -3201,10 +3201,21 @@ export function createDispatchAgentTool(deps: DispatchAgentDeps) {
             }
 
             const id = randomUUID();
-            const emit = (event: Partial<SubagentEvent> & Pick<SubagentEvent, 'status'>) =>
-                deps.onSubagentEvent?.({
-                    id, role, task, toolCount: 0, tokensIn: 0, tokensOut: 0, ...event,
-                });
+            // The sink is supplied by the caller (the chat route enqueues onto a
+            // ReadableStream, which throws once the client disconnects). Swallow
+            // here rather than at each call site: the first emit runs before the
+            // try below, so a throwing sink would otherwise reject the tool call
+            // itself — consuming a budget reservation and handing the model a
+            // "fix your mistakes" error instead of the do-it-yourself instruction.
+            const emit = (event: Partial<SubagentEvent> & Pick<SubagentEvent, 'status'>) => {
+                try {
+                    deps.onSubagentEvent?.({
+                        id, role, task, toolCount: 0, tokensIn: 0, tokensOut: 0, ...event,
+                    });
+                } catch (err) {
+                    console.warn(`[dispatch_agent] progress sink threw (ignored): ${err instanceof Error ? err.message : String(err)}`);
+                }
+            };
 
             emit({ status: 'running' });
 
