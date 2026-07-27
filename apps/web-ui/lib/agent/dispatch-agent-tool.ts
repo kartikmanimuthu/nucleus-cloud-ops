@@ -29,9 +29,48 @@ export interface SubagentEvent {
     transcript?: SubagentTranscriptEntry[];
 }
 
+/**
+ * Tokens a single model call carries beyond the transcript: the sub-agent system
+ * prompt, the standalone task brief, and the report instructions.
+ */
+const PROMPT_BASE_TOKENS = 2_000;
+
+/**
+ * Tokens one tool result contributes. Derived, not guessed: `subagent.ts` caps
+ * every tool output at SUBAGENT_TOOL_OUTPUT_MAX_CHARS (4000) before it enters the
+ * message list, and ~4 characters per token is the standard approximation.
+ */
+const TOOL_RESULT_TOKENS = 1_000;
+
+/**
+ * Worst-case token cost of one sub-agent, used to reserve capacity at dispatch.
+ *
+ * A sub-agent re-sends its whole transcript on every model call, so cost is
+ * QUADRATIC in the iteration count, not linear: iteration i carries i-1 prior tool
+ * results. Summing over N iterations gives N·base + (N²/2)·result. A linear
+ * estimate looks safe at the default N=8 and badly under-reserves at the maximum
+ * N=16 — which is precisely where a ceiling needs to hold.
+ *
+ * Over-estimating costs only CONCURRENT admission, never throughput: the
+ * reservation is released and replaced by actual usage the moment the sub-agent
+ * finishes, so later dispatches in the same run reserve against real numbers.
+ */
+export function estimateSubagentTokens(budget: SubagentBudgetConfig): number {
+    const n = Math.max(1, budget.subagentMaxIterations);
+    return n * PROMPT_BASE_TOKENS + Math.ceil((n * n) / 2) * TOOL_RESULT_TOKENS;
+}
+
+/** Capacity held by one in-flight sub-agent, returned when it settles. */
+export interface BudgetReservation {
+    /**
+     * Release this reservation and charge what the sub-agent actually used.
+     * Idempotent — a double settle can neither mint budget nor double-charge.
+     */
+    settle(tokensIn: number, tokensOut: number): void;
+}
+
 export interface RunBudgetLedger {
-    tryReserve(): { ok: true } | { ok: false; reason: string };
-    recordSpend(tokensIn: number, tokensOut: number): void;
+    tryReserve(): { ok: true; reservation: BudgetReservation } | { ok: false; reason: string };
     semaphore: Semaphore;
 }
 
@@ -41,7 +80,11 @@ export interface RunBudgetLedger {
  */
 export function createRunBudgetLedger(budget: SubagentBudgetConfig): RunBudgetLedger {
     let dispatched = 0;
+    /** Reconciled usage, from sub-agents that have finished. */
     let tokensSpent = 0;
+    /** Estimated capacity held by sub-agents still in flight. */
+    let tokensReserved = 0;
+    const estimate = estimateSubagentTokens(budget);
     const semaphore = new Semaphore(budget.maxConcurrentSubagents);
 
     return {
@@ -52,14 +95,41 @@ export function createRunBudgetLedger(budget: SubagentBudgetConfig): RunBudgetLe
             if (dispatched >= budget.maxSubagentsPerRun) {
                 return { ok: false, reason: `per-run sub-agent limit reached (${budget.maxSubagentsPerRun})` };
             }
-            if (tokensSpent >= budget.maxSubagentTokensPerRun) {
-                return { ok: false, reason: `sub-agent token budget exhausted (${budget.maxSubagentTokensPerRun})` };
+            // Gate on spent + IN-FLIGHT + this one. ToolNode dispatches a turn's
+            // dispatch_agent calls concurrently, so gating on settled spend alone
+            // consults the budget only after the fan-out it exists to bound has
+            // already been granted — every reservation would see tokensSpent === 0.
+            if (tokensSpent + tokensReserved + estimate > budget.maxSubagentTokensPerRun) {
+                const reason = estimate > budget.maxSubagentTokensPerRun
+                    // Not exhaustion — a misconfiguration. Nothing has run, and
+                    // nothing ever will, so name the two settings involved rather
+                    // than reporting an empty budget as spent.
+                    ? `one sub-agent's estimated cost (${estimate} tokens at ${budget.subagentMaxIterations} iterations) exceeds the entire run token budget (${budget.maxSubagentTokensPerRun}) — raise the token budget or lower the iteration limit`
+                    : `sub-agent token budget exhausted (${budget.maxSubagentTokensPerRun})`;
+                return { ok: false, reason };
             }
+
+            // Check and increment stay in one synchronous block. An `await`
+            // anywhere between them would let two concurrent callers observe the
+            // same free capacity and both be admitted.
             dispatched++;
-            return { ok: true };
-        },
-        recordSpend(tokensIn: number, tokensOut: number) {
-            tokensSpent += tokensIn + tokensOut;
+            tokensReserved += estimate;
+
+            let settled = false;
+            return {
+                ok: true,
+                reservation: {
+                    settle(tokensIn: number, tokensOut: number) {
+                        // Guard against a double release: the dispatch tool settles
+                        // in a `finally`, and an unusual path could reach it twice.
+                        // Releasing twice would mint capacity that was never held.
+                        if (settled) return;
+                        settled = true;
+                        tokensReserved -= estimate;
+                        tokensSpent += tokensIn + tokensOut;
+                    },
+                },
+            };
         },
         semaphore,
     };
@@ -102,6 +172,12 @@ export function createDispatchAgentTool(deps: DispatchAgentDeps) {
 
             emit({ status: 'running' });
 
+            // Actual usage, reconciled against the reservation in the `finally`
+            // below. A sub-agent that throws before reporting usage spent nothing
+            // we can attribute, so its reservation comes back whole.
+            let actualIn = 0;
+            let actualOut = 0;
+
             try {
                 const result = await deps.ledger.semaphore.run(() => runSubagent(
                     { role, task, expectedOutput },
@@ -113,7 +189,8 @@ export function createDispatchAgentTool(deps: DispatchAgentDeps) {
                     },
                 ));
 
-                deps.ledger.recordSpend(result.tokensIn, result.tokensOut);
+                actualIn = result.tokensIn;
+                actualOut = result.tokensOut;
 
                 emit({
                     status: result.status === 'failed' ? 'failed' : 'done',
@@ -139,6 +216,11 @@ export function createDispatchAgentTool(deps: DispatchAgentDeps) {
                 console.error(`[dispatch_agent] "${role}" failed: ${message}`);
                 emit({ status: 'failed', summary: message });
                 return `The sub-agent "${role}" failed: ${message}. Continue with the information you already have, or perform this work yourself.`;
+            } finally {
+                // Must run on EVERY exit path — success, internal failure, timeout,
+                // and the catch above. A reservation stranded by a failed sub-agent
+                // starves the rest of the run of capacity it never actually used.
+                reservation.reservation.settle(actualIn, actualOut);
             }
         },
         {
