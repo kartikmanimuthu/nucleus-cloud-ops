@@ -88,6 +88,35 @@ describe('dispatch_agent tool', () => {
         expect(result).not.toContain('INTERNAL_REASONING_MARKER');
     });
 
+    it('redacts the report before it reaches the orchestrator', async () => {
+        // The return value becomes a ToolMessage in the orchestrator's message list,
+        // and route.ts persists every new message VERBATIM. That reaches two at-rest
+        // sinks the subagent repository's redaction does not cover: `chat_messages`
+        // (30-day TTL, and replayed to the browser by /api/threads/[id]/history) and
+        // the LangGraph PostgresSaver checkpoint tables, which have NO TTL at all.
+        vi.mocked(runSubagent).mockResolvedValue({
+            ...okResult,
+            report: 'api-worker connects to postgres://admin:letmein@db.internal:5432/app',
+        });
+
+        const result = await makeTool().invoke({ role: 'a', task: 't', expectedOutput: 'e' });
+
+        expect(result).not.toContain('letmein');
+        // Redacting must not change the type — LangGraph requires a string.
+        expect(typeof result).toBe('string');
+        // The finding stays actionable: only the credential is withheld.
+        expect(result).toContain('db.internal');
+    });
+
+    it('leaves a report with no secrets in it byte-identical', async () => {
+        // Over-redaction fails the operator too: a report the model worked hard to
+        // compose must survive the boundary unchanged when it carries nothing secret.
+        const clean = 'Findings: i-0abc123 (t3.medium) idle at 2% CPU; arn:aws:lambda:us-east-1:123456789012:function:api-worker last modified 2026-07-26.';
+        vi.mocked(runSubagent).mockResolvedValue({ ...okResult, report: clean });
+
+        expect(await makeTool().invoke({ role: 'a', task: 't', expectedOutput: 'e' })).toBe(clean);
+    });
+
     it('degrades gracefully instead of throwing when the budget is exhausted', async () => {
         const tool = makeTool({ ...BUDGET, maxSubagentsPerRun: 1 });
         await tool.invoke({ role: 'a', task: 't', expectedOutput: 'e' });

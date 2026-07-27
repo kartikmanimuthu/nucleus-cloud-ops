@@ -62,6 +62,110 @@ describe('redactTranscript — secret-shaped keys anywhere in the document', () 
     });
 });
 
+describe('redactTranscript — sibling name/value pairs', () => {
+    // `cloudformation describe-stacks` is allowlisted in aws-read-tool.ts and is
+    // exactly what an audit sub-agent gets pointed at. Its secret lives in a
+    // `ParameterValue` — a key that is not secret-shaped — named by a SIBLING
+    // field, so key-name matching is structurally blind to it. CloudFormation
+    // masks `NoEcho: true` parameters, but a non-NoEcho `DBPassword` is common
+    // and is the very misconfiguration the audit is looking for.
+    const describeStacks = JSON.stringify({
+        Stacks: [{
+            StackName: 'payments-prod',
+            Parameters: [
+                { ParameterKey: 'DBPassword', ParameterValue: 'hunter2' },
+                { ParameterKey: 'InstanceType', ParameterValue: 't3.medium' },
+            ],
+            Outputs: [{ OutputKey: 'DbUrl', OutputValue: 'postgres://u:s3cr3t!@db.internal:5432/x' }],
+        }],
+    });
+
+    const stack = () => JSON.parse(redactTranscript([entry(describeStacks)])![0].text).Stacks[0];
+
+    it('redacts ParameterValue when the sibling ParameterKey names a secret', () => {
+        expect(stack().Parameters[0].ParameterValue).toBe(REDACTED);
+    });
+
+    it('keeps the sibling name so the operator sees WHICH parameter was withheld', () => {
+        expect(stack().Parameters.map((p: { ParameterKey: string }) => p.ParameterKey))
+            .toEqual(['DBPassword', 'InstanceType']);
+        expect(stack().Outputs[0].OutputKey).toBe('DbUrl');
+        expect(stack().StackName).toBe('payments-prod');
+    });
+
+    it('leaves an ordinary parameter untouched', () => {
+        // A redactor that eats `t3.medium` fails the operator as badly as one that leaks.
+        expect(stack().Parameters[1].ParameterValue).toBe('t3.medium');
+    });
+
+    it('leaks neither secret anywhere in the output', () => {
+        const flat = flatten(redactTranscript([entry(describeStacks)]));
+        expect(flat).not.toContain('hunter2');
+        expect(flat).not.toContain('s3cr3t!');
+    });
+
+    it('handles the lowercase {name,value} form used by container env definitions', () => {
+        const payload = JSON.stringify({
+            environment: [
+                { name: 'DB_PASSWORD', value: 'hunter2' },
+                { name: 'LOG_LEVEL', value: 'debug' },
+            ],
+        });
+        const out = JSON.parse(redactTranscript([entry(payload)])![0].text);
+
+        expect(out.environment[0].value).toBe(REDACTED);
+        expect(out.environment[0].name).toBe('DB_PASSWORD');
+        // Named by the operator, not secret-shaped: it must survive.
+        expect(out.environment[1].value).toBe('debug');
+    });
+
+    it('handles the bare {Key,Value} form', () => {
+        const out = JSON.parse(redactTranscript([entry('{"Key":"ApiToken","Value":"abc123"}')])![0].text);
+        expect(out.Value).toBe(REDACTED);
+        expect(out.Key).toBe('ApiToken');
+    });
+
+    it('does not redact a Value whose sibling name is innocuous', () => {
+        // Tags are the highest-traffic {Key,Value} shape in AWS responses.
+        const payload = JSON.stringify({ Tags: [{ Key: 'Name', Value: 'web-1' }, { Key: 'Owner', Value: 'platform' }] });
+        expect(redactTranscript([entry(payload)])![0].text).toBe(payload);
+    });
+
+    it('applies the sibling rule inside the regex fallback path', () => {
+        // Truncated JSON never parses, so the structural walk cannot run.
+        const truncated = '{"Parameters":[{"ParameterKey":"DBPassword","ParameterValue":"hunter2"},{"Param';
+        expect(flatten(redactTranscript([entry(truncated)]))).not.toContain('hunter2');
+    });
+});
+
+describe('redactTranscript — credentials embedded in URLs', () => {
+    it('rewrites scheme://user:password@host, keeping user and host', () => {
+        const out = JSON.parse(redactTranscript([entry('{"DbUrl":"postgres://admin:letmein@db.internal:5432/app"}')])![0].text);
+        expect(out.DbUrl).toBe(`postgres://admin:${REDACTED}@db.internal:5432/app`);
+    });
+
+    it('rewrites a credential URL in prose that never parsed as JSON', () => {
+        // This is the report path: LLM-authored prose, no key to match on.
+        const out = redactTranscript('The worker uses mongodb://svc:p4ssw0rd@cluster0.mongodb.net/prod');
+        expect(out).not.toContain('p4ssw0rd');
+        expect(out).toContain('cluster0.mongodb.net/prod');
+    });
+
+    it('handles an empty user segment', () => {
+        expect(redactTranscript('redis://:t0psecret@cache.internal:6379')).not.toContain('t0psecret');
+    });
+
+    it('leaves credential-free URLs and ARNs alone', () => {
+        const payload = JSON.stringify({
+            Endpoint: 'https://console.aws.amazon.com/ec2/home?region=us-east-1',
+            Repo: 'ssh://git@github.com/acme/infra.git',
+            Bucket: 's3://nucleus-artifacts/builds/1.2.3',
+            Arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf',
+        });
+        expect(redactTranscript([entry(payload)])![0].text).toBe(payload);
+    });
+});
+
 describe('redactTranscript — ordinary values survive', () => {
     it('leaves a realistic non-secret payload byte-identical', () => {
         const payload = JSON.stringify({

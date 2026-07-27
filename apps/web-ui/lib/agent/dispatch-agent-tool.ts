@@ -15,6 +15,7 @@ import { randomUUID } from 'crypto';
 import { Semaphore } from './concurrency';
 import { runSubagent, type SubagentTranscriptEntry } from './subagent';
 import type { SubagentBudgetConfig } from './subagent-budget';
+import { redactTranscript } from './subagent-redact';
 
 export interface SubagentEvent {
     id: string;
@@ -123,7 +124,14 @@ export function createDispatchAgentTool(deps: DispatchAgentDeps) {
                     transcript: result.transcript,
                 });
 
-                return result.report;
+                // Redact HERE, not only in the repository. This return value becomes a
+                // ToolMessage in the orchestrator's message list, and the chat route
+                // persists every new message verbatim — reaching two at-rest sinks the
+                // repository never sees: `chat_messages` (30-day TTL, and replayed to
+                // the browser by /api/threads/[threadId]/history) and the LangGraph
+                // checkpoint tables, which have no TTL at all. Redacting at the source
+                // covers all three sinks and the orchestrator's own context.
+                return redactTranscript(result.report);
             } catch (error) {
                 // runSubagent is already total, but a semaphore or emit failure must
                 // not propagate into ToolNode and abort the orchestrator's turn.

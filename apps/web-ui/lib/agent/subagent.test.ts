@@ -181,6 +181,67 @@ describe('runSubagent', () => {
     });
 });
 
+describe('transcript redaction runs before truncation', () => {
+    /** Per-tool output cap inside a sub-agent (subagent.ts). */
+    const CAP = 4000;
+
+    /**
+     * A `lambda get-function-configuration` response comfortably over the cap —
+     * which a real one is, routinely. `BOOTSTRAP` is deliberately NOT secret-shaped:
+     * only the `Environment.Variables` LOCATION rule catches it, and that rule needs
+     * JSON that still parses. Truncate first and the redactor falls through to its
+     * regex path, where the strongest rule does not exist.
+     */
+    function bigLambdaConfig(): string {
+        const vars: Record<string, string> = { BOOTSTRAP: 'hunter2', DB_PASSWORD: 'letmein' };
+        for (let i = 0; i < 120; i++) vars[`PLAIN_SETTING_${i}`] = 'x'.repeat(30);
+        return JSON.stringify({ FunctionName: 'api-worker', Environment: { Variables: vars } });
+    }
+
+    const lambdaRun = async (payload: string) => {
+        const tool = { name: 'get_function_configuration', invoke: vi.fn(async () => payload) };
+        const model = scriptedModel([
+            { content: 'reading the configuration', tool_calls: [{ id: 't1', name: 'get_function_configuration', args: {} }] },
+            { content: 'BOOTSTRAP is set in plaintext.' },
+        ]);
+        const result = await runSubagent(SPEC, { model, tools: [tool], budget: BUDGET });
+        return { result, model };
+    };
+
+    it('keeps the location rule alive on an over-cap payload', async () => {
+        const payload = bigLambdaConfig();
+        expect(payload.length).toBeGreaterThan(CAP);
+
+        const { result } = await lambdaRun(payload);
+        const toolEntry = result.transcript.find(e => e.kind === 'tool')!;
+
+        expect(toolEntry.text).not.toContain('hunter2');
+        // The key survives: an operator must still see that BOOTSTRAP exists.
+        expect(toolEntry.text).toContain('BOOTSTRAP');
+    });
+
+    it('still caps the transcript entry at the per-tool limit', async () => {
+        const { result } = await lambdaRun(bigLambdaConfig());
+        const toolEntry = result.transcript.find(e => e.kind === 'tool')!;
+
+        expect(toolEntry.text.length).toBeLessThanOrEqual(CAP + 3);
+    });
+
+    it('does not change what the sub-agent model sees', async () => {
+        // Redaction is a PERSISTENCE-boundary concern. The location rule redacts
+        // EVERY value under `Variables`, benign ones included — correct for at-rest
+        // storage, wrong for a live agent that has to answer "which function still
+        // points at the deprecated table". The model-visible copy stays raw.
+        const payload = bigLambdaConfig();
+        const { model } = await lambdaRun(payload);
+
+        const messages = model.invoke.mock.calls[0][0] as Array<{ content?: unknown }>;
+        const toolMessage = messages.find(m => typeof m.content === 'string' && (m.content as string).includes('FunctionName'))!;
+
+        expect(toolMessage.content).toBe(payload.slice(0, CAP) + '...');
+    });
+});
+
 describe('shell is unavailable to sub-agents', () => {
     it('refuses every bash-like tool name in any case', () => {
         for (const name of ['bash', 'shell', 'run_command', 'execute_command', 'Execute_Command', 'EXECUTE_COMMAND']) {

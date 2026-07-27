@@ -17,6 +17,7 @@ import { classifyTool } from './tool-classifier';
 import { hasSubagentReadOnlyMarker } from './subagent-tool-marker';
 import { contentToText, truncateOutput } from './agent-shared';
 import type { SubagentBudgetConfig } from './subagent-budget';
+import { redactTranscript } from './subagent-redact';
 
 /** ~1500 tokens. Enforced in characters so the bound is deterministic and testable. */
 export const SUBAGENT_REPORT_MAX_CHARS = 6000;
@@ -275,19 +276,38 @@ async function runSubagentLoop(
 
             try {
                 const raw = await tool.invoke(call.args ?? {});
-                return { call, executed: true, output: truncateOutput(typeof raw === 'string' ? raw : JSON.stringify(raw), SUBAGENT_TOOL_OUTPUT_MAX_CHARS) };
+                const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+                return {
+                    call,
+                    executed: true,
+                    output: truncateOutput(text, SUBAGENT_TOOL_OUTPUT_MAX_CHARS),
+                    // Redact BEFORE truncating. Truncated JSON no longer parses, which
+                    // silently downgrades redaction to its weaker regex path — and that
+                    // path has no location-based `Environment.Variables` rule. A real
+                    // `get-function-configuration` exceeds the cap routinely, so
+                    // truncate-first would make the weak path the COMMON path.
+                    //
+                    // Only the persisted transcript is redacted. The model-visible copy
+                    // above stays raw: the location rule blanks every value under
+                    // `Variables`, benign ones included, which is right for at-rest
+                    // storage and wrong for a live agent that must still answer
+                    // questions about the configuration it just read.
+                    transcriptText: truncateOutput(redactTranscript(text), SUBAGENT_TOOL_OUTPUT_MAX_CHARS),
+                };
             } catch (error) {
                 // A failing tool is data, not a crash — the sub-agent should report it.
-                return { call, executed: true, output: `ERROR: ${error instanceof Error ? error.message : String(error)}` };
+                // The message can echo the arguments, so it is redacted like any output.
+                const message = `ERROR: ${error instanceof Error ? error.message : String(error)}`;
+                return { call, executed: true, output: message, transcriptText: redactTranscript(message) };
             }
         }));
 
-        for (const { call, executed, output } of results) {
+        for (const { call, executed, output, transcriptText } of results) {
             // Counted from the verdict, not from the output text: a real tool whose
             // output happens to begin with "REFUSED:" (an echoed IAM denial) is a
             // call that actually ran and must be billed as one.
             if (executed) toolCount++;
-            transcript.push({ kind: 'tool', name: call.name, text: output });
+            transcript.push({ kind: 'tool', name: call.name, text: transcriptText ?? output });
             messages.push(new ToolMessage({ content: output, tool_call_id: call.id ?? `${call.name}-${toolCount}` }));
         }
 

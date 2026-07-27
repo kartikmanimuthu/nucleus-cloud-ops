@@ -49,6 +49,57 @@ function isSecretKey(key: string): boolean {
 const SECRET_KEY_ALTERNATION = '[A-Za-z0-9_.\\-]*(?:password|passwd|secret|token|api[_-]?key|credential|private[_-]?key)[A-Za-z0-9_.\\-]*';
 
 /**
+ * Credentials embedded in a URL: `scheme://user:password@host` → the password is
+ * replaced, the user and host kept. No key name is involved, so neither the key-name
+ * nor the location rule can see these — and an `OutputValue` holding a connection
+ * string is a realistic `describe-stacks` response.
+ *
+ * The userinfo segment forbids `/` so a path containing `@` (an S3 key, an ARN) can
+ * never be mistaken for credentials, and it requires a `:` so `ssh://git@github.com`
+ * is left alone.
+ */
+const URL_CREDENTIAL_RE = /\b([A-Za-z][A-Za-z0-9+.\-]*:\/\/)([^\s:/@]*):([^\s/@]+)@/g;
+
+function redactUrlCredentials(text: string): string {
+    return text.replace(URL_CREDENTIAL_RE, (_m, scheme: string, user: string) => `${scheme}${user}:${REDACTED}@`);
+}
+
+/**
+ * Sibling name/value pairs: `{ParameterKey: 'DBPassword', ParameterValue: 'hunter2'}`.
+ *
+ * The secret sits under a key that is NOT secret-shaped (`ParameterValue`); what names
+ * it is a *sibling* field. Key-name matching is structurally blind to this, and it is
+ * the shape `cloudformation describe-stacks` returns — the exact call an audit
+ * sub-agent makes. The same shape covers container env definitions
+ * (`{name, value}`) and bare `{Key, Value}` tags.
+ *
+ * Only the value is redacted, never the name, so an operator still sees WHICH
+ * parameter was withheld.
+ *
+ * @returns the field names in this object whose values must be redacted.
+ */
+function siblingSecretFields(obj: Record<string, unknown>): Set<string> {
+    const redact = new Set<string>();
+    const byLower = new Map<string, string>();
+    for (const key of Object.keys(obj)) byLower.set(key.toLowerCase(), key);
+
+    for (const [lower, actual] of byLower) {
+        const name = obj[actual];
+        // The NAME must itself be a string, and it is the string we test for
+        // secret-ness — not the key it is stored under.
+        if (typeof name !== 'string' || !isSecretKey(name)) continue;
+
+        for (const suffix of ['key', 'name']) {
+            if (!lower.endsWith(suffix)) continue;
+            // `ParameterKey` pairs with `ParameterValue`; `Key` with `Value`.
+            const partner = byLower.get(`${lower.slice(0, -suffix.length)}value`);
+            if (partner !== undefined && partner !== actual) redact.add(partner);
+        }
+    }
+    return redact;
+}
+
+/**
  * Redact a parsed JSON value in place-free fashion.
  *
  * @param redactAll true when the caller is already inside an `Environment.Variables`
@@ -57,7 +108,9 @@ const SECRET_KEY_ALTERNATION = '[A-Za-z0-9_.\\-]*(?:password|passwd|secret|token
 function redactValue(value: unknown, depth: number, seen: WeakSet<object>, redactAll: boolean): unknown {
     if (depth > MAX_DEPTH) return REDACTED;
     if (value === null || typeof value !== 'object') {
-        return redactAll ? REDACTED : value;
+        if (redactAll) return REDACTED;
+        // A credential can hide inside an otherwise innocuous string value.
+        return typeof value === 'string' ? redactUrlCredentials(value) : value;
     }
 
     const asObject = value as object;
@@ -70,9 +123,12 @@ function redactValue(value: unknown, depth: number, seen: WeakSet<object>, redac
         return value.map(item => redactValue(item, depth + 1, seen, redactAll));
     }
 
+    const record = value as Record<string, unknown>;
+    const siblingSecrets = redactAll ? null : siblingSecretFields(record);
+
     const out: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-        if (redactAll || isSecretKey(key)) {
+    for (const [key, child] of Object.entries(record)) {
+        if (redactAll || isSecretKey(key) || siblingSecrets?.has(key)) {
             // Redact the whole subtree: a secret-named key may hold an object.
             out[key] = redactValue(child, depth + 1, seen, true);
             continue;
@@ -86,9 +142,25 @@ function redactValue(value: unknown, depth: number, seen: WeakSet<object>, redac
     return out;
 }
 
+/**
+ * Sibling name/value pairs in text the structural walk could not parse. Truncated JSON
+ * is the common case, not the exotic one: a sub-agent's tool output is capped, so a
+ * large `describe-stacks` response arrives here with its tail cut off.
+ */
+const SIBLING_PAIR_TEXT_RE =
+    /("[A-Za-z0-9_.\-]*(?:Key|Name)"\s*:\s*")((?:\\.|[^"])*)("\s*,\s*"[A-Za-z0-9_.\-]*Value"\s*:\s*")(?:\\.|[^"])*(")/gi;
+
 /** Regex scrubbing for text that is not JSON (shell commands, prose, truncated output). */
 function redactPlainText(text: string): string {
     let out = text;
+    // Credentials inside a URL — no key name to match on, so this must run here too.
+    out = redactUrlCredentials(out);
+    // {"ParameterKey":"DBPassword","ParameterValue":"…"} — the name is a sibling field.
+    out = out.replace(
+        SIBLING_PAIR_TEXT_RE,
+        (whole, open: string, name: string, mid: string, close: string) =>
+            isSecretKey(name) ? `${open}${name}${mid}${REDACTED}${close}` : whole,
+    );
     // "key": "value"  /  'key': 'value'
     out = out.replace(
         new RegExp(`(["']?${SECRET_KEY_ALTERNATION}["']?\\s*:\\s*)(["'])(?:\\\\.|(?!\\2).)*\\2`, 'gi'),
