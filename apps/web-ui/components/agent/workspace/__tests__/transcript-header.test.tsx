@@ -30,6 +30,8 @@ const EMPTY_RUN_STATE: RunState = {
   hasStructuredData: false,
   hasApprovalData: false,
   tokenUsage: { input: 0, output: 0 },
+  subagents: [],
+  usedSubagents: false,
 }
 
 function planOf(doneCount: number, total: number): RunState['plan'] {
@@ -238,6 +240,24 @@ describe('TranscriptHeader', () => {
     fireEvent.click(exportItem)
 
     expect(onMenuAction).toHaveBeenCalledWith('export-md')
+  })
+
+  // Sub-agent (and future AI Ops) configuration opens from the console itself —
+  // there is deliberately no sidebar nav entry for it.
+  it('offers an "AI Ops settings" menu item that fires the settings action', async () => {
+    const onMenuAction = vi.fn()
+    render(
+      <TranscriptHeader
+        title="Run"
+        runState={EMPTY_RUN_STATE}
+        isStreaming={false}
+        elapsedMs={null}
+        onMenuAction={onMenuAction}
+      />
+    )
+    fireEvent.keyDown(screen.getByRole('button', { name: /more actions/i }), { key: 'Enter' })
+    fireEvent.click(await screen.findByText('AI Ops settings'))
+    expect(onMenuAction).toHaveBeenCalledWith('settings')
   })
 
   it('offers transcript-PDF and report-PDF export menu items', async () => {

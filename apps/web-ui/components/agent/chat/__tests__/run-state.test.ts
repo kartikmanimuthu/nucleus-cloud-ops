@@ -7,6 +7,8 @@ const msg = (parts: Array<{ type: string; data?: unknown; text?: string }>) =>
 const msgWithId = (id: string, parts: Array<Record<string, unknown> & { type: string }>) =>
     ({ role: 'assistant', id, parts });
 
+const subagentPart = (data: Record<string, unknown>) => ({ type: 'data-subagent', data });
+
 describe('deriveRunState', () => {
     it('takes the LAST data-plan part as the live plan', () => {
         const rs = deriveRunState([
@@ -50,6 +52,22 @@ describe('deriveRunState', () => {
             msg([{ type: 'data-approval', data: { batchId: 'b1', tools: [{ toolCallId: 't1', toolName: 'x', args: {}, guard: null }] } }]),
         ] as any, new Set(['t1']));
         expect(rs.pendingApproval).toBeNull();
+    });
+
+    // The heartbeat's keep-alive (buildHeartbeatChunks in app/api/chat/stream-parts.ts)
+    // is a transient part, so it should never land in message.parts at all — but if it
+    // ever does, it must move NOTHING: no UI affordance may light up because the
+    // connection was merely kept open.
+    it('ignores a data-keepalive part entirely — no structured data, no phase, no subagents', () => {
+        const rs = deriveRunState([msg([{ type: 'data-keepalive', data: {} }])] as any, new Set());
+        expect(rs.hasStructuredData).toBe(false);
+        expect(rs.usedSubagents).toBe(false);
+        expect(rs.subagents).toEqual([]);
+        expect(rs.phases).toEqual([]);
+        expect(rs.currentPhase).toBe('text');
+        expect(rs.pendingApproval).toBeNull();
+        expect(rs.pendingClarifications).toEqual([]);
+        expect(rs.tokenUsage).toEqual({ input: 0, output: 0 });
     });
 
     it('legacy thread (no data parts) → hasStructuredData false, empty plan', () => {
@@ -259,5 +277,112 @@ describe('deriveRunState token usage', () => {
     it('defaults to zero when there are no data-usage parts', () => {
         const state = deriveRunState([asst([{ type: 'text', text: 'hi' }])], new Set());
         expect(state.tokenUsage).toEqual({ input: 0, output: 0 });
+    });
+});
+
+describe('deriveRunState — subagents', () => {
+    it('collects sub-agents in first-seen order', () => {
+        const state = deriveRunState([msg([
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+            subagentPart({ id: 'b', role: 'B', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+        ])] as any, new Set());
+
+        expect(state.subagents.map(s => s.id)).toEqual(['a', 'b']);
+    });
+
+    it('replaces an earlier update for the same id rather than duplicating', () => {
+        const state = deriveRunState([msg([
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'running', toolCount: 1, tokensIn: 10, tokensOut: 2 }),
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'done', toolCount: 5, tokensIn: 900, tokensOut: 80, summary: 'found it' }),
+        ])] as any, new Set());
+
+        expect(state.subagents).toHaveLength(1);
+        expect(state.subagents[0]).toMatchObject({ status: 'done', toolCount: 5, summary: 'found it' });
+    });
+
+    it('marks the run as having structured data', () => {
+        const state = deriveRunState([msg([
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+        ])] as any, new Set());
+
+        expect(state.hasStructuredData).toBe(true);
+    });
+
+    it('returns an empty list when no sub-agent parts are present', () => {
+        expect(deriveRunState([msg([{ type: 'text', text: 'hi' }])] as any, new Set()).subagents).toEqual([]);
+    });
+});
+
+// data-subagent parts are NOT persisted (history is rebuilt from the LangGraph
+// checkpointer), so after a reload `subagents` is empty even for a thread that
+// fanned out. The dispatch_agent tool call IS persisted, and it is what tells the
+// rail to reconstruct the cards from agent_subagent_runs instead of showing nothing.
+describe('deriveRunState — usedSubagents', () => {
+    it('is false for a thread that never dispatched', () => {
+        expect(deriveRunState([msg([{ type: 'text', text: 'hi' }])] as any, new Set()).usedSubagents).toBe(false);
+    });
+
+    it('is true from a live data-subagent part', () => {
+        const state = deriveRunState([msg([
+            subagentPart({ id: 'a', role: 'A', task: 't', status: 'done', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+        ])] as any, new Set());
+
+        expect(state.usedSubagents).toBe(true);
+    });
+
+    it('is true from a reloaded dispatch_agent tool part, whose data parts are gone', () => {
+        // Shape emitted by /api/threads/[threadId]/history on reload.
+        const state = deriveRunState([msg([
+            { type: 'tool-invocation', toolCallId: 'c1', toolName: 'dispatch_agent', state: 'call' } as any,
+        ])] as any, new Set());
+
+        expect(state.subagents).toEqual([]);
+        expect(state.usedSubagents).toBe(true);
+    });
+
+    it('is true from the streamed typed tool part name', () => {
+        const state = deriveRunState([msg([
+            { type: 'tool-dispatch_agent', toolCallId: 'c1', state: 'output-available', output: 'report' } as any,
+        ])] as any, new Set());
+
+        expect(state.usedSubagents).toBe(true);
+    });
+
+    it('is not tripped by an unrelated tool', () => {
+        const state = deriveRunState([msg([
+            { type: 'tool-invocation', toolCallId: 'c1', toolName: 'aws_read', state: 'call' } as any,
+        ])] as any, new Set());
+
+        expect(state.usedSubagents).toBe(false);
+    });
+});
+
+// startedAt must be STICKY (first part's ts survives later updates — otherwise the
+// elapsed timer restarts on every progress tick) and lastTool must track the
+// latest part so the card's action line stays current.
+describe('deriveRunState sub-agent live details', () => {
+    const partFor = (data: Record<string, unknown>) => ({
+        role: 'assistant',
+        parts: [{ type: 'data-subagent', data }],
+    });
+
+    it('keeps the first ts as startedAt across updates and tracks lastTool', () => {
+        const base = { id: 'sa-1', role: 'r', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 };
+        const state = deriveRunState([
+            partFor({ ...base, ts: 1000 }),
+            partFor({ ...base, ts: 2000, toolCount: 2, lastTool: 'aws_read' }),
+            partFor({ ...base, ts: 3000, toolCount: 4, lastTool: 'get_aws_credentials' }),
+        ] as any, new Set());
+        expect(state.subagents).toHaveLength(1);
+        expect(state.subagents[0].startedAt).toBe(1000);
+        expect(state.subagents[0].lastTool).toBe('get_aws_credentials');
+        expect(state.subagents[0].toolCount).toBe(4);
+    });
+
+    it('leaves startedAt undefined when no part carried a ts (old streams)', () => {
+        const state = deriveRunState([
+            partFor({ id: 'sa-1', role: 'r', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+        ] as any, new Set());
+        expect(state.subagents[0].startedAt).toBeUndefined();
     });
 });

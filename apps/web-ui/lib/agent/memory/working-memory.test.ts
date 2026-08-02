@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { workingMemoryEnabled, tokenBudget, keepRecent } from './working-memory';
+import { DEFAULT_FEATURES, primeAiopsFeaturesCache } from '../aiops-features';
 
 describe('working-memory config', () => {
     const saved = { ...process.env };
     afterEach(() => { process.env = { ...saved }; });
 
     it('defaults: enabled=true, budget=60000, keep=8', () => {
-        delete process.env.WORKING_MEMORY_ENABLED;
         delete process.env.WORKING_MEMORY_TOKEN_BUDGET;
         delete process.env.WORKING_MEMORY_KEEP_RECENT;
         expect(workingMemoryEnabled()).toBe(true);
@@ -14,9 +14,9 @@ describe('working-memory config', () => {
         expect(keepRecent()).toBe(8);
     });
 
-    it('WORKING_MEMORY_ENABLED=false disables', () => {
-        process.env.WORKING_MEMORY_ENABLED = 'false';
-        expect(workingMemoryEnabled()).toBe(false);
+    it('tenant setting false disables', () => {
+        primeAiopsFeaturesCache('t-wm-off', { ...DEFAULT_FEATURES, workingMemoryEnabled: false });
+        expect(workingMemoryEnabled('t-wm-off')).toBe(false);
     });
 
     it('reads numeric overrides', () => {
@@ -141,7 +141,7 @@ describe('prepareContext', () => {
     afterEach(() => { delete process.env.WORKING_MEMORY_ENABLED; delete process.env.WORKING_MEMORY_TOKEN_BUDGET; });
 
     it('disabled → falls back to getRecentMessages(fallbackWindow), no WM section, no LLM call', async () => {
-        process.env.WORKING_MEMORY_ENABLED = 'false';
+        primeAiopsFeaturesCache('t-wm-flow', { ...DEFAULT_FEATURES, workingMemoryEnabled: false });
         // Alternate roles so getRecentMessages passes the window through unchanged
         // (adjacent same-role messages make it inject synthetic "Acknowledged." AIMessages,
         // which would push the returned length above the fallbackWindow — a getRecentMessages
@@ -149,7 +149,7 @@ describe('prepareContext', () => {
         const msgs = Array.from({ length: 30 }, (_, i) =>
             i % 2 === 0 ? new HumanMessage(`m${i}`) : new AIMessage(`m${i}`),
         );
-        const res = await prepareContext(baseState(msgs), { reflectorModel: fakeReflector }, 20);
+        const res = await prepareContext(baseState(msgs), { reflectorModel: fakeReflector, tenantId: 't-wm-flow' }, 20);
         expect(res.workingMemorySection).toBe('');
         expect(res.stateUpdate).toEqual({});
         // Disabled path returns EXACTLY the legacy getRecentMessages(fallbackWindow) window

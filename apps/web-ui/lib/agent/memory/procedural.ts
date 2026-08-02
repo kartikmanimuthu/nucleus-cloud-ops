@@ -7,14 +7,15 @@
  */
 
 import type { ProceduralValue } from './types';
+import { getAiopsFeatures } from '../aiops-features';
 
 export const PROCEDURE_RECALL_LIMIT = 3;
 // Shared value with EPISODE_DISTANCE_THRESHOLD — one knob until logs say otherwise.
 export const PROCEDURE_DISTANCE_THRESHOLD = 0.65;
 
-export function proceduralMemoryEnabled(): boolean {
-    const v = process.env.PROCEDURAL_MEMORY_ENABLED?.toLowerCase();
-    return !(v === 'false' || v === '0');
+export function proceduralMemoryEnabled(tenantId?: string): boolean {
+    // Tenant setting (AI Ops console -> settings), default on. No env dependency.
+    return getAiopsFeatures(tenantId).proceduralMemoryEnabled;
 }
 
 function isNonEmptyString(v: unknown): v is string {

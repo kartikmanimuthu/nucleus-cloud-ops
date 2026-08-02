@@ -32,6 +32,19 @@ const MUTATIVE_PATTERNS = [
 const READ_ONLY_ALLOWLIST = new Set([
     'get_aws_credentials',
     'list_aws_accounts',
+    // Platform-internal read-only tools. Without these entries every turn that
+    // uses one is "unknown-named" and triggers the guard's LLM risk batch —
+    // pure latency on turns that cannot mutate anything.
+    'search_knowledge_base',   // vector search over tenant KB chunks
+    'load_skill',              // loads skill INSTRUCTIONS into context; enabled-only
+    'get_file_from_s3',        // reads the agent's own S3 scratch area
+    'get_right_sizing_recommendations', // reads recommendation rows
+    'dispatch_agent',          // read-only BY CONSTRUCTION: sub-agents are jailed
+                               // (no shell, aws_read allowlist, mutative refused);
+                               // sub-agent recursion is blocked by the sub-agent
+                               // DENYLIST, which runs before any allowlist.
+    'web_search',              // outbound read (Tavily)
+    'glob', 'grep', 'ls',      // filesystem inspection, no writes
     'describe_instances',
     'describe_services',
     'describe_clusters',

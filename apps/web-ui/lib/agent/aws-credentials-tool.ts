@@ -2,7 +2,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
 import { AccountService } from '../account-service';
-import { createSessionProfile } from './session-manager';
+import { getOrCreateSessionProfile } from './session-manager';
 import { env } from '@/env';
 
 /**
@@ -97,28 +97,25 @@ export function createGetAwsCredentialsTool(tenantId: string) {
                     });
                 }
 
-                // 2. Assume the role to get temporary credentials
-                const { credentials, expiration } = await assumeRoleForAccount(
-                    account.roleArn,
-                    account.externalId
-                );
-
-                // 3. Determine region (use first region from account, or default)
+                // 2/3/4. Resolve region, then get a cached-or-fresh session profile.
+                // getOrCreateSessionProfile only calls STS when there is no live
+                // profile left for this (tenant, account) pair.
                 const region = account.regions?.[0] || env.AWS_REGION || env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
 
-                // 4. Create session profile in the tenant-isolated credentials file
-                const profile = await createSessionProfile(
-                    accountId,
-                    {
+                const profile = await getOrCreateSessionProfile(accountId, tenantId, async () => {
+                    const { credentials } = await assumeRoleForAccount(
+                        account.roleArn!,
+                        account.externalId,
+                    );
+                    return {
                         accessKeyId: credentials.AccessKeyId!,
                         secretAccessKey: credentials.SecretAccessKey!,
                         sessionToken: credentials.SessionToken!,
-                        region: region
-                    },
-                    tenantId
-                );
+                        region,
+                    };
+                });
 
-                console.log(`[Tool] Created profile: ${profile.profileName} for account: ${accountId}`);
+                console.log(`[Tool] Profile: ${profile.profileName} for account: ${accountId}`);
                 console.log(`[Tool] Profile expires at: ${profile.expiresAt.toISOString()}`);
 
                 return JSON.stringify({

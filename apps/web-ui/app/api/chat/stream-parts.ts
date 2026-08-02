@@ -1,8 +1,30 @@
+import type { UIMessageChunk } from 'ai';
 import { pendingToolCallsOf } from '@/lib/agent/guard';
 import { extractJsonObject } from '@/lib/agent/llm-json';
 import type { GuardVerdict, PlanStep, ReflectionState } from '@/lib/agent/agent-shared';
+import type { SubagentEvent } from '@/lib/agent/dispatch-agent-tool';
+import { SUBAGENT_MODEL_TAG } from '@/lib/agent/subagent';
 
 export interface DataPart { type: `data-${string}`; id?: string; data: unknown }
+
+/**
+ * True for chat-model callback events that belong to a SUB-AGENT's model calls,
+ * which run inside ToolNode and therefore surface through the orchestrator's
+ * own streamEvents pipeline. The route's text-part state machine is single-
+ * threaded (one currentPartId/streamStarted/runMode); letting N concurrent
+ * sub-agent model runs drive it interleaves their events, emits text-deltas for
+ * part ids whose text-start belonged to a different run, and the AI SDK client
+ * kills the stream ("text-delta for missing text part"). It also leaks
+ * sub-agent narration into the transcript, which the design forbids. The route
+ * must skip these events entirely — sub-agent progress reaches the client only
+ * as data-subagent parts.
+ */
+export function isSubagentModelEvent(event: { event?: string; tags?: string[] }): boolean {
+    return typeof event.event === 'string'
+        && event.event.startsWith('on_chat_model_')
+        && Array.isArray(event.tags)
+        && event.tags.includes(SUBAGENT_MODEL_TAG);
+}
 
 export function buildPlanPart(threadId: string, steps: PlanStep[], updatedBy: string): DataPart {
     return { type: 'data-plan', id: `plan-${threadId}`, data: { steps, updatedBy } };
@@ -10,6 +32,15 @@ export function buildPlanPart(threadId: string, steps: PlanStep[], updatedBy: st
 
 export function buildPhasePart(phase: string, node: string): DataPart {
     return { type: 'data-phase', data: { phase, node, ts: Date.now() } };
+}
+
+/**
+ * Announces the ACTIVE skill for this run — including one auto-selected by
+ * triage, which the composer's own chip cannot know about. Without this part a
+ * correctly-loaded skill is invisible in the UI and reads as a silent failure.
+ */
+export function buildActiveSkillPart(slug: string, source: 'user' | 'auto'): DataPart {
+    return { type: 'data-skill', data: { slug, source } };
 }
 
 export function buildUsagePart(input: number, output: number): DataPart {
@@ -25,6 +56,68 @@ export function buildMemoryPart(op: 'recall' | 'save', summary: string): DataPar
     const bulletMatches = summary.match(/^[-*•]\s/gm);
     const count = bulletMatches ? bulletMatches.length : null;
     return { type: 'data-memory', data: { op, summary, count } };
+}
+
+/**
+ * One data-subagent part per sub-agent state change. The `id` is stable per
+ * sub-agent so the client replaces the card in place rather than appending a new
+ * one on every progress tick.
+ *
+ * The transcript is deliberately NOT sent: it can be large, and the whole point
+ * of sub-agents is keeping bulk out of the transcript. It is persisted
+ * separately and fetched on demand when a card is expanded.
+ */
+export function buildSubagentPart(event: SubagentEvent): DataPart {
+    return {
+        type: 'data-subagent',
+        id: `subagent-${event.id}`,
+        data: {
+            id: event.id,
+            role: event.role,
+            task: event.task,
+            status: event.status,
+            toolCount: event.toolCount,
+            tokensIn: event.tokensIn,
+            tokensOut: event.tokensOut,
+            // Server clock at emit time. The client keeps the FIRST ts it sees per
+            // sub-agent as startedAt and ticks elapsed time from its own clock.
+            ts: Date.now(),
+            ...(event.lastTool ? { lastTool: event.lastTool } : {}),
+            ...(event.summary ? { summary: event.summary } : {}),
+        },
+    };
+}
+
+/**
+ * The body of the sub-agent heartbeat tick, as a pure function so it is testable
+ * (nothing in the suite imports route.ts, so an inline tick body has no coverage
+ * at all).
+ *
+ * Two jobs, and the second one is the whole reason the heartbeat exists:
+ *  - re-emit a card for every sub-agent still in flight, so a sub-agent that
+ *    thinks for 90s without producing a byte still refreshes its card;
+ *  - guarantee the tick writes SOMETHING even when nothing is in flight. The
+ *    caller's live map empties as sub-agents reach their terminal event, and the
+ *    orchestrator's post-fan-out call — every sub-agent's findings in the prompt —
+ *    is both the longest silence and the largest context in the run. A
+ *    map-dependent tick would protect the cheap window and go silent through the
+ *    expensive one, which is exactly the connection CloudFront's 60s
+ *    originReadTimeout (infra/compute/index.ts:962) drops.
+ *
+ * The keep-alive is `transient`, so the client receives the bytes but never
+ * appends the part to `message.parts`: it cannot bloat the message and
+ * `deriveRunState` (components/agent/chat/run-state.ts) has no case for
+ * `data-keepalive`, so it touches no UI state.
+ */
+export function buildHeartbeatChunks(live: Iterable<SubagentEvent>): UIMessageChunk[] {
+    const chunks: UIMessageChunk[] = [];
+    for (const event of live) {
+        chunks.push(buildSubagentPart(event));
+    }
+    if (chunks.length === 0) {
+        chunks.push({ type: 'data-keepalive', data: {}, transient: true });
+    }
+    return chunks;
 }
 
 // Exact markers from planning-agent.ts's reflectNode `feedback` template (do not

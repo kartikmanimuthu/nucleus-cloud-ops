@@ -8,8 +8,9 @@ import * as os from 'os';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { env } from '@/env';
-import { getTenantCredentialsFilePath } from './session-manager';
+import { getTenantCredentialsFilePath, getTenantConfigFilePath } from './session-manager';
 import { AuditService } from '@/lib/audit-service';
+import { Semaphore } from './concurrency';
 
 // Re-export AWS credentials tool factories
 export { createGetAwsCredentialsTool, createListAwsAccountsTool } from './aws-credentials-tool';
@@ -59,12 +60,29 @@ const JAIL_ERROR = (p: string) =>
  * simple `env`/`printenv` would otherwise dump them. Full OS/container sandboxing
  * (seccomp, read-only rootfs, network egress policy, dropped capabilities) is a
  * separate infrastructure follow-up tracked outside this change.
+ *
+ * TWO OMISSIONS FROM THE ALLOWLIST ARE LOAD-BEARING — do not "fix" them:
+ *
+ *  - AWS_CONTAINER_CREDENTIALS_RELATIVE_URI (and AWS_CONTAINER_CREDENTIALS_FULL_URI)
+ *  - AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
+ *
+ * Without them, an AWS call made with no --profile simply fails to find credentials.
+ * WITH them it would silently fall back to the ECS TASK ROLE — the platform's own
+ * identity, which is outside every tenant's scoping and every audit trail that keys
+ * off the assumed-role session. A sub-agent's aws_read reaches AWS through this same
+ * environment and has no human gate behind it, so "no profile" must mean "no
+ * credentials", never "the platform's credentials".
+ *
+ * AWS_CONFIG_FILE is likewise NOT inherited: an ambient ~/.aws/config can enable
+ * `cli_follow_urlparam` (making http:// parameter values fetch a URL),
+ * `credential_process` (an arbitrary command run during profile resolution) and
+ * `sso_*`. It is pinned per tenant below instead.
  */
-function buildCommandEnv(tenantId?: string): Record<string, string> {
+export function buildCommandEnv(tenantId?: string): Record<string, string> {
     const ALLOWED_KEYS = [
         'PATH', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'TMPDIR',
         'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_PROFILE', 'AWS_DEFAULT_PROFILE',
-        'AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE', 'AWS_STS_REGIONAL_ENDPOINTS', 'AWS_CA_BUNDLE',
+        'AWS_SHARED_CREDENTIALS_FILE', 'AWS_STS_REGIONAL_ENDPOINTS', 'AWS_CA_BUNDLE',
     ];
     const childEnv: Record<string, string> = {};
     for (const key of ALLOWED_KEYS) {
@@ -73,14 +91,26 @@ function buildCommandEnv(tenantId?: string): Record<string, string> {
     }
     // Point the AWS CLI/SDK at this tenant's isolated credentials file so profiles
     // created by get_aws_credentials resolve — without exposing other tenants' files.
+    // The config path is pinned to the same tenant directory so CLI configuration is
+    // ours (and, in practice, absent) rather than whatever the container image or a
+    // written-to home directory happens to carry.
     if (tenantId) {
         childEnv.AWS_SHARED_CREDENTIALS_FILE = getTenantCredentialsFilePath(tenantId);
+        childEnv.AWS_CONFIG_FILE = getTenantConfigFilePath(tenantId);
     }
     return childEnv;
 }
 
 // Helper to truncate large tool outputs to prevent prompt token limits
 const MAX_OUTPUT_LENGTH = 100000;
+/**
+ * Caps concurrent shell subprocesses across the whole process. Other tools
+ * (AWS SDK, Prisma, MCP) are network/DB calls that are already pooled by their
+ * own clients, so only execute_command needs an explicit bound.
+ */
+const TOOL_CONCURRENCY = Number(process.env.TOOL_CONCURRENCY) || 6;
+const commandSemaphore = new Semaphore(TOOL_CONCURRENCY);
+
 const truncateToolOutput = (output: string) => {
     if (output && output.length > MAX_OUTPUT_LENGTH) {
         return output.substring(0, MAX_OUTPUT_LENGTH) + `\n\n...[Output truncated due to length. Total length: ${output.length} characters]...`;
@@ -128,12 +158,12 @@ export const executeCommandTool = tool(
         };
 
         try {
-            const { stdout, stderr } = await execAsync(command, {
+            const { stdout, stderr } = await commandSemaphore.run(() => execAsync(command, {
                 shell: '/bin/bash',
                 timeout: 120000, // 2 minute timeout for long-running AWS CLI commands
                 maxBuffer: 1024 * 1024 * 10, // 10MB buffer
                 env: buildCommandEnv(tenantId) as NodeJS.ProcessEnv,
-            });
+            }));
 
             const output = stdout || stderr || 'Command executed successfully (no output)';
             console.log(`[Tool] Command Output Length: ${output.length}`);

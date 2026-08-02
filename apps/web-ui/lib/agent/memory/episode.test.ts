@@ -35,13 +35,13 @@ beforeEach(() => {
     mockSvc.remember.mockResolvedValue('ep-row-id');
     vi.mocked(getMemoryService).mockReturnValue(mockSvc as any);
 });
-afterEach(() => { delete process.env.EPISODIC_MEMORY_ENABLED; });
+import { DEFAULT_FEATURES, primeAiopsFeaturesCache } from '../aiops-features';
 
 describe('episodicMemoryEnabled', () => {
-    it('defaults true; false/0 disable', () => {
+    it('defaults true; tenant setting false disables', () => {
         expect(episodicMemoryEnabled()).toBe(true);
-        process.env.EPISODIC_MEMORY_ENABLED = 'false';
-        expect(episodicMemoryEnabled()).toBe(false);
+        primeAiopsFeaturesCache('t-epi-off', { ...DEFAULT_FEATURES, episodicMemoryEnabled: false });
+        expect(episodicMemoryEnabled('t-epi-off')).toBe(false);
     });
 });
 
@@ -76,9 +76,10 @@ describe('captureEpisode', () => {
     });
 
     it('flag off → short-circuits before invoking the distiller', async () => {
-        process.env.EPISODIC_MEMORY_ENABLED = 'false';
+        primeAiopsFeaturesCache('t1', { ...DEFAULT_FEATURES, episodicMemoryEnabled: false });
         const distiller = distillerReturning(JSON.stringify(goodEpisode));
         const saved = await captureEpisode(baseParams({ distillerModel: distiller }) as any);
+        primeAiopsFeaturesCache('t1', { ...DEFAULT_FEATURES });
         expect(saved).toBe(false);
         expect(distiller.invoke).not.toHaveBeenCalled();
     });

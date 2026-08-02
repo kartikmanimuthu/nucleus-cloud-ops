@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
 import { buildUsagePart } from '../stream-parts';
+import { buildSubagentPart, buildHeartbeatChunks, isSubagentModelEvent } from '../stream-parts';
+import { SUBAGENT_MODEL_TAG } from '@/lib/agent/subagent';
 
 const WM_JSON = JSON.stringify({
     summary: 'User asked to connect Jira; site resource retrieved.',
@@ -234,5 +236,136 @@ describe('stripWorkingMemoryPrelude', () => {
 describe('buildUsagePart', () => {
     it('builds a data-usage part', () => {
         expect(buildUsagePart(3, 4)).toEqual({ type: 'data-usage', data: { input: 3, output: 4 } });
+    });
+});
+
+describe('buildSubagentPart', () => {
+    const base = {
+        id: 'sa-1', role: 'EC2 auditor', task: 'audit account 1',
+        toolCount: 3, tokensIn: 900, tokensOut: 120,
+    };
+
+    it('builds a stable id so updates replace rather than append', () => {
+        const part = buildSubagentPart({ ...base, status: 'running' });
+        expect(part.type).toBe('data-subagent');
+        expect(part.id).toBe('subagent-sa-1');
+    });
+
+    it('carries progress counters', () => {
+        const part = buildSubagentPart({ ...base, status: 'running' });
+        expect(part.data).toMatchObject({ role: 'EC2 auditor', status: 'running', toolCount: 3, tokensIn: 900 });
+    });
+
+    it('omits the transcript from the stream payload', () => {
+        const part = buildSubagentPart({
+            ...base, status: 'done', summary: 'found things',
+            transcript: [{ kind: 'ai', text: 'internal reasoning' }],
+        });
+        expect(JSON.stringify(part.data)).not.toContain('internal reasoning');
+        expect((part.data as { summary?: string }).summary).toBe('found things');
+    });
+});
+
+// The heartbeat exists solely to keep bytes flowing so CloudFront's 60s
+// originReadTimeout (infra/compute/index.ts:962) can't kill a long run. Its tick
+// body lives here — not inline in route.ts — because nothing in the suite imports
+// route.ts, so an inline tick is untested by construction.
+describe('buildHeartbeatChunks', () => {
+    const base = {
+        id: 'sa-1', role: 'EC2 auditor', task: 'audit account 1',
+        toolCount: 3, tokensIn: 900, tokensOut: 120,
+    };
+
+    it('re-emits one data-subagent part per in-flight sub-agent and no keep-alive', () => {
+        const chunks = buildHeartbeatChunks([
+            { ...base, id: 'sa-1', status: 'running' },
+            { ...base, id: 'sa-2', status: 'running' },
+        ]);
+        expect(chunks).toHaveLength(2);
+        expect(chunks.map((c) => c.type)).toEqual(['data-subagent', 'data-subagent']);
+        expect(chunks.map((c: any) => c.id)).toEqual(['subagent-sa-1', 'subagent-sa-2']);
+        expect(chunks.some((c) => c.type === 'data-keepalive')).toBe(false);
+    });
+
+    // REGRESSION GUARD for F1. `liveSubagents` empties as sub-agents reach their
+    // terminal event, so a tick that only walks that map writes ZERO bytes during
+    // the orchestrator's post-fan-out call — the longest silence and the largest
+    // context in the run, exactly when the 60s origin timeout bites. A tick MUST
+    // write something. This test fails if the empty-case branch is removed.
+    it('emits exactly one keep-alive chunk when no sub-agent is in flight', () => {
+        const chunks = buildHeartbeatChunks([]);
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].type).toBe('data-keepalive');
+    });
+
+    it('marks the keep-alive transient and gives it no sub-agent fields', () => {
+        const [chunk] = buildHeartbeatChunks([]) as any[];
+        // transient parts are delivered to the client but never appended to
+        // message.parts, so a keep-alive cannot bloat the message or move the reducer.
+        expect(chunk.transient).toBe(true);
+        expect(chunk.id).toBeUndefined();
+        expect(chunk.data).toEqual({});
+        expect(JSON.stringify(chunk)).not.toMatch(/sa-1|EC2 auditor|audit account|transcript/);
+    });
+
+    it('still omits the transcript for a terminal event passed through the tick', () => {
+        const chunks = buildHeartbeatChunks([{
+            ...base, status: 'done', summary: 'found things',
+            transcript: [{ kind: 'ai', text: 'internal reasoning' }],
+        }]);
+        expect(chunks).toHaveLength(1);
+        expect(JSON.stringify(chunks[0])).not.toContain('internal reasoning');
+        expect(JSON.stringify(chunks[0])).not.toContain('transcript');
+    });
+});
+
+// Sub-agent model calls run inside ToolNode, so their on_chat_model_* callback
+// events flow through the SAME streamEvents pipeline as the orchestrator's own
+// model runs. The route's text-part machinery is a single-threaded state machine;
+// N concurrent sub-agent runs driving it interleave part ids, the client receives
+// a text-delta for a part that never started, and the AI SDK kills the stream.
+// isSubagentModelEvent is the filter that keeps them out.
+describe('isSubagentModelEvent', () => {
+    it('matches chat-model events tagged by the sub-agent runtime', () => {
+        for (const name of ['on_chat_model_start', 'on_chat_model_stream', 'on_chat_model_end']) {
+            expect(isSubagentModelEvent({ event: name, tags: ['x', SUBAGENT_MODEL_TAG] })).toBe(true);
+        }
+    });
+
+    it('ignores untagged chat-model events (the orchestrator itself)', () => {
+        expect(isSubagentModelEvent({ event: 'on_chat_model_stream', tags: ['seq:step:2'] })).toBe(false);
+        expect(isSubagentModelEvent({ event: 'on_chat_model_stream' })).toBe(false);
+    });
+
+    it('ignores non-chat-model events even when tagged (tool events must still flow)', () => {
+        expect(isSubagentModelEvent({ event: 'on_tool_start', tags: [SUBAGENT_MODEL_TAG] })).toBe(false);
+        expect(isSubagentModelEvent({ event: 'on_chain_stream', tags: [SUBAGENT_MODEL_TAG] })).toBe(false);
+    });
+
+    it('tolerates malformed events', () => {
+        expect(isSubagentModelEvent({})).toBe(false);
+        expect(isSubagentModelEvent({ event: undefined, tags: undefined })).toBe(false);
+    });
+});
+
+describe('buildSubagentPart live-detail fields', () => {
+    const base = {
+        id: 'sa-1', role: 'EC2 auditor', task: 'audit account 1',
+        toolCount: 3, tokensIn: 900, tokensOut: 120,
+    };
+
+    it('stamps a ts so the client can derive startedAt from the first part', () => {
+        const before = Date.now();
+        const part = buildSubagentPart({ ...base, status: 'running' });
+        const ts = (part.data as { ts: number }).ts;
+        expect(ts).toBeGreaterThanOrEqual(before);
+        expect(ts).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('passes lastTool through for the live action line, omitting it when absent', () => {
+        const withTool = buildSubagentPart({ ...base, status: 'running', lastTool: 'aws_read (+2 more)' });
+        expect((withTool.data as { lastTool?: string }).lastTool).toBe('aws_read (+2 more)');
+        const without = buildSubagentPart({ ...base, status: 'running' });
+        expect('lastTool' in (without.data as object)).toBe(false);
     });
 });

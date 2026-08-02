@@ -10,6 +10,7 @@ import { getMemoryService } from './memory-service';
 import {
     synthesizeDomainSkills, autoSkillCreationEnabled, autoSkillMaturityThreshold, skillSynthesisMinRules,
 } from './skill-synthesis';
+import { DEFAULT_FEATURES, primeAiopsFeaturesCache } from '../aiops-features';
 
 const mockRepo = { getBySlug: vi.fn(), create: vi.fn(), update: vi.fn() };
 const mockSvc = { update: vi.fn() };
@@ -57,12 +58,12 @@ afterEach(() => {
 });
 
 describe('flags', () => {
-    it('defaults + env overrides', () => {
+    it('defaults + tenant-setting overrides', () => {
         expect(autoSkillCreationEnabled()).toBe(true);
         expect(autoSkillMaturityThreshold()).toBe(3);
         expect(skillSynthesisMinRules()).toBe(3);
-        process.env.SKILL_SYNTHESIS_MIN_RULES = '5';
-        expect(skillSynthesisMinRules()).toBe(5);
+        primeAiopsFeaturesCache('t-syn', { ...DEFAULT_FEATURES, skillSynthesisMinRules: 5 });
+        expect(skillSynthesisMinRules('t-syn')).toBe(5);
     });
 });
 
@@ -147,8 +148,9 @@ describe('synthesizeDomainSkills', () => {
     });
 
     it('flag off → 0 without any query', async () => {
-        process.env.AUTO_SKILL_CREATION_ENABLED = 'false';
+        primeAiopsFeaturesCache('t1', { ...DEFAULT_FEATURES, autoSkillCreationEnabled: false });
         const n = await synthesizeDomainSkills({ ...base, distillerModel: distillerReturning(goodDistill) });
+        primeAiopsFeaturesCache('t1', { ...DEFAULT_FEATURES });
         expect(n).toBe(0);
         expect(mockQueryRaw).not.toHaveBeenCalled();
     });

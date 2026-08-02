@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDown, Terminal, FileText, FilePen, BookOpen, Wrench, Check, X } from "lucide-react"
+import { ChevronDown, Terminal, FileText, FilePen, BookOpen, Bot, Wrench, Check, X } from "lucide-react"
 import type { TranscriptEvent } from "@/lib/agent-chat/events"
 import type { ToolGroup } from "@/lib/agent-chat/group-events"
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible"
@@ -15,6 +15,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   read_file: FileText,
   write_file: FilePen,
   search_knowledge_base: BookOpen,
+  dispatch_agent: Bot,
 }
 
 function toolIcon(toolName: string): React.ComponentType<{ className?: string }> {

@@ -13,6 +13,21 @@ export interface PendingApprovalTool {
 }
 export interface PendingClarification { toolCallId: string; question: string; options: string[] }
 
+export interface SubagentState {
+    id: string;
+    role: string;
+    task: string;
+    status: 'running' | 'done' | 'failed';
+    toolCount: number;
+    tokensIn: number;
+    tokensOut: number;
+    /** Tool (batch) currently executing — shown as the card's live action line. */
+    lastTool?: string;
+    /** Server ts of the FIRST part seen for this sub-agent; drives the elapsed timer. */
+    startedAt?: number;
+    summary?: string;
+}
+
 export interface RunState {
     plan: RunPlanStep[];
     planUpdatedBy: string | null;
@@ -26,6 +41,16 @@ export interface RunState {
     hasApprovalData: boolean;
     /** Cumulative billed token totals summed from every data-usage part in the thread. */
     tokenUsage: { input: number; output: number };
+    /** Sub-agents dispatched in this thread, in first-seen order. Later parts for
+     *  the same id replace the earlier entry in place. */
+    subagents: SubagentState[];
+    /** Skill active for the latest run — user-pinned or triage auto-selected. */
+    activeSkill?: { slug: string; source: 'user' | 'auto' } | null;
+    /** True when this thread fanned out at all — set by a live data-subagent part
+     *  OR by a persisted dispatch_agent tool call. data-subagent parts are not
+     *  persisted, so after a reload this is the ONLY signal that the rail should
+     *  rebuild the cards from agent_subagent_runs rather than render nothing. */
+    usedSubagents: boolean;
 }
 
 interface LoosePart { type: string; data?: any; text?: string }
@@ -44,6 +69,9 @@ export function deriveRunState(
     let hasApprovalData = false;
     let tokenIn = 0;
     let tokenOut = 0;
+    const subagents = new Map<string, SubagentState>();
+    let usedSubagents = false;
+    let activeSkill: { slug: string; source: 'user' | 'auto' } | null = null;
     // Tool calls with an output-bearing tool part ANYWHERE in the thread. An
     // executed / rejected / answered tool can never be pending again, no matter
     // what a stale data-approval or data-clarification part claims (defense
@@ -62,6 +90,11 @@ export function deriveRunState(
                     p.state === 'output-available' ||
                     p.state === 'output-error';
                 if (hasOutput) executedIds.add(String(p.toolCallId));
+                // `tool-invocation` + toolName is the reloaded history shape;
+                // `tool-dispatch_agent` is the streamed typed-part shape.
+                if (p.toolName === 'dispatch_agent' || p.type === 'tool-dispatch_agent') {
+                    usedSubagents = true;
+                }
             }
             switch (part.type) {
                 case 'data-plan': {
@@ -96,9 +129,41 @@ export function deriveRunState(
                     }
                     break;
                 }
+                case 'data-skill': {
+                    if (part.data?.slug) {
+                        activeSkill = { slug: String(part.data.slug), source: part.data.source === 'user' ? 'user' : 'auto' };
+                    }
+                    break;
+                }
                 case 'data-usage': {
                     tokenIn += Number(part.data?.input) || 0;
                     tokenOut += Number(part.data?.output) || 0;
+                    break;
+                }
+                case 'data-subagent': {
+                    hasStructuredData = true;
+                    usedSubagents = true;
+                    const id = String(part.data?.id ?? '');
+                    if (!id) break;
+                    // Map.set on an existing key preserves insertion order, so the
+                    // card stays put as it updates from running → done. startedAt is
+                    // sticky: the first part's ts survives every later update, so the
+                    // elapsed timer never restarts mid-run.
+                    const prior = subagents.get(id);
+                    const ts = Number(part.data?.ts) || undefined;
+                    subagents.set(id, {
+                        id,
+                        role: String(part.data?.role ?? ''),
+                        task: String(part.data?.task ?? ''),
+                        status: (part.data?.status === 'done' || part.data?.status === 'failed')
+                            ? part.data.status : 'running',
+                        toolCount: Number(part.data?.toolCount) || 0,
+                        tokensIn: Number(part.data?.tokensIn) || 0,
+                        tokensOut: Number(part.data?.tokensOut) || 0,
+                        ...(part.data?.lastTool ? { lastTool: String(part.data.lastTool) } : {}),
+                        ...(prior?.startedAt ?? ts ? { startedAt: prior?.startedAt ?? ts } : {}),
+                        ...(part.data?.summary ? { summary: String(part.data.summary) } : {}),
+                    });
                     break;
                 }
             }
@@ -122,6 +187,9 @@ export function deriveRunState(
         hasStructuredData,
         hasApprovalData,
         tokenUsage: { input: tokenIn, output: tokenOut },
+        subagents: Array.from(subagents.values()),
+        usedSubagents,
+        activeSkill,
     };
 }
 

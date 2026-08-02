@@ -28,7 +28,7 @@ export function createLoadSkillTool(tenantId: string) {
         {
             name: 'load_skill',
             description:
-                'Load the full instructions of a specialized skill by its id. The available skills are listed in your system prompt under "Available Skills". Call this BEFORE starting work that a skill\'s description covers — the loaded instructions define privileges, safety rules, and workflow for that scope. You may load multiple skills over the course of one task as different phases require them. Do not call it for skills already loaded in this conversation.',
+                'Load the full instructions of a specialized skill by its id. The available skills are listed in your system prompt under "Available Skills". Calling this is MANDATORY, not optional: whenever a listed skill\'s description covers the work you are about to do (match on domain — cost, EC2, Jira, security, … — not exact wording), load it BEFORE doing that work. The loaded instructions define privileges, safety rules, and workflow for that scope; doing skill-covered work without loading the skill is an error. You may load multiple skills over one task as different phases require them. Do not call it for skills already loaded in this conversation.',
             schema: z.object({
                 skill_id: z.string().describe('The skill id (slug) exactly as listed in the Available Skills catalog'),
             }),

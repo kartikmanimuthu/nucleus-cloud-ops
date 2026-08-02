@@ -104,7 +104,7 @@ Return only the relevant memories.`
 
         // ── Learned operating rules — distance-gated, no LLM filter ─────────
         let proceduresSection = "";
-        if (proceduralMemoryEnabled()) {
+        if (proceduralMemoryEnabled(tenantId)) {
             try {
                 const rules = await getMemoryService().recall({
                     tenantId, userId, query, kinds: ["PROCEDURAL"], limit: PROCEDURE_RECALL_LIMIT,
@@ -129,7 +129,7 @@ Return only the relevant memories.`
 
         // ── Episodic few-shot replay — distance-gated, no LLM filter ────────
         let episodesSection = "";
-        if (episodicMemoryEnabled()) {
+        if (episodicMemoryEnabled(tenantId)) {
             try {
                 const eps = await getMemoryService().recall({
                     tenantId, userId, query, kinds: ["EPISODIC"], limit: EPISODE_RECALL_LIMIT,
@@ -209,7 +209,7 @@ export function createMemorySaveNode(deps: MemoryNodeDeps) {
   Examples: how a scaling issue was resolved, successful deployment patterns
 - Error resolutions → namespace: ["errors", "<service-type>"]
   Examples: how an OOM was fixed, what caused a timeout, permission error workarounds
-` + (proceduralMemoryEnabled() ? `- Operating rules → add "kind": "PROCEDURAL", namespace: ["procedures", "<domain>"]
+` + (proceduralMemoryEnabled(tenantId) ? `- Operating rules → add "kind": "PROCEDURAL", namespace: ["procedures", "<domain>"]
   A rule for HOW the agent should behave in this environment, learned from this run.
   Extract a rule ONLY from a correction, a failure the run recovered from, or an explicit user preference about behavior.
   Shape: { "kind": "PROCEDURAL", "namespace": ["procedures", "aws-cli"], "key": "paginate-list-calls", "value": { "instruction": "Always paginate list/describe calls", "trigger": "any AWS CLI list operation", "evidence": "run truncated results and missed the target resource", "confidence": "high" } }
@@ -274,7 +274,7 @@ Extract memories to save.`
                 return { memoryStats: { phase: 'save', savedFacts: 0, savedRules: 0, episodeCaptured: false } };
             }
 
-            if (reconcileEnabled()) {
+            if (reconcileEnabled(tenantId)) {
                 console.log(`🧠 [MEMORY SAVE] Reconciling ${toSave.length} extracted facts...`);
                 const threadId = runtimeConfig?.configurable?.thread_id as string | undefined;
                 const summary = await reconcileMemories({
@@ -321,7 +321,7 @@ Extract memories to save.`
         // ── Episodic capture — independent of fact extraction; never blocks END ──
         const { plan, toolResults, errors, reflection, isComplete, iterationCount } = state;
         const threadIdForEpisode = runtimeConfig?.configurable?.thread_id as string | undefined;
-        const shouldCapture = episodicMemoryEnabled() && !!threadIdForEpisode && toolResults.length > 0;
+        const shouldCapture = episodicMemoryEnabled(tenantId) && !!threadIdForEpisode && toolResults.length > 0;
         if (shouldCapture) {
             await captureEpisode({
                 tenantId, userId, threadId: threadIdForEpisode,
@@ -331,7 +331,7 @@ Extract memories to save.`
         }
 
         // Autonomous skill synthesis — matured domains become/refresh enabled system skills (full Hermes).
-        if (proceduralMemoryEnabled()) {
+        if (proceduralMemoryEnabled(tenantId)) {
             await synthesizeDomainSkills({ tenantId, threadId: threadIdForEpisode, distillerModel: reflectorModel });
         }
 

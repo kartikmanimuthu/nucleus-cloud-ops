@@ -12,7 +12,7 @@ import {
 import type { RunState } from "@/components/agent/chat/run-state";
 import { formatTokens } from "@/lib/agent-chat/token-usage";
 
-export type TranscriptMenuAction = "export-report" | "export-md" | "export-pdf" | "copy" | "schedule" | "skill" | "clear";
+export type TranscriptMenuAction = "export-report" | "export-md" | "export-pdf" | "copy" | "schedule" | "skill" | "settings" | "clear";
 
 export interface TranscriptHeaderProps {
   title: string;
@@ -52,6 +52,7 @@ const MENU_ITEMS: Array<{ action: TranscriptMenuAction; label: string }> = [
   { action: "copy", label: "Copy" },
   { action: "schedule", label: "Convert to scheduled task" },
   { action: "skill", label: "Save as skill" },
+  { action: "settings", label: "AI Ops settings" },
   { action: "clear", label: "Clear" },
 ];
 

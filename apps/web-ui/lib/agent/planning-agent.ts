@@ -36,6 +36,12 @@ import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 import { prepareContext, buildWorkingMemorySection, estimateTokens } from "./memory/working-memory";
 import { createGuardNode } from "./guard";
 import { routeAfterGuard } from "./gate-routing";
+import { recordNodeTiming } from "./run-timings";
+import { getAiopsFeatures, resolveAiopsFeatures } from "./aiops-features";
+import { resolveSubagentBudget } from "./subagent-budget";
+import { createRunBudgetLedger, createDispatchAgentTool } from "./dispatch-agent-tool";
+import { filterReadOnlyTools } from "./subagent";
+import { createAwsReadTool } from "./aws-read-tool";
 
 const PLAN_STATUSES = new Set<PlanStep['status']>(['completed', 'in_progress', 'pending', 'failed']);
 
@@ -194,7 +200,9 @@ export async function createReflectionGraph(config: GraphConfig) {
     // Pre-fetch skill content once (tenant-scoped DB lookup). No repeated queries.
     const skillContent = selectedSkill && tenantId ? (await getSkillContent(tenantId, selectedSkill)) || '' : '';
     if (selectedSkill) {
-        console.log(skillContent ? `[PlanningAgent] Loaded skill: ${selectedSkill}` : `[PlanningAgent] No content for skill: ${selectedSkill}`);
+        // The char count is the observable proof of injection: this exact string is
+        // concatenated into the system prompt below. (LLM_AUDIT=true dumps it verbatim.)
+        console.log(skillContent ? `[PlanningAgent] Loaded skill: ${selectedSkill} (${skillContent.length.toLocaleString()} chars injected into system prompt)` : `[PlanningAgent] No content for skill: ${selectedSkill}`);
     }
 
     // Skill catalog for progressive disclosure — gated by the console "Auto
@@ -223,7 +231,38 @@ export async function createReflectionGraph(config: GraphConfig) {
 
     // --- Tool Assembly ---
     // Memory tools excluded — memory_recall and memory_save graph nodes handle memory deterministically
-    const tools = await assembleTools({ includeS3Tools: true, includeMemoryTools: false, includeSkillTool: autoLoadSkills, userId: config.userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds: config.knowledgeBaseIds });
+    // Sub-agent tools are assembled FIRST and without dispatch_agent, so the
+    // sub-agents' tool list can never contain the tool that spawns sub-agents.
+    const baseTools = await assembleTools({ includeS3Tools: true, includeMemoryTools: false, includeSkillTool: autoLoadSkills, userId: config.userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds: config.knowledgeBaseIds });
+
+    const subagentBudget = tenantId
+        ? await resolveSubagentBudget(tenantId)
+        : { enabled: false, maxConcurrentSubagents: 1, maxSubagentsPerRun: 1, maxSubagentTokensPerRun: 0, subagentMaxIterations: 2, subagentTimeoutMs: 30_000 };
+
+    // Tenant-tunable run cap (AI Ops console settings). Resolved once per graph
+    // build; MAX_ITERATIONS from agent-shared remains only as the default.
+    const maxIterations = tenantId
+        ? (await resolveAiopsFeatures(tenantId).catch(() => getAiopsFeatures(tenantId))).maxIterations
+        : MAX_ITERATIONS;
+
+    const dispatchAgentTool = subagentBudget.enabled
+        ? createDispatchAgentTool({
+            model,
+            // Sub-agents have NO shell (Task 7 Step 6). aws_read is their only
+            // route to AWS; it builds argv and runs execFile with shell: false.
+            // createAwsReadTool's return type is a DynamicStructuredTool whose
+            // `invoke` is generically typed over its own zod schema; it satisfies
+            // the runtime SubagentToolLike shape (name + invoke(args)) but not
+            // structurally, hence the cast.
+            subagentTools: [...filterReadOnlyTools(baseTools as never[]), createAwsReadTool(tenantId!, config.userId) as never],
+            ledger: createRunBudgetLedger(subagentBudget),
+            budget: subagentBudget,
+            onSubagentEvent: config.onSubagentEvent,
+        })
+        : null;
+
+    const tools = dispatchAgentTool ? [...baseTools, dispatchAgentTool] : baseTools;
+    console.log(`[PlanningAgent] Sub-agents ${subagentBudget.enabled ? `enabled (concurrency=${subagentBudget.maxConcurrentSubagents})` : 'disabled'}`);
     const modelWithTools = model.bindTools!(tools);
     const toolNode = new ToolNode(tools);
 
@@ -253,7 +292,7 @@ export async function createReflectionGraph(config: GraphConfig) {
     // ---------------------------------------------------------------------------
     // PLANNER NODE
     // ---------------------------------------------------------------------------
-    async function planNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    async function planNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         const { messages, memoryContext } = state;
         const workingMemorySection = buildWorkingMemorySection(
             state.runningSummary || (state.scratchpad?.openGoals?.length ?? 0) > 0
@@ -289,7 +328,8 @@ Work through three phases when building the plan:
 
 - The plan is INTERNAL COORDINATION. The user sees it in a progress rail — it is never part of the answer, so optimize it for execution, not for presentation.
 - Match plan depth to the request. A simple lookup or single-command request needs only 1–2 steps (credentials + the query); a conversational or no-tool request gets exactly one step: ["Answer the user's request directly"]. Only genuinely multi-phase investigations warrant 5+ steps.
-- Keep the plan SHORT: never more than 7 steps. Merge related read-only queries into a single step (e.g., one step for "inventory EC2 + RDS + EBS across regions", not one step per service per region).
+- Keep the plan SHORT: never more than 7 steps. Merge related read-only queries into a single step (e.g., one step for "inventory EC2 + RDS + EBS across regions", not one step per service per region). The executor issues the individual queries in that step as parallel tool calls, so a merged step costs no more time than a narrow one.${subagentBudget.enabled ? `
+- The executor can DELEGATE via dispatch_agent: parallel read-only sub-agents, each investigating one account/region/service in its own context and returning a compressed report. When the task fans out into per-account (or per-region/per-service) investigations that each need multiple steps (e.g. list resources, then fetch metrics per resource), write ONE plan step shaped for delegation — "Dispatch one sub-agent per account to investigate X and report Y" — instead of merging that fan-out into a direct-query step. Delegation keeps the main context small; use it whenever the fan-out exceeds ~3 independent multi-step investigations.` : ''}
 - Every step except the last must be a concrete tool action. Do NOT create steps for aggregating, analyzing, summarizing, cross-referencing, or "evaluating" data — that thinking happens inside execution, not as plan line items.
 - Do NOT add a knowledge-base search step unless the user asked for it or the task clearly depends on tenant-specific documented context.
 - The LAST step is always: compose the final answer to the user's request from the gathered data.
@@ -313,6 +353,8 @@ Only return the JSON array, nothing else.`);
         try {
             response = await model.invoke(_auditInputs_plan) as AIMessage;
             llmAuditLog('PLANNER', _auditInputs_plan, response, _auditStart_plan);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'PLANNER', Date.now() - _auditStart_plan,
+                (response as any).usage_metadata?.input_tokens ?? 0, (response as any).usage_metadata?.output_tokens ?? 0);
         } catch (err: any) {
             // A provider hiccup while planning must not abort the run — fall back to a
             // trivial single-step plan (the empty content flows through the parse fallback below).
@@ -369,7 +411,7 @@ Only return the JSON array, nothing else.`);
         const { messages, plan, iterationCount, memoryContext } = state;
 
         console.log(`\n================================================================================`);
-        console.log(`⚡ [EXECUTOR] Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
+        console.log(`⚡ [EXECUTOR] Iteration ${iterationCount + 1}/${maxIterations}`);
         console.log(`   Current Step: ${plan.find(s => s.status === 'pending')?.step || 'Executing...'}`);
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================\n`);
@@ -401,10 +443,24 @@ ${accountContext}
 
 ## Execution Discipline
 
-- Execute exactly the current step — do not skip ahead or bundle future steps into a single call.
+- Execute the current step. When that step is a handful of INDEPENDENT single-call lookups (each unit = ONE tool call, e.g. get_aws_credentials for several accounts), issue them as MULTIPLE tool calls in this single turn — they run in parallel. One call per turn for independent reads wastes minutes.${dispatchAgentTool ? ' When each unit instead needs its own multi-step investigation, delegate it — see Delegation below; do not flatten a fan-out of investigations into direct calls.' : ''}
+- Calls that DEPEND on each other must stay sequential: if call B needs call A's output (an account id, a resource id, a profile name), make call A now and call B on the next turn.
+- Never batch mutations. Issue at most ONE state-changing call per turn so each is reviewed and approved individually.
+- Do not skip ahead to later plan steps.
 - If a tool call returns an error, capture the full error message and diagnose it; do not silently suppress it.
 - If the current step is a simple question or greeting that requires no tools, answer directly and concisely.
 - If the current step has nothing to execute (empty inventory, prerequisite returned no data), move on silently — NEVER run echo or other no-op commands just to mark a step done, and never write an explanation of why there was nothing to do.
+
+${dispatchAgentTool ? `## Delegation
+
+- DELEGATE (dispatch_agent) when the current step splits into INDEPENDENT investigations — one per account, region, or service — where each unit needs SEVERAL tool calls of its own (list resources, then fetch metrics/details per resource). Emit several dispatch_agent calls in THIS turn; they run in parallel and each returns a compressed report. BATCH direct tool calls instead only when each unit is a single call.
+- Write each sub-agent brief so it stands completely alone: it sees none of this conversation, so spell out account ids, regions, time windows, and what the report must contain.
+- Sub-agents have NO shell. Never put CLI command lines, --profile flags, or shell syntax like $(date ...) in a brief. Describe goals plus aws_read service/operations (e.g. "ec2 describe-instances, then cloudwatch get-metric-statistics for CPUUtilization"); the sub-agent obtains its own credentials from the account id you give it.
+- Give every sub-agent a DISTINCT role naming its account/region/service — identical role strings make the progress cards indistinguishable.
+- Do NOT delegate work that changes state — sub-agents are read-only. Do NOT delegate a single quick lookup. Do NOT chain sub-agents; they cannot see each other's results.
+- If dispatch_agent replies that the budget is exhausted, simply do that work yourself with your own tools.` : `## Delegation
+
+- Sub-agents are DISABLED for this organization. There is no dispatch_agent tool — never reference or attempt it. Do all work yourself with your own tools, batching independent read-only calls into a single turn.`}
 
 ## Narration Discipline (critical)
 
@@ -430,6 +486,8 @@ The user sees plan progress in a UI rail — your prose must NEVER duplicate it:
         try {
             response = await modelWithTools.invoke(_auditInputs_exec) as AIMessage;
             llmAuditLog('EXECUTOR', _auditInputs_exec, response, _auditStart_exec);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'EXECUTOR', Date.now() - _auditStart_exec,
+                (response as any).usage_metadata?.input_tokens ?? 0, (response as any).usage_metadata?.output_tokens ?? 0);
         } catch (err: any) {
             // Provider error mid-step: don't crash the run. Emit a text note (no tool calls)
             // so the graph routes on to reflection/finalization with whatever was gathered.
@@ -533,12 +591,12 @@ The user sees plan progress in a UI rail — your prose must NEVER duplicate it:
     // ---------------------------------------------------------------------------
     // REFLECTOR NODE
     // ---------------------------------------------------------------------------
-    async function reflectNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    async function reflectNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         const { messages, taskDescription, iterationCount, plan, toolResults, memoryContext } = state;
 
         console.log(`\n================================================================================`);
         console.log(`🤔 [REFLECTOR] Analyzing execution results`);
-        console.log(`   Iteration: ${iterationCount}/${MAX_ITERATIONS}`);
+        console.log(`   Iteration: ${iterationCount}/${maxIterations}`);
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================`);
 
@@ -564,7 +622,7 @@ Original Task: ${taskDescription}
 Plan Status:
 ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 
-Iteration: ${iterationCount}/${MAX_ITERATIONS}
+Iteration: ${iterationCount}/${maxIterations}
 
 ## Input Notes
 
@@ -646,6 +704,8 @@ ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
         try {
             response = await reflectorModel.invoke(_auditInputs_ref);
             llmAuditLog('REFLECTOR', _auditInputs_ref, response, _auditStart_ref);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'REFLECTOR', Date.now() - _auditStart_ref,
+                (response as any).usage_metadata?.input_tokens ?? 0, (response as any).usage_metadata?.output_tokens ?? 0);
         } catch (err: any) {
             // If the reflector fails (throttle, context overflow, parse-impossible), treat the
             // work as complete and force finalization rather than aborting the whole run.
@@ -698,7 +758,7 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
 
 **Task Complete:** ${isComplete ? "✅ Yes" : "❌ No, continuing..."}`;
 
-        if (iterationCount >= MAX_ITERATIONS && !isComplete) {
+        if (iterationCount >= maxIterations && !isComplete) {
             console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached. Forcing completion.`);
             isComplete = true;
         }
@@ -757,6 +817,7 @@ Issues to Address: ${errors.join(', ') || 'None'}
 6. For errors returned by tools: diagnose the root cause (permissions, resource not found, wrong region, wrong account) and fix the underlying issue rather than retrying the same command unchanged.
 7. Do not repeat actions that the reviewer marked as correctly completed — focus only on the open issues.
 8. After fixing all issues, provide a brief summary of what was corrected and what the result now shows.
+9. When the fix requires several independent read-only re-checks, issue them as multiple tool calls in this single turn rather than one per turn.
 ${accountContext}`);
 
         const recentMessages = windowMessages;
@@ -770,6 +831,8 @@ ${accountContext}`);
         try {
             response = await modelWithTools.invoke(_auditInputs_rev) as AIMessage;
             llmAuditLog('REVISER', _auditInputs_rev, response, _auditStart_rev);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'REVISER', Date.now() - _auditStart_rev,
+                (response as any).usage_metadata?.input_tokens ?? 0, (response as any).usage_metadata?.output_tokens ?? 0);
         } catch (err: any) {
             // Provider error while revising: emit a text note (no tool calls) so the graph
             // routes back to reflection and can finalize instead of aborting.
@@ -804,7 +867,7 @@ ${accountContext}`);
     // ---------------------------------------------------------------------------
     // FINAL OUTPUT NODE
     // ---------------------------------------------------------------------------
-    async function finalNode(state: ReflectionState): Promise<Partial<ReflectionState>> {
+    async function finalNode(state: ReflectionState, runtimeConfig?: any): Promise<Partial<ReflectionState>> {
         const { taskDescription, toolResults } = state;
 
         console.log(`\n================================================================================`);
@@ -869,6 +932,8 @@ ${groundingRule}`);
         try {
             const summaryResponse = await model.invoke(_auditInputs_fin);
             llmAuditLog('FINAL', _auditInputs_fin, summaryResponse, _auditStart_fin);
+            recordNodeTiming(runtimeConfig?.configurable?.thread_id, 'FINAL', Date.now() - _auditStart_fin,
+                (summaryResponse as any).usage_metadata?.input_tokens ?? 0, (summaryResponse as any).usage_metadata?.output_tokens ?? 0);
             summaryContent = contentToText(summaryResponse.content);
         } catch (err: any) {
             // A finalize failure must never crash the run — assemble a best-effort answer

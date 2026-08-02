@@ -5,13 +5,14 @@ import { getRecentMessages, contentToText } from '../agent-shared';
 import type { ReflectionState } from '../agent-shared';
 import type { Scratchpad, WorkingMemory } from './types';
 import { getMemoryService } from './memory-service';
+import { getAiopsFeatures } from '../aiops-features';
 
 // Working-memory configuration. Read process.env directly (not the typed `env`
 // object) so Vitest can mutate values per-test — env.ts skips validation under
 // NODE_ENV==='test' but caches at import time.
-export function workingMemoryEnabled(): boolean {
-    const v = process.env.WORKING_MEMORY_ENABLED?.toLowerCase();
-    return !(v === 'false' || v === '0');
+export function workingMemoryEnabled(tenantId?: string): boolean {
+    // Tenant setting (AI Ops console -> settings), default on. No env dependency.
+    return getAiopsFeatures(tenantId).workingMemoryEnabled;
 }
 
 // Legacy default when neither an env override nor a model-derived budget is available.
@@ -179,7 +180,7 @@ export async function prepareContext(
     const { messages } = state;
 
     // Disabled → identical to legacy behavior.
-    if (!workingMemoryEnabled()) {
+    if (!workingMemoryEnabled(deps.tenantId)) {
         return {
             windowMessages: getRecentMessages(messages, fallbackWindow),
             workingMemorySection: '',

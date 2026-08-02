@@ -6,6 +6,10 @@ vi.mock('@/lib/skill-service', () => ({
 }));
 vi.mock('./model-factory', () => ({ createAgentModels: vi.fn() }));
 vi.mock('./auto-skill-select', () => ({ autoSelectSkill: vi.fn() }));
+// triageChatMessage resolves the tenant's AI Ops feature settings fresh on every
+// call; stub the store so tests control the chat-triage toggle.
+vi.mock('@/lib/tenant-config-service', () => ({ TenantConfigService: { getConfig: vi.fn() } }));
+import { TenantConfigService } from '@/lib/tenant-config-service';
 
 import { getSkillSummaries, getSkillById } from '@/lib/skill-service';
 import { createAgentModels } from './model-factory';
@@ -21,13 +25,13 @@ beforeEach(() => {
     vi.mocked(getSkillSummaries).mockResolvedValue(CATALOG);
     vi.mocked(getSkillById).mockResolvedValue({ id: 'cost-analyser', name: 'Cost Analyser', description: 'analyses spend', tier: 'read-only' } as any);
 });
-afterEach(() => { delete process.env.CHAT_TRIAGE_ENABLED; });
+import { DEFAULT_FEATURES, primeAiopsFeaturesCache } from './aiops-features';
 
 describe('chatTriageEnabled', () => {
-    it('defaults true; false disables', () => {
+    it('defaults true; tenant setting false disables', () => {
         expect(chatTriageEnabled()).toBe(true);
-        process.env.CHAT_TRIAGE_ENABLED = 'false';
-        expect(chatTriageEnabled()).toBe(false);
+        primeAiopsFeaturesCache('t-triage-off', { ...DEFAULT_FEATURES, chatTriageEnabled: false });
+        expect(chatTriageEnabled('t-triage-off')).toBe(false);
     });
 });
 
@@ -97,7 +101,7 @@ describe('triageChatMessage', () => {
     });
 
     it('kill-switch: falls back to legacy autoSelectSkill with route task', async () => {
-        process.env.CHAT_TRIAGE_ENABLED = 'false';
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({ chatTriageEnabled: false } as never);
         vi.mocked(autoSelectSkill).mockResolvedValue({ slug: 'cost-analyser', reasoning: 'legacy' });
         const res = await triageChatMessage(base);
         expect(res).toEqual({ route: 'task', skillId: 'cost-analyser', reasoning: 'legacy' });
@@ -105,7 +109,7 @@ describe('triageChatMessage', () => {
     });
 
     it('kill-switch + preselected skill: pure task fallback, no LLM calls', async () => {
-        process.env.CHAT_TRIAGE_ENABLED = 'false';
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({ chatTriageEnabled: false } as never);
         const res = await triageChatMessage({ ...base, skillAlreadySelected: true });
         expect(res.route).toBe('task');
         expect(vi.mocked(autoSelectSkill)).not.toHaveBeenCalled();
