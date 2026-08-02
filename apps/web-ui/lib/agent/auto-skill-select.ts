@@ -24,7 +24,7 @@ export async function autoSelectSkill(params: {
         const sys = new SystemMessage(
             `You select the single most relevant skill for a user request, or none.\n\n${catalog}\n\n` +
             `Return ONLY a JSON object: {"skillId": "<slug>" | null, "reasoning": "<one short line>"}\n` +
-            `Rules: pick a skill ONLY when the request clearly matches its description. When in doubt, return null.`,
+            `Rules: selecting a skill is the DEFAULT. Match on the request's domain (cost, EC2, Jira, security, …), not exact wording — a skill whose description covers the task's subject area is a match. Return null ONLY when nothing in the catalog is even loosely related.`,
         );
         const resp = await reflector.invoke([sys, new HumanMessage(params.message.slice(0, 4000))]);
         const content = contentToText(resp.content);

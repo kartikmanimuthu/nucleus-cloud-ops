@@ -37,6 +37,7 @@ import { prepareContext, buildWorkingMemorySection, estimateTokens } from "./mem
 import { createGuardNode } from "./guard";
 import { routeAfterGuard } from "./gate-routing";
 import { recordNodeTiming } from "./run-timings";
+import { getAiopsFeatures, resolveAiopsFeatures } from "./aiops-features";
 import { resolveSubagentBudget } from "./subagent-budget";
 import { createRunBudgetLedger, createDispatchAgentTool } from "./dispatch-agent-tool";
 import { filterReadOnlyTools } from "./subagent";
@@ -199,7 +200,9 @@ export async function createReflectionGraph(config: GraphConfig) {
     // Pre-fetch skill content once (tenant-scoped DB lookup). No repeated queries.
     const skillContent = selectedSkill && tenantId ? (await getSkillContent(tenantId, selectedSkill)) || '' : '';
     if (selectedSkill) {
-        console.log(skillContent ? `[PlanningAgent] Loaded skill: ${selectedSkill}` : `[PlanningAgent] No content for skill: ${selectedSkill}`);
+        // The char count is the observable proof of injection: this exact string is
+        // concatenated into the system prompt below. (LLM_AUDIT=true dumps it verbatim.)
+        console.log(skillContent ? `[PlanningAgent] Loaded skill: ${selectedSkill} (${skillContent.length.toLocaleString()} chars injected into system prompt)` : `[PlanningAgent] No content for skill: ${selectedSkill}`);
     }
 
     // Skill catalog for progressive disclosure — gated by the console "Auto
@@ -235,6 +238,12 @@ export async function createReflectionGraph(config: GraphConfig) {
     const subagentBudget = tenantId
         ? await resolveSubagentBudget(tenantId)
         : { enabled: false, maxConcurrentSubagents: 1, maxSubagentsPerRun: 1, maxSubagentTokensPerRun: 0, subagentMaxIterations: 2, subagentTimeoutMs: 30_000 };
+
+    // Tenant-tunable run cap (AI Ops console settings). Resolved once per graph
+    // build; MAX_ITERATIONS from agent-shared remains only as the default.
+    const maxIterations = tenantId
+        ? (await resolveAiopsFeatures(tenantId).catch(() => getAiopsFeatures(tenantId))).maxIterations
+        : MAX_ITERATIONS;
 
     const dispatchAgentTool = subagentBudget.enabled
         ? createDispatchAgentTool({
@@ -319,7 +328,8 @@ Work through three phases when building the plan:
 
 - The plan is INTERNAL COORDINATION. The user sees it in a progress rail — it is never part of the answer, so optimize it for execution, not for presentation.
 - Match plan depth to the request. A simple lookup or single-command request needs only 1–2 steps (credentials + the query); a conversational or no-tool request gets exactly one step: ["Answer the user's request directly"]. Only genuinely multi-phase investigations warrant 5+ steps.
-- Keep the plan SHORT: never more than 7 steps. Merge related read-only queries into a single step (e.g., one step for "inventory EC2 + RDS + EBS across regions", not one step per service per region). The executor issues the individual queries in that step as parallel tool calls, so a merged step costs no more time than a narrow one.
+- Keep the plan SHORT: never more than 7 steps. Merge related read-only queries into a single step (e.g., one step for "inventory EC2 + RDS + EBS across regions", not one step per service per region). The executor issues the individual queries in that step as parallel tool calls, so a merged step costs no more time than a narrow one.${subagentBudget.enabled ? `
+- The executor can DELEGATE via dispatch_agent: parallel read-only sub-agents, each investigating one account/region/service in its own context and returning a compressed report. When the task fans out into per-account (or per-region/per-service) investigations that each need multiple steps (e.g. list resources, then fetch metrics per resource), write ONE plan step shaped for delegation — "Dispatch one sub-agent per account to investigate X and report Y" — instead of merging that fan-out into a direct-query step. Delegation keeps the main context small; use it whenever the fan-out exceeds ~3 independent multi-step investigations.` : ''}
 - Every step except the last must be a concrete tool action. Do NOT create steps for aggregating, analyzing, summarizing, cross-referencing, or "evaluating" data — that thinking happens inside execution, not as plan line items.
 - Do NOT add a knowledge-base search step unless the user asked for it or the task clearly depends on tenant-specific documented context.
 - The LAST step is always: compose the final answer to the user's request from the gathered data.
@@ -401,7 +411,7 @@ Only return the JSON array, nothing else.`);
         const { messages, plan, iterationCount, memoryContext } = state;
 
         console.log(`\n================================================================================`);
-        console.log(`⚡ [EXECUTOR] Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
+        console.log(`⚡ [EXECUTOR] Iteration ${iterationCount + 1}/${maxIterations}`);
         console.log(`   Current Step: ${plan.find(s => s.status === 'pending')?.step || 'Executing...'}`);
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================\n`);
@@ -433,7 +443,7 @@ ${accountContext}
 
 ## Execution Discipline
 
-- Execute the current step. When that step covers several INDEPENDENT read-only lookups (different accounts, regions, or services), issue them as MULTIPLE tool calls in this single turn — they run in parallel. One call per turn for independent reads wastes minutes.
+- Execute the current step. When that step is a handful of INDEPENDENT single-call lookups (each unit = ONE tool call, e.g. get_aws_credentials for several accounts), issue them as MULTIPLE tool calls in this single turn — they run in parallel. One call per turn for independent reads wastes minutes.${dispatchAgentTool ? ' When each unit instead needs its own multi-step investigation, delegate it — see Delegation below; do not flatten a fan-out of investigations into direct calls.' : ''}
 - Calls that DEPEND on each other must stay sequential: if call B needs call A's output (an account id, a resource id, a profile name), make call A now and call B on the next turn.
 - Never batch mutations. Issue at most ONE state-changing call per turn so each is reviewed and approved individually.
 - Do not skip ahead to later plan steps.
@@ -441,12 +451,16 @@ ${accountContext}
 - If the current step is a simple question or greeting that requires no tools, answer directly and concisely.
 - If the current step has nothing to execute (empty inventory, prerequisite returned no data), move on silently — NEVER run echo or other no-op commands just to mark a step done, and never write an explanation of why there was nothing to do.
 
-## Delegation
+${dispatchAgentTool ? `## Delegation
 
-- When the current step splits into INDEPENDENT investigations — one per account, region, or service — emit several dispatch_agent calls in THIS turn. They run in parallel and each returns a compressed report.
+- DELEGATE (dispatch_agent) when the current step splits into INDEPENDENT investigations — one per account, region, or service — where each unit needs SEVERAL tool calls of its own (list resources, then fetch metrics/details per resource). Emit several dispatch_agent calls in THIS turn; they run in parallel and each returns a compressed report. BATCH direct tool calls instead only when each unit is a single call.
 - Write each sub-agent brief so it stands completely alone: it sees none of this conversation, so spell out account ids, regions, time windows, and what the report must contain.
+- Sub-agents have NO shell. Never put CLI command lines, --profile flags, or shell syntax like $(date ...) in a brief. Describe goals plus aws_read service/operations (e.g. "ec2 describe-instances, then cloudwatch get-metric-statistics for CPUUtilization"); the sub-agent obtains its own credentials from the account id you give it.
+- Give every sub-agent a DISTINCT role naming its account/region/service — identical role strings make the progress cards indistinguishable.
 - Do NOT delegate work that changes state — sub-agents are read-only. Do NOT delegate a single quick lookup. Do NOT chain sub-agents; they cannot see each other's results.
-- If dispatch_agent replies that the budget is exhausted, simply do that work yourself with your own tools.
+- If dispatch_agent replies that the budget is exhausted, simply do that work yourself with your own tools.` : `## Delegation
+
+- Sub-agents are DISABLED for this organization. There is no dispatch_agent tool — never reference or attempt it. Do all work yourself with your own tools, batching independent read-only calls into a single turn.`}
 
 ## Narration Discipline (critical)
 
@@ -582,7 +596,7 @@ The user sees plan progress in a UI rail — your prose must NEVER duplicate it:
 
         console.log(`\n================================================================================`);
         console.log(`🤔 [REFLECTOR] Analyzing execution results`);
-        console.log(`   Iteration: ${iterationCount}/${MAX_ITERATIONS}`);
+        console.log(`   Iteration: ${iterationCount}/${maxIterations}`);
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================`);
 
@@ -608,7 +622,7 @@ Original Task: ${taskDescription}
 Plan Status:
 ${plan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}
 
-Iteration: ${iterationCount}/${MAX_ITERATIONS}
+Iteration: ${iterationCount}/${maxIterations}
 
 ## Input Notes
 
@@ -744,7 +758,7 @@ ${suggestions !== "None" ? `💡 **Suggestions:** ${suggestions}` : ""}
 
 **Task Complete:** ${isComplete ? "✅ Yes" : "❌ No, continuing..."}`;
 
-        if (iterationCount >= MAX_ITERATIONS && !isComplete) {
+        if (iterationCount >= maxIterations && !isComplete) {
             console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached. Forcing completion.`);
             isComplete = true;
         }

@@ -33,9 +33,15 @@ import { createMemoryRecallNode, createMemorySaveNode } from "./memory-nodes";
 import { prepareContext, buildWorkingMemorySection } from "./memory/working-memory";
 import { createGuardNode } from "./guard";
 import { routeAfterGuard } from "./gate-routing";
+import { getAiopsFeatures, resolveAiopsFeatures } from './aiops-features';
 
 // --- FAST GRAPH (Reflection Agent Mode) ---
 export async function createFastGraph(config: GraphConfig) {
+    // Tenant-tunable run cap (AI Ops console settings) — same knob as the
+    // planning agent; MAX_ITERATIONS is only the default.
+    const maxIterations = config.tenantId
+        ? (await resolveAiopsFeatures(config.tenantId).catch(() => getAiopsFeatures(config.tenantId))).maxIterations
+        : MAX_ITERATIONS;
     const { model: modelConfig, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId } = config;
     const modelId = modelConfig.modelId;
     const checkpointer = await getCheckpointer();
@@ -45,7 +51,9 @@ export async function createFastGraph(config: GraphConfig) {
     // prompt and reused by the reflector below — no repeated queries.
     const skillContent = selectedSkill && tenantId ? (await getSkillContent(tenantId, selectedSkill)) || '' : '';
     if (selectedSkill) {
-        console.log(skillContent ? `[FastAgent] Loaded skill: ${selectedSkill}` : `[FastAgent] No content for skill: ${selectedSkill}`);
+        // The char count is the observable proof of injection: this exact string is
+        // concatenated into the system prompt below. (LLM_AUDIT=true dumps it verbatim.)
+        console.log(skillContent ? `[FastAgent] Loaded skill: ${selectedSkill} (${skillContent.length.toLocaleString()} chars injected into system prompt)` : `[FastAgent] No content for skill: ${selectedSkill}`);
     }
     // Skill catalog for progressive disclosure — gated by the console "Auto
     // skills" toggle (default on). The zero-skill sentinel string must not leak
@@ -97,7 +105,7 @@ export async function createFastGraph(config: GraphConfig) {
         const { messages, iterationCount, memoryContext } = state;
 
         console.log(`\n================================================================================`);
-        console.log(`🚀 [FAST AGENT] Generator Iteration ${iterationCount + 1}/${MAX_ITERATIONS}`);
+        console.log(`🚀 [FAST AGENT] Generator Iteration ${iterationCount + 1}/${maxIterations}`);
         console.log(`   Model: ${modelId}`);
         console.log(`================================================================================\n`);
 
@@ -298,14 +306,14 @@ Please narrow the question or ask me to continue from here.`;
         const hasPendingToolCalls = !!(lastMessage.tool_calls && lastMessage.tool_calls.length > 0);
 
         // Hard cap FIRST — prevents unbounded loops when model keeps generating tool_calls
-        if (iterationCount >= MAX_ITERATIONS) {
+        if (iterationCount >= maxIterations) {
             // If the model still wants tools, they will not run — synthesize a final answer
             // so the user never gets an empty response and we never persist an orphaned tool_use.
             if (hasPendingToolCalls) {
-                console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached with pending tool calls. Synthesizing final answer.`);
+                console.log(`⚠️ Max iterations (${maxIterations}) reached with pending tool calls. Synthesizing final answer.`);
                 return "finalize";
             }
-            console.log(`⚠️ Max iterations (${MAX_ITERATIONS}) reached. Stopping.`);
+            console.log(`⚠️ Max iterations (${maxIterations}) reached. Stopping.`);
             return "memory_save";
         }
 
