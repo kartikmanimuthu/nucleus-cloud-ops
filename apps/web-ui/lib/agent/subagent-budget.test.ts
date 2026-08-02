@@ -23,9 +23,11 @@ afterEach(() => {
 });
 
 describe('platformSubagentsEnabled', () => {
-    it('is false unless SUBAGENTS_ENABLED is exactly "true"', () => {
+    // The feature is UI-driven: no env var is required to turn it on. The env
+    // var survives only as an emergency deployment-wide OFF.
+    it('is true by default and false only when SUBAGENTS_ENABLED is exactly "false"', () => {
         delete process.env.SUBAGENTS_ENABLED;
-        expect(platformSubagentsEnabled()).toBe(false);
+        expect(platformSubagentsEnabled()).toBe(true);
         process.env.SUBAGENTS_ENABLED = 'false';
         expect(platformSubagentsEnabled()).toBe(false);
         process.env.SUBAGENTS_ENABLED = 'true';

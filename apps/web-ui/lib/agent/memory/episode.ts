@@ -16,15 +16,16 @@ import { contentToText } from '../agent-shared';
 import { getMemoryService } from './memory-service';
 import { compressToolOutput } from './working-memory';
 import type { EpisodicValue } from './types';
+import { getAiopsFeatures } from '../aiops-features';
 
 export const EPISODE_RECALL_LIMIT = 2;
 // Looser than reconcile's 0.55 — an ANALOGOUS past experience is useful even
 // when not near-identical. Initial guess — tune from recall logs.
 export const EPISODE_DISTANCE_THRESHOLD = 0.65;
 
-export function episodicMemoryEnabled(): boolean {
-    const v = process.env.EPISODIC_MEMORY_ENABLED?.toLowerCase();
-    return !(v === 'false' || v === '0');
+export function episodicMemoryEnabled(tenantId?: string): boolean {
+    // Tenant setting (AI Ops console -> settings), default on. No env dependency.
+    return getAiopsFeatures(tenantId).episodicMemoryEnabled;
 }
 
 export interface CaptureEpisodeParams {
@@ -57,7 +58,7 @@ If the run was routine or unremarkable (simple lookups, trivial queries), return
 );
 
 export async function captureEpisode(p: CaptureEpisodeParams): Promise<boolean> {
-    if (!episodicMemoryEnabled()) return false;
+    if (!episodicMemoryEnabled(p.tenantId)) return false;
     try {
         const toolSummary = p.toolResults
             .map((t) => `- ${t.toolName} [${t.isError ? 'ERROR' : 'OK'}]: ${compressToolOutput(t.output, 400)}`)

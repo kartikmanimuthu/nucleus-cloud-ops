@@ -13,6 +13,14 @@ import {
     resolveSubagentBudget,
     validateBudgetInput,
 } from '@/lib/agent/subagent-budget';
+import {
+    AIOPS_FEATURES_KEY,
+    FEATURE_BOUNDS,
+    clampFeatures,
+    resolveAiopsFeatures,
+    validateFeaturesInput,
+    primeAiopsFeaturesCache,
+} from '@/lib/agent/aiops-features';
 
 export async function GET() {
     console.log('API - GET /api/settings/aiops - Fetching sub-agent budget');
@@ -27,6 +35,7 @@ export async function GET() {
         }
 
         const budget = await resolveSubagentBudget(tenantId);
+        const features = await resolveAiopsFeatures(tenantId);
 
         return NextResponse.json({
             success: true,
@@ -36,6 +45,8 @@ export async function GET() {
                 // ceiling is what it is rather than silently clipping input.
                 bounds: BUDGET_BOUNDS,
                 platformEnabled: platformSubagentsEnabled(),
+                features,
+                featureBounds: FEATURE_BOUNDS,
             },
         });
     } catch (error) {
@@ -60,6 +71,38 @@ export async function PUT(request: NextRequest) {
         }
 
         const body = await request.json();
+
+        // { features: {...} } saves the feature flags; a budget-shaped body keeps
+        // the original sub-agent semantics (backward compatible).
+        if (body && typeof body === 'object' && 'features' in body) {
+            const featError = validateFeaturesInput(body.features);
+            if (featError) {
+                return NextResponse.json({ success: false, error: featError }, { status: 400 });
+            }
+            const features = clampFeatures(body.features);
+            const session = await getServerSession(authOptions);
+            const updatedBy = session?.user?.email || 'api-user';
+            await TenantConfigService.saveConfig(AIOPS_FEATURES_KEY, features, tenantId, updatedBy);
+            // Apply immediately on this replica; others converge within the cache TTL.
+            primeAiopsFeaturesCache(tenantId, features);
+            await AuditService.logUserAction({
+                eventType: 'aiops.features.settings.updated',
+                severity: 'medium',
+                apiRoute: 'PUT /api/settings/aiops',
+                httpMethod: 'PUT',
+                action: 'Update AI Ops Feature Settings',
+                resourceType: 'settings',
+                resourceId: AIOPS_FEATURES_KEY,
+                resourceName: 'AI Ops Features',
+                user: updatedBy,
+                userType: 'user',
+                status: 'success',
+                details: `triage=${features.chatTriageEnabled} workingMem=${features.workingMemoryEnabled} episodic=${features.episodicMemoryEnabled} procedural=${features.proceduralMemoryEnabled} reconcile=${features.memoryReconcileEnabled} autoSkill=${features.autoSkillCreationEnabled} minRules=${features.skillSynthesisMinRules} maxIterations=${features.maxIterations}`,
+                tenantId,
+            });
+            return NextResponse.json({ success: true, data: { features } });
+        }
+
         const validationError = validateBudgetInput(body);
         if (validationError) {
             return NextResponse.json({ success: false, error: validationError }, { status: 400 });

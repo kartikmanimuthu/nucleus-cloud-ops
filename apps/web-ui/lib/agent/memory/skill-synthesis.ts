@@ -16,20 +16,19 @@ import { contentToText } from '../agent-shared';
 import { getPrismaClient } from '@/lib/db/pg-config';
 import { getSkillRepository } from '@/lib/db/repository-factory';
 import { getMemoryService } from './memory-service';
+import { getAiopsFeatures } from '../aiops-features';
 
-export function autoSkillCreationEnabled(): boolean {
-    const v = process.env.AUTO_SKILL_CREATION_ENABLED?.toLowerCase();
-    return !(v === 'false' || v === '0');
+export function autoSkillCreationEnabled(tenantId?: string): boolean {
+    // Tenant setting (AI Ops console -> settings), default on. No env dependency.
+    return getAiopsFeatures(tenantId).autoSkillCreationEnabled;
 }
 
-export function autoSkillMaturityThreshold(): number {
-    const n = Number(process.env.AUTO_SKILL_MATURITY_THRESHOLD);
-    return Number.isFinite(n) && n > 0 ? n : 3;
+export function autoSkillMaturityThreshold(tenantId?: string): number {
+    return getAiopsFeatures(tenantId).autoSkillMaturityThreshold;
 }
 
-export function skillSynthesisMinRules(): number {
-    const n = Number(process.env.SKILL_SYNTHESIS_MIN_RULES);
-    return Number.isFinite(n) && n > 0 ? n : 3;
+export function skillSynthesisMinRules(tenantId?: string): number {
+    return getAiopsFeatures(tenantId).skillSynthesisMinRules;
 }
 
 const MAX_EPISODES = 3;
@@ -62,11 +61,11 @@ export async function synthesizeDomainSkills(params: {
     threadId?: string;
     distillerModel: BaseChatModel;
 }): Promise<number> {
-    if (!autoSkillCreationEnabled()) return 0;
+    if (!autoSkillCreationEnabled(params.tenantId)) return 0;
     try {
         const prisma = getPrismaClient();
-        const threshold = autoSkillMaturityThreshold();
-        const minRules = skillSynthesisMinRules();
+        const threshold = autoSkillMaturityThreshold(params.tenantId);
+        const minRules = skillSynthesisMinRules(params.tenantId);
 
         // 1. Best candidate domain (tenant-bound; bare `procedures` namespaces excluded).
         const candidates = await prisma.$queryRaw<Array<{ domain: string; matured: number; pending: number }>>`

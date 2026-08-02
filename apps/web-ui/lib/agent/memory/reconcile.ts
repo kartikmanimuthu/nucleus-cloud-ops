@@ -12,15 +12,16 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { contentToText } from '../agent-shared';
 import { getMemoryService } from './memory-service';
 import type { ExtractedFact, MemoryHit, ReconcileDecision, ReconcileSummary } from './types';
+import { getAiopsFeatures } from '../aiops-features';
 
 export const RECONCILE_TOP_K = 5;
 // Cosine distance (0 = identical). Neighbors farther than this are treated as
 // unrelated and the fact goes straight to ADD. Initial guess — tune from logs.
 export const RECONCILE_DISTANCE_THRESHOLD = 0.55;
 
-export function reconcileEnabled(): boolean {
-    const v = process.env.MEMORY_RECONCILE_ENABLED?.toLowerCase();
-    return !(v === 'false' || v === '0');
+export function reconcileEnabled(tenantId?: string): boolean {
+    // Tenant setting (AI Ops console -> settings), default on. No env dependency.
+    return getAiopsFeatures(tenantId).memoryReconcileEnabled;
 }
 
 interface FactWithNeighbors {

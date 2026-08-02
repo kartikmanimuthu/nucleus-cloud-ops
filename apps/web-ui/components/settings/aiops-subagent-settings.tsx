@@ -140,8 +140,10 @@ export function AiopsSubagentSettings() {
       {!platformEnabled && (
         <Alert>
           <AlertDescription>
-            Sub-agents are disabled for this deployment, so these settings are read-only. An
-            administrator must enable the feature before they can be changed.
+            Sub-agents are switched off for this whole deployment by the emergency kill-switch
+            (SUBAGENTS_ENABLED=false), so these settings are read-only until an administrator
+            removes it. In normal operation no environment variable is needed — the toggle
+            below is the only control.
           </AlertDescription>
         </Alert>
       )}

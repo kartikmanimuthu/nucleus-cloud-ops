@@ -35,13 +35,13 @@ beforeEach(() => {
     mockSvc.reinforce.mockResolvedValue(undefined);
     vi.mocked(getMemoryService).mockReturnValue(mockSvc as any);
 });
-afterEach(() => { delete process.env.MEMORY_RECONCILE_ENABLED; });
+import { DEFAULT_FEATURES, primeAiopsFeaturesCache } from '../aiops-features';
 
 describe('reconcileEnabled', () => {
-    it('defaults true; false/0 disable', () => {
+    it('defaults true; tenant setting false disables', () => {
         expect(reconcileEnabled()).toBe(true);
-        process.env.MEMORY_RECONCILE_ENABLED = 'false';
-        expect(reconcileEnabled()).toBe(false);
+        primeAiopsFeaturesCache('t-rec-off', { ...DEFAULT_FEATURES, memoryReconcileEnabled: false });
+        expect(reconcileEnabled('t-rec-off')).toBe(false);
     });
 });
 

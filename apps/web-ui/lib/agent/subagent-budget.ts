@@ -11,8 +11,9 @@
  * Clamping runs on READ (not only on write) so lowering a ceiling retroactively
  * binds config rows written while it was higher.
  *
- * SUBAGENTS_ENABLED is an absolute platform kill-switch: tenant config can
- * never re-enable the feature when it is off.
+ * SUBAGENTS_ENABLED=false is an emergency platform kill-switch: tenant config
+ * can never re-enable the feature while it is set. Unset means enabled — the
+ * per-tenant UI toggle is the normal control.
  */
 import { TenantConfigService } from '@/lib/tenant-config-service';
 
@@ -53,9 +54,14 @@ function ceilingFor(key: NumericKey): number {
     return Math.min(spec.max, Math.round(fromEnv));
 }
 
-/** Absolute platform kill-switch. Defaults to OFF. */
+/**
+ * Emergency platform kill-switch. Sub-agents are UI-driven: each tenant's
+ * toggle in the AI Ops settings decides, and no env var is required. Setting
+ * SUBAGENTS_ENABLED=false disables the feature deployment-wide regardless of
+ * tenant config — an ops brake for a shared-ECS incident, not a launch gate.
+ */
 export function platformSubagentsEnabled(): boolean {
-    return process.env.SUBAGENTS_ENABLED === 'true';
+    return process.env.SUBAGENTS_ENABLED !== 'false';
 }
 
 export function clampBudget(input: Partial<SubagentBudgetConfig> | null): SubagentBudgetConfig {

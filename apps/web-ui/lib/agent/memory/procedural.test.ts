@@ -4,13 +4,13 @@ import {
     PROCEDURE_RECALL_LIMIT, PROCEDURE_DISTANCE_THRESHOLD,
 } from './procedural';
 
-afterEach(() => { delete process.env.PROCEDURAL_MEMORY_ENABLED; });
+import { DEFAULT_FEATURES, primeAiopsFeaturesCache } from '../aiops-features';
 
 describe('proceduralMemoryEnabled', () => {
-    it('defaults true; false/0 disable', () => {
+    it('defaults true; tenant setting false disables', () => {
         expect(proceduralMemoryEnabled()).toBe(true);
-        process.env.PROCEDURAL_MEMORY_ENABLED = 'false';
-        expect(proceduralMemoryEnabled()).toBe(false);
+        primeAiopsFeaturesCache('t-proc-off', { ...DEFAULT_FEATURES, proceduralMemoryEnabled: false });
+        expect(proceduralMemoryEnabled('t-proc-off')).toBe(false);
     });
 });
 

@@ -17,11 +17,25 @@ export interface SubagentBudget {
 
 export interface SubagentBound { min: number; max: number; default: number }
 
+export interface AiopsFeatureConfig {
+    chatTriageEnabled: boolean;
+    workingMemoryEnabled: boolean;
+    episodicMemoryEnabled: boolean;
+    proceduralMemoryEnabled: boolean;
+    memoryReconcileEnabled: boolean;
+    autoSkillCreationEnabled: boolean;
+    autoSkillMaturityThreshold: number;
+    skillSynthesisMinRules: number;
+    maxIterations: number;
+}
+
 export interface AiopsSubagentSettings {
     budget: SubagentBudget;
     bounds: Record<keyof Omit<SubagentBudget, 'enabled'>, SubagentBound>;
     /** False when SUBAGENTS_ENABLED is off for the whole deployment. */
     platformEnabled: boolean;
+    features: AiopsFeatureConfig;
+    featureBounds: Record<'autoSkillMaturityThreshold' | 'skillSynthesisMinRules' | 'maxIterations', SubagentBound>;
 }
 
 export function useAiopsSubagentSettings() {
@@ -52,6 +66,25 @@ export function useSaveAiopsSubagentSettings() {
                 throw new Error(json.error || 'Failed to save AI Ops settings');
             }
             return json.data.budget as SubagentBudget;
+        },
+        onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.aiopsSettings.all }),
+    });
+}
+
+export function useSaveAiopsFeatureSettings() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async (features: AiopsFeatureConfig): Promise<AiopsFeatureConfig> => {
+            const res = await fetch('/api/settings/aiops', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ features }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || !json.success) {
+                throw new Error(json.error || 'Failed to save AI Ops settings');
+            }
+            return json.data.features as AiopsFeatureConfig;
         },
         onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.aiopsSettings.all }),
     });
