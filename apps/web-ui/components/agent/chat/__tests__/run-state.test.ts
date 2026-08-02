@@ -356,3 +356,33 @@ describe('deriveRunState — usedSubagents', () => {
         expect(state.usedSubagents).toBe(false);
     });
 });
+
+// startedAt must be STICKY (first part's ts survives later updates — otherwise the
+// elapsed timer restarts on every progress tick) and lastTool must track the
+// latest part so the card's action line stays current.
+describe('deriveRunState sub-agent live details', () => {
+    const partFor = (data: Record<string, unknown>) => ({
+        role: 'assistant',
+        parts: [{ type: 'data-subagent', data }],
+    });
+
+    it('keeps the first ts as startedAt across updates and tracks lastTool', () => {
+        const base = { id: 'sa-1', role: 'r', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 };
+        const state = deriveRunState([
+            partFor({ ...base, ts: 1000 }),
+            partFor({ ...base, ts: 2000, toolCount: 2, lastTool: 'aws_read' }),
+            partFor({ ...base, ts: 3000, toolCount: 4, lastTool: 'get_aws_credentials' }),
+        ] as any, new Set());
+        expect(state.subagents).toHaveLength(1);
+        expect(state.subagents[0].startedAt).toBe(1000);
+        expect(state.subagents[0].lastTool).toBe('get_aws_credentials');
+        expect(state.subagents[0].toolCount).toBe(4);
+    });
+
+    it('leaves startedAt undefined when no part carried a ts (old streams)', () => {
+        const state = deriveRunState([
+            partFor({ id: 'sa-1', role: 'r', task: 't', status: 'running', toolCount: 0, tokensIn: 0, tokensOut: 0 }),
+        ] as any, new Set());
+        expect(state.subagents[0].startedAt).toBeUndefined();
+    });
+});

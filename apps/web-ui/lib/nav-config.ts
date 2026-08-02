@@ -36,6 +36,8 @@ export const navMenus: NavItem[] = [
       { title: "Ask", href: "/app/knowledge-base/ask" },
       { title: "Skills", href: "/app/skills" },
       { title: "MCP Servers", href: "/app/agent-ops/mcp-settings" },
+      // Sub-agent settings deliberately have no nav entry: they open from the
+      // AI Ops console's header menu ("AI Ops settings"), where they are used.
       // LLM providers power the agents — grouped with Agentic Ops, not Settings.
       { title: "Providers", href: "/app/settings/providers" },
     ],

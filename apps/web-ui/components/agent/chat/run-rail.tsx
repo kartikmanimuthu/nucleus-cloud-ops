@@ -7,7 +7,12 @@ import { Plan, PlanContent, PlanStep } from "@/components/ai-elements/plan";
 import { Spinner } from "@/components/ui/spinner";
 import { SubagentCard } from "./subagent-card";
 import { useSubagentRuns } from "@/lib/queries/subagents";
+import { useAiopsSubagentSettings } from "@/lib/queries/aiops-settings";
 import type { RunState, SubagentState } from "./run-state";
+
+function formatTokensCompact(n: number): string {
+  return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+}
 
 const PHASE_LABELS: Record<string, string> = {
   planning: "Planning", execution: "Executing", reflection: "Reflecting",
@@ -60,23 +65,59 @@ export function RunRail({
   const { plan, currentPhase, pendingApproval, pendingClarifications } = runState;
 
   // A reloaded thread has no data-subagent parts (they are not persisted), so the
-  // cards are rebuilt from agent_subagent_runs. Only fetched when the thread is
-  // known to have fanned out — a persisted dispatch_agent tool call — and only when
-  // there is no live state to prefer.
-  const needsPersistedSubagents = runState.usedSubagents && runState.subagents.length === 0;
+  // cards are rebuilt from agent_subagent_runs. Fetched in two cases:
+  //  - reload: the thread fanned out (persisted dispatch_agent call) but there is
+  //    no live card state at all;
+  //  - stream death: the stream ended while a card still says "running". The
+  //    terminal event was persisted by the server but never reached this client,
+  //    so without reconciliation the spinner spins forever on a dead run.
+  const hasStaleRunning = !isStreaming && runState.subagents.some((s) => s.status === "running");
+  const needsPersistedSubagents = runState.usedSubagents && (runState.subagents.length === 0 || hasStaleRunning);
   const { data: persistedRuns } = useSubagentRuns(threadId, needsPersistedSubagents);
-  const subagents: SubagentState[] = needsPersistedSubagents
-    ? (persistedRuns ?? []).map((run) => ({
-        id: run.subagentId,
-        role: run.role,
-        task: run.task,
-        status: run.status === "done" || run.status === "failed" ? run.status : "running",
-        toolCount: run.toolCount,
-        tokensIn: run.tokensIn,
-        tokensOut: run.tokensOut,
-        ...(run.summary ? { summary: run.summary } : {}),
-      }))
-    : runState.subagents;
+
+  let subagents: SubagentState[];
+  if (runState.subagents.length === 0) {
+    subagents = needsPersistedSubagents
+      ? (persistedRuns ?? []).map((run) => ({
+          id: run.subagentId,
+          role: run.role,
+          task: run.task,
+          status: run.status === "done" || run.status === "failed" ? run.status : "running",
+          toolCount: run.toolCount,
+          tokensIn: run.tokensIn,
+          tokensOut: run.tokensOut,
+          ...(run.summary ? { summary: run.summary } : {}),
+        }))
+      : runState.subagents;
+  } else if (hasStaleRunning && persistedRuns) {
+    // Merge: a persisted TERMINAL status wins over a live "running" card; a card
+    // the store still calls running stays as-is (the store row may simply lag).
+    const byId = new Map(persistedRuns.map((r) => [r.subagentId, r]));
+    subagents = runState.subagents.map((live) => {
+      if (live.status !== "running") return live;
+      const stored = byId.get(live.id);
+      if (!stored || (stored.status !== "done" && stored.status !== "failed")) return live;
+      return {
+        ...live,
+        status: stored.status,
+        toolCount: stored.toolCount,
+        tokensIn: stored.tokensIn,
+        tokensOut: stored.tokensOut,
+        ...(stored.summary ? { summary: stored.summary } : {}),
+      };
+    });
+  } else {
+    subagents = runState.subagents;
+  }
+
+  // Budget context for the section header ("109k/400k tokens") and the
+  // enabled-but-idle signal in Context. Only fetched once the rail exists;
+  // failures degrade to plain counters.
+  const { data: aiopsSettings } = useAiopsSubagentSettings();
+  const subagentBudget = aiopsSettings?.budget;
+  const subagentTokensUsed = subagents.reduce((sum, s) => sum + s.tokensIn + s.tokensOut, 0);
+  const subagentTokenBudget = subagentBudget?.enabled ? subagentBudget.maxSubagentTokensPerRun : null;
+  const subagentsEnabled = (aiopsSettings?.platformEnabled ?? false) && (subagentBudget?.enabled ?? false);
   const done = plan.filter((s) => s.status === "completed").length;
   const mutativePending = pendingApproval?.tools.some((t) => t.guard?.isMutative) ?? false;
 
@@ -173,7 +214,7 @@ export function RunRail({
       {subagents.length > 0 && (
         <RailSection
           icon={Bot}
-          title={`Sub-agents (${subagents.filter((s) => s.status === "running").length} running)`}
+          title={`Sub-agents (${subagents.filter((s) => s.status === "running").length} running · ${formatTokensCompact(subagentTokensUsed)}${subagentTokenBudget ? `/${formatTokensCompact(subagentTokenBudget)}` : ""} tokens)`}
         >
           <div className="space-y-1.5">
             {subagents.map((subagent) => (
@@ -227,7 +268,25 @@ export function RunRail({
             <Cpu className="mt-0.5 h-3 w-3 shrink-0" />
             <span className="min-w-0 break-words">{context.modelLabel || "Default model"}</span>
           </li>
-          {context.skillName && <li className="break-words">Skill: {context.skillName}</li>}
+          {context.skillName ? (
+            <li className="break-words">Skill: {context.skillName}</li>
+          ) : runState.activeSkill ? (
+            // Triage auto-selected this skill — without this line a loaded
+            // skill is indistinguishable from no skill at all.
+            <li className="break-words" data-testid="active-skill-line">
+              Skill: {runState.activeSkill.slug}{runState.activeSkill.source === 'auto' ? ' (auto)' : ''}
+            </li>
+          ) : null}
+          {/* Distinguishes "enabled but the model chose not to delegate" from
+              "feature off" — without this the two states are identical in the UI. */}
+          {subagentBudget && (
+            <li className="flex items-center gap-1.5" data-testid="subagents-context-line">
+              <Bot className="h-3 w-3 shrink-0" />
+              {subagentsEnabled
+                ? `Sub-agents: on (max ${subagentBudget.maxConcurrentSubagents} parallel)`
+                : "Sub-agents: off"}
+            </li>
+          )}
           <li className="break-words">{context.kbLabel}{context.toolCount != null ? ` · ${context.toolCount} tools` : ""}</li>
         </ul>
       </RailSection>

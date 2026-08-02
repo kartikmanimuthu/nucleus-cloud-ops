@@ -65,11 +65,25 @@ interface SubagentToolLike {
     invoke: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
+/**
+ * Tag attached to every model call a sub-agent makes. A sub-agent runs INSIDE
+ * the orchestrator's LangGraph run (dispatch_agent executes in ToolNode), so its
+ * on_chat_model_* callback events flow through the same streamEvents pipeline
+ * the chat route uses to build text parts. That pipeline is a single-threaded
+ * state machine (one currentPartId / streamStarted / runMode); N concurrent
+ * sub-agent model runs interleaving through it clobber each other's part ids —
+ * the client then sees text-deltas for parts that never started and kills the
+ * stream. The route filters chat-model events carrying this tag (see
+ * isSubagentModelEvent in app/api/chat/stream-parts.ts), which is also what
+ * keeps sub-agent narration out of the transcript by design.
+ */
+export const SUBAGENT_MODEL_TAG = 'nucleus-subagent';
+
 export interface SubagentDeps {
-    model: { bindTools?: (tools: unknown[]) => unknown; invoke: (messages: unknown[]) => Promise<unknown> };
+    model: { bindTools?: (tools: unknown[]) => unknown; invoke: (messages: unknown[], config?: Record<string, unknown>) => Promise<unknown> };
     tools: SubagentToolLike[];
     budget: SubagentBudgetConfig;
-    onEvent?: (progress: { toolCount: number; tokensIn: number; tokensOut: number }) => void;
+    onEvent?: (progress: { toolCount: number; tokensIn: number; tokensOut: number; lastTool?: string }) => void;
 }
 
 /**
@@ -223,7 +237,7 @@ async function runSubagentLoop(
     for (let iteration = 0; iteration < budget.subagentMaxIterations; iteration++) {
         if (control.cancelled) return cancelledResult();
 
-        const response = (await boundModel.invoke(messages)) as {
+        const response = (await boundModel.invoke(messages, { tags: [SUBAGENT_MODEL_TAG] })) as {
             content: unknown;
             tool_calls?: Array<{ id?: string; name: string; args?: Record<string, unknown> }>;
             usage_metadata?: { input_tokens?: number; output_tokens?: number };
@@ -247,6 +261,13 @@ async function runSubagentLoop(
         }
 
         messages.push(new AIMessage({ content: text, tool_calls: toolCalls as never }));
+
+        // Announce the batch BEFORE it runs: this is what lets the card show a
+        // live "current tool" line while the calls are still in flight.
+        deps.onEvent?.({
+            toolCount, tokensIn, tokensOut,
+            lastTool: toolCalls.length === 1 ? toolCalls[0].name : `${toolCalls[0].name} (+${toolCalls.length - 1} more)`,
+        });
 
         // Independent calls in one turn run concurrently — the same parallelism
         // the orchestrator gets from ToolNode.
@@ -312,7 +333,7 @@ async function runSubagentLoop(
         }
 
         control.progress.toolCount = toolCount;
-        deps.onEvent?.({ toolCount, tokensIn, tokensOut });
+        deps.onEvent?.({ toolCount, tokensIn, tokensOut, lastTool: results[results.length - 1]?.call.name });
     }
 
     return {

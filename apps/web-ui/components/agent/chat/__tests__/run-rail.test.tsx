@@ -135,7 +135,7 @@ describe('RunRail', () => {
     }
     render(<RunRail runState={runState} isStreaming context={CONTEXT} />)
 
-    expect(screen.getByText('Sub-agents (1 running)')).toBeTruthy()
+    expect(screen.getByText(/^Sub-agents \(1 running/)).toBeTruthy()
     expect(screen.getByText('EC2 scanner')).toBeTruthy()
     expect(screen.getByText('RDS scanner')).toBeTruthy()
   })
@@ -165,12 +165,13 @@ describe('RunRail', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/chat/subagents/thread-1'))
     expect(await screen.findByText('EC2 scanner')).toBeTruthy()
-    expect(screen.getByText('Sub-agents (0 running)')).toBeTruthy()
+    expect(screen.getByText(/^Sub-agents \(0 running/)).toBeTruthy()
   })
 
   it('does not fetch persisted runs for a thread that never dispatched', () => {
     render(<RunRail runState={EMPTY_RUN_STATE} isStreaming={false} context={CONTEXT} threadId="thread-1" />)
-    expect(fetchMock).not.toHaveBeenCalled()
+    // The settings fetch (Context line) is allowed; the sub-agent store fetch is not.
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/chat/subagents/thread-1')
   })
 
   it('prefers live sub-agent state over a persisted fetch while streaming', () => {
@@ -181,8 +182,8 @@ describe('RunRail', () => {
     }
     render(<RunRail runState={runState} isStreaming context={CONTEXT} threadId="thread-1" />)
 
-    expect(screen.getByText('Sub-agents (1 running)')).toBeTruthy()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.getByText(/^Sub-agents \(1 running/)).toBeTruthy()
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/chat/subagents/thread-1')
   })
 
   it('still shows the pending-approval status row', () => {
@@ -195,5 +196,54 @@ describe('RunRail', () => {
     }
     render(<RunRail runState={runState} isStreaming={false} context={CONTEXT} />)
     expect(screen.getByText('Awaiting approval')).toBeTruthy()
+  })
+})
+
+// REGRESSION GUARD: a stream that dies mid-fan-out leaves live cards frozen at
+// "running" — the terminal event was persisted server-side but never reached the
+// client. Once streaming stops, the rail must reconcile those cards from
+// agent_subagent_runs instead of spinning forever on a dead run.
+describe('RunRail sub-agent reconciliation after stream death', () => {
+  const liveRunning = {
+    id: 'sa-9', role: 'EC2 auditor — 123456789012', task: 'audit', status: 'running' as const,
+    toolCount: 5, tokensIn: 100, tokensOut: 50,
+  }
+
+  it('overrides a stale running card with the persisted terminal status', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: [{
+          subagentId: 'sa-9', role: 'EC2 auditor — 123456789012', task: 'audit', status: 'failed',
+          toolCount: 17, tokensIn: 20000, tokensOut: 6800, summary: 'Model invocation was aborted.', transcript: null,
+        }],
+      }),
+    })
+    render(
+      <RunRail
+        runState={{ ...EMPTY_RUN_STATE, usedSubagents: true, subagents: [liveRunning] }}
+        isStreaming={false}
+        context={CONTEXT}
+        threadId="thread-1"
+      />,
+    )
+    await waitFor(() => {
+      expect(screen.getByText(/0 running/)).toBeTruthy()
+    })
+    // The abort is presented as a cancellation, not a sub-agent mistake.
+    expect(screen.getByText(/Cancelled — the run was stopped/)).toBeTruthy()
+  })
+
+  it('leaves live running cards alone while the stream is still open', () => {
+    render(
+      <RunRail
+        runState={{ ...EMPTY_RUN_STATE, usedSubagents: true, subagents: [liveRunning] }}
+        isStreaming
+        context={CONTEXT}
+        threadId="thread-1"
+      />,
+    )
+    expect(screen.getByText(/1 running/)).toBeTruthy()
   })
 })

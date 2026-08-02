@@ -86,6 +86,9 @@ export function Composer({
 
   const isEmpty = !value.trim();
   const canSubmit = !isEmpty && !disabled && !isStreaming;
+  // While a run is streaming, EVERY input is locked except the Stop button —
+  // an accidental Enter or picker change mid-run must not start/alter a chat.
+  const locked = disabled || isStreaming;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter submits; Shift+Enter inserts a newline; an in-progress IME
@@ -104,9 +107,9 @@ export function Composer({
     <div className="rounded-xl border bg-card shadow-sm transition-all focus-within:ring-1 focus-within:ring-ring">
       {/* Chips row — account/model/skill, removable */}
       <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
-        <AccountChip field={context.accounts} disabled={disabled} />
-        <ModelChip field={context.model} disabled={disabled} />
-        <SkillChip field={context.skill} disabled={disabled} />
+        <AccountChip field={context.accounts} disabled={locked} />
+        <ModelChip field={context.model} disabled={locked} />
+        <SkillChip field={context.skill} disabled={locked} />
       </div>
 
       {/* Textarea */}
@@ -117,7 +120,7 @@ export function Composer({
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Ask the agent to plan, execute, reflect, and revise..."
-          disabled={disabled}
+          disabled={locked}
           data-testid="composer-input"
           rows={1}
           maxLength={MAX_CHARS}
@@ -134,7 +137,7 @@ export function Composer({
                 type="button"
                 variant="ghost"
                 size="icon"
-                disabled={disabled}
+                disabled={locked}
                 className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground"
                 aria-label="Add knowledge, tools, or attachments"
               >
@@ -142,13 +145,13 @@ export function Composer({
               </Button>
             </PopoverTrigger>
             <PopoverContent side="top" align="start" className="w-72 space-y-3 p-3">
-              <KbSection field={context.kb} disabled={disabled} />
-              <ToolsSection field={context.tools} disabled={disabled} />
+              <KbSection field={context.kb} disabled={locked} />
+              <ToolsSection field={context.tools} disabled={locked} />
               <div className="space-y-1.5 border-t pt-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Attach images
                 </p>
-                <FileUpload files={attachments} onFilesChange={onAttach} disabled={disabled} />
+                <FileUpload files={attachments} onFilesChange={onAttach} disabled={locked} />
               </div>
             </PopoverContent>
           </Popover>
@@ -175,7 +178,7 @@ export function Composer({
                 type="button"
                 variant="ghost"
                 size="sm"
-                disabled={disabled}
+                disabled={locked}
                 className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
               >
                 <Settings2 className="h-3 w-3" />
@@ -185,7 +188,7 @@ export function Composer({
             <PopoverContent side="top" align="end" className="w-64 space-y-3 p-3">
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">Mode</Label>
-                <Select value={mode} onValueChange={onModeChange} disabled={disabled}>
+                <Select value={mode} onValueChange={onModeChange} disabled={locked}>
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue placeholder="Mode" />
                   </SelectTrigger>
@@ -210,7 +213,7 @@ export function Composer({
                   id="composer-auto-approve"
                   checked={autoApprove}
                   onCheckedChange={onAutoApproveChange}
-                  disabled={disabled}
+                  disabled={locked}
                 />
               </div>
               <div className="flex items-center justify-between gap-2">
@@ -221,7 +224,7 @@ export function Composer({
                   id="composer-show-tools"
                   checked={showTools}
                   onCheckedChange={onShowToolsChange}
-                  disabled={disabled}
+                  disabled={locked}
                 />
               </div>
               <div className="flex items-center justify-between gap-2">
@@ -236,7 +239,7 @@ export function Composer({
                   id="composer-auto-skills"
                   checked={autoLoadSkills}
                   onCheckedChange={onAutoLoadSkillsChange}
-                  disabled={disabled}
+                  disabled={locked}
                 />
               </div>
             </PopoverContent>
@@ -245,7 +248,7 @@ export function Composer({
           <MicButton
             value={value}
             onChange={onChange}
-            disabled={disabled || isStreaming}
+            disabled={locked}
             maxLength={MAX_CHARS}
           />
 
@@ -256,7 +259,7 @@ export function Composer({
               size="icon"
               data-testid="composer-enhance-button"
               onClick={onEnhance}
-              disabled={isEmpty || disabled || isStreaming || isEnhancing}
+              disabled={isEmpty || locked || isEnhancing}
               aria-label="Enhance prompt with AI"
               title="Enhance prompt with AI"
               className={cn(

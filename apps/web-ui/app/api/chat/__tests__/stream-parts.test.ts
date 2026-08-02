@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
 import { buildUsagePart } from '../stream-parts';
-import { buildSubagentPart, buildHeartbeatChunks } from '../stream-parts';
+import { buildSubagentPart, buildHeartbeatChunks, isSubagentModelEvent } from '../stream-parts';
+import { SUBAGENT_MODEL_TAG } from '@/lib/agent/subagent';
 
 const WM_JSON = JSON.stringify({
     summary: 'User asked to connect Jira; site resource retrieved.',
@@ -315,5 +316,56 @@ describe('buildHeartbeatChunks', () => {
         expect(chunks).toHaveLength(1);
         expect(JSON.stringify(chunks[0])).not.toContain('internal reasoning');
         expect(JSON.stringify(chunks[0])).not.toContain('transcript');
+    });
+});
+
+// Sub-agent model calls run inside ToolNode, so their on_chat_model_* callback
+// events flow through the SAME streamEvents pipeline as the orchestrator's own
+// model runs. The route's text-part machinery is a single-threaded state machine;
+// N concurrent sub-agent runs driving it interleave part ids, the client receives
+// a text-delta for a part that never started, and the AI SDK kills the stream.
+// isSubagentModelEvent is the filter that keeps them out.
+describe('isSubagentModelEvent', () => {
+    it('matches chat-model events tagged by the sub-agent runtime', () => {
+        for (const name of ['on_chat_model_start', 'on_chat_model_stream', 'on_chat_model_end']) {
+            expect(isSubagentModelEvent({ event: name, tags: ['x', SUBAGENT_MODEL_TAG] })).toBe(true);
+        }
+    });
+
+    it('ignores untagged chat-model events (the orchestrator itself)', () => {
+        expect(isSubagentModelEvent({ event: 'on_chat_model_stream', tags: ['seq:step:2'] })).toBe(false);
+        expect(isSubagentModelEvent({ event: 'on_chat_model_stream' })).toBe(false);
+    });
+
+    it('ignores non-chat-model events even when tagged (tool events must still flow)', () => {
+        expect(isSubagentModelEvent({ event: 'on_tool_start', tags: [SUBAGENT_MODEL_TAG] })).toBe(false);
+        expect(isSubagentModelEvent({ event: 'on_chain_stream', tags: [SUBAGENT_MODEL_TAG] })).toBe(false);
+    });
+
+    it('tolerates malformed events', () => {
+        expect(isSubagentModelEvent({})).toBe(false);
+        expect(isSubagentModelEvent({ event: undefined, tags: undefined })).toBe(false);
+    });
+});
+
+describe('buildSubagentPart live-detail fields', () => {
+    const base = {
+        id: 'sa-1', role: 'EC2 auditor', task: 'audit account 1',
+        toolCount: 3, tokensIn: 900, tokensOut: 120,
+    };
+
+    it('stamps a ts so the client can derive startedAt from the first part', () => {
+        const before = Date.now();
+        const part = buildSubagentPart({ ...base, status: 'running' });
+        const ts = (part.data as { ts: number }).ts;
+        expect(ts).toBeGreaterThanOrEqual(before);
+        expect(ts).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('passes lastTool through for the live action line, omitting it when absent', () => {
+        const withTool = buildSubagentPart({ ...base, status: 'running', lastTool: 'aws_read (+2 more)' });
+        expect((withTool.data as { lastTool?: string }).lastTool).toBe('aws_read (+2 more)');
+        const without = buildSubagentPart({ ...base, status: 'running' });
+        expect('lastTool' in (without.data as object)).toBe(false);
     });
 });

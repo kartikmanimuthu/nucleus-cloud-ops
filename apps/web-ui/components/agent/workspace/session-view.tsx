@@ -20,6 +20,9 @@ import { useDistillSkill } from "@/lib/queries/skills";
 import { useDistillScheduledTask } from "@/lib/queries/agent-ops-scheduled-tasks";
 import { SCHEDULED_TASK_PREFILL_KEY } from "@/components/agent-ops/scheduled-task-dialog";
 import { SkillFormDialog } from "@/components/skills/skill-form-dialog";
+import { AiopsSubagentSettings } from "@/components/settings/aiops-subagent-settings";
+import { AiopsFeatureSettings } from "@/components/settings/aiops-feature-settings";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import type { FileAttachment } from "@/components/agent/file-upload";
 import { Spinner } from "@/components/ui/spinner";
 import { Transcript } from "./transcript";
@@ -202,6 +205,9 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
   const distillSkill = useDistillSkill();
   const distillScheduledTask = useDistillScheduledTask();
   const [skillDialogOpen, setSkillDialogOpen] = useState(false);
+  // AI Ops settings (sub-agent budget etc.) live IN the console — opened from
+  // the header overflow menu, not a sidebar nav entry.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillDraft, setSkillDraft] = useState<
     { name: string; description: string; tier: string; content: string } | null
   >(null);
@@ -269,6 +275,9 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
           break;
         case "skill":
           void handleSaveAsSkill();
+          break;
+        case "settings":
+          setSettingsOpen(true);
           break;
         case "clear":
           handleClear();
@@ -380,6 +389,18 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
         initialDraft={skillDraft}
         sourceRunId={threadId}
       />
+
+      {/* AI Ops settings — the console owns its own configuration. */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto" data-testid="aiops-settings-dialog">
+          {/* The panels render their own headings; this title exists for a11y. */}
+          <DialogTitle className="sr-only">AI Ops settings</DialogTitle>
+          <div className="space-y-6">
+            <AiopsFeatureSettings />
+            <AiopsSubagentSettings />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

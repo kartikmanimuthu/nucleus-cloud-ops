@@ -3,8 +3,28 @@ import { pendingToolCallsOf } from '@/lib/agent/guard';
 import { extractJsonObject } from '@/lib/agent/llm-json';
 import type { GuardVerdict, PlanStep, ReflectionState } from '@/lib/agent/agent-shared';
 import type { SubagentEvent } from '@/lib/agent/dispatch-agent-tool';
+import { SUBAGENT_MODEL_TAG } from '@/lib/agent/subagent';
 
 export interface DataPart { type: `data-${string}`; id?: string; data: unknown }
+
+/**
+ * True for chat-model callback events that belong to a SUB-AGENT's model calls,
+ * which run inside ToolNode and therefore surface through the orchestrator's
+ * own streamEvents pipeline. The route's text-part state machine is single-
+ * threaded (one currentPartId/streamStarted/runMode); letting N concurrent
+ * sub-agent model runs drive it interleaves their events, emits text-deltas for
+ * part ids whose text-start belonged to a different run, and the AI SDK client
+ * kills the stream ("text-delta for missing text part"). It also leaks
+ * sub-agent narration into the transcript, which the design forbids. The route
+ * must skip these events entirely — sub-agent progress reaches the client only
+ * as data-subagent parts.
+ */
+export function isSubagentModelEvent(event: { event?: string; tags?: string[] }): boolean {
+    return typeof event.event === 'string'
+        && event.event.startsWith('on_chat_model_')
+        && Array.isArray(event.tags)
+        && event.tags.includes(SUBAGENT_MODEL_TAG);
+}
 
 export function buildPlanPart(threadId: string, steps: PlanStep[], updatedBy: string): DataPart {
     return { type: 'data-plan', id: `plan-${threadId}`, data: { steps, updatedBy } };
@@ -12,6 +32,15 @@ export function buildPlanPart(threadId: string, steps: PlanStep[], updatedBy: st
 
 export function buildPhasePart(phase: string, node: string): DataPart {
     return { type: 'data-phase', data: { phase, node, ts: Date.now() } };
+}
+
+/**
+ * Announces the ACTIVE skill for this run — including one auto-selected by
+ * triage, which the composer's own chip cannot know about. Without this part a
+ * correctly-loaded skill is invisible in the UI and reads as a silent failure.
+ */
+export function buildActiveSkillPart(slug: string, source: 'user' | 'auto'): DataPart {
+    return { type: 'data-skill', data: { slug, source } };
 }
 
 export function buildUsagePart(input: number, output: number): DataPart {
@@ -50,6 +79,10 @@ export function buildSubagentPart(event: SubagentEvent): DataPart {
             toolCount: event.toolCount,
             tokensIn: event.tokensIn,
             tokensOut: event.tokensOut,
+            // Server clock at emit time. The client keeps the FIRST ts it sees per
+            // sub-agent as startedAt and ticks elapsed time from its own clock.
+            ts: Date.now(),
+            ...(event.lastTool ? { lastTool: event.lastTool } : {}),
             ...(event.summary ? { summary: event.summary } : {}),
         },
     };

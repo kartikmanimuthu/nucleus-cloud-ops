@@ -25,6 +25,8 @@ export interface SubagentEvent {
     toolCount: number;
     tokensIn: number;
     tokensOut: number;
+    /** Name of the tool (batch) currently executing — the card's live action line. */
+    lastTool?: string;
     summary?: string;
     transcript?: SubagentTranscriptEntry[];
 }
@@ -234,10 +236,15 @@ Do NOT use it for:
 - work that depends on another sub-agent's output (they cannot see each other)
 - a single quick lookup you could do in one tool call
 
+SUB-AGENT CAPABILITIES — write the brief for THESE tools, no others:
+- Sub-agents have NO shell. execute_command does not exist for them. Never write CLI command lines, pipes, or shell substitutions like $(date ...) into the task — a brief written as shell commands wastes the sub-agent's entire iteration budget reconciling instructions it cannot follow.
+- Sub-agents reach AWS only through the structured aws_read tool: they name a service (e.g. ec2, cloudwatch), an operation (e.g. describe-instances, get-metric-statistics), and parameters. Write the brief as investigation GOALS plus which services/operations to use — e.g. "list EC2 instances via ec2 describe-instances, then fetch each instance's 14-day average CPUUtilization via cloudwatch get-metric-statistics".
+- Sub-agents call get_aws_credentials themselves; give them the account id and region, not a profile name or bootstrap instructions.
+
 CRITICAL: "task" must be completely self-contained. The sub-agent sees NONE of this conversation — no account ids, no prior findings, no user context unless you write them into the task. A vague brief returns a useless report.`,
             schema: z.object({
-                role: z.string().describe('Short identity for this sub-agent, e.g. "EC2 idle-resource auditor for account 123456789012"'),
-                task: z.string().describe('Complete standalone brief: what to investigate, which account ids and regions, which tools to prefer, and any constraints. Assume zero shared context.'),
+                role: z.string().describe('Short identity for this sub-agent. MUST name the specific account id, region, or service it covers so parallel cards are distinguishable — e.g. "EC2 idle auditor — 123456789012 (ap-south-1)". Never reuse the same role string for two dispatches in one turn.'),
+                task: z.string().describe('Complete standalone brief: what to investigate, which account ids and regions, which aws_read service/operations to use, and any constraints. Goals and operations only — NO shell command lines. Assume zero shared context.'),
                 expectedOutput: z.string().describe('Exactly what the report must contain, e.g. "instance ids with average CPU below 5% over 14 days, with the metric value for each"'),
             }),
         },

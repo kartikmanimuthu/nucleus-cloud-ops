@@ -3,6 +3,7 @@ import {
     isReadOnlyForSubagent,
     filterReadOnlyTools,
     runSubagent,
+    SUBAGENT_MODEL_TAG,
     SUBAGENT_REPORT_MAX_CHARS,
     type SubagentSpec,
 } from './subagent';
@@ -317,5 +318,48 @@ describe('hallucinated tool names', () => {
         const result = await runSubagent(SPEC, { model, tools: [], budget: BUDGET });
         expect(result.status).toBe('done');
         expect(result.transcript.some(e => e.text.includes('REFUSED'))).toBe(true);
+    });
+});
+
+// The sub-agent's model calls run INSIDE the orchestrator's LangGraph run, so
+// their callback events reach the chat route's streamEvents pipeline. The tag is
+// the only thing that lets the route filter them out of its single-threaded
+// text-part state machine — without it, concurrent sub-agents corrupt part ids
+// and the client kills the stream.
+describe('sub-agent model call tagging', () => {
+    it('tags every model invocation with SUBAGENT_MODEL_TAG', async () => {
+        const model = scriptedModel([
+            { content: 'look', tool_calls: [{ id: 'c1', name: 'describe_instances', args: {} }] },
+            { content: 'done, findings: none' },
+        ]);
+        await runSubagent(SPEC, { model, tools: [readTool], budget: BUDGET });
+        expect(model.invoke.mock.calls.length).toBeGreaterThan(0);
+        for (const call of model.invoke.mock.calls) {
+            expect(call[1]).toMatchObject({ tags: [SUBAGENT_MODEL_TAG] });
+        }
+    });
+});
+
+describe('sub-agent progress lastTool', () => {
+    it('announces the tool batch before it runs and the last tool after', async () => {
+        const model = scriptedModel([
+            {
+                content: 'looking', tool_calls: [
+                    { id: 'c1', name: 'describe_instances', args: {} },
+                    { id: 'c2', name: 'describe_instances', args: { next: true } },
+                ],
+            },
+            { content: 'done' },
+        ]);
+        const events: Array<{ lastTool?: string }> = [];
+        await runSubagent(SPEC, {
+            model, tools: [readTool], budget: BUDGET,
+            onEvent: (p) => events.push(p),
+        });
+        // Pre-batch event names the batch (first tool + count) so the card shows a
+        // live action line while the calls are still in flight.
+        expect(events.some(e => e.lastTool === 'describe_instances (+1 more)')).toBe(true);
+        // Post-batch event carries the last executed tool.
+        expect(events.some(e => e.lastTool === 'describe_instances')).toBe(true);
     });
 });

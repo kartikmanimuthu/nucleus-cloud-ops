@@ -9,7 +9,7 @@ import { triageChatMessage } from '@/lib/agent/triage';
 import { respondDirect } from './direct-chat';
 import { resolveKnowledgeBaseIds } from '@/lib/agent/auto-kb-select';
 import { acquireThreadLock, releaseThreadLock as releaseThreadLockDb } from '@/lib/agent/thread-lock';
-import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, buildUsagePart, buildSubagentPart, buildHeartbeatChunks, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
+import { buildPlanPart, buildPhasePart, buildInterruptParts, buildMemoryPart, buildUsagePart, buildSubagentPart, buildHeartbeatChunks, buildActiveSkillPart, humanizeReflection, humanizePlanning, isSubagentModelEvent, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from './stream-parts';
 import { resolveResumedToolCallId, type ResumedPendingCall } from './resume-tool-id';
 import type { PlanStep } from '@/lib/agent/agent-shared';
 import { logRunSummary } from '@/lib/agent/run-timings';
@@ -576,7 +576,8 @@ export async function POST(req: Request) {
                     resumedPendingCalls,
                     syntheticDecisionResults,
                     liveSubagents,
-                    subagentSinkRef
+                    subagentSinkRef,
+                    effectiveSkill ? { slug: effectiveSkill, source: selectedSkill ? 'user' as const : 'auto' as const } : null
                 )
             });
         } else {
@@ -743,7 +744,8 @@ function processStream(
     resumedPendingCalls: ResumedPendingCall[] = [],
     syntheticDecisionResults: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown>; output: string }> = [],
     liveSubagents: Map<string, SubagentEvent> = new Map(),
-    subagentSinkRef: { sink: ((chunk: UIMessageChunk) => void) | null } = { sink: null }
+    subagentSinkRef: { sink: ((chunk: UIMessageChunk) => void) | null } = { sink: null },
+    activeSkill: { slug: string; source: 'user' | 'auto' } | null = null
 ): ReadableStream<UIMessageChunk> {
     return new ReadableStream({
         async start(controller) {
@@ -869,6 +871,12 @@ function processStream(
             try {
                 if (!safeEnqueue({ type: 'start' })) return;
 
+                // Surface the run's ACTIVE skill (incl. triage auto-selection) so the
+                // rail can show it — a loaded skill must never be invisible.
+                if (activeSkill) {
+                    safeEnqueue(buildActiveSkillPart(activeSkill.slug, activeSkill.source) as UIMessageChunk);
+                }
+
                 // When resuming from HITL approval, emit text content first
                 // The tool-input events will be emitted in on_tool_start for each tool
                 if (isResumedFromApproval && approvedToolId) {
@@ -907,10 +915,33 @@ function processStream(
                             event.event.startsWith("on_chat_model_") &&
                             event.metadata?.langgraph_node === 'guard';
 
-                        if (isGuardModelRun) {
+                        // Sub-agent model calls run inside ToolNode and MUST NOT drive
+                        // this single-threaded text-part state machine: N concurrent
+                        // sub-agents interleaving through currentPartId/streamStarted
+                        // emit deltas for parts that never started, which kills the
+                        // client stream — and their narration would leak into the
+                        // transcript. Their progress reaches the client only as
+                        // data-subagent parts (emitSubagent).
+                        const isSubagentModelRun = isSubagentModelEvent(event as { event?: string; tags?: string[] });
+
+                        if (isGuardModelRun || isSubagentModelRun) {
                             // Skip start/stream/end entirely. streamStarted stays false
                             // (the previous run's on_chat_model_end already closed its
                             // part), so nothing downstream references a dangling part id.
+                            //
+                            // Sub-agent tokens are still BILLED tokens: keep them in the
+                            // run's usage counter even though the text/phase machinery
+                            // never sees these runs.
+                            if (isSubagentModelRun && event.event === 'on_chat_model_end') {
+                                const subUsage = (event.data?.output as { usage_metadata?: { input_tokens?: number; output_tokens?: number } } | undefined)?.usage_metadata;
+                                const subIn = Number(subUsage?.input_tokens) || 0;
+                                const subOut = Number(subUsage?.output_tokens) || 0;
+                                if (subIn || subOut) {
+                                    runUsage.input += subIn;
+                                    runUsage.output += subOut;
+                                    safeEnqueue(buildUsagePart(subIn, subOut) as UIMessageChunk);
+                                }
+                            }
                         }
                         else if (event.event === "on_chat_model_start") {
                             const node = event.metadata?.langgraph_node;
