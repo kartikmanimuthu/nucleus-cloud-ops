@@ -5,6 +5,7 @@ import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { AIMessage, HumanMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
 import { normalizeLegacyContent } from '@/lib/agent-chat/legacy-normalizer';
 import { reconstructAiContentParts } from '@/lib/agent-chat/ai-content-parts';
+import { dropDuplicateAnswers } from './dedupe-answers';
 import { parseUsageMetadata } from '@/lib/agent-chat/token-usage';
 import { humanizePlanning, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
 
@@ -288,7 +289,7 @@ export async function GET(
             const msgs = await chatHistory.getMessages(sessionTenantId, sessionUserId, threadId);
             if (msgs.length > 0) {
                 const converted = msgs.map((m, i) => convertPlainMessage(m, i)).filter(Boolean) as HistoryMessage[];
-                return NextResponse.json({ messages: coalesceAssistantTurns(mergeToolResults(converted)), plan, pendingInterrupt });
+                return NextResponse.json({ messages: coalesceAssistantTurns(mergeToolResults(dropDuplicateAnswers(converted))), plan, pendingInterrupt });
             }
         } catch (err) {
             console.warn('[History API] Chat history lookup failed, falling back to checkpoint:', err);
@@ -301,7 +302,7 @@ export async function GET(
         if (!rawMessages?.length) return NextResponse.json({ messages: [], plan, pendingInterrupt });
 
         const converted = rawMessages.map((m, i) => convertMessage(m, i)).filter(Boolean) as HistoryMessage[];
-        return NextResponse.json({ messages: coalesceAssistantTurns(mergeToolResults(converted)), plan, pendingInterrupt });
+        return NextResponse.json({ messages: coalesceAssistantTurns(mergeToolResults(dropDuplicateAnswers(converted))), plan, pendingInterrupt });
     } catch (error) {
         console.error('[History API] Error:', error);
         return NextResponse.json({ error: 'Failed to fetch conversation history' }, { status: 500 });

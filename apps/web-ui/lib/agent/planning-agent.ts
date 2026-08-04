@@ -16,6 +16,7 @@ import {
     sanitizeMessagesForBedrock,
     withUnresolvedToolCallsOnly,
     tagMessagePhase,
+    findRenderedDeliverable,
     llmAuditLog,
     getCheckpointer,
     getStore,
@@ -882,18 +883,7 @@ ${accountContext}`);
         // has only the last 3 truncated tool outputs as context, so it invents
         // follow-ups that contradict the real report (observed in live testing).
         // Verbatim promotion = zero drift, zero hallucination surface, zero cost.
-        const deliverablePhases = new Set(['execution', 'revision']);
-        let renderedDeliverable: string | null = null;
-        for (const m of state.messages) {
-            if (
-                m._getType() === 'ai' &&
-                deliverablePhases.has((m as unknown as { response_metadata?: { agentPhase?: string } }).response_metadata?.agentPhase ?? '') &&
-                typeof m.content === 'string' &&
-                m.content.trim().length >= 800
-            ) {
-                renderedDeliverable = m.content; // keep scanning — last one wins (latest revision)
-            }
-        }
+        const renderedDeliverable = findRenderedDeliverable(state.messages);
 
         if (renderedDeliverable) {
             console.log(`--- FINAL: Promoting already-rendered deliverable verbatim (no LLM call) ---`);

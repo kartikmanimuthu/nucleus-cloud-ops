@@ -504,6 +504,32 @@ export function tagMessagePhase<T extends BaseMessage>(msg: T, phase: string): T
     return msg;
 }
 
+/** Phases whose text IS the deliverable the user asked for. */
+const DELIVERABLE_PHASES = new Set(['execution', 'revision']);
+
+/**
+ * The answer the executor (or reviser) already composed in-chat, so finalNode can
+ * promote it verbatim instead of re-synthesizing from a 3-tool-output window.
+ *
+ * Content is normalized through contentToText because a reasoning model does not
+ * return a string: a turn that emits reasoning alongside the answer arrives as a
+ * block array, and Sonnet 5 keeps every streamed delta as its own text block (544
+ * blocks for one 7k-char report in the run this was written from). A raw
+ * `typeof content === 'string'` test silently misses those, which drops a finished
+ * report on the floor and makes the run end in "I wasn't able to produce…".
+ */
+export function findRenderedDeliverable(messages: BaseMessage[], minLength = 800): string | null {
+    let found: string | null = null;
+    for (const m of messages) {
+        if (m._getType() !== 'ai') continue;
+        const phase = (m as unknown as { response_metadata?: { agentPhase?: string } }).response_metadata?.agentPhase ?? '';
+        if (!DELIVERABLE_PHASES.has(phase)) continue;
+        const text = contentToText(m.content);
+        if (text.trim().length >= minLength) found = text; // keep scanning — last one wins (latest revision)
+    }
+    return found;
+}
+
 // Get recent messages safely - ensuring tool call/result pairs are kept together
 // Also filters out empty messages that cause Bedrock API errors
 export function getRecentMessages(messages: BaseMessage[], maxMessages: number = 30): BaseMessage[] {
