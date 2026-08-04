@@ -61,6 +61,41 @@ describe('reconstructAiContentParts', () => {
     it('accepts an already-parsed array (checkpoint-fallback path)', () => {
         expect(reconstructAiContentParts([{ type: 'text', text: 'hi' }])).toEqual([{ type: 'text', text: 'hi' }]);
     });
+
+    // A reasoning model keeps every streamed delta as its own block — 644 of them for
+    // one report in the run these tests were written from. One part per block renders
+    // as one UI row per block, shattering the answer into hundreds of fragments.
+    it('coalesces a run of streamed text deltas into a single part', () => {
+        const blocks = ['## Health', ' Report\n\n', 'Cluster is ', 'GREEN.'].map((text) => ({ type: 'text', text }));
+        expect(reconstructAiContentParts(JSON.stringify(blocks)))
+            .toEqual([{ type: 'text', text: '## Health Report\n\nCluster is GREEN.' }]);
+    });
+
+    it('keeps whitespace-only blocks INSIDE a run so words do not fuse', () => {
+        // Real shape: Bedrock splits mid-word and emits bare-space deltas between them.
+        const blocks = ['No long-running queries, no', ' ', 'bl', 'ocking, no idle-in', '-transaction issues.']
+            .map((text) => ({ type: 'text', text }));
+        expect(reconstructAiContentParts(JSON.stringify(blocks)))
+            .toEqual([{ type: 'text', text: 'No long-running queries, no blocking, no idle-in-transaction issues.' }]);
+    });
+
+    it('starts a new part at every type change, preserving order', () => {
+        const raw = JSON.stringify([
+            { type: 'text', text: 'first ' }, { type: 'text', text: 'answer' },
+            { type: 'reasoning', reasoning: 'recon' },
+            { type: 'text', text: 'second ' }, { type: 'text', text: 'answer' },
+        ]);
+        expect(reconstructAiContentParts(raw)).toEqual([
+            { type: 'text', text: 'first answer' },
+            { type: 'reasoning', text: 'recon' },
+            { type: 'text', text: 'second answer' },
+        ]);
+    });
+
+    it('drops a run that is entirely whitespace', () => {
+        const raw = JSON.stringify([{ type: 'text', text: '  ' }, { type: 'text', text: '\n' }]);
+        expect(reconstructAiContentParts(raw)).toEqual([]);
+    });
 });
 
 describe('render parity with live (via buildTranscript)', () => {
