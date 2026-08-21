@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
 import { kbChatStore } from '@/lib/store/kb-chat-store';
 import { AuditService } from '@/lib/audit-service';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    DELETE: { action: 'delete', subject: 'KnowledgeBase' },
+};
 
 // DELETE /api/knowledge-base/sessions/[sessionId] — delete a KB chat session (tenant-shared)
 export async function DELETE(

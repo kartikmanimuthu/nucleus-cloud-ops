@@ -10,7 +10,7 @@ import type { NextRequest } from 'next/server';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { env } from '@/env';
 import { buildDashboardRespondUrl } from '@/lib/gateway/utils/dashboard-url';
-import { ChannelRateLimiter } from '@/lib/gateway/utils/rate-limiter';
+import { NarrationSessions } from '@/lib/gateway/narration/narration-session';
 import type {
     ChannelAdapter,
     ChannelType,
@@ -28,6 +28,7 @@ import type {
 // ─── Constants ────────────────────────────────────────────────────────
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
+const DISCORD_MESSAGE_MAX_CHARS = 2000;
 
 // Discord interaction types
 const INTERACTION_PING = 1;
@@ -80,7 +81,7 @@ export class DiscordAdapter implements ChannelAdapter {
         threadedReplies: true,
     };
 
-    private rateLimiter = new ChannelRateLimiter(2000);
+    private narration = new NarrationSessions();
 
     // ─── Inbound ──────────────────────────────────────────────────────
 
@@ -169,6 +170,7 @@ export class DiscordAdapter implements ChannelAdapter {
     // ─── Outbound ─────────────────────────────────────────────────────
 
     async sendResult(run: AgentOpsRun, _events: AgentOpsEvent[]): Promise<void> {
+        this.narration.finish(run.runId);
         const trigger = run.trigger as DiscordTriggerMeta;
         const summary = run.result?.summary ?? '(no summary)';
         const toolsUsed = run.result?.toolsUsed ?? [];
@@ -189,6 +191,7 @@ export class DiscordAdapter implements ChannelAdapter {
     }
 
     async sendError(run: AgentOpsRun, error: string): Promise<void> {
+        this.narration.finish(run.runId);
         const trigger = run.trigger as DiscordTriggerMeta;
 
         const embed = {
@@ -261,13 +264,12 @@ export class DiscordAdapter implements ChannelAdapter {
     }
 
     async sendStreamChunk(run: AgentOpsRun, event: AgentOpsEvent): Promise<void> {
-        if (!this.rateLimiter.shouldSend(run.runId)) return;
+        const text = await this.narration.applyEvent(run, event);
+        if (text === null) return;
 
         const trigger = run.trigger as DiscordTriggerMeta;
-        const content = event.content || `[${event.eventType}] ${event.toolName || event.node}`;
-
         await this.patchOriginalMessage(run, trigger, {
-            content: content.slice(0, 2000), // Discord message limit
+            content: text.slice(0, DISCORD_MESSAGE_MAX_CHARS),
         });
     }
 

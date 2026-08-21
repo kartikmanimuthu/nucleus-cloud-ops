@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useChannelSettings, useSaveChannelSettings, revealChannelSecrets } from '@/lib/queries/channel-settings';
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { GatedButton } from '@/components/rbac/gated';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -193,7 +194,14 @@ function WebhookSettingsFormInner({
                                 onChange={e => setForm(prev => ({ ...prev, webhookSecret: e.target.value }))}
                                 className="pr-10 font-mono"
                             />
-                            <Button
+                            {/*
+                              * Revealing a stored secret hits GET ?reveal=1, which the route
+                              * guards with `update` (and audits at high severity) — so the eye
+                              * needs the same permission, not merely `read`.
+                              */}
+                            <GatedButton
+                                action="update"
+                                subject="Channel"
                                 type="button"
                                 variant="ghost"
                                 size="icon"
@@ -204,7 +212,7 @@ function WebhookSettingsFormInner({
                                 }}
                             >
                                 {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                            </Button>
+                            </GatedButton>
                         </div>
                         <p className="text-xs text-muted-foreground">
                             Used to compute HMAC-SHA256 signature for request verification.
@@ -233,8 +241,15 @@ function WebhookSettingsFormInner({
                         </Alert>
                     )}
 
-                    {/* Save button */}
-                    <Button
+                    {/*
+                      * Save button — asks for `create` on an unconfigured channel and
+                      * `update` on a configured one, mirroring the POST/PUT split the
+                      * mutation picks between, so the control is live exactly when the
+                      * request it sends would be allowed.
+                      */}
+                    <GatedButton
+                        action={configured ? 'update' : 'create'}
+                        subject="Channel"
                         onClick={handleSave}
                         disabled={saving}
                         className={saveStatus === 'saved' ? 'bg-green-600 hover:bg-green-700' : ''}
@@ -247,7 +262,7 @@ function WebhookSettingsFormInner({
                             <Save className="h-4 w-4 mr-2" />
                         )}
                         {saveStatus === 'saved' ? 'Saved' : 'Save Settings'}
-                    </Button>
+                    </GatedButton>
                 </CardContent>
             </Card>
 

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -40,6 +41,12 @@ import {
 import { UIAccount } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { ClientAccountService } from "@/lib/client-account-service";
+import { GatedButton } from "@/components/rbac/gated";
+
+const CFN_FEATURES = [
+  { id: "spotAutomation", label: "Spot Guard", key: "spotAutomationEnabled" as const },
+  { id: "scalingAudit", label: "Scale Sentinel", key: "scalingAuditEnabled" as const },
+] satisfies ReadonlyArray<{ id: string; label: string; key: "spotAutomationEnabled" | "scalingAuditEnabled" }>;
 
 const awsRegions = [
   { id: "us-east-1", name: "US East (N. Virginia)" },
@@ -72,6 +79,8 @@ export function EditAccountForm({ account, hubAccountId }: EditAccountFormProps)
     description: "",
     regions: [] as string[],
     active: true,
+    spotAutomationEnabled: false,
+    scalingAuditEnabled: false,
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -100,6 +109,8 @@ export function EditAccountForm({ account, hubAccountId }: EditAccountFormProps)
         description: account.description || "",
         regions: account.regions || [],
         active: account.active ?? true,
+        spotAutomationEnabled: account.spotAutomationEnabled ?? false,
+        scalingAuditEnabled: account.scalingAuditEnabled ?? false,
       });
     }
   }, [account]);
@@ -117,6 +128,12 @@ export function EditAccountForm({ account, hubAccountId }: EditAccountFormProps)
         description: formData.description,
         regions: formData.regions,
         active: formData.active,
+        // Turning this on admits the account to the hub event bus on the next reconcile; turning
+        // it off revokes PutEvents, so an orphaned customer stack stops paying to send events
+        // Nucleus would reject. Previously only settable by calling the API directly.
+        spotAutomationEnabled: formData.spotAutomationEnabled,
+        // Includes/excludes this account from the daily scaling-audit poll.
+        scalingAuditEnabled: formData.scalingAuditEnabled,
         updatedBy: session?.user?.email || "web-ui-user",
       });
 
@@ -209,11 +226,12 @@ export function EditAccountForm({ account, hubAccountId }: EditAccountFormProps)
       const response = await fetch('/api/accounts/template', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
             accountId: formData.accountId,
-            accountName: formData.name, 
+            accountName: formData.name,
             region: formData.regions[0] || 'us-east-1',
-            externalId: formData.externalId // Pass existing external ID to maintain consistency
+            externalId: formData.externalId, // Pass existing external ID to maintain consistency
+            enableSpotAutomation: formData.spotAutomationEnabled,
         }),
       });
 
@@ -328,6 +346,40 @@ export function EditAccountForm({ account, hubAccountId }: EditAccountFormProps)
                         <p className="text-[0.8rem] text-muted-foreground">
                             Enable or disable this account
                         </p>
+                    </div>
+
+                     <div className="space-y-2">
+                        <Label htmlFor="features">Features</Label>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button
+                                    id="features"
+                                    type="button"
+                                    variant="outline"
+                                    className="h-10 w-full justify-between font-normal"
+                                >
+                                    <span className="line-clamp-1 text-left">
+                                        {CFN_FEATURES.filter((f) => formData[f.key]).map((f) => f.label).join(", ") ||
+                                            "No optional features selected"}
+                                    </span>
+                                    <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="w-[--radix-dropdown-menu-trigger-width]">
+                                {CFN_FEATURES.map((feature) => (
+                                    <DropdownMenuCheckboxItem
+                                        key={feature.id}
+                                        checked={formData[feature.key]}
+                                        onCheckedChange={(checked) =>
+                                            setFormData((prev) => ({ ...prev, [feature.key]: checked }))
+                                        }
+                                        onSelect={(e) => e.preventDefault()}
+                                    >
+                                        {feature.label}
+                                    </DropdownMenuCheckboxItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 </div>
 
@@ -605,7 +657,14 @@ export function EditAccountForm({ account, hubAccountId }: EditAccountFormProps)
           >
             Cancel
           </Button>
-          <Button
+          {/* PUT /api/accounts/:id requires `update Account`. The row IS available
+              here, so it is passed — a conditional grant (e.g. "only your assigned
+              accounts") must be evaluated against this account, not the bare
+              subject type, or the button enables on rows the API will refuse. */}
+          <GatedButton
+            action="update"
+            subject="Account"
+            data={account as unknown as Record<string, unknown>}
             type="submit"
             disabled={isSubmitting || formData.regions.length === 0}
           >
@@ -615,7 +674,7 @@ export function EditAccountForm({ account, hubAccountId }: EditAccountFormProps)
               <Save className="mr-2 h-4 w-4" />
             )}
             {isSubmitting ? "Saving..." : "Save Changes"}
-          </Button>
+          </GatedButton>
         </div>
       </form>
     </div>

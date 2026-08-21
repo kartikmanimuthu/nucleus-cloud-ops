@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
         );
     }
     try {
-        const authError = await authorize("update", "Settings");
+        const authError = await authorize("update", "Tenant");
         if (authError) return authError;
 
         const tenantId = await getSessionTenantId();
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
  */
 export async function PUT(req: NextRequest) {
     try {
-        const authError = await authorize("update", "Settings");
+        const authError = await authorize("update", "Tenant");
         if (authError) return authError;
 
         const session = await getAuthSession();

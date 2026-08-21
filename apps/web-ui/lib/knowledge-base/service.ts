@@ -6,6 +6,7 @@
  */
 
 import { getKnowledgeBaseRepository, getDataSourceRepository } from '@/lib/db/repository-factory';
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
 import type {
   KnowledgeBase,
   DataSource,
@@ -15,8 +16,9 @@ import type {
 } from './types';
 
 export class KnowledgeBaseService {
-  static async listKnowledgeBases(tenantId: string): Promise<KnowledgeBase[]> {
-    return getKnowledgeBaseRepository().listKnowledgeBases(tenantId);
+  /** @param rowFilter Gate 3 row filter — see lib/rbac/row-filter.ts. Passed straight through. */
+  static async listKnowledgeBases(tenantId: string, rowFilter?: PrismaRowFilter | null): Promise<KnowledgeBase[]> {
+    return getKnowledgeBaseRepository().listKnowledgeBases(tenantId, rowFilter);
   }
 
   static async getKnowledgeBase(kbId: string, tenantId: string): Promise<KnowledgeBase | null> {

@@ -5,6 +5,12 @@ import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { getBoss } from '@/lib/boss-client';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'update', subject: 'KnowledgeBase' },
+};
 
 const JOB_TYPE_MAP = {
   's3-bucket': 's3-sync',

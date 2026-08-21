@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -271,10 +272,21 @@ export default function AccountsClient({
               <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-            <Button onClick={() => router.push("/app/accounts/create")}>
+            {/* No row to check against — a create has no subject instance yet,
+                so this is a subject-type check by necessity.
+
+                DISABLED, NOT HIDDEN: a missing button is indistinguishable from a
+                broken page, and it gives the user nothing to act on. Left visible
+                and inert, it carries the denial reason in its tooltip, so the
+                answer is "you may not do this" rather than silence. */}
+            <GatedButton
+              action="create"
+              subject="Account"
+              onClick={() => router.push("/app/accounts/create")}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Integrate Account
-            </Button>
+            </GatedButton>
           </>
         }
       />

@@ -2,6 +2,9 @@ import { AccountService } from "@/lib/account-service";
 import { UIAccount } from "@/lib/types";
 import AccountsClient from "@/components/accounts/accounts-client-component";
 import { SearchParams } from "@/lib/types";
+import { getSessionTenantId } from "@/lib/auth-session";
+import { getReadRowFilter } from "@/lib/rbac/row-filter";
+import type { PrismaRowFilter } from "@/lib/db/pg-config";
 
 // Status and connection filter options for the UI
 const statusFilters = [
@@ -35,7 +38,11 @@ export default async function AccountsPage({ searchParams}: { searchParams: Sear
     connectionFilter,
     searchTerm,
     limit,
-    page
+    page,
+    tenantId: await getSessionTenantId(),
+    // Same as /api/accounts: authorize() elsewhere settles WHETHER this caller
+    // may list accounts; this settles WHICH ones, in SQL.
+    rowFilter: await getReadRowFilter('Account'),
   });
   
   // Pass the pre-fetched data and initial filter states to the client component
@@ -65,6 +72,8 @@ async function getAccounts(filters?: {
   searchTerm?: string;
   limit?: number;
   page?: number;
+  tenantId?: string;
+  rowFilter?: PrismaRowFilter | null;
 }): Promise<{ accounts: UIAccount[], totalCount: number }> {
   try {
     const result = await AccountService.getAccounts(filters);

@@ -29,7 +29,7 @@ export async function AuthorizePage({
     if (fallback) {
       return <>{fallback}</>;
     }
-    redirect('/unauthorized');
+    redirect('/app/unauthorized');
   }
 
   return <>{children}</>;
@@ -50,6 +50,6 @@ export async function checkPageAuth(action: string, subject: string): Promise<bo
 export async function requireAuth(action: string, subject: string): Promise<void> {
   const allowed = await can(action, subject);
   if (!allowed) {
-    redirect('/unauthorized');
+    redirect('/app/unauthorized');
   }
 }

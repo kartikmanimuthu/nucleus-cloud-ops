@@ -1,8 +1,10 @@
 /**
  * Agent Ops Type Definitions
- * 
+ *
  * Shared types for the headless agent execution system.
  */
+
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
 
 // ─── Enumerations ──────────────────────────────────────────────────────
 
@@ -157,7 +159,10 @@ export interface AgentOpsEvent {
 
 // ─── Scheduled Task ────────────────────────────────────────────────────
 
-export type ScheduledTaskStatus = 'active' | 'paused' | 'deleted';
+// 'permission_revoked' is set by the trigger path when the creator's grant no
+// longer covers an agent run (Workstream H). It is distinct from 'paused', which
+// a human chose: only re-authorizing the task can bring it back.
+export type ScheduledTaskStatus = 'active' | 'paused' | 'deleted' | 'permission_revoked';
 
 // 'cron' fires on a cron expression (per-task timezone); 'interval' re-fires a
 // fixed number of minutes after the previous run, anchored on nextRunAt.
@@ -201,7 +206,16 @@ export interface ScheduledTask {
     runCount: number;
     createdAt: string;
     updatedAt: string;
+    /** Display string, supplied by the client. NEVER an identity — see below. */
     createdBy: string;
+    /**
+     * The identity the task's stored grant belongs to, written server-side from
+     * the session. `checkScheduledTaskGrant()` recompiles THIS user's ability at
+     * every execution. Undefined on rows created before Workstream H.
+     */
+    createdByUserId?: string;
+    /** Creation-time role snapshot — audit/drift only; never used to authorize. */
+    createdByRoleId?: string;
     ttl?: number;
 }
 
@@ -245,6 +259,13 @@ export interface RunListQuery {
     sortBy?: 'createdAt' | 'updatedAt' | 'status' | 'source' | 'taskDescription' | 'durationMs';
     sortDir?: 'asc' | 'desc';
     lastKey?: Record<string, unknown>;
+    /**
+     * Gate 3 (RBAC row filtering): a Prisma `where` fragment restricting the
+     * result to the rows the caller may read. Built by
+     * getReadRowFilter() in lib/rbac/row-filter.ts and INTERSECTED with the
+     * query below via andWhere() — never merged over it.
+     */
+    rowFilter?: PrismaRowFilter | null;
 }
 
 export interface RunListStats {

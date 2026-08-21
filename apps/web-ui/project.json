@@ -8,7 +8,7 @@
       "executor": "nx:run-commands",
       "outputs": ["{workspaceRoot}/apps/web-ui/.next"],
       "options": {
-        "command": "NODE_ENV=production next build",
+        "command": "node scripts/assert-next-patch.mjs && NODE_ENV=production next build",
         "cwd": "apps/web-ui"
       }
     },
@@ -31,6 +31,21 @@
       "executor": "nx:run-commands",
       "options": {
         "command": "bun run lint",
+        "cwd": "apps/web-ui"
+      }
+    },
+    "rbac-sync": {
+      "executor": "nx:run-commands",
+      "outputs": ["{workspaceRoot}/libs/rbac/generated"],
+      "options": {
+        "command": "bun run rbac:sync",
+        "cwd": "apps/web-ui"
+      }
+    },
+    "rbac-check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun run rbac:check",
         "cwd": "apps/web-ui"
       }
     }

@@ -5,6 +5,13 @@ import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import type { CreateDataSourceInput, DataSource } from '@/lib/knowledge-base/types';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'KnowledgeBase' },
+    POST: { action: 'create', subject: 'KnowledgeBase' },
+};
 
 function sanitizeDataSource(ds: DataSource): DataSource {
   if (ds.sourceType === 'bitbucket') {

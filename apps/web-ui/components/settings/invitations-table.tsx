@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
@@ -214,22 +215,28 @@ export function InvitationsTable({
                                                     </TooltipContent>
                                                 </Tooltip>
                                             ) : (
-                                                <Button
+                                                <GatedButton
+                                                    action="update"
+                                                    subject="User"
+                                                    data={inv as unknown as Record<string, unknown>}
                                                     variant="outline"
                                                     size="sm"
                                                     onClick={() => handleResend(inv.id)}
                                                 >
                                                     Resend
-                                                </Button>
+                                                </GatedButton>
                                             )}
-                                            <Button
+                                            <GatedButton
+                                                action="delete"
+                                                subject="User"
+                                                data={inv as unknown as Record<string, unknown>}
                                                 variant="ghost"
                                                 size="sm"
                                                 className="text-destructive hover:text-destructive"
                                                 onClick={() => setRevokingId(inv.id)}
                                             >
                                                 Revoke
-                                            </Button>
+                                            </GatedButton>
                                         </div>
                                     )}
                                 </TableCell>

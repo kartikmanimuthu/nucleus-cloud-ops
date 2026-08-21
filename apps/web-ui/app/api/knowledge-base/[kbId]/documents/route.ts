@@ -6,6 +6,12 @@ import { getSessionTenantId } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { validateDocumentInput } from '@/lib/knowledge-base/document-validation';
 import { chunkText, embedAndStoreChunks } from '@/lib/knowledge-base/embedder';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'create', subject: 'KnowledgeBase' },
+};
 
 // POST /api/knowledge-base/[kbId]/documents — create an inline markdown document
 export async function POST(

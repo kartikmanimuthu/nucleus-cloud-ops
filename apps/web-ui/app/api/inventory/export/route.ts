@@ -6,6 +6,12 @@ import { getExportColumnsForType, resolveExportValue } from '@/lib/inventory/exp
 import { getSessionTenantId } from '@/lib/auth-session';
 import { getTenantClient } from '@/lib/db/pg-config';
 import { env } from '@/env';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'export', subject: 'Resource' },
+};
 
 const s3Client = new S3Client({
     region: env.AWS_REGION || 'ap-south-1',

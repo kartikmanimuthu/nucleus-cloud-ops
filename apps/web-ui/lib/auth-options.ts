@@ -167,6 +167,20 @@ export const authOptions: NextAuthOptions = {
                 }
                 token.tenantId = utr?.tenantId ?? null;
                 token.role = utr?.role ?? null;
+
+                // The org's own NAME travels on the token so the sidebar can show
+                // which organisation you are in without calling /api/tenants/my-orgs,
+                // which requires `read Tenant` (a Settings-module permission). A role
+                // without Settings would otherwise lose the switcher entirely and have
+                // no way to tell which tenant it is looking at. Your own org's name is
+                // not privileged relative to you; SWITCHING and CREATING still are, and
+                // remain gated.
+                token.tenantName = utr?.tenantId
+                    ? (await prisma.tenant.findUnique({
+                          where: { id: utr.tenantId },
+                          select: { name: true },
+                      }))?.name ?? null
+                    : null;
                 if (user) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     token.isSuperAdmin = (user as any).isSuperAdmin ?? false;
@@ -181,6 +195,7 @@ export const authOptions: NextAuthOptions = {
                 id: token.sub as string,
                 email: (token.email as string) ?? "",
                 tenantId: (token.tenantId as string | null) ?? null,
+                tenantName: (token.tenantName as string | null) ?? null,
                 role: (token.role as string | null) ?? null,
                 isSuperAdmin: (token.isSuperAdmin as boolean) ?? false,
             };

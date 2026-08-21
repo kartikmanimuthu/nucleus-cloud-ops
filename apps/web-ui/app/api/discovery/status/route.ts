@@ -5,7 +5,7 @@ import { authOptions } from '../../auth/[...nextauth]/route';
 import { getPrismaClient } from '@/lib/db/pg-config';
 
 export async function GET(req: NextRequest) {
-    const authError = await authorize('read', 'Discovery');
+    const authError = await authorize('read', 'Resource');
     if (authError) return authError;
 
     try {

@@ -3,7 +3,15 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
 import { AuditService } from '@/lib/audit-service';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'KnowledgeBase' },
+    POST: { action: 'create', subject: 'KnowledgeBase' },
+};
 
 // GET /api/knowledge-base
 export async function GET() {
@@ -14,7 +22,9 @@ export async function GET() {
 
   try {
     const tenantId = await getSessionTenantId();
-    const knowledgeBases = await KnowledgeBaseService.listKnowledgeBases(tenantId);
+    // Gate 3. Layer 1 authz above settled WHETHER this caller may list
+    // knowledge bases; this settles WHICH ones, in SQL, so the list stays honest.
+    const knowledgeBases = await KnowledgeBaseService.listKnowledgeBases(tenantId, await getReadRowFilter('KnowledgeBase'));
     return NextResponse.json({ knowledgeBases });
   } catch (error) {
     console.error('[KB API] Error listing knowledge bases:', error);

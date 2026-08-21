@@ -12,8 +12,8 @@ import {
   useSaveAiopsSubagentSettings,
   type SubagentBudget,
 } from '@/lib/queries/aiops-settings';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { GatedButton } from '@/components/rbac/gated';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -214,14 +214,25 @@ export function AiopsSubagentSettings() {
         </CardContent>
       </Card>
 
-      <Button type="submit" disabled={saveMutation.isPending || !platformEnabled}>
+      {/*
+        * Same gate as the behavior card above: this form PUTs /api/settings/aiops
+        * too, which enforces authorize('update', 'Agent'). The existing
+        * !platformEnabled guard is kept — a denied user and a disabled platform
+        * are separate reasons the control is inert.
+        */}
+      <GatedButton
+        action="update"
+        subject="Agent"
+        type="submit"
+        disabled={saveMutation.isPending || !platformEnabled}
+      >
         {saveMutation.isPending ? (
           <Spinner size="sm" className="mr-2" />
         ) : (
           <Save className="h-4 w-4 mr-2" />
         )}
         Save settings
-      </Button>
+      </GatedButton>
     </form>
   );
 }

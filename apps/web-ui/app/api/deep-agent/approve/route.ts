@@ -23,6 +23,12 @@ import type {
 import { createLogger } from '../../../../lib/deep-agent/logger';
 import { AuditService } from '@/lib/audit-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'approve', subject: 'Agent' },
+};
 
 const log = createLogger('ApproveRoute');
 

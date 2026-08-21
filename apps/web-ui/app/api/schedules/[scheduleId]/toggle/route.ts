@@ -3,6 +3,12 @@ import { ScheduleService } from '@/lib/schedule-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../auth/[...nextauth]/route';
 import { getSessionTenantId } from '@/lib/auth-session';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'update', subject: 'Schedule' },
+};
 
 // POST /api/schedules/[scheduleId]/toggle - Toggle schedule active status
 export async function POST(

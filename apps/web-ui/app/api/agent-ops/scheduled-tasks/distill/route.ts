@@ -70,7 +70,7 @@ Transcript:
 `;
 
 export async function POST(request: NextRequest) {
-    const authError = await authorize('create', 'Agent');
+    const authError = await authorize('create', 'ScheduledTask');
     if (authError) return authError;
     try {
         const tenantId = await getSessionTenantId();

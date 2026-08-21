@@ -4,6 +4,7 @@ import { getCertificateRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { getTenantClient } from '@/lib/db/pg-config';
 import { authorize } from '@/lib/rbac/authorize';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
 import { AuditService } from '@/lib/audit-service';
 import { computeExpiryStatus, parseCertificatePem } from '@/lib/certificate-utils';
 import { parseCertificate, validateKeyPair } from '@/lib/certificate-crypto';
@@ -30,6 +31,8 @@ export async function GET(request: NextRequest) {
             searchTerm: searchParams.get('search') || undefined,
             limit: parseInt(searchParams.get('limit') || '50', 10),
             page: parseInt(searchParams.get('page') || '1', 10),
+            // Gate 3 — which certificates, not just whether. See lib/rbac/row-filter.ts.
+            rowFilter: await getReadRowFilter('Certificate'),
         });
 
         // Account linkage now comes from CertificateDeployment (live, ACM-discovered),

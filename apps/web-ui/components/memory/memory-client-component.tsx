@@ -32,6 +32,7 @@ import {
     exportAllMemoriesToZip,
 } from "@/lib/memory-export";
 import { useDebounce } from "@/hooks/use-debounce";
+import { GatedDropdownItem } from "@/components/rbac/gated";
 import { MemoryDetailDialog } from "./memory-detail-dialog";
 import { DeleteMemoryDialog } from "./delete-memory-dialog";
 import { SkillFormDialog } from "@/components/skills/skill-form-dialog";
@@ -236,7 +237,22 @@ export function MemoryClientComponent() {
                                         View details
                                     </DropdownMenuItem>
                                     {m.kind === "PROCEDURAL" ? (
-                                        <DropdownMenuItem
+                                        /*
+                                         * Promotion WRITES a new skill (SkillFormDialog ->
+                                         * POST /api/skills, create/Skill), so it is gated on
+                                         * Skill:create — not on anything about the Memory row
+                                         * it reads from. No `data`: the skill does not exist
+                                         * yet, so there is no row for a conditional grant to
+                                         * be evaluated against. Same shape as Duplicate in
+                                         * schedules-table.tsx.
+                                         *
+                                         * skills-client.tsx already gates this same dialog on
+                                         * create/Skill; ungated here, a Memory:read role could
+                                         * fill in the whole form and lose it to a 403 on save.
+                                         */
+                                        <GatedDropdownItem
+                                            action="create"
+                                            subject="Skill"
                                             onClick={() => {
                                                 const draft = buildSkillDraftFromMemory(m);
                                                 if (draft) {
@@ -248,7 +264,7 @@ export function MemoryClientComponent() {
                                         >
                                             <Sparkles className="mr-2 h-4 w-4" />
                                             Promote to skill
-                                        </DropdownMenuItem>
+                                        </GatedDropdownItem>
                                     ) : null}
                                     <DropdownMenuItem
                                         onClick={() => {
@@ -276,13 +292,27 @@ export function MemoryClientComponent() {
                                         <FileCode className="mr-2 h-4 w-4" />
                                         Export memory (.md)
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem
+                                    {/*
+                                      * DELETE /api/agent-memories/:id enforces
+                                      * authorize('delete', 'Memory') — on this subject `delete`
+                                      * means PRUNE (see SUBJECT_TO_MODULE). Ungated, a
+                                      * Memory:read role got a live Delete, a normal-looking
+                                      * confirmation dialog, and then a 403.
+                                      *
+                                      * `data` IS passed here: this acts on an existing row, and
+                                      * without it a conditional grant reads as permitted and the
+                                      * item would enable on rows the API will refuse.
+                                      */}
+                                    <GatedDropdownItem
+                                        action="delete"
+                                        subject="Memory"
+                                        data={m as unknown as Record<string, unknown>}
                                         onClick={() => setDeleteTarget(m)}
                                         className="text-destructive"
                                     >
                                         <Trash2 className="mr-2 h-4 w-4" />
                                         Delete
-                                    </DropdownMenuItem>
+                                    </GatedDropdownItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         </div>

@@ -17,7 +17,11 @@ const CONFIG_KEY = 'agent-ops-slack';
 
 export async function POST(req: Request) {
     try {
-        const authError = await authorize('update', 'Agent');
+        // 'Channel', not 'Agent' — testing a connection is a channel operation, and
+        // this page's Save/Reset now gate on Channel too. Both subjects resolve to
+        // the AIOps module, so no role's effective access changes; what changes is
+        // that one screen stops being guarded by two different subjects.
+        const authError = await authorize('update', 'Channel');
         if (authError) return authError;
 
         const tenantId = await getSessionTenantId();

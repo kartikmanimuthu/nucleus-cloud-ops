@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAgentMemoryRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { authorize } from '@/lib/rbac/authorize';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
 import type { MemoryCategory } from '@/lib/agent-memory/category';
 import type { AgentMemorySortField, SortDirection } from '@/lib/db/repositories/agent-memory/interface';
 
@@ -35,6 +36,10 @@ export async function GET(request: NextRequest) {
             page: parseInt(searchParams.get('page') || '1', 10),
             sortBy,
             sortDir: sortBy ? sortDir : undefined,
+            // Gate 3. authorize() above settled WHETHER this caller may list
+            // memories; this settles WHICH ones, in SQL, so page counts stay
+            // honest.
+            rowFilter: await getReadRowFilter('Memory'),
         });
 
         return NextResponse.json({ success: true, data: result.memories, total: result.total });

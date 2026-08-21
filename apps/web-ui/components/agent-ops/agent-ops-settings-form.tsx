@@ -125,7 +125,7 @@ export function AgentOpsSettingsForm({
                         No models are available yet. Configure an LLM provider under{' '}
                         <button
                             className="text-blue-500 hover:underline"
-                            onClick={() => router.push('/app/settings/providers')}
+                            onClick={() => router.push('/app/agent-ops/providers')}
                         >
                             Settings → Providers
                         </button>{' '}

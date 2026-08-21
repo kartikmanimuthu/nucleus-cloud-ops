@@ -3,6 +3,12 @@ import { AccountService } from "@/lib/account-service";
 import { authorize } from "@/lib/rbac/authorize";
 import { getAuthSession, getSessionTenantId } from "@/lib/auth-session";
 import type { BulkActionResult, BulkItemResult } from "@/lib/bulk-actions/types";
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'create', subject: 'Account' },
+};
 
 type AccountBulkAction = "activate" | "deactivate" | "validate";
 

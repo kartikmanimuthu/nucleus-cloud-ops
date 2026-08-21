@@ -1,0 +1,26 @@
+diff --git a/dist/language_models/compat.cjs b/dist/language_models/compat.cjs
+index 4d30dc7c5e177ed2ff505978197db0b5fa090412..8c19a596e548623928f9b78ffce3eee94a4d8d5f 100644
+--- a/dist/language_models/compat.cjs
++++ b/dist/language_models/compat.cjs
+@@ -380,7 +380,7 @@ function finalizeContentBlock(block) {
+ 		const chunk = block;
+ 		let parsedArgs;
+ 		try {
+-			parsedArgs = JSON.parse(chunk.args ?? "{}");
++			parsedArgs = JSON.parse(chunk.args?.trim() ? chunk.args : "{}");
+ 		} catch {
+ 			return {
+ 				type: "invalid_tool_call",
+diff --git a/dist/language_models/compat.js b/dist/language_models/compat.js
+index 0ee30a496dc0f03079c20ba7281a294c598cfa70..3bc5e147c1cb5d9b2f8bd4b724e2b82d49de08e8 100644
+--- a/dist/language_models/compat.js
++++ b/dist/language_models/compat.js
+@@ -379,7 +379,7 @@ function finalizeContentBlock(block) {
+ 		const chunk = block;
+ 		let parsedArgs;
+ 		try {
+-			parsedArgs = JSON.parse(chunk.args ?? "{}");
++			parsedArgs = JSON.parse(chunk.args?.trim() ? chunk.args : "{}");
+ 		} catch {
+ 			return {
+ 				type: "invalid_tool_call",

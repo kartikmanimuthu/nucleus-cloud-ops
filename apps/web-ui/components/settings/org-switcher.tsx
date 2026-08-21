@@ -19,6 +19,7 @@ import {
     useSidebar,
 } from "@/components/ui/sidebar";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { useCan, useDenialReason } from "@/hooks/use-can";
 
 export function OrgSwitcher() {
     const { data: session, update } = useSession();
@@ -43,8 +44,29 @@ export function OrgSwitcher() {
         }
     };
 
-    const currentOrg = orgs.find((o) => o.id === currentTenantId);
+    /**
+     * `/api/tenants/my-orgs` requires `read Tenant`, a Settings-module permission.
+     * A role without Settings gets an empty list, and this component used to
+     * `return null` — the whole switcher disappeared and the user had no way to
+     * tell which organisation they were in.
+     *
+     * The active org's name now travels on the session, so identity is always
+     * shown. The list is still permission-gated: without `read Tenant` there is
+     * simply nothing to switch between.
+     */
+    const currentOrg: Org | undefined =
+        orgs.find((o) => o.id === currentTenantId) ??
+        (currentTenantId && session?.user?.tenantName
+            ? ({ id: currentTenantId, name: session.user.tenantName, logoUrl: null } as Org)
+            : undefined);
+
     const isMultiOrg = orgs.length > 1;
+
+    // Creating and switching are real mutations and stay gated independently of
+    // merely SEEING which org you are in.
+    const canCreateOrg = useCan("create", "Tenant");
+    const createDenialReason = useDenialReason("create", "Tenant");
+    const canSwitchOrg = useCan("update", "Tenant");
 
     const getOrgInitial = (name: string) => name.charAt(0).toUpperCase();
 
@@ -63,13 +85,19 @@ export function OrgSwitcher() {
 
     if (!currentOrg) return null;
 
-    // Shared "Create new organization" menu item
+    // Shared "Create new organization" menu item. Rendered disabled rather than
+    // hidden when denied, so the capability stays discoverable and the tooltip
+    // explains why it is unavailable.
     const createOrgItem = (
         <>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-                onClick={() => router.push("/create-org")}
-                className="flex items-center gap-2 cursor-pointer"
+                onClick={canCreateOrg ? () => router.push("/create-org") : undefined}
+                onSelect={canCreateOrg ? undefined : (e) => e.preventDefault()}
+                disabled={!canCreateOrg}
+                aria-disabled={!canCreateOrg || undefined}
+                title={canCreateOrg ? undefined : (createDenialReason ?? undefined)}
+                className={`flex items-center gap-2 ${canCreateOrg ? "cursor-pointer" : "cursor-not-allowed"}`}
             >
                 <div className="flex size-6 items-center justify-center rounded-md border border-dashed border-muted-foreground/50 shrink-0">
                     <Plus className="size-3.5 text-muted-foreground" />
@@ -113,8 +141,10 @@ export function OrgSwitcher() {
                         {orgs.map((org) => (
                             <DropdownMenuItem
                                 key={org.id}
-                                onClick={() => handleSwitch(org.id)}
-                                className="flex items-center gap-2 cursor-pointer"
+                                onClick={canSwitchOrg ? () => handleSwitch(org.id) : undefined}
+                                onSelect={canSwitchOrg ? undefined : (e) => e.preventDefault()}
+                                disabled={!canSwitchOrg && org.id !== currentTenantId}
+                                className={`flex items-center gap-2 ${canSwitchOrg ? "cursor-pointer" : "cursor-not-allowed"}`}
                             >
                                 <Avatar className="size-6 rounded-md shrink-0">
                                     <AvatarImage src={org.logoUrl ?? undefined} alt={org.name} />

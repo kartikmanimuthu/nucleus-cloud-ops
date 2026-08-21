@@ -7,7 +7,8 @@
  * Multi-tenant safety: every query is scoped by tenantId.
  * Atomic counter updates use Prisma increment/decrement (no read-modify-write).
  */
-import { getTenantClient } from '@/lib/db/pg-config';
+import { andWhere, getTenantClient } from '@/lib/db/pg-config';
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
 import type { KnowledgeBase, CreateKBInput, KnowledgeBaseStatus } from '@/lib/knowledge-base/types';
 import type { IKnowledgeBaseRepository } from './interface';
 
@@ -38,10 +39,12 @@ function rowToKB(row: {
 }
 
 export class KnowledgeBasePostgresRepository implements IKnowledgeBaseRepository {
-    async listKnowledgeBases(tenantId: string): Promise<KnowledgeBase[]> {
+    async listKnowledgeBases(tenantId: string, rowFilter?: PrismaRowFilter | null): Promise<KnowledgeBase[]> {
         try {
+            // Gate 3: intersect the caller's readable rows.
+            const scoped = andWhere({ tenantId }, rowFilter);
             const rows = await getTenantClient(tenantId).knowledgeBase.findMany({
-                where: { tenantId },
+                where: scoped,
                 orderBy: { createdAt: 'desc' },
             });
             return rows.map(rowToKB);

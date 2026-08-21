@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { EC2Client, DescribeRegionsCommand } from '@aws-sdk/client-ec2';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { env } from '@/env';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Account' },
+};
 
 export async function GET(request: NextRequest) {
     try {

@@ -4,6 +4,7 @@ import { ScheduleService } from '@/lib/schedule-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 import { authorize } from '@/lib/rbac/authorize';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
 import { getSessionTenantId } from '@/lib/auth-session';
 
 // GET /api/schedules - Get all schedules with optional filtering
@@ -27,6 +28,10 @@ export async function GET(request: NextRequest) {
             page,
             limit,
             tenantId: await getSessionTenantId(),
+            // Gate 3. authorize() above settled WHETHER this caller may list
+            // schedules; this settles WHICH ones, in SQL, so page counts stay
+            // honest.
+            rowFilter: await getReadRowFilter('Schedule'),
         };
 
         // Fetch schedules with optional filters

@@ -3,6 +3,12 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { getGatewayEventBus } from '@/lib/gateway/event-bus';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Agent' },
+};
 
 export const dynamic = 'force-dynamic';
 

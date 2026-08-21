@@ -1,5 +1,5 @@
 // web-ui/tests/gateway/notification-router.test.ts
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NotificationRouter } from '@/lib/gateway/notification-router';
 import { GatewayEventBus } from '@/lib/gateway/event-bus';
 import { AdapterRegistry } from '@/lib/gateway/adapter-registry';
@@ -95,5 +95,41 @@ describe('NotificationRouter', () => {
         bus.emit({ type: 'run:completed', runId: 'run-1', tenantId: 'tenant-1', timestamp: new Date(), data: { run: makeRun() } });
         await new Promise(r => setTimeout(r, 50));
         expect(adapter.sendResult).not.toHaveBeenCalled();
+    });
+
+    describe('run:event narration gate', () => {
+        const emitStreamEvent = async (channels?: string) => {
+            if (channels === undefined) delete process.env.NARRATION_CHANNELS;
+            else process.env.NARRATION_CHANNELS = channels;
+
+            const callbackAdapter = makeMockAdapter({
+                deliveryMode: 'callback',
+                sendStreamChunk: vi.fn().mockResolvedValue(undefined),
+            });
+            registry = new AdapterRegistry();
+            registry.register(callbackAdapter);
+            router = new NotificationRouter(bus, registry);
+
+            router.attachToRun(makeRun());
+            bus.emit({ type: 'run:event', runId: 'run-1', tenantId: 'tenant-1', timestamp: new Date(), data: { event: { eventType: 'tool_call' } as any } });
+            await new Promise((r) => setTimeout(r, 50));
+
+            return callbackAdapter.sendStreamChunk;
+        };
+
+        afterEach(() => delete process.env.NARRATION_CHANNELS);
+
+        it('dispatches run:event to an adapter whose channel is allowlisted', async () => {
+            expect(await emitStreamEvent('slack')).toHaveBeenCalled();
+        });
+
+        // NARRATION_CHANNELS is a strict allowlist, so an unset value must not narrate.
+        it('does not dispatch run:event when NARRATION_CHANNELS is unset', async () => {
+            expect(await emitStreamEvent(undefined)).not.toHaveBeenCalled();
+        });
+
+        it('does not dispatch run:event to a channel left out of the allowlist', async () => {
+            expect(await emitStreamEvent('telegram')).not.toHaveBeenCalled();
+        });
     });
 });

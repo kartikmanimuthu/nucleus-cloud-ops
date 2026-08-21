@@ -15,6 +15,21 @@ export function autoKbSelectionEnabled(): boolean {
     return !(v === 'false' || v === '0');
 }
 
+/**
+ * The model is asked for JSON but does not always oblige exactly: it may fence the
+ * block, or add prose containing braces, in which case a greedy first-to-last-brace
+ * match spans text that will not parse. Try the greedy span, then the first object.
+ */
+function parseSelection(text: string): { kbIds?: unknown; reasoning?: string } | null {
+    const cleaned = text.replace(/```(?:json)?/gi, '');
+    const candidates = [cleaned.match(/\{[\s\S]*\}/)?.[0], cleaned.match(/\{[\s\S]*?\}/)?.[0]];
+    for (const candidate of candidates) {
+        if (!candidate) continue;
+        try { return JSON.parse(candidate) as { kbIds?: unknown; reasoning?: string }; } catch { /* try the next shape */ }
+    }
+    return null;
+}
+
 export async function autoSelectKb(params: {
     tenantId: string;
     message: string;
@@ -22,6 +37,11 @@ export async function autoSelectKb(params: {
 }): Promise<{ kbIds: string[]; reasoning: string }> {
     const empty = { kbIds: [] as string[], reasoning: '' };
     if (!autoKbSelectionEnabled()) return empty;
+    // A resume turn carries a Command, not user text, so there is nothing to match on.
+    // Calling the model with an empty HumanMessage throws ("'human' must contain
+    // non-empty content") — caught below, but it meant every resume turn logged a
+    // failure and silently skipped KB selection.
+    if (!params.message.trim()) return empty;
     try {
         const kbs = await KnowledgeBaseService.listKnowledgeBases(params.tenantId);
         // Only active KBs with at least one embedded vector are auto-selectable.
@@ -39,10 +59,8 @@ export async function autoSelectKb(params: {
             `Rules: include a KB id ONLY when its description clearly matches the request. Pick multiple if several are relevant. Return an empty array when none clearly apply.`,
         );
         const resp = await reflector.invoke([sys, new HumanMessage(params.message.slice(0, 4000))]);
-        const content = contentToText(resp.content);
-        const match = content.match(/\{[\s\S]*\}/);
-        if (!match) return empty;
-        const parsed = JSON.parse(match[0]) as { kbIds?: unknown; reasoning?: string };
+        const parsed = parseSelection(contentToText(resp.content));
+        if (!parsed) return empty;
         const ids = Array.isArray(parsed.kbIds)
             ? parsed.kbIds.filter((id): id is string => typeof id === 'string' && validIds.has(id))
             : [];

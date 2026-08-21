@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -142,24 +143,50 @@ export function RecommendationDetailPage({ recommendationId }: { recommendationI
                                     className="h-9 w-40"
                                 />
                             </div>
-                            <Button
+                            {/*
+                              * Snooze, Dismiss and Approve all write the same row
+                              * through PATCH /api/right-sizing/recommendations/:id,
+                              * which enforces authorize('update', 'RightSizing') —
+                              * the same permission the Run scan button on the list
+                              * page needs. `data` is passed because these act on an
+                              * existing recommendation: without it a conditional
+                              * grant reads as permitted and the control enables on
+                              * rows the API will refuse.
+                              */}
+                            <GatedButton
+                                action="update"
+                                subject="RightSizing"
+                                data={r as unknown as Record<string, unknown>}
                                 variant="outline"
                                 disabled={!snoozeDate || busy !== null}
                                 onClick={() => setStatus("snoozed", snoozeDate)}
                             >
                                 {busy === "snoozed" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4" />}
                                 <span className="ml-1">Snooze</span>
-                            </Button>
+                            </GatedButton>
                         </div>
                         <div className="flex gap-2">
-                            <Button variant="outline" disabled={busy !== null} onClick={() => setStatus("dismissed")}>
+                            <GatedButton
+                                action="update"
+                                subject="RightSizing"
+                                data={r as unknown as Record<string, unknown>}
+                                variant="outline"
+                                disabled={busy !== null}
+                                onClick={() => setStatus("dismissed")}
+                            >
                                 {busy === "dismissed" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
                                 <span className="ml-1">Dismiss</span>
-                            </Button>
-                            <Button disabled={busy !== null} onClick={() => setStatus("approved")}>
+                            </GatedButton>
+                            <GatedButton
+                                action="update"
+                                subject="RightSizing"
+                                data={r as unknown as Record<string, unknown>}
+                                disabled={busy !== null}
+                                onClick={() => setStatus("approved")}
+                            >
                                 {busy === "approved" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                                 <span className="ml-1">Approve</span>
-                            </Button>
+                            </GatedButton>
                         </div>
                     </CardContent>
                 </Card>

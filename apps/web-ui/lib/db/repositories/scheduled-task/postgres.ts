@@ -78,6 +78,8 @@ function toScheduledTask(r: {
     createdAt: Date;
     updatedAt: Date;
     createdBy: string;
+    createdByUserId?: string | null;
+    createdByRoleId?: string | null;
 }): ScheduledTask {
     return {
         PK: `TENANT#${r.tenantId}`,
@@ -109,6 +111,8 @@ function toScheduledTask(r: {
         createdAt: r.createdAt.toISOString(),
         updatedAt: r.updatedAt.toISOString(),
         createdBy: r.createdBy,
+        createdByUserId: r.createdByUserId ?? undefined,
+        createdByRoleId: r.createdByRoleId ?? undefined,
     };
 }
 
@@ -145,6 +149,8 @@ export class ScheduledTaskPostgresRepository implements IScheduledTaskRepository
                 nextRunAt: nextRunAt ?? null,
                 runCount: 0,
                 createdBy: params.createdBy,
+                createdByUserId: params.createdByUserId ?? null,
+                createdByRoleId: params.createdByRoleId ?? null,
             },
         });
 

@@ -91,7 +91,7 @@ nucleus-cloud-ops/
 │   │   ├── lib/
 │   │   │   ├── agent/    # LangGraph AI agents (fast, planning, deep)
 │   │   │   ├── db/       # Prisma client, repository factory, per-domain repositories
-│   │   │   └── rbac/     # CASL-based RBAC (authorize.ts, types.ts)
+│   │   │   └── rbac/     # RBAC/ABAC guards (authorize.ts, types.ts) — CASL v7
 │   │   └── hooks/        # Custom React hooks
 │   ├── workers/          # pg-boss background job workers + project.json
 │   │   └── src/jobs/     # scheduler/, discovery/, kb-sync/
@@ -506,7 +506,7 @@ Active constraints:
 - `@pulumi/pulumi` ^3.228.0 + `@pulumi/aws` ^7.23.0 + `@pulumi/awsx` ^3.4.0 - All AWS infrastructure provisioning
 - `@aws-sdk/client-s3vectors` ^3.991.0 - S3 Vectors API client
 - `next-auth` ^4.24.11 - Authentication session management
-- `@casl/ability` ^6.8.0 - RBAC authorization
+- `@casl/ability` ^7.0.1 + `@casl/react` ^7.0.1 + `@casl/prisma` ^2.0.2 - RBAC/ABAC authorization. **v7, not v6** — use `createMongoAbility()`, never `new Ability()`; `PureAbility` is renamed `Ability`, `rulesToQuery` is `rulesToCondition`, and `packRules`/`unpackRules` live in the `@casl/ability/extra` subpath
 - `langfuse-langchain` ^3.38.6 - LLM observability integration
 - `deepagents` ^1.8.1 - Deep agent framework
 - `@farukada/aws-langgraph-dynamodb-ts` ^0.1.0 - DynamoDB checkpointer for LangGraph
@@ -629,7 +629,7 @@ Active constraints:
 - Shared: `agent-shared.ts` (state types, `ReflectionState`, `sanitizeMessagesForBedrock`), `model-factory.ts` (ChatBedrockConverse init, tool assembly), `persistence.ts` (PostgreSQL-backed checkpointer + chat history)
 - Purpose: Role-based access control for all mutating API routes
 - Location: `apps/web-ui/lib/rbac/`
-- Pattern: Every mutating route calls `authorize(action, subject)` from `apps/web-ui/lib/rbac/authorize.ts` before proceeding; uses CASL library for ABAC conditions
+- Pattern: Every mutating route calls `authorize(action, subject)` from `apps/web-ui/lib/rbac/authorize.ts` before proceeding. Today this resolves against a hardcoded `Record<Module, Action[]>` matrix (`permissions.ts`, `types.ts`) — **not** CASL, and there are no ABAC conditions. The migration to a database-driven CASL v7 rule compiler is in progress on `feature/casl-abac`; `libs/rbac/` holds the framework-free half
 - Session: `getServerSession(authOptions)` or `getSessionUserId()` from `apps/web-ui/lib/auth-session.ts`
 - Purpose: Background processing independent of the web process
 - Location: `apps/workers/src/jobs/` (pg-boss jobs in the workers ECS service)

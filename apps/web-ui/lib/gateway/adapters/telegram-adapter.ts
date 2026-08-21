@@ -12,7 +12,7 @@ import { getTelegramBotLinkRepository } from '@/lib/db/repository-factory';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { env } from '@/env';
 import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
-import { ChannelRateLimiter } from '@/lib/gateway/utils/rate-limiter';
+import { NarrationSessions } from '@/lib/gateway/narration/narration-session';
 import type {
     ChannelAdapter,
     ChannelType,
@@ -33,8 +33,22 @@ import type {
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
 
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 1000;
+
+/**
+ * Only these are worth a second attempt. Every other 4xx (MESSAGE_TOO_LONG,
+ * invalid_auth, chat not found) fails identically however many times it is sent,
+ * so retrying one would just delay the same outcome by the whole backoff budget.
+ */
+const RETRIABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
 /** A Telegram chat is one ongoing conversation until it goes quiet this long. */
 const CONVERSATION_IDLE_MS = 30 * 60 * 1000;
+
+/** Raw reply cap. MarkdownV2 escaping can nearly double length; 1500 raw keeps
+ *  the escaped result comfortably under Telegram's 4096-char message limit. */
+const DIRECT_REPLY_MAX_CHARS = 1500;
 
 /** Commands that end the current conversation and start a fresh one. */
 const RESET_COMMANDS = new Set(['/new', '/n']);
@@ -89,6 +103,30 @@ function escapeMarkdownV2(text: string): string {
     return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
 }
 
+/**
+ * Inside the `(...)` of an inline link MarkdownV2 permits escaping only `)` and
+ * `\` — running a URL through the text escaper above instead puts `\-` and `\.`
+ * into the destination, and Telegram then renders a dead label rather than a link.
+ */
+function escapeMarkdownV2Url(url: string): string {
+    return url.replace(/([)\\])/g, '\\$1');
+}
+
+/** Inline link whose label is the URL, so the destination is visible up front. */
+function markdownV2Link(url: string): string {
+    return `[${escapeMarkdownV2(url)}](${escapeMarkdownV2Url(url)})`;
+}
+
+/** Truncate raw text to a safe length *before* MarkdownV2 escaping.
+ *  Telegram's limit is 4096 chars; 3500 raw leaves headroom for escapes. */
+function truncateForTelegram(text: string, maxRaw = 3500): string {
+    if (text.length <= maxRaw) return text;
+    let cut = text.lastIndexOf('\n', maxRaw);
+    if (cut < maxRaw * 0.8) cut = text.lastIndexOf(' ', maxRaw);
+    if (cut <= 0) cut = maxRaw;
+    return text.slice(0, cut) + '…';
+}
+
 // ─── Adapter ──────────────────────────────────────────────────────────
 
 export class TelegramAdapter implements ChannelAdapter {
@@ -100,7 +138,10 @@ export class TelegramAdapter implements ChannelAdapter {
         threadedReplies: true,
     };
 
-    private rateLimiter = new ChannelRateLimiter(2000);
+    /** Backoff base, overridable so tests don't sit through real delays. */
+    constructor(private retryBaseDelayMs: number = RETRY_BASE_DELAY_MS) {}
+
+    private narration = new NarrationSessions();
 
     /** Track ack message IDs per run for editMessageText updates */
     private ackMessageIds = new Map<string, number>();
@@ -188,8 +229,7 @@ export class TelegramAdapter implements ChannelAdapter {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             chat_id: chatId,
-                            text: `Processing your request... (Run \`${runId}\`)`,
-                            parse_mode: 'MarkdownV2',
+                            text: `Processing your request... (Run ${runId})`,
                         }),
                     });
                     if (res.ok) {
@@ -210,11 +250,68 @@ export class TelegramAdapter implements ChannelAdapter {
         });
     }
 
+    /**
+     * Returns the webhook ack only when Telegram accepted the message; `null`
+     * on every non-delivery so the caller falls through to the normal task path
+     * instead of dropping the user's message. Never throws.
+     */
+    async sendDirectReply(req: NextRequest, text: string): Promise<Response | null> {
+        const ack = new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        });
+
+        // Unlike the paths below this acks rather than returning null:
+        // generateDirectReply throws on empty content, so this is unreachable —
+        // and with nothing to deliver there is no point starting a run either.
+        const trimmed = (text ?? '').trim();
+        if (!trimmed) return ack;
+
+        try {
+            const body = await readBody(req);
+            let chatId: number | undefined;
+            try {
+                chatId = JSON.parse(body).message?.chat?.id;
+            } catch { /* ignore */ }
+            if (!chatId) return null;
+
+            const secretHeader = req.headers.get('x-telegram-bot-api-secret-token') || '';
+            const tenantId = (await resolveTenantId(req, secretHeader)) || String(chatId);
+            const config = await this.loadConfig(tenantId);
+            const botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || '';
+            if (!botToken) {
+                console.warn('[TelegramAdapter] sendDirectReply: bot token not configured');
+                return null;
+            }
+
+            const res = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chat_id: chatId,
+                    text: escapeMarkdownV2(trimmed.slice(0, DIRECT_REPLY_MAX_CHARS)),
+                    parse_mode: 'MarkdownV2',
+                }),
+            });
+
+            if (!res.ok) {
+                const responseText = await res.text();
+                console.warn(`[TelegramAdapter] sendDirectReply failed (${res.status}):`, responseText);
+                return null;
+            }
+        } catch (err) {
+            console.error('[TelegramAdapter] sendDirectReply error:', err);
+            return null;
+        }
+
+        return ack;
+    }
+
     // ─── Outbound ─────────────────────────────────────────────────────
 
     async sendResult(run: AgentOpsRun, _events: AgentOpsEvent[]): Promise<void> {
         const trigger = run.trigger as TelegramTriggerMeta;
-        const summary = run.result?.summary ?? '(no summary)';
+        const summary = truncateForTelegram(run.result?.summary ?? '(no summary)');
         const toolsUsed = run.result?.toolsUsed ?? [];
         const durationMs = run.durationMs ?? 0;
 
@@ -227,19 +324,34 @@ export class TelegramAdapter implements ChannelAdapter {
             `*Duration:* ${Math.round(durationMs / 1000)}s`,
         ];
 
-        const ackMsgId = this.ackMessageIds.get(run.runId);
-        if (ackMsgId) {
-            await this.editMessage(run, trigger.chatId, ackMsgId, lines.join('\n'));
-            this.ackMessageIds.delete(run.runId);
-        } else {
-            await this.sendMessage(run, trigger.chatId, lines.join('\n'));
+        this.narration.finish(run.runId);
+        // Post fresh rather than editing the narration message, so the checklist
+        // of steps stays readable above the result (matches the Slack adapter).
+        const delivered = await this.sendMessage(run, trigger.chatId, lines.join('\n'));
+
+        // The run finished either way, so never leave the chat sitting on a checklist
+        // that reads as stuck. Short and plain: whatever rejected the summary —
+        // length, MarkdownV2, a dropped connection — is least likely to reject this.
+        if (!delivered) {
+            await this.sendMessage(
+                run,
+                trigger.chatId,
+                `Run ${run.runId} finished, but the result could not be posted here.\n`
+                    + `Open the dashboard: ${buildDashboardRunUrl(run.runId)}`,
+                undefined,
+                { plain: true },
+            );
         }
+
+        this.ackMessageIds.delete(run.runId);
     }
 
     async sendError(run: AgentOpsRun, error: string): Promise<void> {
+        this.narration.finish(run.runId);
         const trigger = run.trigger as TelegramTriggerMeta;
-        const text = `*Agent Ops Failed*\n\n${escapeMarkdownV2(error)}`;
+        const text = `*Agent Ops Failed*\n\n${escapeMarkdownV2(truncateForTelegram(error))}`;
         await this.sendMessage(run, trigger.chatId, text);
+        this.ackMessageIds.delete(run.runId);
     }
 
     async sendClarification(run: AgentOpsRun, question: string): Promise<void> {
@@ -249,9 +361,10 @@ export class TelegramAdapter implements ChannelAdapter {
         const text = [
             '*Clarification Needed*',
             '',
-            escapeMarkdownV2(question),
+            escapeMarkdownV2(truncateForTelegram(question)),
             '',
-            `[Open Dashboard](${escapeMarkdownV2(dashboardUrl)})`,
+            `_${escapeMarkdownV2('Reply here to continue, or open the dashboard:')}_`,
+            markdownV2Link(dashboardUrl),
         ].join('\n');
 
         await this.sendMessage(run, trigger.chatId, text);
@@ -263,7 +376,9 @@ export class TelegramAdapter implements ChannelAdapter {
         pendingTools?: string[],
     ): Promise<void> {
         const trigger = run.trigger as TelegramTriggerMeta;
-        const planText = (planSteps ?? []).map((s, i) => `${i + 1}\\. ${escapeMarkdownV2(s)}`).join('\n');
+        const planText = (planSteps ?? [])
+            .map((s, i) => `${i + 1}\\. ${escapeMarkdownV2(truncateForTelegram(s, 500))}`)
+            .join('\n');
         const toolsText = pendingTools?.length
             ? `\n\n*Tools:* ${escapeMarkdownV2(pendingTools.join(', '))}`
             : '';
@@ -271,7 +386,7 @@ export class TelegramAdapter implements ChannelAdapter {
         const text = [
             '*Approval Required*',
             '',
-            `*Task:* ${escapeMarkdownV2(run.taskDescription)}${toolsText}`,
+            `*Task:* ${escapeMarkdownV2(truncateForTelegram(run.taskDescription, 800))}${toolsText}`,
             '',
             '*Plan:*',
             planText,
@@ -288,15 +403,14 @@ export class TelegramAdapter implements ChannelAdapter {
     }
 
     async sendStreamChunk(run: AgentOpsRun, event: AgentOpsEvent): Promise<void> {
-        if (!this.rateLimiter.shouldSend(run.runId)) return;
+        const ackMsgId = this.ackMessageIds.get(run.runId);
+        if (!ackMsgId) return;
+
+        const text = await this.narration.applyEvent(run, event);
+        if (text === null) return;
 
         const trigger = run.trigger as TelegramTriggerMeta;
-        const content = event.content || `[${event.eventType}] ${event.toolName || event.node}`;
-        const ackMsgId = this.ackMessageIds.get(run.runId);
-
-        if (ackMsgId) {
-            await this.editMessage(run, trigger.chatId, ackMsgId, escapeMarkdownV2(content));
-        }
+        await this.editMessage(run, trigger.chatId, ackMsgId, escapeMarkdownV2(truncateForTelegram(text)));
     }
 
     /**
@@ -354,7 +468,7 @@ export class TelegramAdapter implements ChannelAdapter {
                     escapeMarkdownV2(detail),
                 ];
             }
-            lines.push('', `Run ${escapeMarkdownV2(run.runId)}`, `[Open dashboard](${escapeMarkdownV2(dashboardUrl)})`);
+            lines.push('', `Run ${escapeMarkdownV2(run.runId)}`, markdownV2Link(dashboardUrl));
             return lines;
         };
 
@@ -540,52 +654,74 @@ export class TelegramAdapter implements ChannelAdapter {
     }
 
     /**
+     * One Telegram API call, retried past transient failures. A dropped connection
+     * (ECONNRESET) is the common one and used to cost the whole message.
+     */
+    private async callTelegram(
+        botToken: string,
+        method: string,
+        body: Record<string, unknown>,
+    ): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; detail: string }> {
+        let detail = 'no attempt made';
+
+        for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+            try {
+                const res = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/${method}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+
+                if (res.ok) return { ok: true, data: await res.json().catch(() => ({})) };
+
+                const responseText = await res.text().catch(() => '');
+                detail = `${res.status} ${responseText.slice(0, 300)}`;
+                if (!RETRIABLE_STATUS.has(res.status)) return { ok: false, detail };
+            } catch (err) {
+                detail = err instanceof Error ? err.message : String(err);
+            }
+
+            console.warn(`[TelegramAdapter] ${method} attempt ${attempt}/${RETRY_ATTEMPTS} failed: ${detail}`);
+            if (attempt < RETRY_ATTEMPTS) {
+                const wait = this.retryBaseDelayMs * 2 ** (attempt - 1);
+                await new Promise((resolve) => setTimeout(resolve, wait));
+            }
+        }
+
+        return { ok: false, detail };
+    }
+
+    /**
      * Best-effort by default (interactive replies must never crash a run);
      * pass { strict: true } to surface failures to the caller (scheduled digests).
+     * Returns whether the message actually reached the chat, so callers can react.
      */
     private async sendMessage(
         run: AgentOpsRun,
         chatId: number,
         text: string,
         replyMarkup?: Record<string, unknown>,
-        opts?: { strict?: boolean },
-    ): Promise<void> {
+        opts?: { strict?: boolean; plain?: boolean },
+    ): Promise<boolean> {
         const config = await this.loadConfig(run.tenantId);
         const botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || '';
 
         if (!botToken) {
             if (opts?.strict) throw new Error('No Telegram Bot Token configured — set it under Channels → Telegram');
             console.warn('[TelegramAdapter] Bot token not configured');
-            return;
+            return false;
         }
 
-        try {
-            const body: Record<string, unknown> = {
-                chat_id: chatId,
-                text,
-                parse_mode: 'MarkdownV2',
-            };
-            if (replyMarkup) {
-                body.reply_markup = replyMarkup;
-            }
+        const body: Record<string, unknown> = { chat_id: chatId, text };
+        if (!opts?.plain) body.parse_mode = 'MarkdownV2';
+        if (replyMarkup) body.reply_markup = replyMarkup;
 
-            const res = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
+        const result = await this.callTelegram(botToken, 'sendMessage', body);
+        if (result.ok) return true;
 
-            if (!res.ok) {
-                const responseText = await res.text();
-                if (opts?.strict) {
-                    throw new Error(`Telegram sendMessage failed (${res.status}): ${responseText.slice(0, 300)}`);
-                }
-                console.warn(`[TelegramAdapter] sendMessage failed (${res.status}):`, responseText);
-            }
-        } catch (err) {
-            if (opts?.strict) throw err;
-            console.error('[TelegramAdapter] sendMessage error:', err);
-        }
+        if (opts?.strict) throw new Error(`Telegram sendMessage failed: ${result.detail}`);
+        console.error(`[TelegramAdapter] sendMessage gave up after ${RETRY_ATTEMPTS} attempts: ${result.detail}`);
+        return false;
     }
 
     private async editMessage(
@@ -593,33 +729,39 @@ export class TelegramAdapter implements ChannelAdapter {
         chatId: number,
         messageId: number,
         text: string,
-    ): Promise<void> {
+    ): Promise<boolean> {
         const config = await this.loadConfig(run.tenantId);
         const botToken = config?.botToken || env.TELEGRAM_BOT_TOKEN || '';
 
         if (!botToken) {
             console.warn('[TelegramAdapter] Bot token not configured');
-            return;
+            return false;
         }
 
-        try {
-            const res = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/editMessageText`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    chat_id: chatId,
-                    message_id: messageId,
-                    text,
-                    parse_mode: 'MarkdownV2',
-                }),
-            });
+        // Hard safety-net: Telegram rejects edits > 4096 chars.
+        const safeText = text.length > 4096
+            ? this.truncateEscaped(text, 4090)
+            : text;
 
-            if (!res.ok) {
-                const responseText = await res.text();
-                console.warn(`[TelegramAdapter] editMessageText failed (${res.status}):`, responseText);
-            }
-        } catch (err) {
-            console.error('[TelegramAdapter] editMessageText error:', err);
-        }
+        const result = await this.callTelegram(botToken, 'editMessageText', {
+            chat_id: chatId,
+            message_id: messageId,
+            text: safeText,
+            parse_mode: 'MarkdownV2',
+        });
+
+        if (result.ok) return true;
+        console.error(`[TelegramAdapter] editMessageText gave up after ${RETRY_ATTEMPTS} attempts: ${result.detail}`);
+        return false;
+    }
+
+    /** Truncate already-escaped MarkdownV2 text without breaking escapes. */
+    private truncateEscaped(text: string, limit: number): string {
+        let cut = text.lastIndexOf('\n', limit);
+        if (cut < limit * 0.8) cut = text.lastIndexOf(' ', limit);
+        if (cut <= 0) cut = limit;
+        // Don't end on a bare backslash.
+        if (text[cut - 1] === '\\') cut -= 1;
+        return text.slice(0, cut) + '…';
     }
 }

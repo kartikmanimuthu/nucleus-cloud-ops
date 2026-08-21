@@ -35,6 +35,45 @@ async function main() {
         });
     }
     console.log('Seed: 4 preset roles upserted (tenantId=null, type=preset).');
+
+    await assertRbacRegistrySeeded();
+}
+
+/**
+ * The RBAC registry is seeded by 20260730000000_dynamic_abac/migration.sql, NOT
+ * here — enforcement depends on those rows existing, and the container runs
+ * `prisma migrate deploy` without ever running this seed.
+ *
+ * It is deliberately not duplicated into this file. Both apps run
+ * `prisma migrate deploy` in their `predev`/`prestart` hooks, so a local database
+ * already has the registry by the time anyone runs the seed; a second copy of ~200
+ * INSERT statements would add no local capability and would drift from the
+ * migration, which is the copy that actually runs in production.
+ *
+ * This check exists so that a developer whose database predates the migration
+ * gets told exactly that, instead of watching every permission check fail closed.
+ */
+async function assertRbacRegistrySeeded() {
+    const [modules, actions, subjects, rules] = await Promise.all([
+        prisma.rbacModule.count({ where: { tenantId: null } }),
+        prisma.rbacAction.count({ where: { tenantId: null } }),
+        prisma.rbacSubject.count({ where: { tenantId: null } }),
+        prisma.rbacRoleRule.count({ where: { tenantId: null } }),
+    ]);
+
+    if (modules === 0 || actions === 0 || subjects === 0) {
+        console.error(
+            '\nSeed: RBAC registry is EMPTY.\n' +
+                '  The system registry ships inside 20260730000000_dynamic_abac/migration.sql.\n' +
+                '  Run:  cd apps/web-ui && bun run db:migrate:deploy\n'
+        );
+        throw new Error('RBAC registry not seeded — run the migrations first.');
+    }
+
+    console.log(
+        `Seed: RBAC registry present (${modules} modules, ${actions} actions, ` +
+            `${subjects} subjects, ${rules} preset rules) — seeded by the migration.`
+    );
 }
 
 main().catch(console.error).finally(() => prisma.$disconnect());

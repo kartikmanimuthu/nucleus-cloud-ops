@@ -3,7 +3,11 @@
  *
  * GET /api/agent-ops/settings/jira — Returns Jira config (secrets masked)
  * DELETE /api/agent-ops/settings/jira — Resets (deletes) the stored config
- * PUT /api/agent-ops/settings/jira — Validates and saves Jira config to PostgreSQL
+ * POST /api/agent-ops/settings/jira — Creates the config (first-time connect)
+ * PUT /api/agent-ops/settings/jira — Updates the existing config
+ *
+ * POST and PUT share one handler but are NOT interchangeable — see the Slack
+ * route for why the create/update split has to be two methods.
  */
 
 import { NextResponse } from 'next/server';
@@ -12,6 +16,19 @@ import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { authorize } from '@/lib/rbac/authorize';
 import type { JiraIntegrationConfig } from '@/lib/agent-ops/types';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/**
+ * Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set.
+ * Subject is 'Channel' (→ AIOps), and GET is declared `read` so it is not
+ * inferred from a stricter in-body gate. Full rationale on the Slack route.
+ */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Channel' },
+    POST: { action: 'create', subject: 'Channel' },
+    PUT: { action: 'update', subject: 'Channel' },
+    DELETE: { action: 'delete', subject: 'Channel' },
+};
 
 const CONFIG_KEY = 'agent-ops-jira';
 
@@ -21,7 +38,7 @@ function maskSecret(value: string | undefined): string {
     return value.slice(0, 4) + '****' + value.slice(-4);
 }
 
-export async function GET(req: Request) {
+export async function GET() {
     try {
         const tenantId = await getSessionTenantId();
         const config = await TenantConfigService.getConfig<JiraIntegrationConfig>(CONFIG_KEY, tenantId);
@@ -30,43 +47,15 @@ export async function GET(req: Request) {
             return NextResponse.json({ configured: false, enabled: false });
         }
 
-        // Plaintext secrets are only returned when explicitly revealed by the
-        // authenticated tenant admin (eye toggle), never on the default load.
-        const reveal = new URL(req.url).searchParams.get('reveal') === '1';
-
-        if (reveal) {
-            const authError = await authorize('update', 'Agent');
-            if (authError) return authError;
-        }
-
-        const show = (value: string | undefined) => (reveal ? value ?? '' : maskSecret(value));
-
-        if (reveal) {
-            const session = await getAuthSession();
-            AuditService.logUserAction({
-                eventType: 'agent.settings.jira_secret_reveal',
-                severity: 'high',
-                apiRoute: 'GET /api/agent-ops/settings/jira',
-                httpMethod: 'GET',
-                action: 'channel_secret_reveal',
-                resourceType: 'agent',
-                resourceId: 'jira-integration',
-                resourceName: 'Jira Integration',
-                user: session?.user?.email || 'unknown',
-                userType: 'user',
-                status: 'success',
-                details: 'Revealed plaintext Jira integration secrets',
-                metadata: { tenantId },
-            }).catch(() => {});
-        }
-
+        // Always masked. Plaintext lives behind GET /reveal, which requires
+        // `update` and audits — see lib/channels/secret-reveal.ts.
         return NextResponse.json({
             configured: true,
             enabled: config.enabled,
-            webhookSecret: show(config.webhookSecret),
+            webhookSecret: maskSecret(config.webhookSecret),
             baseUrl: config.baseUrl || '',
             userEmail: config.userEmail || '',
-            apiToken: show(config.apiToken),
+            apiToken: maskSecret(config.apiToken),
             botAccountId: config.botAccountId || '',
             autoApprove: config.autoApprove ?? false,
         });
@@ -79,7 +68,17 @@ export async function GET(req: Request) {
     }
 }
 
+/** First-time connect. 409s if Jira is already configured — that is PUT's job. */
+export async function POST(req: Request) {
+    return handleSave(req, 'create');
+}
+
+/** Edit an existing connection (credentials, enable toggle, auto-approve). */
 export async function PUT(req: Request) {
+    return handleSave(req, 'update');
+}
+
+async function handleSave(req: Request, mode: 'create' | 'update') {
     try {
         const tenantId = await getSessionTenantId();
         const body = await req.json() as Partial<JiraIntegrationConfig>;
@@ -88,6 +87,20 @@ export async function PUT(req: Request) {
         // stored config so blank fields retain what's already saved rather than
         // wiping it (secrets especially can never be re-read from the masked GET).
         const existing = await TenantConfigService.getConfig<JiraIntegrationConfig>(CONFIG_KEY, tenantId);
+
+        // The create/update boundary — see the Slack route for the full rationale.
+        if (mode === 'create' && existing) {
+            return NextResponse.json(
+                { error: 'Jira is already configured — use PUT to update the existing connection' },
+                { status: 409 }
+            );
+        }
+        if (mode === 'update' && !existing) {
+            return NextResponse.json(
+                { error: 'Jira is not configured yet — use POST to create the connection' },
+                { status: 404 }
+            );
+        }
 
         const webhookSecret = body.webhookSecret?.trim() || existing?.webhookSecret;
         if (!webhookSecret) {
@@ -111,20 +124,21 @@ export async function PUT(req: Request) {
 
         console.log('[API /agent-ops/settings/jira] Saved Jira config');
 
+        const created = mode === 'create';
         const session = await getAuthSession();
         AuditService.logUserAction({
-            eventType: 'agent.settings.jira_updated',
+            eventType: created ? 'agent.settings.jira_created' : 'agent.settings.jira_updated',
             severity: 'medium',
-            apiRoute: 'PUT /api/agent-ops/settings/jira',
-            httpMethod: 'PUT',
-            action: 'Updated Jira Settings',
+            apiRoute: `${created ? 'POST' : 'PUT'} /api/agent-ops/settings/jira`,
+            httpMethod: created ? 'POST' : 'PUT',
+            action: created ? 'Connected Jira' : 'Updated Jira Settings',
             resourceType: 'agent',
             resourceId: 'jira-integration',
             resourceName: 'Jira Integration',
             user: session?.user?.email || 'unknown',
             userType: 'user',
             status: 'success',
-            details: 'Updated Jira integration settings',
+            details: created ? 'Created the Jira integration connection' : 'Updated Jira integration settings',
             metadata: { tenantId },
         }).catch(() => {});
 
@@ -140,7 +154,7 @@ export async function PUT(req: Request) {
             autoApprove: config.autoApprove ?? false,
         });
     } catch (error: any) {
-        console.error('[API /agent-ops/settings/jira] PUT error:', error);
+        console.error(`[API /agent-ops/settings/jira] ${mode} error:`, error);
         return NextResponse.json(
             { error: error.message || 'Failed to save Jira settings' },
             { status: 500 }
@@ -156,7 +170,7 @@ export async function PUT(req: Request) {
  */
 export async function DELETE() {
     try {
-        const authError = await authorize('delete', 'Agent');
+        const authError = await authorize('delete', 'Channel');
         if (authError) return authError;
 
         const tenantId = await getSessionTenantId();

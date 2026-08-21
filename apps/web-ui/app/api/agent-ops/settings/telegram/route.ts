@@ -3,7 +3,11 @@
  *
  * GET /api/agent-ops/settings/telegram — Returns Telegram config (secrets masked)
  * DELETE /api/agent-ops/settings/telegram — Resets (deletes) the stored config
- * PUT /api/agent-ops/settings/telegram — Validates and saves Telegram config to PostgreSQL
+ * POST /api/agent-ops/settings/telegram — Creates the config (first-time connect)
+ * PUT /api/agent-ops/settings/telegram — Updates the existing config
+ *
+ * POST and PUT share one handler but are NOT interchangeable — see the Slack
+ * route for why the create/update split has to be two methods.
  */
 
 import { NextResponse } from 'next/server';
@@ -14,6 +18,19 @@ import { authorize } from '@/lib/rbac/authorize';
 import { getTelegramBotLinkRepository } from '@/lib/db/repository-factory';
 import { TelegramBotLinkConflictError } from '@/lib/db/repositories/telegram-bot-link/interface';
 import type { TelegramIntegrationConfig } from '@/lib/agent-ops/types';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/**
+ * Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set.
+ * Subject is 'Channel' (→ AIOps), and GET is declared `read` so it is not
+ * inferred from a stricter in-body gate. Full rationale on the Slack route.
+ */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Channel' },
+    POST: { action: 'create', subject: 'Channel' },
+    PUT: { action: 'update', subject: 'Channel' },
+    DELETE: { action: 'delete', subject: 'Channel' },
+};
 
 const CONFIG_KEY = 'agent-ops-telegram';
 
@@ -23,7 +40,7 @@ function maskSecret(value: string | undefined): string {
     return value.slice(0, 4) + '****' + value.slice(-4);
 }
 
-export async function GET(req: Request) {
+export async function GET() {
     try {
         const tenantId = await getSessionTenantId();
         const config = await TenantConfigService.getConfig<TelegramIntegrationConfig>(CONFIG_KEY, tenantId);
@@ -32,41 +49,13 @@ export async function GET(req: Request) {
             return NextResponse.json({ configured: false, enabled: false });
         }
 
-        // Plaintext secrets are only returned when explicitly revealed by the
-        // authenticated tenant admin (eye toggle), never on the default load.
-        const reveal = new URL(req.url).searchParams.get('reveal') === '1';
-
-        if (reveal) {
-            const authError = await authorize('update', 'Agent');
-            if (authError) return authError;
-        }
-
-        const show = (value: string | undefined) => (reveal ? value ?? '' : maskSecret(value));
-
-        if (reveal) {
-            const session = await getAuthSession();
-            AuditService.logUserAction({
-                eventType: 'agent.settings.telegram_secret_reveal',
-                severity: 'high',
-                apiRoute: 'GET /api/agent-ops/settings/telegram',
-                httpMethod: 'GET',
-                action: 'channel_secret_reveal',
-                resourceType: 'agent',
-                resourceId: 'telegram-integration',
-                resourceName: 'Telegram Integration',
-                user: session?.user?.email || 'unknown',
-                userType: 'user',
-                status: 'success',
-                details: 'Revealed plaintext Telegram integration secrets',
-                metadata: { tenantId },
-            }).catch(() => {});
-        }
-
+        // Always masked. Plaintext lives behind GET /reveal, which requires
+        // `update` and audits — see lib/channels/secret-reveal.ts.
         return NextResponse.json({
             configured: true,
             enabled: config.enabled,
-            botToken: show(config.botToken),
-            secretToken: show(config.secretToken),
+            botToken: maskSecret(config.botToken),
+            secretToken: maskSecret(config.secretToken),
         });
     } catch (error: any) {
         console.error('[API /agent-ops/settings/telegram] GET error:', error);
@@ -77,7 +66,17 @@ export async function GET(req: Request) {
     }
 }
 
+/** First-time connect. 409s if Telegram is already configured — that is PUT's job. */
+export async function POST(req: Request) {
+    return handleSave(req, 'create');
+}
+
+/** Edit an existing connection (credentials, enable toggle). */
 export async function PUT(req: Request) {
+    return handleSave(req, 'update');
+}
+
+async function handleSave(req: Request, mode: 'create' | 'update') {
     try {
         const tenantId = await getSessionTenantId();
         const body = await req.json() as Partial<TelegramIntegrationConfig>;
@@ -85,6 +84,20 @@ export async function PUT(req: Request) {
         // "Leave blank to keep existing values": merge the incoming body over the
         // stored config so blank secret fields retain what's already saved.
         const existing = await TenantConfigService.getConfig<TelegramIntegrationConfig>(CONFIG_KEY, tenantId);
+
+        // The create/update boundary — see the Slack route for the full rationale.
+        if (mode === 'create' && existing) {
+            return NextResponse.json(
+                { error: 'Telegram is already configured — use PUT to update the existing connection' },
+                { status: 409 }
+            );
+        }
+        if (mode === 'update' && !existing) {
+            return NextResponse.json(
+                { error: 'Telegram is not configured yet — use POST to create the connection' },
+                { status: 404 }
+            );
+        }
 
         const botToken = body.botToken?.trim() || existing?.botToken;
         const secretToken = body.secretToken?.trim() || existing?.secretToken;
@@ -123,20 +136,23 @@ export async function PUT(req: Request) {
 
         console.log('[API /agent-ops/settings/telegram] Saved Telegram config');
 
+        const created = mode === 'create';
         const session = await getAuthSession();
         AuditService.logUserAction({
-            eventType: 'agent.settings.telegram_updated',
+            eventType: created ? 'agent.settings.telegram_created' : 'agent.settings.telegram_updated',
             severity: 'medium',
-            apiRoute: 'PUT /api/agent-ops/settings/telegram',
-            httpMethod: 'PUT',
-            action: 'Updated Telegram Settings',
+            apiRoute: `${created ? 'POST' : 'PUT'} /api/agent-ops/settings/telegram`,
+            httpMethod: created ? 'POST' : 'PUT',
+            action: created ? 'Connected Telegram' : 'Updated Telegram Settings',
             resourceType: 'agent',
             resourceId: 'telegram-integration',
             resourceName: 'Telegram Integration',
             user: session?.user?.email || 'unknown',
             userType: 'user',
             status: 'success',
-            details: 'Updated Telegram integration settings',
+            details: created
+                ? 'Created the Telegram integration connection'
+                : 'Updated Telegram integration settings',
             metadata: { tenantId },
         }).catch(() => {});
 
@@ -148,7 +164,7 @@ export async function PUT(req: Request) {
             secretToken: maskSecret(config.secretToken),
         });
     } catch (error: any) {
-        console.error('[API /agent-ops/settings/telegram] PUT error:', error);
+        console.error(`[API /agent-ops/settings/telegram] ${mode} error:`, error);
         return NextResponse.json(
             { error: error.message || 'Failed to save Telegram settings' },
             { status: 500 }
@@ -164,7 +180,7 @@ export async function PUT(req: Request) {
  */
 export async function DELETE() {
     try {
-        const authError = await authorize('delete', 'Agent');
+        const authError = await authorize('delete', 'Channel');
         if (authError) return authError;
 
         const tenantId = await getSessionTenantId();

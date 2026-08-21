@@ -3,6 +3,15 @@ import { ScheduleService } from '@/lib/schedule-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { authorize } from '@/lib/rbac/authorize';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Schedule' },
+    PUT: { action: 'update', subject: 'Schedule' },
+    DELETE: { action: 'delete', subject: 'Schedule' },
+};
 
 // GET /api/schedules/[scheduleId] - Get a specific schedule by ID
 export async function GET(
@@ -50,6 +59,16 @@ export async function PUT(
             return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
         }
 
+        // Layer 2 — resource-aware. Deliberately AFTER the row is loaded and
+        // BEFORE it is mutated: authorizing on the request body would let the
+        // caller choose the accountId a condition is evaluated against.
+        const authError = await authorize('update', 'Schedule', {
+            accountId: existing.accountId,
+            active: existing.active,
+            timezone: existing.timezone,
+        });
+        if (authError) return authError;
+
         // Use the resolved UUID (existing.id), not the URL param which may be a name
         const updateData = { ...body, id: existing.id, updatedBy };
         const updatedSchedule = await ScheduleService.updateSchedule(existing.id, updateData, undefined, tenantId);
@@ -80,6 +99,14 @@ export async function DELETE(
         if (!existing) {
             return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
         }
+
+        // Layer 2 — load, authorize, then mutate (never authorize on the body).
+        const authError = await authorize('delete', 'Schedule', {
+            accountId: existing.accountId,
+            active: existing.active,
+            timezone: existing.timezone,
+        });
+        if (authError) return authError;
 
         // Use the resolved UUID (existing.id), not the URL param which may be a name
         await ScheduleService.deleteSchedule(existing.id, undefined, deletedBy, tenantId);

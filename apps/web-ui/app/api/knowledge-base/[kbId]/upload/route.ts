@@ -8,6 +8,12 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { getBoss } from '@/lib/boss-client';
 import { env } from '@/env';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'create', subject: 'KnowledgeBase' },
+};
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const SUPPORTED_MIME = new Set(['application/pdf', 'text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/yaml', 'application/x-yaml']);

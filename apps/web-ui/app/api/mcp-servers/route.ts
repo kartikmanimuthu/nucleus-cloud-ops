@@ -27,7 +27,7 @@ import { authorize } from '@/lib/rbac/authorize';
 const CONFIG_KEY = 'mcp-servers';
 
 export async function GET() {
-    const authError = await authorize('read', 'AIOps');
+    const authError = await authorize('read', 'McpServer');
     if (authError) return authError;
 
     let tenantId: string;
@@ -68,7 +68,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-    const authError = await authorize('update', 'AIOps');
+    const authError = await authorize('update', 'McpServer');
     if (authError) return authError;
 
     let tenantId: string;
@@ -150,7 +150,7 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE() {
-    const authError = await authorize('delete', 'AIOps');
+    const authError = await authorize('delete', 'McpServer');
     if (authError) return authError;
 
     let tenantId: string;

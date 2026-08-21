@@ -16,6 +16,14 @@ import { registerTask, unregisterTask } from '@/lib/agent-ops/scheduler-engine';
 import { cancelActiveRunsForTask } from '@/lib/agent-ops/agent-ops-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'ScheduledTask' },
+    PATCH: { action: 'update', subject: 'ScheduledTask' },
+    DELETE: { action: 'delete', subject: 'ScheduledTask' },
+};
 
 type Ctx = { params: Promise<{ taskId: string }> };
 

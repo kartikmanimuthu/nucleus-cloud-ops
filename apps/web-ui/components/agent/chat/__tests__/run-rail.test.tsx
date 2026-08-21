@@ -247,3 +247,35 @@ describe('RunRail sub-agent reconciliation after stream death', () => {
     expect(screen.getByText(/1 running/)).toBeTruthy()
   })
 })
+
+// Deep does not run the guard, and the sub-agent budget does not govern the
+// framework's `task` tool. Both indicators described controls that were not wired
+// to a deep run — the rail showed "guard: active" while nothing guarded it, and
+// "Sub-agents: off" while four were running.
+describe('RunRail — deep mode hides controls that do not apply', () => {
+  const CTX = { accountNames: ['acct'], modelLabel: 'm', skillName: null, toolCount: 3, kbLabel: 'kb' }
+
+  it('shows the guard line for fast/plan but not for deep', () => {
+    const { unmount } = render(<RunRail runState={EMPTY_RUN_STATE} isStreaming={false} context={CTX} />)
+    expect(screen.getByText(/guard:/)).toBeTruthy()
+    unmount()
+    render(<RunRail runState={EMPTY_RUN_STATE} isStreaming={false} context={CTX} isDeep />)
+    expect(screen.queryByText(/guard:/)).toBeNull()
+  })
+
+  it('hides the sub-agent budget line for deep', () => {
+    render(<RunRail runState={EMPTY_RUN_STATE} isStreaming={false} context={CTX} isDeep />)
+    expect(screen.queryByTestId('subagents-context-line')).toBeNull()
+  })
+
+  it('reports a plain status for deep instead of a phase label', () => {
+    const planning: RunState = { ...EMPTY_RUN_STATE, currentPhase: 'planning' }
+    const { unmount } = render(<RunRail runState={planning} isStreaming context={CTX} />)
+    expect(screen.getByText('Planning')).toBeTruthy()
+    unmount()
+    render(<RunRail runState={planning} isStreaming context={CTX} isDeep />)
+    expect(screen.queryByText('Planning')).toBeNull()
+    expect(screen.getByText('Working')).toBeTruthy()
+  })
+})
+

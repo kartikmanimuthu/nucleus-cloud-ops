@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { Gate, GatedButton, GatedDropdownItem } from "@/components/rbac/gated";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/ui/data-table";
 import { DataTableColumnHeader } from "@/components/ui/data-table-column-header";
@@ -151,10 +152,20 @@ export function SkillsClient() {
       cell: ({ row }) => {
         const s = row.original;
         return (
-          <div className="flex items-center gap-2">
-            <Switch checked={s.isEnabled} disabled={updateSkill.isPending} onCheckedChange={(v) => onToggleEnabled(s, v)} aria-label={s.isEnabled ? "Disable skill" : "Enable skill"} />
-            <span className="text-xs text-muted-foreground w-14">{s.isEnabled ? "Enabled" : "Disabled"}</span>
-          </div>
+          <Gate action="update" subject="Skill" data={s as unknown as Record<string, unknown>}>
+            {({ allowed, reason }) => (
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={s.isEnabled}
+                  disabled={updateSkill.isPending || !allowed}
+                  title={allowed ? undefined : (reason ?? undefined)}
+                  onCheckedChange={(v) => onToggleEnabled(s, v)}
+                  aria-label={s.isEnabled ? "Disable skill" : "Enable skill"}
+                />
+                <span className="text-xs text-muted-foreground w-14">{s.isEnabled ? "Enabled" : "Disabled"}</span>
+              </div>
+            )}
+          </Gate>
         );
       },
     },
@@ -180,12 +191,14 @@ export function SkillsClient() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => openView(s)}><Eye className="mr-2 h-4 w-4" /> View</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openEdit(s)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openClone(s)}><Copy className="mr-2 h-4 w-4" /> Clone</DropdownMenuItem>
+                <GatedDropdownItem action="update" subject="Skill" data={s as unknown as Record<string, unknown>} onClick={() => openEdit(s)}><Pencil className="mr-2 h-4 w-4" /> Edit</GatedDropdownItem>
+                {/* Clone WRITES a new skill, so it is gated on create, not on
+                    update of the row it copies (mirrors schedules-table's Duplicate). */}
+                <GatedDropdownItem action="create" subject="Skill" onClick={() => openClone(s)}><Copy className="mr-2 h-4 w-4" /> Clone</GatedDropdownItem>
                 <DropdownMenuItem onClick={() => onExportSkill(s)}><FileDown className="mr-2 h-4 w-4" /> Export markdown</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onExportSkillFile(s)}><FileCode className="mr-2 h-4 w-4" /> Export SKILL.md</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => onDelete(s)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
+                <GatedDropdownItem action="delete" subject="Skill" data={s as unknown as Record<string, unknown>} onClick={() => onDelete(s)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</GatedDropdownItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -216,7 +229,7 @@ export function SkillsClient() {
               <DropdownMenuItem onClick={onExportAllZip}><FileArchive className="mr-2 h-4 w-4" /> SKILL.md files (zip)</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button onClick={openCreate}><Plus className="w-4 h-4 mr-1" /> Create skill</Button>
+          <GatedButton action="create" subject="Skill" onClick={openCreate}><Plus className="w-4 h-4 mr-1" /> Create skill</GatedButton>
         </div>
       </div>
 

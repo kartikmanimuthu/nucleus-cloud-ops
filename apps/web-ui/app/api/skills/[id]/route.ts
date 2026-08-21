@@ -11,6 +11,12 @@ import { getSkillRepository } from '@/lib/db/repository-factory';
 import { slugify } from '@/lib/skill-service';
 import { AuditService } from '@/lib/audit-service';
 import type { SkillRecord, SkillUpdateInput } from '@/lib/db/repositories/skill/interface';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Skill' },
+};
 
 function toDTO(s: SkillRecord) {
     return {

@@ -5,7 +5,7 @@ import { useToggleChannelEnabled } from '@/lib/queries/channel-settings';
 import Link from 'next/link';
 import { Cable, CheckCircle2, Loader2, PauseCircle, Power, PowerOff, Settings2, Webhook } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { GatedButton } from '@/components/rbac/gated';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/shared/page-header';
@@ -169,14 +169,35 @@ export default function ChannelsPage() {
                                     </CardHeader>
                                     <CardContent className="mt-auto pt-0">
                                         <div className="flex items-center gap-2">
-                                            <Link href={channel.href} className="flex-1">
-                                                <Button variant="outline" size="sm" className="w-full gap-2">
+                                            {/*
+                                              * Configure means "create the connection" on an unconfigured
+                                              * channel and "edit it" on a configured one, so it asks for
+                                              * whichever permission the click will actually need. A role
+                                              * with update but not create can re-key or toggle Slack and
+                                              * cannot stand up Discord; a create-only role is the reverse.
+                                              *
+                                              * asChild + a denied gate is the trap documented in
+                                              * components/rbac/gated.tsx — GatedButton handles it by
+                                              * unwrapping the Link and rendering a real disabled button, so
+                                              * a denied Configure cannot navigate.
+                                              */}
+                                            <GatedButton
+                                                action={configured ? 'update' : 'create'}
+                                                subject="Channel"
+                                                asChild
+                                                variant="outline"
+                                                size="sm"
+                                                className="flex-1 w-full gap-2"
+                                            >
+                                                <Link href={channel.href}>
                                                     <Settings2 className="h-3.5 w-3.5" />
                                                     Configure
-                                                </Button>
-                                            </Link>
+                                                </Link>
+                                            </GatedButton>
                                             {configured && (
-                                                <Button
+                                                <GatedButton
+                                                    action="update"
+                                                    subject="Channel"
                                                     variant="outline"
                                                     size="sm"
                                                     className={`gap-2 ${enabled ? 'text-amber-600 dark:text-amber-500' : 'text-green-600 dark:text-green-500'}`}
@@ -194,7 +215,7 @@ export default function ChannelsPage() {
                                                         <Power className="h-3.5 w-3.5" />
                                                     )}
                                                     {enabled ? 'Deactivate' : 'Activate'}
-                                                </Button>
+                                                </GatedButton>
                                             )}
                                         </div>
                                     </CardContent>

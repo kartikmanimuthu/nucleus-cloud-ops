@@ -54,6 +54,7 @@ export function RunRail({
   isStreaming,
   context,
   threadId,
+  isDeep = false,
 }: {
   runState: RunState;
   isStreaming: boolean;
@@ -61,6 +62,13 @@ export function RunRail({
   /** Needed to fetch a persisted sub-agent transcript when a card is expanded
    *  after a reload. Optional so the existing rail tests keep compiling. */
   threadId?: string;
+  /**
+   * Deep mode. Deep does not run the guard, and the sub-agent budget does not
+   * govern it (the framework's `task` tool is the model's own call, with no
+   * documented cap), so both indicators would describe controls that are not
+   * wired to this run. Its status is plain: working, awaiting you, or idle.
+   */
+  isDeep?: boolean;
 }) {
   const { plan, currentPhase, pendingApproval, pendingClarifications } = runState;
 
@@ -152,7 +160,9 @@ export function RunRail({
           ) : (
             <>
               <span className={cn("h-2 w-2 rounded-full", isStreaming ? "animate-pulse bg-blue-500" : "bg-muted-foreground/40")} />
-              {MEMORY_PHASES.has(currentPhase) ? "Working" : (PHASE_LABELS[currentPhase] ?? currentPhase)}
+              {isDeep
+                ? (isStreaming ? "Working" : "Idle")
+                : MEMORY_PHASES.has(currentPhase) ? "Working" : (PHASE_LABELS[currentPhase] ?? currentPhase)}
             </>
           )}
         </div>
@@ -214,7 +224,9 @@ export function RunRail({
       {subagents.length > 0 && (
         <RailSection
           icon={Bot}
-          title={`Sub-agents (${subagents.filter((s) => s.status === "running").length} running · ${formatTokensCompact(subagentTokensUsed)}${subagentTokenBudget ? `/${formatTokensCompact(subagentTokenBudget)}` : ""} tokens)`}
+          title={isDeep
+            ? `Sub-agents (${subagents.filter((s) => s.status === "running").length} running of ${subagents.length} · ${formatTokensCompact(subagentTokensUsed)} tokens)`
+            : `Sub-agents (${subagents.filter((s) => s.status === "running").length} running · ${formatTokensCompact(subagentTokensUsed)}${subagentTokenBudget ? `/${formatTokensCompact(subagentTokenBudget)}` : ""} tokens)`}
         >
           <div className="space-y-1.5">
             {subagents.map((subagent) => (
@@ -251,10 +263,12 @@ export function RunRail({
               Saving memory…
             </li>
           )}
-          <li className="flex items-center gap-1.5">
-            <ShieldCheck className={cn("h-3 w-3", mutativePending ? "text-red-500" : "text-emerald-600")} />
-            {mutativePending ? "guard: destructive action held" : "guard: active"}
-          </li>
+          {!isDeep && (
+            <li className="flex items-center gap-1.5">
+              <ShieldCheck className={cn("h-3 w-3", mutativePending ? "text-red-500" : "text-emerald-600")} />
+              {mutativePending ? "guard: destructive action held" : "guard: active"}
+            </li>
+          )}
         </ul>
       </RailSection>
 
@@ -279,7 +293,7 @@ export function RunRail({
           ) : null}
           {/* Distinguishes "enabled but the model chose not to delegate" from
               "feature off" — without this the two states are identical in the UI. */}
-          {subagentBudget && (
+          {subagentBudget && !isDeep && (
             <li className="flex items-center gap-1.5" data-testid="subagents-context-line">
               <Bot className="h-3 w-3 shrink-0" />
               {subagentsEnabled

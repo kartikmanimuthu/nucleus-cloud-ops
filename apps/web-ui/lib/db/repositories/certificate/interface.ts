@@ -1,3 +1,5 @@
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
+
 export type CertificateStatus = 'active' | 'expiring' | 'expired' | 'no_material';
 export type VersionStatus = 'active' | 'expiring' | 'expired';
 export type LinkState = 'discovered' | 'deployed' | 'missing' | 'error';
@@ -81,6 +83,13 @@ export interface CertificateFilters {
     searchTerm?: string;
     page?: number;
     limit?: number;
+    /**
+     * Gate 3 (RBAC row filtering): a Prisma `where` fragment restricting the
+     * result to the rows the caller may read. Built by
+     * getReadRowFilter() in lib/rbac/row-filter.ts and INTERSECTED with the
+     * query below via andWhere() — never merged over it.
+     */
+    rowFilter?: PrismaRowFilter | null;
 }
 
 export interface CertificatePage {

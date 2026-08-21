@@ -59,8 +59,18 @@ export function getBoss(): Promise<PgBoss> {
  * workers additionally enforce (expiry, dead-letter) is applied by the workers.
  */
 async function ensureProducerQueues(boss: PgBoss): Promise<void> {
-  const stately: string[] = ['scheduler-scan', 'discovery-scan', 'right-sizing-scan'];
-  const standard: string[] = ['kb-sync', 'scheduler-reschedule'];
+  // Spot Guard: 'spot-guard-restore-scan' is stately (per-tenant, bounded), while
+  // 'spot-guard-bus-policy-reconcile' is a standard queue the account-lifecycle hooks
+  // enqueue onto. Pre-creating both here means a web-ui-first rollout can still enqueue
+  // before the workers deploy lands, instead of failing with "queue does not exist".
+  const stately: string[] = [
+    'scheduler-scan',
+    'discovery-scan',
+    'right-sizing-scan',
+    'spot-guard-restore-scan',
+    'spot-guard-report-scan',
+  ];
+  const standard: string[] = ['kb-sync', 'scheduler-reschedule', 'spot-guard-bus-policy-reconcile'];
   await Promise.all([
     ...stately.map((name) =>
       boss.createQueue(name, { name, policy: 'stately' }).catch((e) =>

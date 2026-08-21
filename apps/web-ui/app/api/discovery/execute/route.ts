@@ -6,7 +6,7 @@ import { AuditService } from '@/lib/audit-service';
 import { getBoss } from '@/lib/boss-client';
 
 export async function POST(req: NextRequest) {
-    const authError = await authorize('create', 'Discovery');
+    const authError = await authorize('create', 'Resource');
     if (authError) return authError;
 
     try {

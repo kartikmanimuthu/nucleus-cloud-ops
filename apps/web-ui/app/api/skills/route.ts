@@ -5,11 +5,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { getSkillRepository } from '@/lib/db/repository-factory';
 import { slugify } from '@/lib/skill-service';
 import { AuditService } from '@/lib/audit-service';
 import type { SkillRecord } from '@/lib/db/repositories/skill/interface';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Skill' },
+};
 
 function toDTO(s: SkillRecord, includeContent = false) {
     const dto = {
@@ -32,7 +39,12 @@ export async function GET(request: NextRequest) {
         const params = new URL(request.url).searchParams;
         const includeDisabled = params.has('all');
         const withContent = params.has('withContent');
-        const skills = await getSkillRepository().listByTenant(tenantId, { includeDisabled });
+        const skills = await getSkillRepository().listByTenant(tenantId, {
+            includeDisabled,
+            // Gate 3. Layer 1 authz above settled WHETHER this caller may list
+            // skills; this settles WHICH ones, in SQL, so the list stays honest.
+            rowFilter: await getReadRowFilter('Skill'),
+        });
         return NextResponse.json({ success: true, skills: skills.map((s) => toDTO(s, withContent)) });
     } catch (error) {
         if (error instanceof Error && error.message.startsWith('Unauthenticated')) {

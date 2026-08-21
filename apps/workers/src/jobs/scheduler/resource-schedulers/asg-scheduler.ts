@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-auto-scaling';
 import { logger } from '../utils/logger.js';
 import { createAuditLog } from '../services/dynamodb-service.js';
+import { recordPlatformScalingEvent } from '../../scaling-audit/services/platform-recorder.js';
 import type {
     Schedule,
     ScheduleResource,
@@ -117,6 +118,29 @@ export async function processASGResource(
                 region: metadata.region,
             });
 
+            // SEBI compliance record (SA-001): this is a guardrail mutation
+            // (min/max set to 0) that autoscaling:DescribeScalingActivities never
+            // reports — the AWS-poll side of scaling-audit cannot see it.
+            await recordPlatformScalingEvent({
+                tenantId: schedule.tenantId,
+                accountId: metadata.account.accountId,
+                region: metadata.region,
+                scope: 'asg',
+                resourceId: asgName,
+                asgName,
+                activityId: `${metadata.executionId}-${asgName}-stop`,
+                description: `Cost Scheduler stopped ASG ${asgName} for schedule "${schedule.name}"`,
+                statusCode: 'Successful',
+                desiredBefore: currentDesiredCapacity,
+                desiredAfter: 0,
+                minBefore: currentMinSize,
+                maxBefore: currentMaxSize,
+                minAfter: 0,
+                maxAfter: 0,
+                initiatedBy: schedule.name,
+                correlationId: metadata.executionId,
+            });
+
             return {
                 arn: resource.arn,
                 resourceId: resource.id,
@@ -172,6 +196,34 @@ export async function processASGResource(
                 region: metadata.region,
             });
 
+            // SEBI compliance record (SA-001) — see the stop branch above for why
+            // this must be captured here rather than relied on from the AWS poll.
+            // NOTE: if lastState was missing, targetMinSize/Max/Desired fell back
+            // to 1/1/1 above rather than the group's true prior capacity — that
+            // fallback is visible here as minBefore/maxBefore/desiredBefore=0
+            // (the group's actual 0/0/0 state) vs. an after state that may not
+            // match what was running before it was ever stopped.
+            await recordPlatformScalingEvent({
+                tenantId: schedule.tenantId,
+                accountId: metadata.account.accountId,
+                region: metadata.region,
+                scope: 'asg',
+                resourceId: asgName,
+                asgName,
+                activityId: `${metadata.executionId}-${asgName}-start`,
+                description: `Cost Scheduler started ASG ${asgName} for schedule "${schedule.name}"`,
+                statusCode: 'Successful',
+                desiredBefore: currentDesiredCapacity,
+                desiredAfter: targetDesiredCapacity,
+                minBefore: currentMinSize,
+                maxBefore: currentMaxSize,
+                minAfter: targetMinSize,
+                maxAfter: targetMaxSize,
+                initiatedBy: schedule.name,
+                correlationId: metadata.executionId,
+                rawPayload: { usedFallbackDefaults: !lastState },
+            });
+
             return {
                 arn: resource.arn,
                 resourceId: resource.id,
@@ -217,6 +269,23 @@ export async function processASGResource(
                 tenantId: schedule.tenantId,
             accountId: metadata.account.accountId,
             region: metadata.region,
+        });
+
+        // SEBI compliance record (SA-001): a failed scaling attempt is itself
+        // audit-relevant — do not only record successes.
+        await recordPlatformScalingEvent({
+            tenantId: schedule.tenantId,
+            accountId: metadata.account.accountId,
+            region: metadata.region,
+            scope: 'asg',
+            resourceId: asgName,
+            asgName,
+            activityId: `${metadata.executionId}-${asgName}-${action}-error`,
+            description: `Cost Scheduler failed to ${action} ASG ${asgName} for schedule "${schedule.name}": ${errorMessage}`,
+            statusCode: 'Failed',
+            statusMessage: errorMessage,
+            initiatedBy: schedule.name,
+            correlationId: metadata.executionId,
         });
 
         return {

@@ -1,0 +1,48 @@
+diff --git a/dist/esm/server/next-server.js b/dist/esm/server/next-server.js
+index a6228ac..3d08b3f 100644
+--- a/dist/esm/server/next-server.js
++++ b/dist/esm/server/next-server.js
+@@ -1184,7 +1184,18 @@ export default class NextNodeServer extends BaseServer {
+                 });
+             } finally{
+                 if (hasRequestBody) {
+-                    requestData.body.finalize();
++                    // PATCH(vercel/next.js#83453): finalize() swaps the already-drained
++                    // IncomingMessage for the buffered clone so the route handler can read the
++                    // body again. Unawaited, the handler often builds its Request from the
++                    // original, now-disturbed stream and Next throws before the handler runs
++                    // ("Request body object should not be disturbed or locked"). Bodies small
++                    // enough to arrive in one chunk win the race by luck; anything past the
++                    // ~64KB stream boundary loses it. The edge middleware path already awaits
++                    // this (dist/server/web/sandbox/sandbox.js) — this makes the Node.js
++                    // middleware path match. Rejections are swallowed on purpose: a client
++                    // abort mid-upload must surface from the route handler (which handles it),
++                    // not as a 500 thrown out of this finally block.
++                    await requestData.body.finalize().catch(()=>{});
+                 }
+             }
+         } else {
+diff --git a/dist/server/next-server.js b/dist/server/next-server.js
+index 3830e5a..5672ed7 100644
+--- a/dist/server/next-server.js
++++ b/dist/server/next-server.js
+@@ -1253,7 +1253,18 @@ class NextNodeServer extends _baseserver.default {
+                 });
+             } finally{
+                 if (hasRequestBody) {
+-                    requestData.body.finalize();
++                    // PATCH(vercel/next.js#83453): finalize() swaps the already-drained
++                    // IncomingMessage for the buffered clone so the route handler can read the
++                    // body again. Unawaited, the handler often builds its Request from the
++                    // original, now-disturbed stream and Next throws before the handler runs
++                    // ("Request body object should not be disturbed or locked"). Bodies small
++                    // enough to arrive in one chunk win the race by luck; anything past the
++                    // ~64KB stream boundary loses it. The edge middleware path already awaits
++                    // this (dist/server/web/sandbox/sandbox.js) — this makes the Node.js
++                    // middleware path match. Rejections are swallowed on purpose: a client
++                    // abort mid-upload must surface from the route handler (which handles it),
++                    // not as a 500 thrown out of this finally block.
++                    await requestData.body.finalize().catch(()=>{});
+                 }
+             }
+         } else {

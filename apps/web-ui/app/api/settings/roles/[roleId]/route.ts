@@ -3,13 +3,14 @@ import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { getCustomRole, updateCustomRole, deleteCustomRole } from '@/lib/rbac/custom-role-service';
 import type { PermissionSet } from '@/lib/rbac/types';
+import type { SubjectOverrides } from '@/lib/rbac/role-subject-overrides';
 import { AuditService } from '@/lib/audit-service';
 
 export async function GET(
     _request: NextRequest,
     { params }: { params: Promise<{ roleId: string }> }
 ) {
-    const authError = await authorize('read', 'Settings');
+    const authError = await authorize('read', 'Role');
     if (authError) return authError;
 
     try {
@@ -34,16 +35,26 @@ export async function PUT(
     { params }: { params: Promise<{ roleId: string }> }
 ) {
     console.log('API - PUT /api/settings/roles/[roleId] - Updating custom role');
-    const authError = await authorize('update', 'Settings');
+    const authError = await authorize('update', 'Role');
     if (authError) return authError;
+
+    // Hoisted so the catch can reference them: declared inside the try, the
+    // error handler threw ReferenceError and every failure became a 500 with
+    // an empty body — surfacing as "Unexpected end of JSON input".
+    let tenantId = 'unknown';
+    let callerEmail = 'unknown';
 
     try {
         const { roleId } = await params;
-        const tenantId = await getSessionTenantId();
+        tenantId = await getSessionTenantId();
         const session = await getAuthSession();
-        const callerEmail = session?.user?.email ?? 'unknown';
+        callerEmail = session?.user?.email ?? 'unknown';
         const body = await request.json();
-        const { name, permissions } = body as { name: string; permissions: PermissionSet };
+        const { name, permissions, overrides } = body as {
+            name: string;
+            permissions: PermissionSet;
+            overrides?: SubjectOverrides;
+        };
 
         if (!name || name.trim().length === 0) {
             return NextResponse.json({ success: false, error: 'Role name is required' }, { status: 400 });
@@ -55,7 +66,12 @@ export async function PUT(
             );
         }
 
-        const role = await updateCustomRole(tenantId, roleId, { name: name.trim(), permissions });
+        const role = await updateCustomRole(
+            tenantId,
+            roleId,
+            { name: name.trim(), permissions, overrides: overrides ?? {} },
+            { userId: session?.user?.id ?? 'unknown', email: callerEmail }
+        );
 
         AuditService.logUserAction({
             eventType: 'rbac.role.updated',
@@ -70,7 +86,7 @@ export async function PUT(
             userType: 'user',
             status: 'success',
             details: `Updated custom role "${name.trim()}"`,
-            metadata: { tenantId, permissions },
+            metadata: { tenantId, permissions, overrides: overrides ?? {} },
         }).catch(() => {});
 
         return NextResponse.json({ success: true, data: role });
@@ -103,16 +119,25 @@ export async function DELETE(
     { params }: { params: Promise<{ roleId: string }> }
 ) {
     console.log('API - DELETE /api/settings/roles/[roleId] - Deleting custom role');
-    const authError = await authorize('delete', 'Settings');
+    const authError = await authorize('delete', 'Role');
     if (authError) return authError;
+
+    // Hoisted so the catch can reference them: declared inside the try, the
+    // error handler threw ReferenceError and every failure became a 500 with
+    // an empty body — surfacing as "Unexpected end of JSON input".
+    let tenantId = 'unknown';
+    let callerEmail = 'unknown';
 
     try {
         const { roleId } = await params;
-        const tenantId = await getSessionTenantId();
+        tenantId = await getSessionTenantId();
         const session = await getAuthSession();
-        const callerEmail = session?.user?.email ?? 'unknown';
+        callerEmail = session?.user?.email ?? 'unknown';
 
-        await deleteCustomRole(tenantId, roleId);
+        await deleteCustomRole(tenantId, roleId, {
+            userId: session?.user?.id ?? 'unknown',
+            email: callerEmail,
+        });
 
         AuditService.logUserAction({
             eventType: 'rbac.role.deleted',

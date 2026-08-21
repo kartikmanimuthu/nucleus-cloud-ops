@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { Cloud, ChevronDown, Check } from 'lucide-react';
-import { ClientAccountService } from '@/lib/client-account-service';
+import { useAccountOptions } from '@/lib/queries/accounts';
 
 interface AwsAccount {
   accountId: string;
@@ -19,32 +19,19 @@ export function AccountSelector({
   selectedAccounts,
   onAccountsChange,
 }: AccountSelectorProps) {
-  const [accounts, setAccounts] = useState<AwsAccount[]>([]);
   const [showAccounts, setShowAccounts] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchAccounts() {
-      try {
-        setIsLoading(true);
-        const { accounts: fetchedAccounts } = await ClientAccountService.getAccounts({
-          statusFilter: "active",
-          connectionFilter: "connected",
-          limit: 1000,
-        });
-        setAccounts(fetchedAccounts.map((a: any) => ({
-          accountId: a.accountId,
-          accountName: a.name || a.accountId,
-        })));
-      } catch (error) {
-        console.error("Failed to load accounts:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    fetchAccounts();
-  }, []);
+  // Gated: `read Account` may be absent even for a user who can run the agent.
+  const { accounts: fetched, isLoading, denied } = useAccountOptions({
+    statusFilter: "active",
+    connectionFilter: "connected",
+    limit: 1000,
+  });
+  const accounts: AwsAccount[] = useMemo(
+    () => fetched.map((a) => ({ accountId: a.accountId, accountName: a.name || a.accountId })),
+    [fetched],
+  );
 
   // Close on outside click
   useEffect(() => {
@@ -110,7 +97,7 @@ export function AccountSelector({
             {isLoading ? (
               <p className="text-xs text-muted-foreground px-2 py-2">Loading accounts...</p>
             ) : accounts.length === 0 ? (
-              <p className="text-xs text-muted-foreground px-2 py-2">No AWS accounts found</p>
+              <p className="text-xs text-muted-foreground px-2 py-2">{denied ?? "No AWS accounts found"}</p>
             ) : (
               accounts.map(acc => {
                 const isSelected = selectedAccounts.some(a => a.accountId === acc.accountId);

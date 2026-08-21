@@ -2,9 +2,9 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { Pencil, Trash2 } from "lucide-react";
-import type { PermissionSet, Module } from "@/lib/rbac/types";
+import type { PermissionSet } from "@/lib/rbac/types";
 import type { PredefinedRole, CustomRole } from "@/lib/queries/roles";
 
 interface RolesListProps {
@@ -22,10 +22,9 @@ const LEVEL_BADGE: Record<number, "default" | "secondary" | "outline"> = {
 };
 
 function permissionSummary(permissions: PermissionSet): string {
-    const modules = Object.keys(permissions) as Module[];
-    const active = modules.filter(
-        (m) => permissions[m] && permissions[m].length > 0
-    );
+    const active = Object.entries(permissions)
+        .filter(([, verbs]) => verbs && verbs.length > 0)
+        .map(([moduleKey]) => moduleKey);
     if (active.length === 0) return "No permissions";
     return active.join(", ");
 }
@@ -56,15 +55,24 @@ function RoleCard({
                     </div>
                     {editable && (
                         <div className="flex items-center gap-1">
-                            <Button
+                            {/* Custom-role CRUD is gated under the `Role` subject — mirrors
+                                the routes at /api/settings/roles/[roleId]
+                                (PUT/DELETE authorize('…', 'Role')). */}
+                            <GatedButton
+                                action="update"
+                                subject="Role"
+                                data={role as unknown as Record<string, unknown>}
                                 variant="ghost"
                                 size="icon"
                                 aria-label={`Edit ${role.name}`}
                                 onClick={onEdit}
                             >
                                 <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
+                            </GatedButton>
+                            <GatedButton
+                                action="delete"
+                                subject="Role"
+                                data={role as unknown as Record<string, unknown>}
                                 variant="ghost"
                                 size="icon"
                                 aria-label={`Delete ${role.name}`}
@@ -72,7 +80,7 @@ function RoleCard({
                                 onClick={onDelete}
                             >
                                 <Trash2 className="h-4 w-4" />
-                            </Button>
+                            </GatedButton>
                         </div>
                     )}
                 </div>

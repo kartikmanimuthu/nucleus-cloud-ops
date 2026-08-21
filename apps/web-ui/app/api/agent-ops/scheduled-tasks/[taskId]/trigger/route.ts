@@ -3,9 +3,16 @@ import { getScheduledTask, updateLastRun, tryAcquireExecutionLock } from '@/lib/
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { finalizeScheduledRun } from '@/lib/agent-ops/scheduled-notifier';
+import { checkScheduledTaskGrant, PERMISSION_REVOKED } from '@/lib/agent-ops/scheduled-task-permission';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { env } from '@/env';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'execute', subject: 'ScheduledTask' },
+};
 
 /**
  * Resolve tenantId from either session auth or internal worker header.
@@ -18,20 +25,20 @@ import { env } from '@/env';
  * env var is unset, the internal branch never matches and we fall through to
  * session auth (fail closed).
  */
-async function resolveTenantId(req: Request): Promise<string> {
+async function resolveTenantId(req: Request): Promise<{ tenantId: string; internal: boolean }> {
     const internalKey = req.headers.get('x-internal-key');
     if (env.INTERNAL_API_KEY && internalKey === env.INTERNAL_API_KEY) {
         const tenantId = req.headers.get('x-tenant-id');
         if (!tenantId) throw new Error('x-tenant-id header required for internal calls');
-        return tenantId;
+        return { tenantId, internal: true };
     }
-    return getSessionTenantId();
+    return { tenantId: await getSessionTenantId(), internal: false };
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ taskId: string }> }) {
     try {
         const { taskId } = await params;
-        const tenantId = await resolveTenantId(req);
+        const { tenantId, internal } = await resolveTenantId(req);
 
         const task = await getScheduledTask(tenantId, taskId);
         if (!task) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
@@ -43,6 +50,47 @@ export async function POST(req: Request, { params }: { params: Promise<{ taskId:
                 { success: false, skipped: true, error: `Task is ${task.taskStatus} — trigger suppressed` },
                 { status: 409 },
             );
+        }
+
+        // ── Stored-grant re-check (Workstream H) ─────────────────────────────
+        // Only on the internal (worker) path. A session-driven manual trigger is
+        // already authorized as the CALLER by the `authz` declaration above; it is
+        // the unattended path — where the only credential is a platform key —
+        // that has to prove the CREATOR still holds the permission.
+        if (internal) {
+            const grant = await checkScheduledTaskGrant(task);
+
+            if (!grant.ok) {
+                console.error(`[trigger] ${PERMISSION_REVOKED} for task ${taskId}: ${grant.reason}`);
+                AuditService.logUserAction({
+                    eventType: 'agent.task.permission_revoked',
+                    severity: 'high',
+                    apiRoute: 'POST /api/agent-ops/scheduled-tasks/[taskId]/trigger',
+                    httpMethod: 'POST',
+                    action: 'Scheduled Task Permission Revoked',
+                    resourceType: 'agent',
+                    resourceId: taskId,
+                    resourceName: task.name || taskId,
+                    user: task.createdByUserId || task.createdBy || 'system',
+                    userType: 'user',
+                    status: 'error',
+                    details:
+                        `Scheduled task "${task.name || taskId}" was not executed: ${grant.reason}`,
+                    metadata: { tenantId, taskId, code: PERMISSION_REVOKED, reason: grant.reason },
+                }).catch(() => {});
+
+                // 403 + an explicit code. The worker keys off the code to mark the
+                // task and stop retrying; a bare 403 is treated as a transient
+                // internal-key misconfiguration and WOULD be retried.
+                return NextResponse.json(
+                    { success: false, code: PERMISSION_REVOKED, error: grant.reason },
+                    { status: 403 },
+                );
+            }
+
+            if (!grant.verified) {
+                console.warn(`[trigger] task ${taskId} ran without a verifiable creator grant: ${grant.reason}`);
+            }
         }
 
         // Suppress duplicate triggers in the same minute window — a cron tick

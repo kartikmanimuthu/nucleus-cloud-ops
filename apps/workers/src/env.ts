@@ -72,6 +72,26 @@ export const env = createEnv({
         // Read via process.env at scan time (runtime toggle) — see scheduler-service.ts.
         SCHEDULER_ACCOUNT_CONCURRENCY: z.string().optional(),
 
+        // Fargate Spot Guard — cross-account ECS event ingestion.
+        //
+        // Set ONLY on the long-lived workers task definition, and only on stacks that
+        // opted in via the spotGuardEnabled Pulumi config flag (sbx today). Ephemeral
+        // job-runner tasks intentionally do NOT receive SPOT_GUARD_QUEUE_URL: an
+        // ephemeral task must never long-poll SQS. See jobs/spot-guard/consumer.ts.
+        //
+        // SPOT_GUARD_ENABLED gates worker-side registration, so the image can ship
+        // everywhere while the behaviour activates only where the infra exists.
+        SPOT_GUARD_ENABLED: z.string().optional(),
+        SPOT_GUARD_QUEUE_URL: z.string().url().optional(),
+        SPOT_GUARD_BUS_NAME: z.string().optional(),
+        SPOT_GUARD_POLL_WAIT_SECONDS: z.string().optional(),
+        SPOT_GUARD_POLL_BATCH_SIZE: z.string().optional(),
+
+        // Scaling Audit (SA-001) — SEBI compliance capture of ECS + ASG scaling
+        // events. Gates worker-side registration, same reasoning as
+        // SPOT_GUARD_ENABLED: ship everywhere, activate only where opted in.
+        SCALING_AUDIT_ENABLED: z.string().optional(),
+
         // Health server port (ECS container health check probes this). Default 8080.
         HEALTH_PORT: z.string().optional(),
 

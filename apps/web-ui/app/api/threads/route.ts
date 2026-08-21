@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getSessionUserId, getSessionTenantId } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Agent' },
+    POST: { action: 'create', subject: 'Agent' },
+};
 
 interface NormalizedThread {
     id: string;

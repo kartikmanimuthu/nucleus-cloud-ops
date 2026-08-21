@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import type { DataSource, DataSourceType, KnowledgeBase } from '@/lib/knowledge-base/types';
 import { formatDateTime, formatDate } from '@/lib/date-utils';
 import { useTenant } from '@/lib/tenant-context';
+import { GatedButton } from '@/components/rbac/gated';
 import { KBDocumentEditor } from '@/components/knowledge-base/kb-document-editor';
 
 // ---------------------------------------------------------------------------
@@ -262,6 +263,11 @@ export default function KnowledgeBaseDetailPage() {
   const [docEditor, setDocEditor] = useState<{ mode: 'new' } | { mode: 'edit'; doc: { id: string; name: string } } | null>(null);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [deletingKb, setDeletingKb] = useState(false);
+  // Confirmations are controlled by state rather than AlertDialogTrigger: the
+  // trigger renders `asChild`, which strips the disabled state a denied
+  // GatedButton computes and leaves the control clickable.
+  const [confirmDeleteKb, setConfirmDeleteKb] = useState(false);
+  const [deleteDsTarget, setDeleteDsTarget] = useState<DataSource | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -399,28 +405,18 @@ export default function KnowledgeBaseDetailPage() {
             <Badge variant={kb.status === 'active' ? 'secondary' : 'outline'} className={`text-xs shrink-0 ${kb.status === 'active' ? 'text-green-600' : 'text-muted-foreground'}`}>
               {kb.status === 'active' ? 'Active' : 'Inactive'}
             </Badge>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" title="Delete knowledge base">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete knowledge base?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently delete &ldquo;{kb.name}&rdquo; and all its data sources and vectors. This cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={deletingKb}>Cancel</AlertDialogCancel>
-                  <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={deleteKnowledgeBase} disabled={deletingKb}>
-                    {deletingKb && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <GatedButton
+              action="delete"
+              subject="KnowledgeBase"
+              data={kb as unknown as Record<string, unknown>}
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              onClick={() => setConfirmDeleteKb(true)}
+              title="Delete knowledge base"
+            >
+              <Trash2 className="h-4 w-4" />
+            </GatedButton>
           </div>
         </div>
 
@@ -482,12 +478,12 @@ export default function KnowledgeBaseDetailPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Data Sources</CardTitle>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setDocEditor({ mode: 'new' })}>
+                <GatedButton action="create" subject="KnowledgeBase" variant="outline" size="sm" className="gap-1.5" onClick={() => setDocEditor({ mode: 'new' })}>
                   <FileText className="h-3.5 w-3.5" /> New Document
-                </Button>
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => router.push(`/app/knowledge-base/${kbId}/sources/new`)}>
+                </GatedButton>
+                <GatedButton action="create" subject="KnowledgeBase" variant="outline" size="sm" className="gap-1.5" onClick={() => router.push(`/app/knowledge-base/${kbId}/sources/new`)}>
                   <Plus className="h-3.5 w-3.5" /> Add Data Source
-                </Button>
+                </GatedButton>
               </div>
             </div>
           </CardHeader>
@@ -527,17 +523,19 @@ export default function KnowledgeBaseDetailPage() {
                       </Button>
 
                       {/* Edit */}
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                      <GatedButton action="update" subject="KnowledgeBase" data={ds as unknown as Record<string, unknown>}
+                        variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground"
                         onClick={() => ds.sourceType === 'document'
                           ? setDocEditor({ mode: 'edit', doc: { id: ds.id, name: ds.name } })
                           : setEditDs(ds)}
                         title="Edit">
                         <Pencil className="h-4 w-4" />
-                      </Button>
+                      </GatedButton>
 
                       {/* Re-sync (not for file-upload) */}
                       {ds.sourceType !== 'file-upload' && (
-                        <Button
+                        <GatedButton
+                          action="update" subject="KnowledgeBase" data={ds as unknown as Record<string, unknown>}
                           variant="ghost" size="icon"
                           className="h-8 w-8 text-muted-foreground hover:text-foreground"
                           disabled={ds.status === 'syncing' || ds.status === 'pending' || syncingIds.has(ds.id)}
@@ -545,29 +543,22 @@ export default function KnowledgeBaseDetailPage() {
                           title="Re-sync"
                         >
                           <RefreshCw className={`h-4 w-4 ${syncingIds.has(ds.id) ? 'animate-spin' : ''}`} />
-                        </Button>
+                        </GatedButton>
                       )}
 
                       {/* Delete */}
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" title="Delete">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete data source?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will permanently delete &ldquo;{ds.name}&rdquo; and all {ds.vectorCount > 0 ? `${ds.vectorCount.toLocaleString()} ` : ''}associated vectors.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={() => deleteDataSource(ds.id, ds.name)}>Delete</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <GatedButton
+                        action="delete"
+                        subject="KnowledgeBase"
+                        data={ds as unknown as Record<string, unknown>}
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        onClick={() => setDeleteDsTarget(ds)}
+                        title="Delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </GatedButton>
                     </div>
                   </div>
                 ))}
@@ -576,6 +567,46 @@ export default function KnowledgeBaseDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete knowledge base confirmation */}
+      <AlertDialog open={confirmDeleteKb} onOpenChange={(v) => !v && !deletingKb && setConfirmDeleteKb(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete knowledge base?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &ldquo;{kb.name}&rdquo; and all its data sources and vectors. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingKb}>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={deleteKnowledgeBase} disabled={deletingKb}>
+              {deletingKb && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete data source confirmation */}
+      <AlertDialog open={!!deleteDsTarget} onOpenChange={(v) => !v && setDeleteDsTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete data source?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &ldquo;{deleteDsTarget?.name}&rdquo; and all {deleteDsTarget && deleteDsTarget.vectorCount > 0 ? `${deleteDsTarget.vectorCount.toLocaleString()} ` : ''}associated vectors.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => { if (deleteDsTarget) deleteDataSource(deleteDsTarget.id, deleteDsTarget.name); setDeleteDsTarget(null); }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* View dialog */}
       {viewDs && <ViewDialog ds={viewDs} open={!!viewDs} onClose={() => setViewDs(null)} />}

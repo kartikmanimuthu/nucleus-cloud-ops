@@ -3,6 +3,7 @@
 import { UISchedule } from './types';
 import { AuditService } from './audit-service';
 import { getScheduleRepository } from '@/lib/db/repository-factory';
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
 import { getBoss } from '@/lib/boss-client';
 import { env } from '@/env';
 
@@ -24,6 +25,8 @@ export class ScheduleService {
         accountId?: string;
         page?: number;
         limit?: number;
+        /** Gate 3 row filter — see lib/rbac/row-filter.ts. Passed straight through. */
+        rowFilter?: PrismaRowFilter | null;
     }): Promise<{ schedules: UISchedule[], total: number }> {
         try {
             console.log('ScheduleService - Fetching schedules with filters:', filters);
@@ -37,6 +40,7 @@ export class ScheduleService {
                 accountId: filters?.accountId,
                 page: filters?.page,
                 limit: filters?.limit,
+                rowFilter: filters?.rowFilter,
             });
         } catch (error: unknown) {
             console.error('ScheduleService - Error fetching schedules:', error);

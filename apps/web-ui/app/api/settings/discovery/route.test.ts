@@ -32,16 +32,26 @@ const makeRequest = (body?: unknown) =>
 describe('GET /api/settings/discovery', () => {
     beforeEach(() => vi.clearAllMocks());
 
+    // lastRunAt/nextEligibleAt are part of the response — they back the "Last run"
+    // and "Next eligible" fields on /app/inventory/settings. Both are null here
+    // because the stored config carries no lastRunAt, and periodToNextEligible
+    // returns null without one.
     it('returns stored period', async () => {
         vi.mocked(TenantConfigService.getConfig).mockResolvedValueOnce({ period: 'weekly' });
         const res = await GET();
-        expect((res as any)._data).toEqual({ success: true, data: { period: 'weekly' } });
+        expect((res as any)._data).toEqual({
+            success: true,
+            data: { period: 'weekly', lastRunAt: null, nextEligibleAt: null },
+        });
     });
 
     it('returns default period when no config stored', async () => {
         vi.mocked(TenantConfigService.getConfig).mockResolvedValueOnce(null);
         const res = await GET();
-        expect((res as any)._data).toEqual({ success: true, data: { period: 'daily' } });
+        expect((res as any)._data).toEqual({
+            success: true,
+            data: { period: 'daily', lastRunAt: null, nextEligibleAt: null },
+        });
     });
 
     it('returns 403 when unauthorized', async () => {
@@ -61,9 +71,17 @@ describe('GET /api/settings/discovery', () => {
 describe('PUT /api/settings/discovery', () => {
     beforeEach(() => vi.clearAllMocks());
 
+    // The write preserves lastRunAt so changing the period does not reset the
+    // schedule, and attributes the change to the session email — 'api-user' here,
+    // since getServerSession is mocked without a user.
     it('saves valid period and returns it', async () => {
         const res = await PUT(makeRequest({ period: 'weekly' }));
-        expect(TenantConfigService.saveConfig).toHaveBeenCalledWith('discovery-cron', { period: 'weekly' }, 'tenant-1', 'user');
+        expect(TenantConfigService.saveConfig).toHaveBeenCalledWith(
+            'discovery-cron',
+            { period: 'weekly', lastRunAt: null },
+            'tenant-1',
+            'api-user'
+        );
         expect((res as any)._data).toEqual({ success: true, data: { period: 'weekly' } });
     });
 

@@ -25,6 +25,15 @@ import {
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'McpServer' },
+    PUT: { action: 'update', subject: 'McpServer' },
+    // Reset-to-defaults, not a removal of the feature — 'update', matching PUT.
+    DELETE: { action: 'update', subject: 'McpServer' },
+};
 
 // Unified with the main AI Ops MCP config store. This is the key the Agent Ops
 // executor reads at run time, so both settings surfaces now edit the same servers.

@@ -1,18 +1,22 @@
-import { SystemMessage } from "@langchain/core/messages";
-import { createDeepAgent } from "deepagents";
+import { SystemMessage, ToolMessage } from "@langchain/core/messages";
+import { createMiddleware } from "langchain";
+import { isGraphInterrupt } from "@langchain/langgraph";
+import { z } from "zod";
+import { createDeepAgent, FilesystemBackend, CompositeBackend, StoreBackend } from "deepagents";
 import type { SubAgent } from "deepagents";
 import {
-    executeCommandTool,
-    readFileTool,
-    writeFileTool,
-    lsTool,
-    editFileTool,
-    globTool,
-    grepTool,
     webSearchTool,
+    webSearchAvailable,
+    askUserTool,
+    writeFileToS3Tool,
+    getFileFromS3Tool,
+    createExecuteCommandTool,
     createGetAwsCredentialsTool,
     createListAwsAccountsTool,
 } from "./tools";
+import { createGetRightSizingRecommendationsTool } from "./right-sizing-tool";
+import { createSearchKnowledgeBaseTool } from "./kb-tool";
+import { createAwsReadTool } from "./aws-read-tool";
 import { getSkillContent } from "@/lib/skill-service";
 import {
     GraphConfig,
@@ -21,35 +25,25 @@ import {
     getStore,
 } from "./agent-shared";
 import { createAgentModels, createMemoryTools } from "./model-factory";
+import { tenantWorkdir, materializeSkills, ensureWorkdir, AGENTS_MD_PATH, MEMORIES_ROUTE } from "./deep/workdir";
+import { PostgresFileStore } from "./deep/file-store";
+import { createDeepMemoryMiddleware } from "./deep/memory-middleware";
 
-// --- DEEP GRAPH (Deep Agent Mode) ---
+export const DEEP_INTERRUPT_TOOLS = ['execute_command', 'write_file', 'edit_file', 'ask_user'];
+
+// Per-run data, passed as `context` at invoke and readable by middleware and subagents via
+// runtime.context. The framework propagates it to every subagent automatically.
+export const deepContextSchema = z.object({
+    tenantId: z.string().optional(),
+    userId: z.string().optional(),
+    threadId: z.string().optional(),
+});
+
 export async function createDeepGraph(config: GraphConfig) {
-    const { model: modelConfig, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, tenantId, userId } = config as any;
+    const { model: modelConfig, autoApprove, accounts, accountId, accountName, selectedSkill, mcpServerIds, knowledgeBaseIds, tenantId, userId } = config as any;
     const modelId = modelConfig.modelId;
     const checkpointer = await getCheckpointer();
-    const baseStore = await getStore();
-
-    // Tenant-bind the long-term store for this run. deepagents calls the
-    // config-less BaseStore methods (store.put/get/search), so the underlying
-    // batch() never receives the run config and would fall back to the shared
-    // tenant "default" pool — mixing every tenant's deep-agent store data. Wrap
-    // (never mutate) the singleton so batch() always carries THIS run's tenant.
-    const store = (tenantId
-        ? Object.assign(Object.create(baseStore), {
-            batch(ops: unknown[], config?: unknown) {
-                const cfg = (config as Record<string, unknown>) ?? {};
-                const merged = {
-                    ...cfg,
-                    configurable: {
-                        ...((cfg.configurable as Record<string, unknown>) ?? {}),
-                        tenant_id: tenantId,
-                        user_id: userId,
-                    },
-                };
-                return (baseStore as { batch: (o: unknown[], c: unknown) => Promise<unknown[]> }).batch(ops, merged);
-            },
-        })
-        : baseStore);
+    const store = await getStore();
 
     // --- Skill loading (async DB lookup, tenant-scoped) ---
     let skillSection = '';
@@ -84,12 +78,12 @@ You are operating as a general-purpose DevOps engineer with full read and write 
 `;
 
     // --- Model Initialization ---
-    const { main: model } = createAgentModels(modelConfig);
+    const { main: model, reflector: reflectorModel } = createAgentModels(modelConfig);
 
     // --- Account Context (same pattern as fast-agent.ts) ---
     let accountContext: string;
     if (accounts && accounts.length > 0) {
-        const accountList = accounts.map(a => `  - ${a.accountName || a.accountId} (ID: ${a.accountId})`).join('\n');
+        const accountList = accounts.map((a: { accountName?: string; accountId: string }) => `  - ${a.accountName || a.accountId} (ID: ${a.accountId})`).join('\n');
         accountContext = `\n\nIMPORTANT - MULTI-ACCOUNT AWS CONTEXT:
 You are operating across ${accounts.length} AWS account(s):
 ${accountList}
@@ -113,43 +107,67 @@ No explicit AWS account was provided. If the user asks to perform AWS operations
 4. Use the returned profile name with ALL subsequent AWS CLI commands by adding: --profile <profileName>`;
     }
 
+    // --- Per-tenant workdir, AGENTS.md, and skill materialisation ---
+    const root = tenantWorkdir(tenantId ?? 'default');
+    await ensureWorkdir(root);
+    const skillCount = await materializeSkills(tenantId ?? 'default', root);
+
+    // Working files + skills on disk; /memories/ routed to Postgres so AGENTS.md survives
+    // deploys. fileStore is a real BaseStore over agent_files — getStore()'s
+    // PostgresMemoryStore is NOT one (batch() only, and it embeds into agent_memories).
+    const fileStore = new PostgresFileStore(tenantId ?? 'default');
+    // virtualMode is MANDATORY. With the default (false), FilesystemBackend treats absolute
+    // paths as real host paths — the agent could read /tmp/nucleus-aws-creds/<otherTenant>/
+    // credentials, .env, or app source. virtualMode jails every path under rootDir and
+    // rejects .. and ~, which is what tools.ts's resolveInJail did for the old file tools.
+    const backend = new CompositeBackend(
+        new FilesystemBackend({ rootDir: root, virtualMode: true }),
+        { [MEMORIES_ROUTE]: new StoreBackend({ namespace: () => ['deep-agent'] }) },
+    );
+    console.log(`[DeepAgent] Workdir: ${root} (skills materialised: ${skillCount}); /memories/ → agent_files`);
+
     // --- MCP Tools ---
-    const mcpTools = await getActiveMCPTools(mcpServerIds);
+    const mcpTools = await getActiveMCPTools(mcpServerIds, tenantId, accounts);
     if (mcpTools.length > 0) {
         console.log(`[DeepAgent] Loaded ${mcpTools.length} MCP tools from servers: ${mcpServerIds?.join(', ')}`);
     }
 
-    // All tools available to the orchestrator agent
-    const getAwsCredentialsTool = createGetAwsCredentialsTool(tenantId);
-    const listAwsAccountsTool = createListAwsAccountsTool(tenantId);
+    // --- Custom tools (non-builtins) ---
+    const executeCommand = createExecuteCommandTool({ cwd: root });
+    const getAwsCredentials = createGetAwsCredentialsTool(tenantId);
+    const listAwsAccounts = createListAwsAccountsTool(tenantId);
+
     const allTools = [
-        executeCommandTool,
-        // readFileTool,
-        // writeFileTool,
-        // lsTool,
-        // editFileTool,
-        // globTool,
-        // grepTool,
-        // webSearchTool,
-        getAwsCredentialsTool,
-        listAwsAccountsTool,
-        ...(store && tenantId && userId ? createMemoryTools(tenantId, userId) : []),
+        executeCommand,
+        getAwsCredentials,
+        listAwsAccounts,
+        askUserTool,
+        ...(webSearchAvailable() ? [webSearchTool] : []),
+        writeFileToS3Tool,
+        getFileFromS3Tool,
+        ...(tenantId ? [createGetRightSizingRecommendationsTool(tenantId)] : []),
+        ...(tenantId ? [createSearchKnowledgeBaseTool(tenantId, knowledgeBaseIds ?? undefined)] : []),
+        ...(tenantId ? [createAwsReadTool(tenantId, userId)] : []),
+        ...(tenantId && userId ? createMemoryTools(tenantId, userId) : []),
         ...mcpTools,
     ];
 
     // --- HITL interrupt configuration ---
-    // When autoApprove=false, interrupt before mutation tools execute.
-    // IMPORTANT: deepagents (v1.10.5) does NOT propagate the top-level `interruptOn`
-    // into subagents — `interruptOn` is a per-subagent field. The mutation tools
-    // actually live inside the aws-ops (execute_command) and code-iac
-    // (write_file/edit_file/execute_command) subagents, so the same config must be
-    // attached to each of those specs or HITL is silently bypassed for exactly the
-    // destructive actions it is meant to gate.
     const interruptOn = autoApprove ? undefined : {
         execute_command: true,
         write_file: true,
         edit_file: true,
+        ask_user: true,
     };
+
+    // --- Memory middleware ---
+    const memoryMiddleware = createDeepMemoryMiddleware({
+        reflectorModel,
+        tenantId,
+        userId,
+        store,
+        onMemoryEvent: config.onMemoryEvent,
+    });
 
     // --- Subagent Definitions ---
     const awsOpsSubagent: SubAgent = {
@@ -171,7 +189,7 @@ ${accountContext}
 - Always use --profile obtained from get_aws_credentials
 - Use --no-paginate for small result sets; use pagination loops for large ones
 - Verify current resource state before any mutation command`,
-        tools: [executeCommandTool, getAwsCredentialsTool, listAwsAccountsTool],
+        tools: [executeCommand, getAwsCredentials, listAwsAccounts],
         interruptOn,
     };
 
@@ -188,7 +206,12 @@ ${accountContext}
 - Return concise, actionable findings with source references
 
 Always cite the source URL when returning findings.`,
-        tools: [webSearchTool, ...mcpTools],
+        tools: [
+            ...(webSearchAvailable() ? [webSearchTool] : []),
+            ...(tenantId ? [createSearchKnowledgeBaseTool(tenantId, knowledgeBaseIds ?? undefined)] : []),
+            ...(tenantId ? [createAwsReadTool(tenantId, userId)] : []),
+            ...mcpTools,
+        ],
     };
 
     const codeSubagent: SubAgent = {
@@ -204,7 +227,7 @@ Always cite the source URL when returning findings.`,
 - Execute shell commands to validate or test IaC (terraform plan, docker build --no-cache, etc.)
 
 Always read existing files before editing them to understand the current state.`,
-        tools: [readFileTool, writeFileTool, editFileTool, lsTool, globTool, grepTool, executeCommandTool],
+        tools: [executeCommand],
         interruptOn,
     };
 
@@ -225,15 +248,16 @@ When running AWS CLI commands:
 - Verify current resource state before running any mutation command.
 - AWS Cost Explorer data covers the last 14 months only.
 
-## Task Decomposition
-
-Use write_todos to plan complex multi-step tasks before executing them.
-Use the task tool to delegate to specialized subagents:
-- aws-ops: for AWS CLI operations, credential management, resource state verification
-- research: for web searches, documentation lookups, error resolution
-- code-iac: for file operations, Terraform/CloudFormation/Docker/Ansible, shell scripts
-
 ${accountContext}
+
+## Durable Memory
+
+\`${AGENTS_MD_PATH}\` is your own notebook. It is loaded into your prompt on every run and it
+persists across conversations.
+
+When you learn a durable operating rule — a command flag that is rejected, a convention of this
+environment, or a correction the user gives you — append it there with \`edit_file\` (use
+\`write_file\` if the file does not exist yet). Record rules, not one-off facts, and keep it short.
 
 ## Response Discipline
 
@@ -249,17 +273,44 @@ ${accountContext}
     console.log(`   Subagents: aws-ops, research, code-iac`);
     console.log(`================================================================================\n`);
 
-    // Create Deep Agent — orchestrator's own tools gated by the top-level
-    // interruptOn; subagents gated by their per-spec interruptOn (see above).
-    const agent = createDeepAgent({
-        model: model,
+    // A tool error must reach the MODEL, not kill the run. deepagents wraps every tool
+    // call (for LangSmith), so ToolNode sees tool failures as MIDDLEWARE errors and
+    // re-raises them: one malformed argument aborted a 7-step audit mid-flight, taking
+    // 12 in-flight sibling calls with it, and the model never got to correct itself.
+    // This is the documented wrapToolCall pattern from the tools docs.
+    const handleToolErrors = createMiddleware({
+        name: "HandleToolErrors",
+        wrapToolCall: async (request, handler) => {
+            try {
+                return await handler(request);
+            } catch (error) {
+                // Interrupts are the HITL pause, and aborts are the client hanging up.
+                // Neither is the model's to recover from — ToolNode re-raises both, and
+                // swallowing an interrupt here would silently break every approval.
+                if (isGraphInterrupt(error)) throw error;
+                const message = error instanceof Error ? error.message : String(error);
+                if ((error as { name?: string })?.name === 'AbortError' || /abort/i.test(message)) throw error;
+                return new ToolMessage({
+                    content: `Tool error: ${message}\nCheck your arguments against the tool's schema and try again.`,
+                    tool_call_id: request.toolCall.id!,
+                    name: request.toolCall.name,
+                });
+            }
+        },
+    });
+
+    return createDeepAgent({
+        model,
         tools: allTools,
         systemPrompt: new SystemMessage(systemPrompt),
         subagents: [awsOpsSubagent, researchSubagent, codeSubagent],
-        checkpointer: checkpointer,
-        ...(store && { store }),
-        interruptOn: interruptOn,
+        contextSchema: deepContextSchema,
+        backend,
+        ...(skillCount > 0 && { skills: ["/skills/"] }),
+        memory: [AGENTS_MD_PATH],
+        checkpointer,
+        store: fileStore,
+        interruptOn,
+        middleware: [memoryMiddleware, handleToolErrors],
     });
-
-    return agent;
 }

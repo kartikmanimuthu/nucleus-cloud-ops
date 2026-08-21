@@ -245,4 +245,56 @@ describe('Composer', () => {
     render(<Composer {...baseProps({ value: '', isStreaming: true })} />)
     expect((screen.getByTestId('composer-send-button') as HTMLButtonElement).disabled).toBe(false)
   })
+
+  /**
+   * A list the caller may not read and a list that is genuinely empty render
+   * identically unless the picker is told the difference. Each of these lists sits
+   * behind its own permission (read Account / read Skill / read AIOps), so a role
+   * can be denied one while holding another — and "Select accounts" over an empty
+   * popover reads as a broken app rather than as an authorisation boundary.
+   */
+  describe('denied pickers say so', () => {
+    it('the account chip reports denial instead of offering an empty selection', () => {
+      const context = baseContext({
+        accounts: {
+          available: [],
+          selectedIds: [],
+          onChange: vi.fn(),
+          denied: 'You do not have permission to read Account.',
+        },
+      })
+      render(<Composer {...baseProps({ context })} />)
+
+      const trigger = screen.getByTestId('account-chip-trigger') as HTMLButtonElement
+      expect(trigger.textContent).toBe('No account access')
+      // Inert: there is nothing behind it to open.
+      expect(trigger.disabled).toBe(true)
+    })
+
+    it('the skill chip distinguishes "denied" from the user choosing no skill', () => {
+      const context = baseContext({
+        skill: {
+          available: [],
+          selectedId: null,
+          onChange: vi.fn(),
+          denied: 'You do not have permission to read Skill.',
+        },
+      })
+      render(<Composer {...baseProps({ context })} />)
+
+      const trigger = screen.getByTestId('skill-chip-trigger') as HTMLButtonElement
+      expect(trigger.textContent).toBe('No skill access')
+      expect(trigger.disabled).toBe(true)
+    })
+
+    it('an allowed-but-empty account list still invites a selection', () => {
+      // The negative half of the pair: without it, a bug that showed the denial
+      // copy unconditionally would pass every assertion above.
+      render(<Composer {...baseProps()} />)
+
+      const trigger = screen.getByTestId('account-chip-trigger') as HTMLButtonElement
+      expect(trigger.textContent).toBe('Select accounts')
+      expect(trigger.disabled).toBe(false)
+    })
+  })
 })

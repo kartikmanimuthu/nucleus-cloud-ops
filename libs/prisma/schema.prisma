@@ -29,6 +29,12 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Bumped inside every RBAC write transaction (registry, rules, user attributes).
+  /// Compiled abilities are cached under `${globalVersion}.${rbacVersion}`, so a bump
+  /// makes every stale cache key unreachable rather than clearing anything. Combined
+  /// with the 5s version-probe TTL this bounds revocation lag at ~5s per ECS task.
+  rbacVersion Int @default(0)
+
   configs TenantConfig[]
   providerModels ProviderModel[]
   slackWorkspaceLinks SlackWorkspaceLink[]
@@ -139,6 +145,33 @@ model Account {
   connectionError        String?
   lastSyncedAt           DateTime?
   lastSyncResourceCount  Int?
+
+  // ── Fargate Spot Guard (SG) ────────────────────────────────────────────────
+  // Whether the customer deployed their onboarding stack with
+  // EnableSpotAutomation=true. Drives (a) the hub event-bus resource-policy
+  // allowlist and (b) whether Nucleus expects ECS events from this account.
+  spotAutomationEnabled  Boolean  @default(false)
+  // Readiness of the customer-side EventBridge forwarding rule, written ONLY by
+  // the Spot readiness probe. Deliberately NOT folded into connectionStatus:
+  // that column has two writers (web-ui validateAccount AND the workers
+  // discovery job, which derives it), so a Spot value there would be clobbered
+  // by the next nightly scan. "Not opted in" is also not a broken connection
+  // and must not paint the account red in the accounts table.
+  spotAutomationStatus     String    @default("not_configured") // not_configured | pending | ready | error — CHECK in migration SQL
+  spotAutomationCheckedAt  DateTime? @db.Timestamptz(3)
+  spotAutomationError      String?
+  // Onboarding CloudFormation template version deployed in this account, read
+  // from the cross-account role's tags (iam:ListRoleTags is covered by the
+  // already-attached ReadOnlyAccess policy, so this needs no customer action).
+  templateVersion          Int?
+
+  // ── Scaling Audit (SA-001) ──────────────────────────────────────────────────
+  // Per-account opt-in, mirroring spotAutomationEnabled above: the daily
+  // scaling-audit poll (gated at the stack level by SCALING_AUDIT_ENABLED) only
+  // scans accounts with this flag set — so turning the feature on for a stack
+  // does not silently start polling every account in every tenant.
+  scalingAuditEnabled Boolean @default(false)
+
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
   createdBy        String   @default("system")
@@ -147,6 +180,10 @@ model Account {
   @@unique([tenantId, accountId])
   @@index([tenantId])
   @@index([tenantId, active])
+  // Supports the Spot Guard bus-policy reconciler's cross-tenant
+  // SELECT DISTINCT "accountId" WHERE active AND "spotAutomationEnabled".
+  @@index([active, spotAutomationEnabled])
+  @@index([tenantId, scalingAuditEnabled])
   @@map("accounts")
 }
 
@@ -499,7 +536,7 @@ model ScheduledTask {
   cronExpression String // empty string when scheduleType=interval
   intervalMinutes Int? // set when scheduleType=interval
   timezone       String
-  taskStatus     String    @default("active") // active|paused|deleted — CHECK in migration SQL
+  taskStatus     String    @default("active") // active|paused|deleted|permission_revoked — CHECK in migration SQL
   mode           String    @default("plan") // always "plan" — fast mode retired for Agent Ops; legacy rows may still hold "fast"
   autoApprove    Boolean   @default(false)
   model          String?
@@ -516,6 +553,17 @@ model ScheduledTask {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   createdBy      String
+  // A scheduled task is a STORED GRANT: it runs autonomously, long after the
+  // session that created it is gone. These two columns record WHOSE authority it
+  // runs under so the trigger path can recompile that user's ability at EXECUTION
+  // time and fail closed if the role was reduced or the user removed. They are
+  // written server-side from the session — never from the request body, unlike
+  // `createdBy`, which is client-supplied and is a display string only.
+  // Nullable for rows created before this column existed; see the trigger guard
+  // in apps/web-ui/lib/agent-ops/scheduled-task-permission.ts for how those are
+  // treated.
+  createdByUserId String?
+  createdByRoleId String?
 
   @@unique([tenantId, taskId])
   @@index([tenantId])
@@ -587,6 +635,26 @@ model AgentMemory {
   @@index([tenantId, kind])
   @@index([expiresAt])
   @@map("agent_memories")
+}
+
+// AgentFile — durable file storage for the deep agent's LangGraph BaseStore.
+// Backs the /memories/ route of the deep agent's CompositeBackend (AGENTS.md and any
+// other cross-thread files the agent writes). Container storage is ephemeral, so these
+// files must not live on disk. Deliberately NOT agent_memories: no embedding, no TTL,
+// no MemoryKind — this is a filesystem, not semantic memory, and it must never surface
+// in similarity recall.
+model AgentFile {
+  id        String   @id @default(cuid())
+  tenantId  String
+  namespace String
+  key       String
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, namespace, key])
+  @@index([tenantId, namespace])
+  @@map("agent_files")
 }
 
 // AgentWorkingMemory — per-thread in-session scratchpad + rolling summary (Phase 1).
@@ -718,13 +786,26 @@ model CustomRole {
   tenantId    String?
   name        String
   type        String   @default("custom") // 'preset' | 'custom'
+  /// LEGACY — retained as a shadow copy only. `rbac_role_rules` is the source of
+  /// truth from Workstream C onward; this column is dropped in Workstream J once
+  /// the parity soak is clean. Do not read it in new code.
   permissions Json     // PermissionSet shape: { Accounts: ['read','update'], ... }
-  level       Int      @default(1) // Auto-computed: 1=Viewer, 2=Member, 3=Admin, 4=Owner
+  /// Explicit and admin-set (D-8). Was derived from a permission COUNT by
+  /// getAutoLevel(), which is meaningless once the action set is editable — and a
+  /// latent escalation bug, since adding actions could silently raise a role's
+  /// level and therefore what it may assign via canAssignRole(). Range 1..4 is a
+  /// CHECK constraint in the migration.
+  level       Int      @default(1) // 1=Viewer, 2=Member, 3=Admin, 4=Owner
+  description String?
+  /// Seeded from code inside the migration; protected by the rbac_protect_system_rows
+  /// trigger. System roles cannot be deleted and their name cannot change.
+  isSystem    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   createdBy   String
 
   userRoles   UserTenantRole[]
+  rules       RbacRoleRule[]
 
   @@index([tenantId])
   @@index([type])
@@ -1027,4 +1108,910 @@ model Skill {
 
   @@unique([tenantId, slug])
   @@index([tenantId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FARGATE SPOT GUARD (SG-*)
+//
+// Ported from the standalone CDK/DynamoDB hub-and-spoke system
+// (cdk-ecs-fargate-spot-automation). Replaces its 5 DynamoDB tables:
+//   ecs-spot-provider-config-table             → SpotGuardService
+//   ecs-service-lifecycle-history              → SpotGuardEvent + SpotGuardTaskSession
+//   ecs-slack-alert-dedup                      → SpotGuardAlertDedup
+//   aws_ecs_spot_interruption_handler_registry → SpotGuardTaskSession.interruptionHandledAt
+//   account-metadata                           → (none) the existing Account model
+// plus one new table with no DynamoDB ancestor:
+//   SpotGuardAction — global exactly-once mutation claim (see its comment).
+//
+// String enums use CHECK constraints added by hand in the migration SQL, per the
+// house convention. The union types in
+// apps/web-ui/lib/db/repositories/spot-guard/interface.ts are the declared source
+// of truth those CHECKs mirror — keep them in sync.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// SpotGuardService — registry of Spot-managed ECS services.
+/// Port of `ecs-spot-provider-config-table` (id = "{acct}::{cluster}::{service}").
+///
+/// BUG FIX (reference impl): the DynamoDB key omitted `region`, and the saved
+/// `config` blob never carried it either, so the reverter's "dynamic region
+/// detection" always fell through to a hardcoded AWS_REGION default — the old
+/// system was silently single-region, and two same-named clusters in different
+/// regions collapsed onto one row. `region` is now a real column in the key.
+model SpotGuardService {
+  id          String  @id @default(cuid())
+  tenantId    String
+  accountId   String
+  region      String
+  clusterName String
+  serviceName String
+  clusterArn  String?
+  serviceArn  String?
+
+  /// The Spot-first "gold standard" strategy to restore to: an array of
+  /// { capacityProvider, weight, base }. Was the `config.capacity_provider_strategy`
+  /// blob. BUG FIX: the hourly reverter's hardening of this strategy is now
+  /// PERSISTED here — the original mutated it in memory only and never wrote it back.
+  desiredStrategy  Json      @default("[]")
+  /// Last strategy observed on the live service — drives drift/fallback display.
+  observedStrategy Json      @default("[]")
+  observedAt       DateTime? @db.Timestamptz(3)
+
+  capacityState   String  @default("unknown") // spot | on_demand | mixed | unknown — CHECK in migration SQL
+  managementState String  @default("managed") // managed | unmanaged | opted_out — CHECK in migration SQL
+  /// Was `scheduled` (bool) — a restore is owed on the next hourly pass.
+  restorePending  Boolean @default(false)
+
+  lastFallbackAt       DateTime? @db.Timestamptz(3)
+  lastRestoreAt        DateTime? @db.Timestamptz(3)
+  lastRestoreAttemptAt DateTime? @db.Timestamptz(3)
+  /// Was `last_failed_ts`. BUG FIX: also stamped by the ASYNCHRONOUS
+  /// placement-failure path, not only when UpdateService itself throws. Without
+  /// that, Spot→fail→On-Demand→(next hour)→Spot→fail looped indefinitely.
+  lastFailedAt         DateTime? @db.Timestamptz(3)
+  consecutiveFailures  Int       @default(0)
+  /// Materialised backoff deadline, so the reverter filters in SQL rather than
+  /// scanning every row and filtering in application code.
+  backoffUntil         DateTime? @db.Timestamptz(3)
+
+  desiredCount          Int?
+  runningCount          Int?
+  serviceStatus         String?  // ACTIVE | DRAINING | INACTIVE — CHECK in migration SQL
+  albTargetGroupArns    String[] @default([])
+  interruptionCount     Int      @default(0)
+  placementFailureCount Int      @default(0)
+  fallbackCount         Int      @default(0)
+  restoreCount          Int      @default(0)
+
+  enabledBy   String?
+  enabledAt   DateTime? @db.Timestamptz(3)
+  disabledBy  String?
+  disabledAt  DateTime? @db.Timestamptz(3)
+  lastEventAt DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  // Who first brought this service under Spot Guard, and who touched it last. Distinct from
+  // enabledBy/disabledBy, which record only the most recent opt-in and opt-out: a row the
+  // observer created and a person later enabled has different values for each. Defaulted to
+  // "system" (matching the Schedule model) because rows can be created without a human actor.
+  createdBy   String    @default("system")
+  updatedBy   String    @default("system")
+
+  @@unique([tenantId, accountId, region, clusterName, serviceName])
+  @@index([tenantId, capacityState])
+  @@index([tenantId, managementState])
+  @@index([tenantId, restorePending, backoffUntil])
+  @@index([tenantId, accountId, region])
+  @@map("spot_guard_services")
+}
+
+/// SpotGuardEvent — append-only timeline (interruptions, placement failures,
+/// fallbacks, restores, spot enable/disable, capacity transitions). 90-day TTL.
+///
+/// Unlike the reference implementation, alert dedup gates Slack ONLY and never
+/// this table: the event row is the product's UI surface, so throttling it would
+/// punch holes in the timeline exactly during an incident. `notifiedSlack`
+/// records whether Slack delivery happened.
+model SpotGuardEvent {
+  id String @id @default(cuid())
+  tenantId String
+  /// Soft link to SpotGuardService.id — deliberately NOT a Prisma relation, so
+  /// getTenantClient() cannot be bypassed via a nested write.
+  spotServiceId String?
+  accountId     String
+  region        String
+  clusterName   String
+  serviceName   String
+
+  eventType String // CHECK in migration SQL — see the constraint for the full set
+  severity  String @default("info") // info | warning | critical — CHECK in migration SQL
+  /// EventBridge envelope `id`, making at-least-once delivery idempotent.
+  sourceEventId String?
+
+  taskArn          String?
+  capacityProvider String?
+  fromCapacity     String? // spot | on_demand — CHECK in migration SQL
+  toCapacity       String? // spot | on_demand — CHECK in migration SQL
+  stopCode         String?
+  stoppedReason    String?
+  strategyBefore   Json?
+  strategyAfter    Json?
+
+  message       String  @default("")
+  metadata      Json    @default("{}")
+  notifiedSlack Boolean @default(false)
+  slackError    String?
+  actor         String  @default("system") // 'system' | user id/email
+
+  occurredAt DateTime @default(now()) @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt  DateTime @db.Timestamptz(3)
+
+  /// NULLs are distinct in a Postgres UNIQUE index, so manual/user-initiated
+  /// events (which have no sourceEventId) are unconstrained — exactly right.
+  @@unique([tenantId, sourceEventId, eventType])
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, eventType, occurredAt])
+  @@index([tenantId, spotServiceId, occurredAt])
+  @@index([expiresAt])
+  @@map("spot_guard_events")
+}
+
+/// SpotGuardTaskSession — one row per ECS task, mutated open → closed.
+///
+/// Replaces BOTH DynamoDB shapes at once: `ACTIVE_TASK#{taskArn}/META` (open) and
+/// `HISTORY#{date}/...#SESSION` (closed), and absorbs the per-task interruption
+/// registry via `interruptionHandledAt`.
+///
+/// BUG FIXES vs the reference implementation:
+///  - durationSeconds is DOUBLE PRECISION, not a stringified float re-parsed with float().
+///  - reportDate derives from stoppedAt, not the task's createdAt. (The real fix is
+///    interval clipping in the aggregation query; reportDate is only a cheap
+///    indexed pre-filter and a human-readable label, never the source of truth.)
+///  - open rows carry expiresAt, so a lost STOPPED event can no longer leak an
+///    orphan row forever. Two TTLs on one column, deliberately: open →
+///    startedAt + 14d (orphan reaper); on close it is EXTENDED to stoppedAt + 90d.
+model SpotGuardTaskSession {
+  id          String @id @default(cuid())
+  tenantId    String
+  accountId   String
+  region      String
+  clusterName String
+  serviceName String
+  taskArn     String
+
+  capacityProvider String?
+  capacityType     String // spot | on_demand — CHECK in migration SQL
+
+  startedAt       DateTime @db.Timestamptz(3)
+  stoppedAt       DateTime? @db.Timestamptz(3)
+  durationSeconds Float?
+  /// 'YYYY-MM-DD' in the tenant's report timezone, computed from stoppedAt at close.
+  reportDate      String?
+
+  stopCode      String?
+  stoppedReason String?
+  interrupted   Boolean @default(false)
+  /// Set when STOPPED arrived with no prior RUNNING (out-of-order delivery, or the
+  /// open row was already reaped). Excluded from reported hours so data loss is
+  /// VISIBLE rather than silently counted as 0 seconds.
+  orphaned      Boolean @default(false)
+  isOpen        Boolean @default(true)
+
+  /// Per-task exactly-once claim for the ALB pre-drain (the old registry table).
+  /// Claimed with a single conditional UPDATE ... WHERE ... IS NULL RETURNING; the
+  /// original's non-atomic Get-then-Put let two concurrent invocations both
+  /// believe they were first.
+  interruptionHandledAt DateTime? @db.Timestamptz(3)
+
+  /// Task size from the event, for a Fargate-priced savings estimate later.
+  cpuUnits  Int?
+  memoryMiB Int?
+
+  expiresAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([tenantId, taskArn])
+  @@index([tenantId, reportDate])
+  @@index([tenantId, isOpen, startedAt])
+  @@index([tenantId, accountId, region, clusterName, serviceName, startedAt])
+  @@index([tenantId, startedAt, stoppedAt])
+  @@index([expiresAt])
+  @@map("spot_guard_task_sessions")
+}
+
+/// SpotGuardAlertDedup — Postgres replacement for DynamoDB
+/// PutItem + ConditionExpression("attribute_not_exists(PK)") + TTL.
+///
+/// A plain unique index alone would block re-inserts FOREVER after expiry,
+/// permanently suppressing the alert. The conditional-reclaim upsert in
+/// apps/workers/src/jobs/spot-guard/services/db-writer.ts is what re-permits it,
+/// and it makes the window EXACT — unlike DynamoDB TTL, which deletes lazily up
+/// to 48h late, so the reference implementation's "300 second" windows were
+/// really "at least 300s, possibly two days".
+///
+/// dedupKey is "{alertType}#{accountId}#{region}#{cluster}#{service}".
+/// BUG FIX: the original key was "{TYPE}#{account}#{service}", which collided
+/// across clusters AND regions — two clusters each running an `api` service in
+/// one account shared a single throttle window and silently suppressed each
+/// other's alerts.
+model SpotGuardAlertDedup {
+  id       String @id @default(cuid())
+  tenantId String
+  dedupKey String
+
+  alertType       String   // CHECK in migration SQL
+  windowSeconds   Int
+  firstSeenAt     DateTime @default(now()) @db.Timestamptz(3)
+  lastSeenAt      DateTime @default(now()) @db.Timestamptz(3)
+  hitCount        Int      @default(1)
+  suppressedCount Int      @default(0)
+  expiresAt       DateTime @db.Timestamptz(3)
+
+  @@unique([tenantId, dedupKey])
+  @@index([expiresAt])
+  @@index([tenantId, alertType])
+  @@map("spot_guard_alert_dedup")
+}
+
+/// SpotGuardAction — global, minute-windowed exactly-once claim for AWS mutations.
+///
+/// DELIBERATELY NOT TENANT-SCOPED, and therefore NOT in TENANT_SCOPED_MODELS.
+/// A cross-tenant claim is its entire purpose: `accounts` is unique on
+/// [tenantId, accountId], so the SAME AWS account can be registered by more than
+/// one tenant (e.g. an MSP and its end customer). An inbound ECS event carries
+/// only an account id, so N tenants may resolve from one event — but
+/// ecs:UpdateService acts on ONE AWS resource, and firing it N times would mean N
+/// rolling deployments with forceNewDeployment and potentially an outage.
+///
+/// Follows the existing precedent for non-tenant-scoped tables documented on
+/// TENANT_SCOPED_MODELS (InventorySyncStatus, ScheduledTaskLock) and
+/// PricingCatalogEntry.
+model SpotGuardAction {
+  id           String   @id @default(cuid())
+  accountId    String
+  clusterArn   String
+  serviceName  String
+  action       String   // fallback | restore | alb_predrain | enable_spot | disable_spot — CHECK in migration SQL
+  /// date_trunc('minute', now()) at claim time.
+  windowStart  DateTime @db.Timestamptz(3)
+  /// Which tenant won the claim and performed the mutation — the acting tenant.
+  actingTenant String
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt    DateTime @db.Timestamptz(3)
+
+  @@unique([accountId, clusterArn, serviceName, action, windowStart])
+  @@index([expiresAt])
+  @@map("spot_guard_actions")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Scaling Audit (SA-001) — ECS + ASG scaling event capture for SEBI compliance audit.
+//
+// Six models, all additive. Every string enum here relies on a CHECK constraint in
+// the hand-authored migration SQL (house convention — see
+// 20260713070000_agent_ops_check_constraints_new_values and
+// 20260725201753_add_spot_guard); Prisma 5 does not emit CHECK constraints itself.
+//
+// Retention: deliberately NO expiresAt anywhere in this feature. SEBI audit records
+// must not be auto-purged; scripts/cleanup-expired.ts enumerates purged tables
+// explicitly, so omitting expiresAt is sufficient exclusion — see the comment there.
+//
+// Immutability: ScalingEvent and ScalingAuditDailySeal get REVOKE UPDATE, DELETE plus
+// a BEFORE UPDATE OR DELETE trigger in the migration SQL — "append-only by
+// convention" is not evidence. IScalingAuditRepository exposes reads/export only.
+// TRUNCATE is blocked separately (REVOKE TRUNCATE + a statement-level BEFORE
+// TRUNCATE trigger, 20260805140000_scaling_audit_block_truncate): it is its own
+// privilege and row-level triggers never fire on it, so the UPDATE/DELETE controls
+// above do not cover it. Scope of the guarantee: these are guardrails against
+// mistakes, NOT immutability against the app's own credentials — that role owns
+// the tables and an owner can drop a trigger. See that migration for what
+// regulator-grade immutability would additionally require.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// ScalingEvent — one row per captured ECS/ASG scaling activity, from either AWS's
+/// own activity APIs (source='aws_api') or the platform's own scheduler mutations
+/// (source='platform' — a direct ecs:UpdateService/UpdateAutoScalingGroup call is
+/// invisible to AWS's Describe*ScalingActivities APIs, see asg-scheduler.ts /
+/// ecs-scheduler.ts). Append-only.
+model ScalingEvent {
+  id        String @id @default(cuid())
+  tenantId  String
+  accountId String
+  region    String
+
+  scope  String // 'asg'|'ecs'|'rds'|'msk'|'elasticache'|'docdb' — CHECK in migration SQL
+  source String // 'aws_api' | 'platform' — CHECK in migration SQL
+  /// AWS ActivityId (UUID) for aws_api rows; a deterministic synthetic id
+  /// (schedule-execution based) for platform rows. Natural idempotency key.
+  activityId String
+
+  resourceId        String // ASG name, or 'service/<cluster>/<service>'
+  asgName           String?
+  clusterName       String?
+  serviceName       String?
+  scalableDimension String? // e.g. 'ecs:service:DesiredCount'
+  /// False when the resource no longer appears in inventory_resources at capture
+  /// time (e.g. deleted between the event and the poll) — itself an audit signal.
+  inventoryMatched  Boolean @default(false)
+
+  // Derived classification — versioned and re-derivable from `cause`, which is
+  // ALWAYS retained verbatim. Never default to 'manual' on a parse failure — write
+  // 'unparsed' instead: a mis-defaulted 'manual' reads as an unauthorised change,
+  // which is itself an audit finding.
+  scalingType         String  // CHECK in migration SQL — see constraint for the full set
+  policyName          String?
+  scheduledActionName String?
+  alarmName           String?
+  notScaledCode       String? // primary NotScaledReasons[0].Code (ECS suppressed-scale evidence)
+  derivationVersion   Int     @default(1)
+  /// sha256(resourceId + '|' + cause) — one desired-capacity change can emit N
+  /// per-instance ASG activities sharing an identical Cause; lets a future UI
+  /// roll them into one logical decision without a backfill.
+  causeFingerprint    String
+
+  // Raw, verbatim — never lossy.
+  cause            String  @db.Text
+  description      String? @db.Text
+  statusCode       String?
+  statusMessage    String? @db.Text
+  notScaledReasons Json?
+  rawPayload       Json    @default("{}")
+
+  desiredBefore Int?
+  desiredAfter  Int?
+  minBefore     Int?
+  maxBefore     Int?
+  minAfter      Int?
+  maxAfter      Int?
+  capacityDelta Int?
+
+  /// How desiredBefore was known: 'activity' when the AWS Cause/Description text
+  /// named it directly, 'cloudwatch' when it was backfilled from the
+  /// DesiredTaskCount metric time series (needed for every CloudTrail row and
+  /// most ECS aws_api rows — see cloudtrail-client.ts, neither source's payload
+  /// ever carries the prior value). Null only when neither source had it AND
+  /// CloudWatch had no datapoint left in its retention window.
+  desiredBeforeSource String? // 'activity' | 'cloudwatch' — CHECK in migration SQL
+  /// Peak CPU/Memory utilization in the 15 minutes before startedAt — the
+  /// resource's state that PROMPTED the scaling decision, not its state after.
+  peakCpuBeforeScale    Float?
+  peakMemoryBeforeScale Float?
+
+  // Attribution — denormalized AT INGEST. Do not join audit_logs at report time:
+  // its TTL (scripts/cleanup-expired.ts) would silently degrade history already
+  // reported on.
+  actor         String  @default("system") // 'system' | user id/email
+  actorType     String  @default("system") // 'system' | 'user' | 'unattributed_out_of_band' — CHECK in migration SQL
+  initiatedBy   String? // schedule id/name for platform rows
+  correlationId String?
+
+  startedAt       DateTime  @db.Timestamptz(3)
+  endedAt         DateTime? @db.Timestamptz(3)
+  durationSeconds Float?
+  /// Report-grouping date in Asia/Kolkata (SEBI is India-based). Storage stays UTC.
+  reportDateIst   DateTime  @db.Date
+
+  capturedByRunId String
+  capturedAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, source, activityId])
+  @@index([tenantId, startedAt])
+  @@index([tenantId, reportDateIst])
+  @@index([tenantId, scope, scalingType, startedAt])
+  @@index([tenantId, accountId, region, startedAt])
+  @@index([tenantId, resourceId, startedAt])
+  @@index([tenantId, causeFingerprint])
+  @@map("scaling_events")
+}
+
+/// ScalingAuditCoverage — the completeness attestation. One row per
+/// (account, region, window, source), written as 'failed' BEFORE the fetch and
+/// flipped to 'covered' on success, so absence of a row is itself detectable.
+/// This is what answers an auditor's "how do you know this record is complete?"
+model ScalingAuditCoverage {
+  id        String @id @default(cuid())
+  tenantId  String
+  accountId String
+  region    String
+  scope     String // 'asg'|'ecs'|'rds'|'msk'|'elasticache'|'docdb' — CHECK in migration SQL
+  source    String // 'aws_api' | 'platform' — CHECK in migration SQL
+
+  windowStart DateTime @db.Timestamptz(3)
+  windowEnd   DateTime @db.Timestamptz(3)
+
+  status String // 'covered' | 'partial' | 'failed' | 'skipped' — CHECK in migration SQL
+  /// Enumerated reason code (sts_assume_role_denied, access_denied,
+  /// account_offboarded, throttled, source_retention_exceeded, ...) — the source of
+  /// truth for the set is IScalingAuditRepository's CoverageReason union, not a DB
+  /// CHECK, since new failure modes may be added without a migration.
+  reason String?
+
+  activityCount        Int      @default(0)
+  apiCallCount         Int      @default(0)
+  pagesFetched         Int      @default(0)
+  truncated            Boolean  @default(false)
+  oldestActivitySeenAt DateTime? @db.Timestamptz(3)
+  newestActivitySeenAt DateTime? @db.Timestamptz(3)
+
+  runId       String
+  attemptedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenantId, accountId, region, scope, source, windowStart])
+  @@index([tenantId, status])
+  @@index([tenantId, runId])
+  @@map("scaling_audit_coverage")
+}
+
+/// ScalingAuditRun — tracks each daily (or manual/backfill) scaling-audit poll run.
+/// Mirrors RightSizingRun. No expiresAt.
+model ScalingAuditRun {
+  id       String @id @default(cuid())
+  tenantId String
+  status   String @default("queued") // queued|running|completed|partial|failed — CHECK in migration SQL
+  trigger  String @default("schedule") // schedule|manual|backfill — CHECK in migration SQL
+
+  accountsScanned Int   @default(0)
+  scopesPolled    Int   @default(0)
+  eventsSeen      Int   @default(0) // returned by AWS/scheduler, pre-dedup
+  eventsCaptured  Int   @default(0) // rows actually inserted (seen − captured = dedup hits)
+  policySnapshots Int   @default(0)
+  gapsDetected    Int   @default(0)
+  apiCallCount    Int   @default(0) // budget observability
+  errors          Json  @default("[]")
+
+  startedAt  DateTime  @default(now()) @db.Timestamptz(3)
+  finishedAt DateTime? @db.Timestamptz(3)
+
+  @@index([tenantId, startedAt])
+  @@map("scaling_audit_runs")
+}
+
+/// ScalingAuditWatermark — per (account, region, scope) high-water mark of the last
+/// captured activity. A dedicated table, not tenant_configs: the JSONB merge used
+/// for right-sizing's cadence config is last-write-wins, which would clobber
+/// concurrent per-scope updates within one run.
+model ScalingAuditWatermark {
+  id        String @id @default(cuid())
+  tenantId  String
+  accountId String
+  region    String
+  scope     String // 'asg'|'ecs'|'rds'|'msk'|'elasticache'|'docdb' — CHECK in migration SQL
+
+  /// Which SOURCE this mark tracks: 'aws_api' | 'cloudtrail'. Part of the unique
+  /// key, because each source paginates a different API with its own position —
+  /// without it a CloudTrail poll of scope='ecs' would overwrite the activity-API
+  /// mark for the same scope and the two would corrupt each other. Defaults to
+  /// 'aws_api' so pre-existing rows keep their meaning. ('platform' never appears
+  /// here: those rows are written synchronously at mutation time, not polled.)
+  source String @default("aws_api")
+
+  lastActivityAt      DateTime? @db.Timestamptz(3)
+  lastActivityId      String?
+  lastPolledAt        DateTime? @db.Timestamptz(3)
+  lastRunId           String?
+  consecutiveFailures Int       @default(0)
+
+  /// Never silently skipped: set when now() − lastPolledAt exceeds AWS's ~6-week
+  /// activity retention, or when a poll can't reach as far back as the prior
+  /// watermark. A gap is a first-class, surfaced record, never a silent skip.
+  gapDetected Boolean   @default(false)
+  gapFromAt   DateTime? @db.Timestamptz(3)
+  gapToAt     DateTime? @db.Timestamptz(3)
+  gapReason   String?
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([tenantId, accountId, region, scope, source])
+  @@index([tenantId, gapDetected])
+  @@map("scaling_audit_watermarks")
+}
+
+/// ScalingPolicySnapshot — content-addressed daily snapshot of scaling policies,
+/// scheduled actions, and min/max bounds in effect. Only written on change (dedup
+/// via configHash), so diffing consecutive snapshots yields a policy/guardrail
+/// change history for free — this is how ASG min/max mutations (invisible to the
+/// scaling-activity APIs) get evidenced.
+model ScalingPolicySnapshot {
+  id        String @id @default(cuid())
+  tenantId  String
+  accountId String
+  region    String
+  scope     String // 'asg'|'ecs'|'rds'|'msk'|'elasticache'|'docdb' — CHECK in migration SQL
+
+  resourceId String
+  configHash String // sha256 of canonicalized policies + scheduledActions + min/max bounds
+
+  policies         Json @default("[]")
+  scheduledActions Json @default("[]")
+  minCapacity      Int?
+  maxCapacity      Int?
+
+  firstSeenAt DateTime @default(now()) @db.Timestamptz(3)
+  lastSeenAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, accountId, region, scope, resourceId, configHash])
+  @@index([tenantId, accountId, region, resourceId, lastSeenAt])
+  @@map("scaling_policy_snapshots")
+}
+
+/// ScalingAuditDailySeal — per-tenant, per-day chained digest over that day's
+/// ScalingEvent rows. Converts "append-only by convention" into a provable claim:
+/// any retroactive edit or deletion changes rowsDigest, which breaks every
+/// subsequent link in the chain. Every export prints the seal it was generated
+/// from.
+model ScalingAuditDailySeal {
+  id        String   @id @default(cuid())
+  tenantId  String
+  day       DateTime @db.Date // Asia/Kolkata report date this seal covers
+
+  rowCount   Int
+  rowsDigest String // sha256 over the sorted (activityId, cause, capacity...) tuples for `day`
+  prevSeal   String? // NULL only for the very first sealed day of a tenant
+  seal       String  // sha256(prevSeal || day || rowCount || rowsDigest)
+
+  sealedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, day])
+  @@map("scaling_audit_daily_seals")
+}
+
+/// NetworkLinkSample — hourly bandwidth/availability samples for Direct Connect
+/// connections and VPN tunnels (Scale Sentinel's Network Pulse capability). One
+/// row per (resource, hour): DX rows key on the connectionId; VPN rows key on
+/// `${vpnConnectionId}:${outsideIpAddress}` — one row per TUNNEL, since a VPN
+/// connection normally has two independent tunnels (primary/backup).
+model NetworkLinkSample {
+  id        String @id @default(cuid())
+  tenantId  String
+  accountId String
+  region    String
+
+  resourceType String // 'dx_connection' | 'vpn_tunnel' — CHECK in migration SQL
+  resourceId   String // DX: connectionId. VPN: `${vpnConnectionId}:${outsideIpAddress}`
+  /// AWS Name tag if present, else null — code falls back to resourceId for display.
+  displayName  String?
+
+  installedBandwidthMbps Float?
+  bpsAvgIn               Float?
+  bpsMaxIn               Float?
+  bpsAvgOut              Float?
+  bpsMaxOut              Float?
+  /// True only if the resource was up for the WHOLE bucket hour; null when the
+  /// state metric had no datapoint that hour (unknown, not necessarily down).
+  stateUp                Boolean?
+
+  bucketStartUtc DateTime @db.Timestamptz(3)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([tenantId, resourceType, resourceId, bucketStartUtc])
+  @@index([tenantId, bucketStartUtc])
+  @@map("network_link_samples")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DYNAMIC ABAC — RBAC registry, grants, attributes, routing and audit
+//
+// Replaces the two hardcoded maps that collapse the permission model at build
+// time: SUBJECT_TO_MODULE and ACTION_MAP in apps/web-ui/lib/rbac/types.ts, plus
+// the duplicated MODULES/ACTIONS consts in components/settings/role-dialog.tsx.
+// Turning those into rows is what makes modules, actions and their mappings
+// editable from an admin screen with no deploy.
+//
+// Row scoping convention across every table here:
+//   tenantId = NULL  -> a GLOBAL row, visible to all tenants (the system registry)
+//   tenantId = '...' -> a tenant-local row, overriding or extending the global set
+//
+// WARNING: the tenant extension (TENANT_SCOPED_MODELS in lib/db/pg-config.ts)
+// emits `WHERE tenant_id = $1`, which EXCLUDES NULLs. Registry READS therefore go
+// through getPrismaClient() with an explicit OR, confined to
+// apps/web-ui/lib/rbac/registry.ts. Registry WRITES go through getTenantClient().
+// See registry.ts's header comment and section 6.7 of the plan.
+//
+// Nothing in the registry grants anything on its own — rbac_role_rules does all
+// the granting. A registry row for a subject no code guards is inert by design.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// A top-level permission group — one row per grid row / sidebar section.
+model RbacModule {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  key         String // 'Accounts' | 'Schedules' | 'AIOps' | ...
+  label       String // display name — freely editable, including on system rows
+  description String?
+  icon        String? // lucide icon name; drives the grid and the nav
+  navPath     String? // '/app/schedules' — lets nav gating be data-driven
+  sortOrder   Int      @default(100)
+  isSystem    Boolean  @default(false)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String   @default("system")
+
+  subjects RbacSubjectModule[]
+  actions  RbacModuleAction[]
+  rules    RbacRoleRule[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId, enabled])
+  @@map("rbac_modules")
+}
+
+/// A verb. `aliasOfKey` reproduces today's ACTION_MAP as data, so promoting an
+/// aliased verb (e.g. 'approve') into its own grantable column is a row edit.
+model RbacAction {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  key         String // 'create' | 'read' | 'approve' | 'execute' | ...
+  label       String
+  description String?
+  aliasOfKey  String? // 'approve' aliasOfKey 'update' — resolved at compile time
+  isDangerous Boolean  @default(false) // forces a typed confirmation in the role editor
+  isSystem    Boolean  @default(false)
+  sortOrder   Int      @default(100)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String   @default("system")
+
+  moduleLinks RbacModuleAction[]
+  rules       RbacRoleRule[]
+
+  @@unique([tenantId, key])
+  @@map("rbac_actions")
+}
+
+/// A CASL subject — what the code actually guards. Seeded from the authorize()
+/// and `export const authz` call sites discovered by rbac:sync.
+model RbacSubject {
+  id       String   @id @default(cuid())
+  tenantId String?
+  key      String // 'Account' | 'Schedule' | 'SpotGuard' | 'AgentShell' | ...
+  label    String
+  /// 'resource' — a row in the database.
+  /// 'capability' — an agent tool permission with no backing row (Workstream H).
+  kind     String   @default("resource")
+  navPath   String? // '/app/agent-ops/providers' — lets page/nav gating be data-driven
+  sortOrder Int      @default(100)
+  isSystem Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  modules    RbacSubjectModule[]
+  attributes RbacSubjectAttribute[]
+  rules      RbacRoleRule[]
+  routes     RbacRoutePermission[]
+
+  @@unique([tenantId, key])
+  @@map("rbac_subjects")
+}
+
+/// Replaces SUBJECT_TO_MODULE. Editing a row here IS "move SpotGuard to its own
+/// module" — but see section 6.8: the remap must first materialise explicit
+/// subject-level rules, or it silently revokes access from every role that holds
+/// only the old module grant.
+model RbacSubjectModule {
+  id        String  @id @default(cuid())
+  tenantId  String?
+  subjectId String
+  moduleId  String
+
+  subject RbacSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  module  RbacModule  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, subjectId])
+  @@index([moduleId])
+  @@map("rbac_subject_modules")
+}
+
+/// Replaces role-dialog.tsx's hardcoded `allowedActions`. Defines which grid
+/// cells exist at all — this is what keeps Dashboard read-only, as data.
+model RbacModuleAction {
+  id        String  @id @default(cuid())
+  tenantId  String?
+  moduleId  String
+  actionId  String
+  grantable Boolean @default(true) // false = cell rendered but disabled
+
+  module RbacModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  action RbacAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, moduleId, actionId])
+  @@map("rbac_module_actions")
+}
+
+/// The grants. One row per ticked checkbox.
+///
+/// Exactly one of moduleId / subjectId is set (CHECK constraint in the migration):
+///   moduleId  -> expands at compile time to every enabled subject in the module
+///   subjectId -> a precise override that beats its module rule, whatever the row order
+model RbacRoleRule {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  roleId     String
+  actionId   String
+  moduleId   String?
+  subjectId  String?
+  conditions Json? // validated ConditionAST; null = unconditional
+  fields     String[] @default([]) // reserved (non-goal) so adding it later is not a migration
+  inverted   Boolean  @default(false) // true = CASL `cannot`; always emitted last
+  reason     String? // surfaced in the 403 body and the UI tooltip
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  createdBy  String   @default("system")
+
+  role    CustomRole   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  action  RbacAction   @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  module  RbacModule?  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  subject RbacSubject? @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, actionId, moduleId, subjectId])
+  @@index([roleId])
+  @@index([tenantId, roleId])
+  @@map("rbac_role_rules")
+}
+
+/// Resource side of ABAC: which paths a condition may reference on a subject, and
+/// which operators are legal per path. Drives the condition builder's options and
+/// is re-checked by the validator at write time and again at compile time.
+model RbacSubjectAttribute {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  subjectId  String
+  path       String // 'accountId' | 'tags.Environment' | 'resourceType'
+  label      String
+  valueType  String // 'string'|'number'|'boolean'|'string[]'|'date' — CHECK in migration
+  operators  String[] // per-attribute whitelist subset
+  enumValues String[] @default([])
+  isSystem   Boolean  @default(false)
+
+  subject RbacSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, subjectId, path])
+  @@map("rbac_subject_attributes")
+}
+
+/// Principal side of ABAC (D-9): admin-assigned attributes on a user within a
+/// tenant. This is what makes {"$var": "user.allowedAccountIds"} mean something.
+/// tenantId is NOT NULL here, so this table is fully extension-scoped — the
+/// registry read exception does not apply.
+model RbacUserAttribute {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  key       String // 'allowedAccountIds' | 'environment' | 'costCenter' | ...
+  value     Json // string | number | boolean | string[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  updatedBy String
+
+  @@unique([tenantId, userId, key])
+  @@index([tenantId, userId])
+  @@map("rbac_user_attributes")
+}
+
+/// The allowlist gate for $var resolution. A $var path absent from this table is
+/// rejected at write time and dropped at compile time — this is what keeps
+/// arbitrary DB content out of the condition matcher (section 8.4).
+model RbacPrincipalAttribute {
+  id        String  @id @default(cuid())
+  tenantId  String?
+  key       String // must match RbacUserAttribute.key, or be a builtin
+  label     String
+  valueType String
+  /// 'user'    — resolved from rbac_user_attributes
+  /// 'builtin' — resolved from the session (id, email, tenantId, roleId)
+  source    String  @default("user")
+  isSystem  Boolean @default(false)
+
+  @@unique([tenantId, key])
+  @@map("rbac_principal_attributes")
+}
+
+/// Overrides and extends the build-time route manifest, and is the emergency
+/// kill-switch: a `deny` row blocks an endpoint for one tenant with no deploy.
+/// Resolved first, sortOrder ascending, first match wins.
+model RbacRoutePermission {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  method      String // GET|POST|PUT|PATCH|DELETE|* — CHECK in migration
+  pathPattern String // '/api/schedules/:id/execute' (path-to-regexp)
+  actionKey   String
+  subjectId   String? // required when mode='require' — CHECK in migration
+  mode        String   @default("require") // 'require' | 'deny' | 'public'
+  enforced    Boolean  @default(true) // false = shadow (log only, do not block)
+  sortOrder   Int      @default(100)
+  reason      String?
+  createdAt   DateTime @default(now())
+  createdBy   String   @default("system")
+
+  subject RbacSubject? @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, method, sortOrder])
+  @@map("rbac_route_permissions")
+}
+
+/// Append-only ledger (D-11). UPDATE and DELETE are refused by a trigger, so
+/// "who could do what on date X" stays answerable by replay.
+model RbacRuleChangeLog {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  entityType String // 'module'|'action'|'subject'|'role'|'rule'|'route'|'userAttribute'
+  entityId   String
+  operation  String // 'create'|'update'|'delete'
+  before     Json?
+  after      Json?
+  actorId    String
+  actorEmail String
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId])
+  @@map("rbac_rule_change_log")
+}
+
+/// Single-row table (id is always 1). Bumped when a GLOBAL registry row changes;
+/// the per-tenant half of the cache key lives on Tenant.rbacVersion.
+model RbacGlobalVersion {
+  id      Int @id @default(1)
+  version Int @default(0)
+
+  @@map("rbac_global_version")
+}
+
+// CapacityUtilizationSample (SA-004) — hourly CPU/Mem utilization per ECS
+// service or ASG, backing the "Capacity Planning" report (installed vs.
+// utilised vs. peak vs. >70% breach instances). Persisted because CloudWatch's
+// own 1-hour-resolution retention (455 days) would otherwise silently age out
+// the older end of any multi-quarter report — the same reason scaling-audit
+// keeps its own watermark against CloudTrail's 90-day window.
+//
+// No separate watermark table: "how far this resource has been polled" is
+// just MAX(bucketStartUtc) for that (tenantId, resourceType, resourceId) — the
+// upsert is already keyed on the same tuple, so a second table would only
+// duplicate what this one already answers.
+model CapacityUtilizationSample {
+  id             String   @id @default(cuid())
+  tenantId       String
+  accountId      String
+  region         String
+  resourceType   String // 'ecs' | 'asg' — CHECK in migration SQL
+  resourceId     String
+  clusterName    String?
+  serviceName    String?
+  asgName        String?
+  bucketStartUtc DateTime @db.Timestamptz(3) // hourly bucket — matches CloudWatch's own Period=3600 grouping
+
+  cpuAvg          Float?
+  cpuMax          Float?
+  memAvg          Float?
+  memMax          Float?
+  installedVcpu   Float?
+  installedMemGiB Float?
+
+  capturedByRunId String
+  capturedAt      DateTime @default(now())
+
+  @@unique([tenantId, resourceType, resourceId, bucketStartUtc])
+  @@index([tenantId, resourceId, bucketStartUtc])
+  @@index([tenantId, bucketStartUtc])
+  @@map("capacity_utilization_samples")
+}
+
+// CapacityPlanningRun (SA-004) — per-tenant run record for the capacity poller,
+// mirrors RightSizingRun/ScalingAuditRun's shape.
+model CapacityPlanningRun {
+  id               String    @id @default(cuid())
+  tenantId         String
+  status           String    @default("queued") // queued | running | completed | failed
+  trigger          String    @default("schedule") // schedule | manual
+  accountsScanned  Int       @default(0)
+  resourcesScanned Int       @default(0)
+  samplesWritten   Int       @default(0)
+  errors           Json      @default("[]")
+  startedAt        DateTime  @default(now())
+  finishedAt       DateTime?
+
+  @@index([tenantId, startedAt])
+  @@map("capacity_planning_runs")
 }

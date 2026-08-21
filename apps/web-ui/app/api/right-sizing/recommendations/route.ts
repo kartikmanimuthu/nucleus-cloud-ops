@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { RightSizingService } from '@/lib/right-sizing-service';
 import type { Finding, RecommendationStatus } from '@/lib/db/repositories/right-sizing/interface';
@@ -27,6 +28,8 @@ export async function GET(request: NextRequest) {
             page,
             limit,
             sort,
+            // Gate 3 — which recommendations, not just whether. See lib/rbac/row-filter.ts.
+            rowFilter: await getReadRowFilter('RightSizing'),
         });
 
         return NextResponse.json({

@@ -9,7 +9,10 @@ import { ECSClient, ListClustersCommand, ListServicesCommand, DescribeServicesCo
 import { RDSClient, DescribeDBInstancesCommand, DescribeDBInstancesCommandOutput, DescribeDBClustersCommand, DescribeDBClustersCommandOutput } from '@aws-sdk/client-rds';
 import { EC2Client, DescribeInstancesCommand, DescribeInstancesCommandOutput } from '@aws-sdk/client-ec2';
 import { AutoScalingClient, DescribeAutoScalingGroupsCommand, DescribeAutoScalingGroupsCommandOutput } from '@aws-sdk/client-auto-scaling';
+import { EventBridgeClient, DescribeRuleCommand, ListTargetsByRuleCommand } from '@aws-sdk/client-eventbridge';
 import { getAccountRepository } from '@/lib/db/repository-factory';
+import { requestBusPolicyReconcile } from '@/lib/spot-guard/bus-policy-client';
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
 
 export class AccountService {
     /**
@@ -23,6 +26,8 @@ export class AccountService {
         limit?: number;
         page?: number;
         tenantId?: string;
+        /** Gate 3 row filter — see lib/rbac/row-filter.ts. Passed straight through. */
+        rowFilter?: PrismaRowFilter | null;
     }): Promise<{ accounts: UIAccount[], totalCount: number }> {
         console.log('AccountService - Fetching accounts', filters ? `with filters: ${JSON.stringify(filters)}` : '');
         return getAccountRepository().getAccounts({
@@ -32,6 +37,7 @@ export class AccountService {
             page: filters?.page,
             limit: filters?.limit,
             tenantId: filters?.tenantId,
+            rowFilter: filters?.rowFilter,
         });
     }
 
@@ -66,6 +72,10 @@ export class AccountService {
                 roleArn: account.roleArn,
             },
         });
+        // Spot Guard: a newly onboarded, Spot-enabled account must be added to the hub
+        // event-bus allowlist or its forwarded events are rejected. Fire-and-forget after
+        // the write and the audit log — never before, and never awaited.
+        if (account.spotAutomationEnabled) requestBusPolicyReconcile('account.created');
         return result;
     }
 
@@ -93,6 +103,15 @@ export class AccountService {
                 metadata: { tenantId, updates },
             });
         }
+        // Either flag can change bus-allowlist membership: spotAutomationEnabled directly,
+        // and `active` because the reconciler's query requires active = true. Reconcile on
+        // either, in both directions — turning the flag OFF must revoke PutEvents, or an
+        // orphaned customer stack keeps forwarding (and keeps being billed for it).
+        // Deliberately runs even when skipAudit is true: toggleAccountStatus routes
+        // through here with { active }, and that path must still reconcile.
+        if (updates.spotAutomationEnabled !== undefined || updates.active !== undefined) {
+            requestBusPolicyReconcile('account.updated');
+        }
         return result;
     }
 
@@ -116,12 +135,35 @@ export class AccountService {
             dataClassification: 'infrastructure',
             metadata: { tenantId, accountId },
         });
+        // Unconditional: the row is gone, so we cannot check whether it had Spot enabled.
+        // Reconciling is cheap and idempotent, and failing to revoke would leave a deleted
+        // customer's account still able to PutEvents onto our bus.
+        requestBusPolicyReconcile('account.deleted');
     }
 
     /**
      * Validate credentials directly (without DB update).
      */
-    static async validateCredentials({ roleArn, externalId, region }: { roleArn: string; externalId?: string; region: string }): Promise<{ isValid: boolean; error?: string }> {
+    static async validateCredentials({
+        roleArn,
+        externalId,
+        region,
+        checkSpotAutomation,
+        hubAccountId,
+        hubEventBusArn,
+    }: {
+        roleArn: string;
+        externalId?: string;
+        region: string;
+        /** Also probe whether the Spot Guard forwarding rule is deployed. */
+        checkSpotAutomation?: boolean;
+        hubAccountId?: string;
+        hubEventBusArn?: string;
+    }): Promise<{
+        isValid: boolean;
+        error?: string;
+        spotAutomation?: { status: 'pending' | 'ready' | 'error'; error?: string };
+    }> {
         try {
             console.log(`AccountService - Validating credentials for ${roleArn} in ${region}`);
 
@@ -160,7 +202,21 @@ export class AccountService {
             await rdsClient.send(new DescribeDBInstancesCommand({ MaxRecords: 20 }));
             console.log('AccountService - RDS DescribeDBInstances successful');
 
-            return { isValid: true };
+            // 5. Fargate Spot Guard readiness — ADDITIVE and NON-FATAL.
+            //
+            // events:DescribeRule and events:ListTargetsByRule are already covered by the
+            // ReadOnlyAccess managed policy the cross-account role attaches, so this probe
+            // works against v1 stacks with NO template change and no customer action —
+            // which is what makes the v2 migration story viable.
+            //
+            // A missing rule means "the customer has not opted in", NOT "credentials are
+            // broken": it must never flip isValid, and validateAccount must never write it
+            // into connectionStatus.
+            const spotAutomation = checkSpotAutomation && hubAccountId
+                ? await AccountService.probeSpotAutomation({ region, credentials, hubAccountId, hubEventBusArn })
+                : undefined;
+
+            return { isValid: true, spotAutomation };
 
         } catch (err: any) {
             console.error('AccountService - Validation Creds Failed:', err);
@@ -170,6 +226,66 @@ export class AccountService {
                 validationError = `Access Denied: ${err.message}`;
             }
             return { isValid: false, error: validationError };
+        }
+    }
+
+    /**
+     * Probe whether the customer deployed the Spot Guard forwarding rule.
+     *
+     * Two checks, because there are two distinct real-world failures:
+     *   1. The rule does not exist, or exists but is DISABLED — the customer has not
+     *      opted in, or turned it off. Reported as 'pending', with remediation text.
+     *   2. The rule exists and is enabled but targets the WRONG bus — almost always a
+     *      stale HubEventBusArn copy-pasted from an older template or another
+     *      environment. This one is insidious: the customer believes they are onboarded,
+     *      their account is billed for forwarded events, and Nucleus never sees any.
+     *
+     * Never throws. Every failure becomes a status, because this is a diagnostic and must
+     * not be able to fail credential validation.
+     */
+    private static async probeSpotAutomation({
+        region,
+        credentials,
+        hubAccountId,
+        hubEventBusArn,
+    }: {
+        region: string;
+        credentials: { accessKeyId: string; secretAccessKey: string; sessionToken: string };
+        hubAccountId: string;
+        hubEventBusArn?: string;
+    }): Promise<{ status: 'pending' | 'ready' | 'error'; error?: string }> {
+        // Must match the Name in cf-template-generator.ts. Changing it there without
+        // changing it here silently reports every onboarded account as 'pending'.
+        const ruleName = `NucleusSpotForward-${hubAccountId}`;
+        try {
+            const eb = new EventBridgeClient({ region, credentials });
+            const rule = await eb.send(new DescribeRuleCommand({ Name: ruleName }));
+
+            if (rule.State !== 'ENABLED') {
+                return { status: 'pending', error: `Rule ${ruleName} exists but is ${rule.State ?? 'in an unknown state'}` };
+            }
+
+            if (hubEventBusArn) {
+                const targets = await eb.send(new ListTargetsByRuleCommand({ Rule: ruleName }));
+                const targetsOurBus = targets.Targets?.some((t) => t.Arn === hubEventBusArn);
+                if (!targetsOurBus) {
+                    return {
+                        status: 'error',
+                        error: `Rule ${ruleName} does not target ${hubEventBusArn}. Redeploy the onboarding stack with the current HubEventBusArn.`,
+                    };
+                }
+            }
+
+            return { status: 'ready' };
+        } catch (err: unknown) {
+            const name = (err as { name?: string })?.name;
+            if (name === 'ResourceNotFoundException') {
+                return {
+                    status: 'pending',
+                    error: 'Spot Guard forwarding rule not deployed. Redeploy the onboarding stack with EnableSpotAutomation=true.',
+                };
+            }
+            return { status: 'error', error: err instanceof Error ? err.message : String(err) };
         }
     }
 

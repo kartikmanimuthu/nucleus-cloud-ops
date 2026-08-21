@@ -8,7 +8,14 @@
 import { NextResponse } from 'next/server';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
 import type { TriggerSource, AgentOpsStatus, RunListQuery } from '@/lib/agent-ops/types';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'AgentOps' },
+};
 
 const VALID_SORT_FIELDS: RunListQuery['sortBy'][] = ['createdAt', 'updatedAt', 'status', 'source', 'taskDescription', 'durationMs'];
 
@@ -32,6 +39,9 @@ export async function GET(req: Request) {
             limit,
             sortBy,
             sortDir,
+            // Gate 3. authz above (Layer 1) settled WHETHER this caller may list
+            // runs; this settles WHICH ones, in SQL, so page counts stay honest.
+            rowFilter: await getReadRowFilter('Agent'),
         });
 
         return NextResponse.json({

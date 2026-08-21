@@ -1,0 +1,19 @@
+config:
+  aws:region: ap-south-1
+  nucleus-compute:appName: stx-nucleus-ops-sbx
+  nucleus-compute:appUrl: https://d3ckkkrg51rymx.cloudfront.net
+  nucleus-compute:subscriptionEmails: ""
+  nucleus-compute:engineVersion: "16.9"
+  nucleus-compute:workersDesiredCount: "1"
+  nucleus-compute:dbName: nucleus_sbx
+  nucleus-compute:dbUsername: nucleus_sbx_admin
+  # Fargate Spot Guard — cross-account ECS event ingestion (EventBridge bus + SQS).
+  # Enabled on sbx only while the feature is validated. Prod stays a no-op until this
+  # same key is added to Pulumi.prod.yaml; no code change is needed to promote it.
+  nucleus-compute:spotGuardEnabled: "true"
+  nucleus-compute:scalingAuditEnabled: "true"
+  # RBAC/ABAC enforcement soak — sbx only. Prod stays false/shadow until the
+  # parity mismatch counters are quiet.
+  nucleus-compute:dynamicAbacEnabled: "true"
+  nucleus-compute:rbacRouteGuardMode: enforce
+encryptionsalt: v1:6SW5zTzfdlk=:v1:pH4TlHXEkhYWOpCy:scl7UhKe7msml3Rs5nStXnRnOxllDA==

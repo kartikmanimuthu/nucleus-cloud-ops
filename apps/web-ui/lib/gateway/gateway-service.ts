@@ -8,12 +8,16 @@
  */
 
 import type { NextRequest } from 'next/server';
-import type { ChannelType, GatewayMessage } from './types';
+import type { ChannelType, GatewayMessage, ChannelAdapter } from './types';
 import type { AdapterRegistry } from './adapter-registry';
 import type { GatewayEventBus } from './event-bus';
 import type { NotificationRouter } from './notification-router';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { executeAgentRun, resumeApprovedRun } from '@/lib/agent-ops/agent-executor';
+import { triageChatMessage, chatTriageEnabled } from '@/lib/agent/triage';
+import { resolveModelConfig, resolveDefaultModelConfig } from '@/lib/agent/model-resolver';
+import { generateDirectReply } from '@/lib/gateway/persona/direct-reply';
+import { chatbotPersonaEnabled } from '@/lib/gateway/persona/persona-config';
 
 export class GatewayService {
     constructor(
@@ -57,6 +61,19 @@ export class GatewayService {
                 JSON.stringify({ error: 'Missing task description' }),
                 { status: 400 },
             );
+        }
+
+        // 4.5. Persona router: small talk gets an instant reply and never
+        // touches Agent Ops. Any failure inside (model resolution, the
+        // classifier itself) falls through to the normal task path below —
+        // never silently drop a real request.
+        if (
+            chatbotPersonaEnabled(channelType) &&
+            chatTriageEnabled() &&
+            adapter.sendDirectReply
+        ) {
+            const directReply = await this.tryDirectReply(message, req, adapter);
+            if (directReply) return directReply;
         }
 
         // 5. Create run via agentOpsService
@@ -203,6 +220,37 @@ export class GatewayService {
                     JSON.stringify({ error: `Unknown action: ${action}` }),
                     { status: 400 },
                 );
+        }
+    }
+
+    /**
+     * Returns a direct-reply Response when triage classifies the message as
+     * small talk, or null to fall through to the normal Agent Ops path.
+     * Fails open (returns null) on any error — a wasted run is cheaper than
+     * silently dropping a real request.
+     */
+    private async tryDirectReply(
+        message: GatewayMessage,
+        req: NextRequest,
+        adapter: ChannelAdapter,
+    ): Promise<Response | null> {
+        try {
+            const model = message.model
+                ? await resolveModelConfig(message.model, message.tenantId)
+                : await resolveDefaultModelConfig(message.tenantId);
+
+            const triage = await triageChatMessage({
+                tenantId: message.tenantId,
+                message: message.taskDescription,
+                model,
+            });
+            if (triage.route !== 'direct') return null;
+
+            const text = await generateDirectReply({ message: message.taskDescription, model });
+            return await adapter.sendDirectReply!(req, text);
+        } catch (err) {
+            console.warn(`[GatewayService] Persona routing failed (non-fatal, falling through to task): ${err}`);
+            return null;
         }
     }
 }

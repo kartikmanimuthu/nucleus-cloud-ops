@@ -3,11 +3,28 @@ import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { ProviderModelService, isProviderType } from '@/lib/provider-model-service';
 import { AuditService } from '@/lib/audit-service';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/**
+ * Layer 1 permission declaration.
+ *
+ * Subject is Provider (the "LLM Provider" row under AI Ops), not Settings and no
+ * longer the bare AIOps module. LLM providers exist to power the agents, the
+ * page lives under /app/agent-ops/providers, and the nav groups it with Agentic
+ * Ops. It first resolved to Settings by inference from the /api/settings/* path,
+ * which is why a role holding AIOps could not reach its own providers; it then
+ * gated on the AIOps catch-all, which the role editor hides, so the Provider row
+ * it already rendered governed nothing. Now that row is the control.
+ */
+export const authz: RouteAuthz = {
+    PUT: { action: 'update', subject: 'Provider' },
+    DELETE: { action: 'update', subject: 'Provider' },
+};
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
     console.log(`API - PUT /api/settings/providers/${id} - Updating provider`);
-    const authError = await authorize('update', 'Settings');
+    const authError = await authorize('update', 'Provider');
     if (authError) return authError;
 
     try {
@@ -64,7 +81,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
     console.log(`API - DELETE /api/settings/providers/${id} - Deleting provider`);
-    const authError = await authorize('update', 'Settings');
+    const authError = await authorize('update', 'Provider');
     if (authError) return authError;
 
     try {

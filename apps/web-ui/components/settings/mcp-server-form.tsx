@@ -33,6 +33,14 @@ interface McpServerFormProps {
   value: McpFormValues;
   onChange: (value: McpFormValues) => void;
   apiPath: string;
+  /**
+   * Decided by the parent, which knows which route backs this editor and
+   * therefore which subject guards it (`update AIOps` vs `update Settings`).
+   * Passed in rather than resolved here so the form has one source of truth.
+   */
+  readOnly?: boolean;
+  /** Shown on every disabled control. */
+  readOnlyReason?: string | null;
 }
 
 function blankStdioRow(): McpFormRow {
@@ -50,7 +58,7 @@ function summaryLine(row: McpFormRow) {
   return row.url || 'No URL set';
 }
 
-export function McpServerForm({ value, onChange, apiPath }: McpServerFormProps) {
+export function McpServerForm({ value, onChange, apiPath, readOnly = false, readOnlyReason }: McpServerFormProps) {
   const rows = value.servers;
   const test = useTestMcpServer(apiPath);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -139,7 +147,14 @@ export function McpServerForm({ value, onChange, apiPath }: McpServerFormProps) 
         const r = row.original;
         return (
           <div className="flex items-center gap-2">
-            <Switch checked={!r.disabled} onCheckedChange={(c) => updateRow(row.index, { ...r, disabled: !c })} aria-label={r.disabled ? 'Enable server' : 'Disable server'} />
+            <span className={readOnly ? 'inline-flex cursor-not-allowed' : undefined} title={readOnly ? (readOnlyReason ?? undefined) : undefined}>
+              <Switch
+                checked={!r.disabled}
+                disabled={readOnly}
+                onCheckedChange={(c) => updateRow(row.index, { ...r, disabled: !c })}
+                aria-label={r.disabled ? 'Enable server' : 'Disable server'}
+              />
+            </span>
             <span className="text-xs text-muted-foreground w-14">{r.disabled ? 'Disabled' : 'Enabled'}</span>
           </div>
         );
@@ -160,10 +175,31 @@ export function McpServerForm({ value, onChange, apiPath }: McpServerFormProps) 
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => openEdit(row.index)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => runTest(r)} disabled={busy}><CheckCircle2 className="mr-2 h-4 w-4" /> Test connection</DropdownMenuItem>
+                {/* Edit opens the detail sheet, which is itself read-only when denied. */}
+                <DropdownMenuItem onClick={() => openEdit(row.index)}>
+                  <Pencil className="mr-2 h-4 w-4" /> {readOnly ? 'View' : 'Edit'}
+                </DropdownMenuItem>
+                {/* Test connection dials the server with stored credentials — a
+                    write-ish side effect, and its route declares `update`. */}
+                <DropdownMenuItem
+                  onClick={readOnly ? undefined : () => runTest(r)}
+                  disabled={busy || readOnly}
+                  title={readOnly ? (readOnlyReason ?? undefined) : undefined}
+                  className={readOnly ? 'cursor-not-allowed' : undefined}
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" /> Test connection
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => removeRow(row.index)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={readOnly ? undefined : () => removeRow(row.index)}
+                  onSelect={readOnly ? (e) => e.preventDefault() : undefined}
+                  disabled={readOnly}
+                  aria-disabled={readOnly || undefined}
+                  title={readOnly ? (readOnlyReason ?? undefined) : undefined}
+                  className={readOnly ? 'cursor-not-allowed' : 'text-destructive'}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -187,9 +223,17 @@ export function McpServerForm({ value, onChange, apiPath }: McpServerFormProps) 
             <span className="text-xs text-muted-foreground">
               {rows.length} server{rows.length !== 1 ? 's' : ''} configured
             </span>
-            <Button type="button" size="sm" onClick={addRow} className="h-8 text-xs gap-1.5">
-              <Plus className="h-3.5 w-3.5" /> Add MCP server
-            </Button>
+            {/*
+              Adding a row only edits the LOCAL draft — no request is made until
+              Save. That is exactly why it needed gating: a denied user could fill
+              in a server, watch the row appear, then get a 403 from Save while the
+              row stayed on screen looking created.
+            */}
+            <span className={readOnly ? 'inline-flex cursor-not-allowed' : undefined} title={readOnly ? (readOnlyReason ?? undefined) : undefined}>
+              <Button type="button" size="sm" onClick={addRow} disabled={readOnly} className="h-8 text-xs gap-1.5">
+                <Plus className="h-3.5 w-3.5" /> Add MCP server
+              </Button>
+            </span>
           </div>
         }
       />
@@ -215,11 +259,11 @@ export function McpServerForm({ value, onChange, apiPath }: McpServerFormProps) 
               <div className="space-y-4 py-4 flex-1">
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Server ID</Label>
-                  <Input className="h-9 text-sm" value={editing.id} placeholder="my-server" onChange={(e) => updateRow(editingIndex, { ...editing, id: e.target.value })} />
+                  <Input className="h-9 text-sm" value={editing.id} placeholder="my-server" disabled={readOnly} onChange={(e) => updateRow(editingIndex, { ...editing, id: e.target.value })} />
                 </div>
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Transport</Label>
-                  <Select value={editing.type} onValueChange={(v) => changeTransport(editingIndex, v as 'stdio' | 'sse' | 'http')}>
+                  <Select value={editing.type} disabled={readOnly} onValueChange={(v) => changeTransport(editingIndex, v as 'stdio' | 'sse' | 'http')}>
                     <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="stdio">stdio (local)</SelectItem>
@@ -233,7 +277,7 @@ export function McpServerForm({ value, onChange, apiPath }: McpServerFormProps) 
                   <>
                     <div className="grid gap-1.5">
                       <Label className="text-xs">Command</Label>
-                      <Input className="h-9 text-sm font-mono" value={editing.command} placeholder="uvx" onChange={(e) => updateRow(editingIndex, { ...editing, command: e.target.value })} />
+                      <Input className="h-9 text-sm font-mono" value={editing.command} placeholder="uvx" disabled={readOnly} onChange={(e) => updateRow(editingIndex, { ...editing, command: e.target.value })} />
                     </div>
                     <div className="grid gap-1.5">
                       <Label className="text-xs">Arguments (one per line)</Label>
@@ -244,9 +288,9 @@ export function McpServerForm({ value, onChange, apiPath }: McpServerFormProps) 
                         onChange={(e) => updateRow(editingIndex, { ...editing, args: e.target.value.split('\n') })}
                       />
                     </div>
-                    <KeyValueEditor label="Environment variables" value={editing.env} onChange={(env) => updateRow(editingIndex, { ...editing, env })} keyPlaceholder="VAR_NAME" />
+                    <KeyValueEditor label="Environment variables" value={editing.env} onChange={(env) => updateRow(editingIndex, { ...editing, env })} keyPlaceholder="VAR_NAME" disabled={readOnly} />
                     <div className="flex items-center gap-2">
-                      <Switch checked={editing.requiresAwsCredentials} onCheckedChange={(c) => updateRow(editingIndex, { ...editing, requiresAwsCredentials: c })} id="aws-creds" />
+                      <Switch checked={editing.requiresAwsCredentials} disabled={readOnly} onCheckedChange={(c) => updateRow(editingIndex, { ...editing, requiresAwsCredentials: c })} id="aws-creds" />
                       <Label htmlFor="aws-creds" className="text-xs">Inject AWS credentials for the selected account</Label>
                     </div>
                   </>
@@ -254,23 +298,23 @@ export function McpServerForm({ value, onChange, apiPath }: McpServerFormProps) 
                   <>
                     <div className="grid gap-1.5">
                       <Label className="text-xs">Endpoint URL</Label>
-                      <Input className="h-9 text-sm font-mono" value={editing.url} placeholder="https://api.example.com/sse" onChange={(e) => updateRow(editingIndex, { ...editing, url: e.target.value })} />
+                      <Input className="h-9 text-sm font-mono" value={editing.url} placeholder="https://api.example.com/sse" disabled={readOnly} onChange={(e) => updateRow(editingIndex, { ...editing, url: e.target.value })} />
                     </div>
-                    <KeyValueEditor label="Headers" value={editing.headers} onChange={(headers) => updateRow(editingIndex, { ...editing, headers })} keyPlaceholder="Authorization" valuePlaceholder="Bearer ..." />
+                    <KeyValueEditor label="Headers" value={editing.headers} onChange={(headers) => updateRow(editingIndex, { ...editing, headers })} keyPlaceholder="Authorization" valuePlaceholder="Bearer ..." disabled={readOnly} />
                   </>
                 )}
 
                 <div className="flex items-center gap-2 pt-1">
-                  <Switch checked={!editing.disabled} onCheckedChange={(c) => updateRow(editingIndex, { ...editing, disabled: !c })} id="enabled" />
+                  <Switch checked={!editing.disabled} disabled={readOnly} onCheckedChange={(c) => updateRow(editingIndex, { ...editing, disabled: !c })} id="enabled" />
                   <Label htmlFor="enabled" className="text-xs">Enabled</Label>
                 </div>
               </div>
 
               <div className="flex items-center justify-between border-t pt-4">
-                <Button type="button" variant="ghost" className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive" onClick={() => removeRow(editingIndex)}>
+                <Button type="button" variant="ghost" disabled={readOnly} title={readOnly ? (readOnlyReason ?? undefined) : undefined} className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive" onClick={() => removeRow(editingIndex)}>
                   <Trash2 className="h-3.5 w-3.5" /> Delete server
                 </Button>
-                <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1.5" disabled={editingBusy} onClick={() => runTest(editing)}>
+                <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1.5" disabled={editingBusy || readOnly} title={readOnly ? (readOnlyReason ?? undefined) : undefined} onClick={() => runTest(editing)}>
                   {editingBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                   Test connection
                 </Button>

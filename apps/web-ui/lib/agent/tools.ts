@@ -127,64 +127,73 @@ const formatSize = (bytes: number) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-// --- Execute Command Tool ---
-export const executeCommandTool = tool(
-    async ({ command }: { command: string }, config?: any) => {
-        console.log(`[Tool] Executing command: ${command}`);
+function buildExecuteCommandTool(opts: { cwd?: string } = {}) {
+    return tool(
+        async ({ command }: { command: string }, config?: any) => {
+            console.log(`[Tool] Executing command: ${command}`);
 
-        // Tenant/user context arrives via the LangGraph RunnableConfig set in
-        // app/api/chat/route.ts ({ configurable: { tenant_id, user_id } }).
-        const configurable = config?.configurable ?? {};
-        const tenantId = configurable.tenant_id as string | undefined;
-        const userId = configurable.user_id as string | undefined;
+            // Tenant/user context arrives via the LangGraph RunnableConfig set in
+            // app/api/chat/route.ts ({ configurable: { tenant_id, user_id } }).
+            const configurable = config?.configurable ?? {};
+            const tenantId = configurable.tenant_id as string | undefined;
+            const userId = configurable.user_id as string | undefined;
 
-        const audit = (status: 'success' | 'error') => {
-            // Fire-and-forget: never block or fail tool execution on audit write.
-            AuditService.logResourceAction({
-                eventType: 'agent.tool.execute_command',
-                action: 'execute_command',
-                resourceType: 'agent_tool',
-                resourceId: 'execute_command',
-                resourceName: 'Agent Shell Command',
-                status,
-                details: `Agent executed shell command: ${command}`.slice(0, 2000),
-                user: userId || 'agent',
-                userType: userId ? 'user' : 'system',
-                source: 'agent',
-                severity: 'medium',
-                ...(tenantId ? { tenantId } : {}),
-                metadata: { tenantId, command },
-            }).catch(() => {});
-        };
+            const audit = (status: 'success' | 'error') => {
+                // Fire-and-forget: never block or fail tool execution on audit write.
+                AuditService.logResourceAction({
+                    eventType: 'agent.tool.execute_command',
+                    action: 'execute_command',
+                    resourceType: 'agent_tool',
+                    resourceId: 'execute_command',
+                    resourceName: 'Agent Shell Command',
+                    status,
+                    details: `Agent executed shell command: ${command}`.slice(0, 2000),
+                    user: userId || 'agent',
+                    userType: userId ? 'user' : 'system',
+                    source: 'agent',
+                    severity: 'medium',
+                    ...(tenantId ? { tenantId } : {}),
+                    metadata: { tenantId, command },
+                }).catch(() => {});
+            };
 
-        try {
-            const { stdout, stderr } = await commandSemaphore.run(() => execAsync(command, {
-                shell: '/bin/bash',
-                timeout: 120000, // 2 minute timeout for long-running AWS CLI commands
-                maxBuffer: 1024 * 1024 * 10, // 10MB buffer
-                env: buildCommandEnv(tenantId) as NodeJS.ProcessEnv,
-            }));
+            try {
+                const { stdout, stderr } = await commandSemaphore.run(() => execAsync(command, {
+                    shell: '/bin/bash',
+                    timeout: 120000, // 2 minute timeout for long-running AWS CLI commands
+                    maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+                    env: buildCommandEnv(tenantId) as NodeJS.ProcessEnv,
+                    ...(opts.cwd ? { cwd: opts.cwd } : {}),
+                }));
 
-            const output = stdout || stderr || 'Command executed successfully (no output)';
-            console.log(`[Tool] Command Output Length: ${output.length}`);
+                const output = stdout || stderr || 'Command executed successfully (no output)';
+                console.log(`[Tool] Command Output Length: ${output.length}`);
 
-            audit('success');
-            return truncateToolOutput(output);
-        } catch (error: any) {
-            const errorMsg = `Command failed: ${error.message}\n${error.stderr || ''}`;
-            console.error(`[Tool] Command Error:`, errorMsg);
-            audit('error');
-            return errorMsg;
+                audit('success');
+                return truncateToolOutput(output);
+            } catch (error: any) {
+                const errorMsg = `Command failed: ${error.message}\n${error.stderr || ''}`;
+                console.error(`[Tool] Command Error:`, errorMsg);
+                audit('error');
+                return errorMsg;
+            }
+        },
+        {
+            name: 'execute_command',
+            description: 'Executes a non-interactive shell command on the local system. Use this to check system status, install dependencies, inspect processes, or run AWS CLI commands. WARNING: Commands must be non-interactive. When running AWS commands, always append --profile <profileName> using the profile returned from get_aws_credentials.',
+            schema: z.object({
+                command: z.string().describe('The bash shell command to execute. Chain commands with && if necessary. Do not use interactive commands like `nano` or `vim`.'),
+            }),
         }
-    },
-    {
-        name: 'execute_command',
-        description: 'Executes a non-interactive shell command on the local system. Use this to check system status, install dependencies, inspect processes, or run AWS CLI commands. WARNING: Commands must be non-interactive. When running AWS commands, always append --profile <profileName> using the profile returned from get_aws_credentials.',
-        schema: z.object({
-            command: z.string().describe('The bash shell command to execute. Chain commands with && if necessary. Do not use interactive commands like `nano` or `vim`.'),
-        }),
-    }
-);
+    );
+}
+
+// --- Execute Command Tool ---
+export const executeCommandTool = buildExecuteCommandTool();
+
+export function createExecuteCommandTool(opts: { cwd: string }) {
+    return buildExecuteCommandTool(opts);
+}
 
 // --- LS Tool ---
 export const lsTool = tool(
@@ -510,13 +519,28 @@ export const grepTool = tool(
 );
 
 // --- Web Search Tool (Tavily) ---
+/**
+ * Whether a search provider is actually configured. Without a key the tool can only
+ * refuse, and telling the model "no" on every call does not work: measured on a real
+ * run, both research subagents were told eight times that nothing had been searched
+ * and still produced confident AWS pricing with no caveat. So the tool is not offered
+ * at all — the agent plans without it and cannot imply it searched.
+ */
+export function webSearchAvailable(): boolean {
+    return Boolean(env.TAVILY_API_KEY);
+}
+
 export const webSearchTool = tool(
     async ({ query }: { query: string }) => {
-        console.log(`[Tool] Web search: ${query}`);
-
+        // Log the OUTCOME, never the intent. Logging "Web search: <query>" before the key check
+        // made 15 skipped calls read as 15 real searches in the server log — the agent had in fact
+        // searched nothing and answered from prior knowledge.
         const apiKey = env.TAVILY_API_KEY;
         if (!apiKey) {
-            return 'Error: TAVILY_API_KEY not configured in environment variables.';
+            console.warn(`[Tool] web_search SKIPPED — no TAVILY_API_KEY configured. Query: ${query}`);
+            return 'WEB SEARCH UNAVAILABLE: no search provider is configured, so this query was NOT run and you have no source for it. '
+                + 'Do not present unsourced recall as researched fact — say plainly in your answer that web search was unavailable '
+                + 'and that any figures come from prior knowledge and need verification.';
         }
 
         try {
@@ -552,11 +576,11 @@ export const webSearchTool = tool(
                 }
             }
 
-            console.log(`[Tool] Search completed, found ${data.results?.length || 0} results`);
+            console.log(`[Tool] web_search OK — ${data.results?.length || 0} results for: ${query}`);
             return truncateToolOutput(result || 'No results found.');
         } catch (error: any) {
             const errorMsg = `Web search error: ${error.message}`;
-            console.error(`[Tool] Search Error:`, errorMsg);
+            console.error(`[Tool] web_search FAILED for "${query}":`, error.message);
             return errorMsg;
         }
     },

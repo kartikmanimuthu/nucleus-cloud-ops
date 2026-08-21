@@ -19,10 +19,23 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
+import { resolveNavOwner } from "@nucleus/rbac"
+import { useAbilityMeta, useNavGate } from "@/hooks/use-can"
 
 export interface NavSubItem {
   title: string
   href: string
+  /**
+   * Module that owns this destination, e.g. "AIOps".
+   *
+   * Declared rather than inferred from the href. useNavGate() maps a path to a
+   * module by prefix against rbac_modules.navPath, and most routes do not match:
+   * `/app/agent-ops` is not a child of AIOps's navPath `/app/agent` (the prefix
+   * test needs `/app/agent/`), and `/app/memory`, `/app/knowledge-base`,
+   * `/app/skills` and `/app/audit` match nothing at all. Unmatched paths fall
+   * through to "visible", so most of the sidebar was ungated.
+   */
+  module?: string
 }
 
 export interface NavItem {
@@ -30,6 +43,8 @@ export interface NavItem {
   icon: LucideIcon
   /** Optional direct route. Category items (with `items`) usually omit this. */
   href?: string
+  /** Module owning a direct-route category. See NavSubItem.module. */
+  module?: string
   items?: NavSubItem[]
 }
 
@@ -58,13 +73,62 @@ function useBestMatch(items: NavItem[]): string | null {
   }, [items, pathname])
 }
 
+/**
+ * Drops destinations the user cannot read, then drops any category left empty.
+ *
+ * A category whose children are all hidden must go too — an expandable that
+ * opens onto nothing is worse than no entry at all.
+ */
+function useVisibleItems(items: NavItem[]): NavItem[] {
+  const { isLoaded, canSeeHref, canSeeModule } = useNavGate()
+  const { subjects } = useAbilityMeta()
+
+  const subjectOwns = React.useCallback(
+    (href: string) => resolveNavOwner(href, subjects, [])?.kind === "subject",
+    [subjects]
+  )
+
+  // Resolution order: a subject that claims this href wins, THEN the declared
+  // module annotation, THEN module-navPath inference, THEN visible.
+  //
+  // The declared `module` used to short-circuit first, which would shadow every
+  // subject navPath — all nine Agentic Ops entries declare module "AIOps", so
+  // Providers could never be gated on its own subject. The annotations survive
+  // as the fallback for destinations no subject claims (nothing regresses); they
+  // just stop outranking a more specific claim.
+  const canSee = (entry: { href?: string; module?: string }): boolean => {
+    if (entry.href && subjectOwns(entry.href)) return canSeeHref(entry.href)
+    if (entry.module) return canSeeModule(entry.module)
+    return !entry.href || canSeeHref(entry.href)
+  }
+
+  return React.useMemo(() => {
+    // Rules not in yet — render nothing rather than flash entries the user is
+    // about to lose. See useNavGate().
+    if (!isLoaded) return []
+
+    const visible: NavItem[] = []
+    for (const item of items) {
+      if (!item.items?.length) {
+        if (canSee(item)) visible.push(item)
+        continue
+      }
+      const subs = item.items.filter((sub) => canSee(sub))
+      if (subs.length > 0) visible.push({ ...item, items: subs })
+    }
+    return visible
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, isLoaded, canSeeHref, canSeeModule, subjectOwns])
+}
+
 export function NavMain({ items }: { items: NavItem[] }) {
-  const bestMatch = useBestMatch(items)
+  const visibleItems = useVisibleItems(items)
+  const bestMatch = useBestMatch(visibleItems)
 
   return (
     <SidebarGroup>
       <SidebarMenu>
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const Icon = item.icon
           const childActive = item.items?.some((s) => s.href === bestMatch)
           const itemActive = item.href === bestMatch

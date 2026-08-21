@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { Plus, Search, Trash2, PanelLeft, PanelLeftClose } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useThreads, useDeleteThread, type Thread } from '@/lib/queries/threads';
+import { GatedButton } from '@/components/rbac/gated';
 
 export type SessionStatus = 'streaming' | 'attention' | 'idle';
 
@@ -98,9 +99,17 @@ export function SessionSidebar({
   if (collapsed) {
     return (
       <div className="w-12 border-r bg-muted/20 flex flex-col items-center gap-2 py-3">
-        <Button variant="ghost" size="icon" onClick={onNew} aria-label="New chat">
+        {/* POST /api/chat and POST /api/threads both declare `create Agent`. */}
+        <GatedButton
+          action="create"
+          subject="Agent"
+          variant="ghost"
+          size="icon"
+          onClick={onNew}
+          aria-label="New chat"
+        >
           <Plus className="h-4 w-4" />
-        </Button>
+        </GatedButton>
         <Button
           variant="ghost"
           size="icon"
@@ -121,10 +130,15 @@ export function SessionSidebar({
     <div className="w-64 border-r bg-muted/20 flex flex-col">
       <div className="p-3 border-b space-y-2">
         <div className="flex items-center gap-1">
-          <Button onClick={onNew} className="w-full justify-start gap-2">
+          <GatedButton
+            action="create"
+            subject="Agent"
+            onClick={onNew}
+            className="w-full justify-start gap-2"
+          >
             <Plus className="h-4 w-4" />
             New chat
-          </Button>
+          </GatedButton>
           <Button
             variant="ghost"
             size="icon"
@@ -212,7 +226,10 @@ export function SessionSidebar({
                           {thread.updatedAt ? formatDistanceToNow(thread.updatedAt, { addSuffix: true }) : '—'}
                         </div>
                       </div>
-                      <Button
+                      {/* DELETE /api/threads/:id declares `delete Agent`. */}
+                      <GatedButton
+                        action="delete"
+                        subject="Agent"
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -220,7 +237,7 @@ export function SessionSidebar({
                         aria-label="Delete session"
                       >
                         <Trash2 className="h-3 w-3" />
-                      </Button>
+                      </GatedButton>
                     </div>
                   );
                 })}

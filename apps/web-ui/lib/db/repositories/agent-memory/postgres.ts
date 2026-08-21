@@ -1,4 +1,4 @@
-import { getTenantClient } from '@/lib/db/pg-config';
+import { andWhere, getTenantClient } from '@/lib/db/pg-config';
 import { categoryFromNamespace, KNOWN_CATEGORIES } from '@/lib/agent-memory/category';
 import type { MemoryCategory } from '@/lib/agent-memory/category';
 import type { MemoryKind } from '@/lib/agent/memory/types';
@@ -117,14 +117,17 @@ export class AgentMemoryPostgresRepository implements IAgentMemoryRepository {
 
         if (and.length) where.AND = and;
 
+        // Gate 3: intersect the caller's readable rows.
+        const scoped = andWhere(where, filters.rowFilter);
+
         const [rows, total] = await Promise.all([
             db.agentMemory.findMany({
-                where,
+                where: scoped,
                 orderBy: orderByClause(filters.sortBy, filters.sortDir),
                 skip,
                 take: limit,
             }),
-            db.agentMemory.count({ where }),
+            db.agentMemory.count({ where: scoped }),
         ]);
 
         return { memories: (rows as MemoryRow[]).map(toRecord), total };

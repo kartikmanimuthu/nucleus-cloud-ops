@@ -22,7 +22,19 @@ const PRESETS: { label: string; value: Period; description: string }[] = [
     { label: "Monthly", value: "monthly", description: "Scan all accounts once per month" },
 ];
 
-export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
+/**
+ * `canEditReason` is the denial text shown on the disabled Save. Passed in
+ * rather than resolved here so this component stays free of the ability layer
+ * and keeps taking a plain boolean + reason — the same shape mcp-server-form
+ * uses for its `readOnly` / `readOnlyReason` pair.
+ */
+export function DiscoverySettings({
+    canEdit,
+    canEditReason,
+}: {
+    canEdit: boolean;
+    canEditReason?: string | null;
+}) {
     const { data, isLoading } = useDiscoverySettings();
     if (isLoading) return null;
     const period = (data?.period ?? "daily") as Period;
@@ -31,6 +43,7 @@ export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
         <DiscoverySettingsForm
             key={period}
             canEdit={canEdit}
+            canEditReason={canEditReason}
             initialPeriod={period}
             lastRunAt={data?.lastRunAt ?? null}
             nextEligibleAt={data?.nextEligibleAt ?? null}
@@ -40,11 +53,13 @@ export function DiscoverySettings({ canEdit }: { canEdit: boolean }) {
 
 function DiscoverySettingsForm({
     canEdit,
+    canEditReason,
     initialPeriod,
     lastRunAt,
     nextEligibleAt,
 }: {
     canEdit: boolean;
+    canEditReason?: string | null;
     initialPeriod: Period;
     lastRunAt: string | null;
     nextEligibleAt: string | null;
@@ -113,14 +128,31 @@ function DiscoverySettingsForm({
                     </div>
                 </div>
 
-                {canEdit && (
-                    <div className="flex items-center gap-3">
-                        <Button onClick={handleSave} disabled={saving} size="sm">
+                {/*
+                 * DISABLED, not hidden. A control that vanishes is
+                 * indistinguishable from a broken page — the standing
+                 * preference stated in components/rbac/gated.tsx. This used to
+                 * render `canEdit && <Button>`, so a denied operator saw a
+                 * settings form with no way to submit it and nothing saying why.
+                 *
+                 * The wrapper span owns the cursor and the tooltip because the
+                 * Button primitive carries `disabled:pointer-events-none`: a
+                 * disabled button receives no hover at all, so a `title` on the
+                 * button itself is silently dropped. Same structure GatedButton
+                 * uses, and the same reason it uses it.
+                 */}
+                <div className="flex items-center gap-3">
+                    <span
+                        className={!canEdit ? "inline-flex cursor-not-allowed" : undefined}
+                        title={!canEdit ? (canEditReason ?? undefined) : undefined}
+                        aria-disabled={!canEdit || undefined}
+                    >
+                        <Button onClick={handleSave} disabled={saving || !canEdit} size="sm">
                             {saving ? "Saving..." : "Save"}
                         </Button>
-                        {error && <span className="text-sm text-destructive">{error}</span>}
-                    </div>
-                )}
+                    </span>
+                    {error && <span className="text-sm text-destructive">{error}</span>}
+                </div>
             </CardContent>
         </Card>
     );

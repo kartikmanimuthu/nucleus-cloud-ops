@@ -4,6 +4,12 @@ import { authorize } from "@/lib/rbac/authorize";
 import { TenantSettingsService } from "@/lib/tenant-settings-service";
 import { AuditService } from "@/lib/audit-service";
 import { z } from "zod";
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Tenant' },
+};
 
 const updateSettingsSchema = z.object({
     name: z.string().min(1, "Organization name is required").max(100),
@@ -29,7 +35,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
     try {
         // Per D-09: Only Owner and Admin can edit settings
-        const authError = await authorize("update", "Settings");
+        const authError = await authorize("update", "Tenant");
         if (authError) return authError;
 
         const session = await getAuthSession();

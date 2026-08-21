@@ -5,6 +5,7 @@ import type { ChannelType, GatewayEvent } from './types';
 import type { AgentOpsRun } from '@/lib/agent-ops/types';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { buildDashboardRespondUrl } from './utils/dashboard-url';
+import { narrationEnabled } from './narration/narration-config';
 
 export class NotificationRouter {
     constructor(
@@ -19,7 +20,7 @@ export class NotificationRouter {
 
                 switch (event.type) {
                     case 'run:event':
-                        if (adapter.sendStreamChunk && adapter.deliveryMode === 'streaming') {
+                        if (adapter.sendStreamChunk && narrationEnabled(run.source as ChannelType)) {
                             await adapter.sendStreamChunk(run, event.data.event!);
                         }
                         break;

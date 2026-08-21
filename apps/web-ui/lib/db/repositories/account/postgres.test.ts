@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
-vi.mock('@/lib/db/pg-config', () => ({
+vi.mock('@/lib/db/pg-config', async (importOriginal) => ({
+    // andWhere (Gate 3 row filtering) is real; only the client factory is mocked.
+    ...(await importOriginal<typeof import('@/lib/db/pg-config')>()),
     getTenantClient: vi.fn(),
 }));
 
@@ -205,6 +207,53 @@ describe('AccountPostgresRepository', () => {
     });
 
     describe('createAccount', () => {
+        // REGRESSION: the create data block omitted spotAutomationEnabled entirely, so the
+        // Spot Guard opt-in chosen during onboarding was silently dropped — the API returned 201
+        // and the account came back with the flag off. Exactly the same failure the UPDATE path
+        // had before its whitelist entry was added, one method along.
+        it('persists spotAutomationEnabled when opting in at creation', async () => {
+            mockPrisma.account.create.mockResolvedValue(makeRow({ accountId: 'acc-spot' }));
+            const repo = new AccountPostgresRepository();
+
+            await repo.createAccount(
+                {
+                    accountId: 'acc-spot',
+                    name: 'Spot Account',
+                    roleArn: 'arn:aws:iam::111:role/R',
+                    regions: ['ap-south-1'],
+                    active: true,
+                    spotAutomationEnabled: true,
+                } as never,
+                'org-default',
+            );
+
+            expect(mockPrisma.account.create.mock.calls[0][0].data).toMatchObject({
+                spotAutomationEnabled: true,
+            });
+        });
+
+        it('defaults spotAutomationEnabled to false when not specified', () => {
+            // Onboarding must never start forwarding a customer's ECS events by omission.
+            mockPrisma.account.create.mockResolvedValue(makeRow({ accountId: 'acc-plain' }));
+            const repo = new AccountPostgresRepository();
+            return repo
+                .createAccount(
+                    {
+                        accountId: 'acc-plain',
+                        name: 'Plain',
+                        roleArn: 'arn:aws:iam::111:role/R',
+                        regions: ['ap-south-1'],
+                        active: true,
+                    } as never,
+                    'org-default',
+                )
+                .then(() => {
+                    expect(mockPrisma.account.create.mock.calls[0][0].data).toMatchObject({
+                        spotAutomationEnabled: false,
+                    });
+                });
+        });
+
         it('calls prisma.account.create and returns mapped UIAccount', async () => {
             mockPrisma.account.create.mockResolvedValue(
                 makeRow({ name: 'New Account', accountId: 'acc-new' })

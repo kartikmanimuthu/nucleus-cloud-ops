@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -281,10 +282,12 @@ export function SchedulesPageClient({
               <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Button onClick={handleCreateSchedule}>
+            {/* Disabled rather than hidden — see the note on the equivalent
+                control in accounts-client-component.tsx. */}
+            <GatedButton action="create" subject="Schedule" onClick={handleCreateSchedule}>
               <Plus className="mr-2 h-4 w-4" />
               Create Schedule
-            </Button>
+            </GatedButton>
           </>
         }
       />

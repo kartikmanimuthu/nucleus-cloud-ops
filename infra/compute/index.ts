@@ -43,7 +43,41 @@ const appUrl = config.get("appUrl") ?? "https://placeholder.cloudfront.net";
 const subscriptionEmails = config.get("subscriptionEmails") ?? "";
 const crossAccountRoleName = "NucleusAccess";
 const vectorBucketName = "";
-const appName = "nucleus-cloud-ops";
+const appName = config.get("appName") ?? "nucleus-cloud-ops";
+const dbName = config.get("dbName") ?? "nucleus";
+const dbUsername = config.get("dbUsername") ?? "nucleus_admin";
+const engineVersion = config.get("engineVersion") ?? "16.6";
+const workersDesiredCount = config.getNumber("workersDesiredCount") ?? 2;
+
+// Fargate Spot Guard — cross-account ECS event ingestion (EventBridge + SQS).
+//
+// Defaults to FALSE so this stays a no-op on every stack that has not opted in.
+// Currently enabled on `sbx` only (nucleus-compute:spotGuardEnabled in
+// Pulumi.sbx.yaml); enabling it on prod is a one-line config change, NOT a code
+// change. Deliberately a config flag rather than `pulumi.getStack() === "sbx"`:
+// the intent stays visible in the stack file, and a `pulumi preview --stack prod`
+// proves the absence rather than relying on reading a branch correctly.
+const spotGuardEnabled = config.getBoolean("spotGuardEnabled") ?? false;
+
+// Scaling Audit (SA-001) — SEBI compliance capture of ECS + ASG scaling events.
+// Same reasoning as spotGuardEnabled: defaults to FALSE so this is a no-op on
+// every stack that has not opted in; enabling it is a one-line config change.
+const scalingAuditEnabled = config.getBoolean("scalingAuditEnabled") ?? false;
+
+// RBAC/ABAC rollout flags. Same config-flag reasoning as the two above: the
+// defaults reproduce the safe values these were hardcoded to, so a stack that
+// does not opt in is byte-for-byte unchanged. Set to true/enforce on `sbx` to
+// run the soak described at the task-definition env entry below.
+const dynamicAbacEnabled = config.getBoolean("dynamicAbacEnabled") ?? false;
+const rbacRouteGuardMode = config.get("rbacRouteGuardMode") ?? "shadow";
+
+// The bus name as a plain string, so both the EventBus resource (declared ~1200 lines
+// below) and the web-ui task definition (declared above it) can derive from ONE source.
+// The web-ui needs the bus ARN to bake into each customer's onboarding template, but the
+// bus resource does not exist yet at that point in the file, so the ARN is composed from
+// this name rather than read off `spotGuardBus.arn`. Keep the EventBus using this
+// constant — that is what makes composing the ARN exact instead of a guess.
+const spotGuardBusNameLiteral = `${appName}-spot-guard`;
 
 // Dynamically generated — stored in AWS Secrets Manager, never in Pulumi config
 const nextauthSecretRandom = new random.RandomPassword("nextauth-secret-random", {
@@ -107,7 +141,7 @@ const dbPassword = dbPasswordRandom.result;
 
 // StackReference to networking project.
 // Format for S3 backend: "organization/<project>/<stack>" (literal "organization" required)
-const networking = new pulumi.StackReference("organization/nucleus-networking/prod");
+const networking = new pulumi.StackReference(`organization/nucleus-networking/${pulumi.getStack()}`);
 
 // Networking outputs — all required (networking must be deployed before compute can preview)
 const vpcId = networking.requireOutput("vpcId") as pulumi.Output<string>;
@@ -173,7 +207,7 @@ new aws.s3.BucketLifecycleConfigurationV2("app-bucket-lifecycle", {
 
 // UserPool — self-signup enabled, email sign-in, case-insensitive
 const userPool = new aws.cognito.UserPool("web-ui-user-pool", {
-    name: "nucleus-cloud-ops-web-ui-user-pool",
+    name: `${appName}-web-ui-user-pool`,
     autoVerifiedAttributes: ["email"],
     usernameAttributes: ["email"],
     usernameConfiguration: { caseSensitive: false },
@@ -199,12 +233,12 @@ const userPool = new aws.cognito.UserPool("web-ui-user-pool", {
 // UserPoolDomain — hosted UI domain prefix
 const userPoolDomain = new aws.cognito.UserPoolDomain("web-ui-user-pool-domain", {
     userPoolId: userPool.id,
-    domain: pulumi.interpolate`nucleus-cloud-ops-web-ui-auth-${accountId}`,
+    domain: pulumi.interpolate`${appName}-web-ui-auth-${accountId}`,
 });
 
 // UserPoolClient — OAuth code grant, secret required for NextAuth
 const userPoolClient = new aws.cognito.UserPoolClient("web-ui-user-pool-client", {
-    name: "nucleus-cloud-ops-web-ui-app-client",
+    name: `${appName}-web-ui-app-client`,
     userPoolId: userPool.id,
     generateSecret: true,
     explicitAuthFlows: [
@@ -236,7 +270,7 @@ const userPoolClient = new aws.cognito.UserPoolClient("web-ui-user-pool-client",
 
 // IdentityPool — links UserPoolClient to federated identity
 const identityPool = new aws.cognito.IdentityPool("web-ui-identity-pool", {
-    identityPoolName: "nucleus-cloud-ops-web-ui-identity-pool",
+    identityPoolName: `${appName}-web-ui-identity-pool`,
     allowUnauthenticatedIdentities: false,
     cognitoIdentityProviders: [{
         clientId: userPoolClient.id,
@@ -246,7 +280,7 @@ const identityPool = new aws.cognito.IdentityPool("web-ui-identity-pool", {
 
 // AuthenticatedRole — Cognito federated principal
 const authenticatedRole = new aws.iam.Role("web-ui-authenticated-role", {
-    name: "nucleus-cloud-ops-web-ui-authenticated-role",
+    name: `${appName}-web-ui-authenticated-role`,
     assumeRolePolicy: identityPool.id.apply(poolId =>
         JSON.stringify({
             Version: "2012-10-17",
@@ -288,7 +322,7 @@ new aws.cognito.IdentityPoolRoleAttachment("web-ui-identity-pool-role-attachment
 // ============================================================================
 
 const snsTopic = new aws.sns.Topic("scheduler-sns-topic", {
-    name: "nucleus-cloud-ops-sns-topic",
+    name: `${appName}-sns-topic`,
 });
 
 // Email subscriptions from config (comma-separated, skip empty)
@@ -307,7 +341,7 @@ emails.forEach((email: string, i: number) => {
 
 // RDS Security Group — allow port 5432 from within VPC (ECS tasks + Lambdas)
 const rdsSecurityGroup = new aws.ec2.SecurityGroup("rds-sg", {
-    name: "nucleus-cloud-ops-rds-sg",
+    name: `${appName}-rds-sg`,
     description: "Security group for RDS PostgreSQL - VPC internal access",
     vpcId: vpcId,
     ingress: [{
@@ -328,12 +362,12 @@ const rdsSecurityGroup = new aws.ec2.SecurityGroup("rds-sg", {
 
 // RDS PostgreSQL instance — postgres 16, db.t4g.micro, 20 GB gp3
 const postgresInstance = new aws.rds.Instance("postgres", {
-    identifier: "nucleus-cloud-ops-postgres",
+    identifier: `${appName}-postgres`,
     engine: "postgres",
-    engineVersion: "16.6",
+    engineVersion: engineVersion,
     instanceClass: "db.t4g.micro",
-    dbName: "nucleus",
-    username: "nucleus_admin",
+    dbName: dbName,
+    username: dbUsername,
     password: dbPassword,
     dbSubnetGroupName: dbSubnetGroupName,
     vpcSecurityGroupIds: [rdsSecurityGroup.id],
@@ -342,13 +376,13 @@ const postgresInstance = new aws.rds.Instance("postgres", {
     storageType: "gp3",
     skipFinalSnapshot: true,
     deletionProtection: false,
-    tags: { Name: "nucleus-cloud-ops-postgres" },
+    tags: { Name: `${appName}-postgres` },
 }, { retainOnDelete: false });
 
 // Store full connection string in Secrets Manager (needs postgresInstance.address)
 new aws.secretsmanager.SecretVersion("database-url-version", {
     secretId: databaseUrlSm.id,
-    secretString: pulumi.interpolate`postgresql://nucleus_admin:${dbPasswordRandom.result}@${postgresInstance.address}:5432/nucleus?sslmode=require&uselibpqcompat=true`,
+    secretString: pulumi.interpolate`postgresql://${dbUsername}:${dbPasswordRandom.result}@${postgresInstance.address}:5432/${dbName}?sslmode=require&uselibpqcompat=true`,
 });
 
 
@@ -359,7 +393,7 @@ new aws.secretsmanager.SecretVersion("database-url-version", {
 
 // IAM role — SSM managed instance core only, no SSH key needed
 const bastionRole = new aws.iam.Role("bastion-role", {
-    name: "nucleus-cloud-ops-bastion-role",
+    name: `${appName}-bastion-role`,
     assumeRolePolicy: JSON.stringify({
         Version: "2012-10-17",
         Statement: [{
@@ -368,7 +402,7 @@ const bastionRole = new aws.iam.Role("bastion-role", {
             Action: "sts:AssumeRole",
         }],
     }),
-    tags: { Name: "nucleus-cloud-ops-bastion-role" },
+    tags: { Name: `${appName}-bastion-role` },
 });
 
 new aws.iam.RolePolicyAttachment("bastion-ssm-policy", {
@@ -377,13 +411,13 @@ new aws.iam.RolePolicyAttachment("bastion-ssm-policy", {
 });
 
 const bastionInstanceProfile = new aws.iam.InstanceProfile("bastion-instance-profile", {
-    name: "nucleus-cloud-ops-bastion-profile",
+    name: `${appName}-bastion-profile`,
     role: bastionRole.name,
 });
 
 // No inbound rules — SSM agent initiates outbound connections to SSM endpoints
 const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {
-    name: "nucleus-cloud-ops-bastion-sg",
+    name: `${appName}-bastion-sg`,
     description: "Bastion - SSM only, no inbound SSH",
     vpcId: vpcId,
     egress: [
@@ -402,7 +436,7 @@ const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {
             description: "PostgreSQL tunnel to RDS",
         },
     ],
-    tags: { Name: "nucleus-cloud-ops-bastion-sg" },
+    tags: { Name: `${appName}-bastion-sg` },
 });
 
 // Latest Amazon Linux 2023 ARM64 AMI (full, not minimal — SSM agent pre-installed)
@@ -442,7 +476,7 @@ const bastionInstance = new aws.ec2.Instance("bastion", {
     vpcSecurityGroupIds: [bastionSg.id],
     userData: bastionUserData,
     associatePublicIpAddress: false,
-    tags: { Name: "nucleus-cloud-ops-bastion" },
+    tags: { Name: `${appName}-bastion` },
 });
 
 export const bastionInstanceId = bastionInstance.id;
@@ -453,7 +487,7 @@ export const bastionInstanceId = bastionInstance.id;
 
 // ECR Repository — WebUI container images
 const ecrRepository = new aws.ecr.Repository("web-ui-ecr-repo", {
-    name: "nucleus-cloud-ops-web-ui",
+    name: `${appName}-web-ui`,
     imageTagMutability: "MUTABLE",
     forceDelete: false,
 });
@@ -469,11 +503,13 @@ const ecrPublicLogin = new command.local.Command("ecr-public-login", {
     },
 });
 
-// Explicit source hash — combines apps/web-ui/ + libs/prisma/ so any change to either
+// Explicit source hash — combines apps/web-ui/ + libs/prisma/ + patches/ so any change to any
 // produces a new imageTag, forcing a Docker rebuild + new ECS task definition revision.
+// patches/ is COPYed into the image and applied by bun install, so a patch edit must rebuild.
 const webUiSrcHash = crypto.createHash("sha256")
     .update(hashDirectory(path.join(repoRoot, "apps/web-ui")))
     .update(hashDirectory(path.join(repoRoot, "libs", "prisma")))
+    .update(hashDirectory(path.join(repoRoot, "patches")))
     .digest("hex")
     .substring(0, 12);
 
@@ -491,19 +527,19 @@ const webUiImage = new awsx.ecr.Image("web-ui-image", {
 
 // ECS Cluster
 const ecsCluster = new aws.ecs.Cluster("web-ui-ecs-cluster", {
-    name: "nucleus-cloud-ops-ecs-cluster",
+    name: `${appName}-ecs-cluster`,
     settings: [{ name: "containerInsights", value: "enabled" }],
 });
 
 // WebUI CloudWatch Log Group
 const webUiLogGroup = new aws.cloudwatch.LogGroup("web-ui-log-group", {
-    name: "/ecs/nucleus-cloud-ops-web-ui-service",
+    name: `/ecs/${appName}-web-ui-service`,
     retentionInDays: 7,
 });
 
 // ECS Task Execution Role — ECR pull + CloudWatch logs
 const ecsTaskExecutionRole = new aws.iam.Role("ecs-task-execution-role", {
-    name: "nucleus-cloud-ops-ecs-execution-role",
+    name: `${appName}-ecs-execution-role`,
     assumeRolePolicy: JSON.stringify({
         Version: "2012-10-17",
         Statement: [{
@@ -536,7 +572,7 @@ new aws.iam.RolePolicy("ecs-execution-role-secrets-policy", {
 
 // ECS Task Role — application permissions
 const ecsTaskRole = new aws.iam.Role("ecs-task-role", {
-    name: "nucleus-cloud-ops-ecs-task-role",
+    name: `${appName}-ecs-task-role`,
     assumeRolePolicy: JSON.stringify({
         Version: "2012-10-17",
         Statement: [{
@@ -659,7 +695,7 @@ new aws.iam.RolePolicy("ecs-task-logs-policy", {
 // ECS task definitions are immutable revisions; deleting the Pulumi resource deactivates the
 // revision in AWS, which breaks rollback. Retain ensures all historical revisions stay ACTIVE.
 const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
-    family: "nucleus-cloud-ops-web-ui-task",
+    family: `${appName}-web-ui-task`,
     cpu: "2048",
     memory: "4096",
     networkMode: "awsvpc",
@@ -723,6 +759,43 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
             { name: "LANGFUSE_ENABLED", value: "false" },
             { name: "LANGFUSE_HOST", value: "https://cloud.langfuse.com" },
             { name: "USE_PG_SCHEDULES", value: "true" },
+            // ChatBotPersona + Triage — gateway-layer routing
+            { name: "CHATBOT_PERSONA_ENABLED", value: "true" },
+            { name: "CHATBOT_PERSONA_CHANNELS", value: "telegram" },
+            { name: "CHAT_TRIAGE_ENABLED", value: "true" },
+            // Run narration checklist. Strict allowlist — omitting this disables
+            // narration everywhere, so it is set explicitly.
+            { name: "NARRATION_CHANNELS", value: "telegram" },
+            // Fargate Spot Guard — the hub bus ARN baked into each customer's onboarding
+            // template as the HubEventBusArn parameter default and the forwarding rule's
+            // target. Without it the template route falls back to a `not-configured`
+            // placeholder AND forces EnableSpotAutomation to "false" (see
+            // spotGuardOptions in app/api/accounts/template/route.ts) — so the account
+            // toggle silently could not be turned on. Omitted entirely when the stack has
+            // not opted in, which keeps that fail-closed behaviour for those stacks.
+            ...(spotGuardEnabled
+                ? [{
+                    name: "SPOT_GUARD_BUS_ARN",
+                    value: `arn:aws:events:${region}:${acctId}:event-bus/${spotGuardBusNameLiteral}`,
+                }]
+                : []),
+            // RBAC/ABAC rollout — deliberately at the SAFE defaults.
+            //
+            // authorize.ts gates flipping DYNAMIC_ABAC_ENABLED on "the mismatch
+            // counter staying at zero across a soak long enough to have exercised
+            // every role in active use", and middleware.ts records that turning
+            // Layer 1 on must never be the thing that breaks prod. That soak has
+            // never run, because these two flags existed only in .env and never
+            // reached a deployed task definition.
+            //
+            // Declaring them here is what makes the soak possible: shadow logging
+            // (rbac.parity.mismatch, rbac.row_filter.shadow) starts flowing from
+            // production, and the cutover becomes a value change plus a deploy
+            // rather than a code change. Do NOT flip these to true/enforce on
+            // prod until the shadow logs have been quiet across that soak; sbx
+            // is where that soak runs.
+            { name: "DYNAMIC_ABAC_ENABLED", value: String(dynamicAbacEnabled) },
+            { name: "RBAC_ROUTE_GUARD_MODE", value: rbacRouteGuardMode },
         ],
     }])),
 }, { retainOnDelete: true });
@@ -738,7 +811,7 @@ const cloudFrontPrefixList = aws.ec2.getManagedPrefixListOutput({
 
 // ALB Security Group — inbound port 80 from CloudFront managed prefix list only
 const albSecurityGroup = new aws.ec2.SecurityGroup("alb-sg", {
-    name: "nucleus-cloud-ops-alb-sg",
+    name: `${appName}-alb-sg`,
     description: "Security group for WebUI ALB - CloudFront origin only",
     vpcId: vpcId,
     ingress: [{
@@ -759,7 +832,7 @@ const albSecurityGroup = new aws.ec2.SecurityGroup("alb-sg", {
 
 // ECS Service Security Group — inbound port 3000 from ALB security group only
 const ecsServiceSecurityGroup = new aws.ec2.SecurityGroup("ecs-service-sg", {
-    name: "nucleus-cloud-ops-ecs-service-sg",
+    name: `${appName}-ecs-service-sg`,
     description: "Security group for WebUI ECS tasks - ALB traffic only",
     vpcId: vpcId,
     ingress: [{
@@ -780,7 +853,7 @@ const ecsServiceSecurityGroup = new aws.ec2.SecurityGroup("ecs-service-sg", {
 
 // Application Load Balancer — internet-facing, idleTimeout 1200s for long streaming requests
 const alb = new aws.lb.LoadBalancer("web-ui-alb", {
-    name: "nucleus-cloud-ops-alb",
+    name: `${appName}-alb`,
     internal: false,
     loadBalancerType: "application",
     securityGroups: [albSecurityGroup.id],
@@ -790,7 +863,7 @@ const alb = new aws.lb.LoadBalancer("web-ui-alb", {
 
 // Target Group — IP target type, port 3000, /api/health health check
 const webUiTargetGroup = new aws.lb.TargetGroup("web-ui-tg", {
-    name: "nucleus-cloud-ops-web-ui-tg",
+    name: `${appName}-web-ui-tg`,
     port: 3000,
     protocol: "HTTP",
     targetType: "ip",
@@ -823,7 +896,7 @@ const httpListener = new aws.lb.Listener("http-listener", {
 
 // ECS Fargate Service — forceNewDeployment, circuit breaker with rollback
 const webUiService = new aws.ecs.Service("web-ui-service", {
-    name: "nucleus-cloud-ops-web-ui-service",
+    name: `${appName}-web-ui-service`,
     cluster: ecsCluster.arn,
     taskDefinition: webUiTaskDef.arn,
     desiredCount: 1,
@@ -858,7 +931,7 @@ const scalingTarget = new aws.appautoscaling.Target("web-ui-scaling-target", {
 
 // CPU Scaling Policy — target 70%
 new aws.appautoscaling.Policy("web-ui-cpu-scaling", {
-    name: "nucleus-cloud-ops-web-ui-cpu-scaling",
+    name: `${appName}-web-ui-cpu-scaling`,
     policyType: "TargetTrackingScaling",
     resourceId: scalingTarget.resourceId,
     scalableDimension: scalingTarget.scalableDimension,
@@ -873,7 +946,7 @@ new aws.appautoscaling.Policy("web-ui-cpu-scaling", {
 
 // Memory Scaling Policy — target 75%
 new aws.appautoscaling.Policy("web-ui-memory-scaling", {
-    name: "nucleus-cloud-ops-web-ui-memory-scaling",
+    name: `${appName}-web-ui-memory-scaling`,
     policyType: "TargetTrackingScaling",
     resourceId: scalingTarget.resourceId,
     scalableDimension: scalingTarget.scalableDimension,
@@ -911,7 +984,7 @@ export const cognitoUserPoolArn = userPool.arn;
 export const cognitoUserPoolClientId = userPoolClient.id;
 export const cognitoUserPoolClientSecret = pulumi.secret(userPoolClient.clientSecret);
 export const cognitoIdentityPoolId = identityPool.id;
-export const cognitoDomainPrefix = pulumi.interpolate`nucleus-cloud-ops-web-ui-auth-${accountId}`;
+export const cognitoDomainPrefix = pulumi.interpolate`${appName}-web-ui-auth-${accountId}`;
 
 // SNS exports
 export const snsTopicArn = snsTopic.arn;
@@ -1002,7 +1075,7 @@ const cloudFrontDistribution = new aws.cloudfront.Distribution("web-ui-cloudfron
 
 // ECR Repository — Workers container images
 const workersEcrRepo = new aws.ecr.Repository("workers-ecr-repo", {
-    name: "nucleus-cloud-ops-workers",
+    name: `${appName}-workers`,
     imageTagMutability: "MUTABLE",
     forceDelete: false,
 });
@@ -1030,12 +1103,12 @@ const workersImage = new awsx.ecr.Image("workers-image", {
 }, { dependsOn: [ecrPublicLogin], retainOnDelete: true });
 
 const workersLogGroup = new aws.cloudwatch.LogGroup("workers-log-group", {
-    name: "/ecs/nucleus-cloud-ops-workers",
+    name: `/ecs/${appName}-workers`,
     retentionInDays: 7,
 });
 
 const workersTaskRole = new aws.iam.Role("workers-task-role", {
-    name: "nucleus-cloud-ops-workers-task-role",
+    name: `${appName}-workers-task-role`,
     assumeRolePolicy: JSON.stringify({
         Version: "2012-10-17",
         Statement: [{
@@ -1144,7 +1217,7 @@ new aws.iam.RolePolicy("workers-s3-policy", {
 
 // Ephemeral workers CloudWatch log group — short-lived job tasks
 const ephemeralWorkersLogGroup = new aws.cloudwatch.LogGroup("ephemeral-workers-log-group", {
-    name: "/ecs/nucleus-cloud-ops-ephemeral-workers",
+    name: `/ecs/${appName}-ephemeral-workers`,
     retentionInDays: 7,
 });
 
@@ -1170,14 +1243,14 @@ new aws.iam.RolePolicy("workers-rds-connect-policy", {
             Statement: [{
                 Effect: "Allow",
                 Action: ["rds-db:connect"],
-                Resource: [`${dbArn.replace(':rds:', ':rds-db:').replace(':db:', ':dbuser:')}/nucleus_admin`],
+                Resource: [`${dbArn.replace(':rds:', ':rds-db:').replace(':db:', ':dbuser:')}/${dbUsername}`],
             }],
         })
     ),
 });
 
 // Ephemeral worker task definition — lightweight tasks for horizontal dispatch
-const EPHEMERAL_WORKER_TASK_FAMILY = "nucleus-cloud-ops-ephemeral-worker-task";
+const EPHEMERAL_WORKER_TASK_FAMILY = `${appName}-ephemeral-worker-task`;
 const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task-def", {
     family: EPHEMERAL_WORKER_TASK_FAMILY,
     cpu: "2048",
@@ -1233,8 +1306,8 @@ const ephemeralWorkerTaskDef = new aws.ecs.TaskDefinition("ephemeral-worker-task
 // IAM policy for workers to dispatch ECS tasks (horizontal executor)
 new aws.iam.RolePolicy("workers-ecs-dispatch-policy", {
     role: workersTaskRole.id,
-    policy: pulumi.all([ecsCluster.arn, workersTaskRole.arn, ecsTaskExecutionRole.arn, accountId]).apply(
-        ([clusterArn, taskRoleArn, execRoleArn, accId]) =>
+    policy: pulumi.all([ecsCluster.arn, ecsCluster.name, workersTaskRole.arn, ecsTaskExecutionRole.arn, accountId]).apply(
+        ([clusterArn, clusterName, taskRoleArn, execRoleArn, accId]) =>
             JSON.stringify({
                 Version: "2012-10-17",
                 Statement: [
@@ -1261,6 +1334,43 @@ new aws.iam.RolePolicy("workers-ecs-dispatch-policy", {
                     },
                     {
                         Effect: "Allow",
+                        Action: ["ecs:ListTasks"],
+                        // ListTasks authorizes against the CONTAINER-INSTANCE ARN, not the task
+                        // or cluster ARN — an AWS quirk that holds even on Fargate, where no
+                        // container instances exist. The denial named it exactly:
+                        //   not authorized to perform: ecs:ListTasks on resource:
+                        //   arn:aws:ecs:…:container-instance/<cluster>/*
+                        // so this ARN is what IAM evaluates, and embedding the cluster name in
+                        // it keeps the grant scoped to this cluster.
+                        //
+                        // Deliberately NOT written as Resource "*" + ArnEquals ecs:cluster like
+                        // DescribeTasks above: the IAM simulator returns implicitDeny for that
+                        // shape with MissingContextValues=[ecs:cluster], so it only works if the
+                        // caller populates that key. A resource-scoped grant needs no such
+                        // assumption and is equally narrow.
+                        Resource: [`arn:aws:ecs:${region}:${accId}:container-instance/${clusterName}/*`],
+                    },
+                    {
+                        Effect: "Allow",
+                        Action: ["ecs:StopTask"],
+                        // The executor stops a LEAKED task: one whose job timed out or whose
+                        // adopt-by-startedBy found a duplicate. Without this grant that path failed
+                        // silently — executor/horizontal.ts logs "Failed to stop leaked ECS task —
+                        // may run to completion on its own" and moves on, so an orphaned Fargate
+                        // task kept billing until it exited by itself.
+                        //
+                        // Scoped to tasks in THIS cluster: StopTask authorizes against the task ARN
+                        // (unlike ListTasks, which uses container-instance), and the cluster name is
+                        // embedded in it. Not written as Resource "*" + ArnEquals ecs:cluster for
+                        // the same reason as ListTasks above — the simulator returns implicitDeny
+                        // for that shape with MissingContextValues=[ecs:cluster].
+                        //
+                        // Note this covers only the hub's own ephemeral workers. Stopping tasks in a
+                        // customer account goes through the assumed spoke role, not this one.
+                        Resource: [`arn:aws:ecs:${region}:${accId}:task/${clusterName}/*`],
+                    },
+                    {
+                        Effect: "Allow",
                         Action: ["iam:PassRole"],
                         Resource: [taskRoleArn, execRoleArn],
                     },
@@ -1269,8 +1379,208 @@ new aws.iam.RolePolicy("workers-ecs-dispatch-policy", {
     ),
 });
 
+// ============================================================================
+// FARGATE SPOT GUARD — CROSS-ACCOUNT ECS EVENT INGESTION  (sbx only for now)
+// ============================================================================
+// The first EventBridge and SQS resources in this repo. Customer (spoke) accounts
+// run a forwarding rule — see apps/web-ui/lib/cf-template-generator.ts, gated by
+// its own EnableSpotAutomation parameter — that PutEvents ECS Spot events onto the
+// DEDICATED bus below. Never the hub's `default` bus: untrusted customer traffic
+// must not be able to reach a rule we did not write for it.
+//
+// Gated on spotGuardEnabled (false unless the stack opts in), so prod synthesises
+// byte-identically to today until someone adds the config key.
+//
+// ⚠️  THE BUS RESOURCE POLICY IS INTENTIONALLY NOT DECLARED HERE.
+// The set of permitted spoke accounts changes at RUNTIME (account onboarding,
+// removal, toggling Account.spotAutomationEnabled). A Pulumi-managed
+// aws.cloudwatch.EventBusPolicy would revert every runtime change on the next
+// `pulumi up`, silently cutting off every customer added since the last deploy.
+// The policy is owned end-to-end by the workers reconciler
+// (apps/workers/src/jobs/spot-guard/bus-policy.ts) via events:PutPermission, which
+// rebuilds the whole document from Postgres. A fresh custom bus has NO policy, so
+// the fail-closed default is "hub account only" until that reconciler first runs.
+// Do NOT add aws.cloudwatch.EventBusPolicy or aws.cloudwatch.EventPermission here.
+let spotGuardBus: aws.cloudwatch.EventBus | undefined;
+let spotGuardQueue: aws.sqs.Queue | undefined;
+let spotGuardDlq: aws.sqs.Queue | undefined;
+let spotGuardRule: aws.cloudwatch.EventRule | undefined;
+
+if (spotGuardEnabled) {
+    spotGuardBus = new aws.cloudwatch.EventBus("spot-guard-bus", {
+        name: spotGuardBusNameLiteral,
+        description: "Nucleus Fargate Spot Guard — cross-account ECS Spot events from onboarded customer accounts",
+    });
+
+    // DLQ first — the main queue references it by ARN in redrivePolicy.
+    // 14-day retention (the SQS maximum) so a poison event is still inspectable.
+    spotGuardDlq = new aws.sqs.Queue("spot-guard-dlq", {
+        name: `${appName}-spot-guard-dlq`,
+        messageRetentionSeconds: 1209600,
+        visibilityTimeoutSeconds: 60,
+        sqsManagedSseEnabled: true,
+    });
+
+    // Main ingest queue.
+    //   visibilityTimeoutSeconds 60 — the consumer only parses JSON and does one
+    //     boss.send (sub-second). 60s is a generous ceiling that doubles as the
+    //     redelivery delay when an enqueue fails and we deliberately do NOT delete.
+    //   messageRetentionSeconds 14400 (4h) — a Spot interruption is only actionable
+    //     for ~2 minutes, so retaining for days would mean replaying long-dead
+    //     interruptions after an outage. 4h still lets task START/STOP accounting
+    //     recover without resurrecting stale remediation work.
+    //   sqsManagedSseEnabled — SSE-SQS rather than a CMK, which would additionally
+    //     need kms:GenerateDataKey for the EventBridge service principal in the key
+    //     policy. Not worth the extra moving part for ECS event metadata.
+    spotGuardQueue = new aws.sqs.Queue("spot-guard-queue", {
+        name: `${appName}-spot-guard-events`,
+        visibilityTimeoutSeconds: 60,
+        messageRetentionSeconds: 14400,
+        receiveWaitTimeSeconds: 20, // queue-level long-poll default
+        sqsManagedSseEnabled: true,
+        redrivePolicy: spotGuardDlq.arn.apply((dlqArn) =>
+            JSON.stringify({ deadLetterTargetArn: dlqArn, maxReceiveCount: 5 })
+        ),
+    });
+
+    // Hub-side rule. Two jobs:
+    //   1. Pin source to aws.ecs, dropping the reference implementation's
+    //      "test.aws.ecs" alias — that alias let any sender inject synthetic events.
+    //   2. Re-assert the shape the spoke rule forwards, so a spoke that ignores our
+    //      template and PutEvents arbitrary payloads still cannot reach the queue.
+    //
+    // The two-branch $or is load-bearing and NOT a stylistic choice: a blanket
+    // detail.capacityProviderName exists-filter would silently DROP every
+    // placement-failure event, because those carry capacityProviderArns instead —
+    // i.e. it would disable the single most important behaviour in the feature while
+    // looking correct. The filter is still worth having on the task-state branch: it
+    // excludes bare launchType:FARGATE services, which have no Spot to fall back
+    // from, and that is where most of the event volume lives.
+    //
+    // lastStatus is narrowed to RUNNING/STOPPED because ECS emits 6-8 task-state
+    // events per task lifecycle and the hours report needs exactly two. Roughly a
+    // 70% volume cut on the dominant event type — and the SENDING account pays for
+    // cross-account custom events, so this is a customer cost decision, not just ours.
+    // The interruption path is unaffected: those arrive with desiredStatus STOPPED.
+    //
+    // The account allowlist is deliberately NOT in this pattern: eventPattern is
+    // capped at 2048 chars and is Pulumi-managed, so it would drift on every
+    // onboarding. Sender authorization lives in the bus policy; per-event
+    // authorization lives in the consumer.
+    spotGuardRule = new aws.cloudwatch.EventRule("spot-guard-rule", {
+        name: `${appName}-spot-guard-ingest`,
+        eventBusName: spotGuardBus.name,
+        description: "Route forwarded customer ECS Spot events to the Spot Guard ingest queue",
+        state: "ENABLED",
+        eventPattern: JSON.stringify({
+            source: ["aws.ecs"],
+            $or: [
+                {
+                    "detail-type": ["ECS Task State Change"],
+                    detail: {
+                        capacityProviderName: [{ exists: true }],
+                        lastStatus: ["RUNNING", "STOPPED"],
+                    },
+                },
+                {
+                    "detail-type": ["ECS Deployment State Change", "ECS Service Action"],
+                    detail: {
+                        eventName: ["SERVICE_TASK_PLACEMENT_FAILURE"],
+                        capacityProviderArns: [{ exists: true }],
+                    },
+                },
+            ],
+        }),
+    });
+
+    // Queue policy scoped to THIS rule only. Note that a rule on a CUSTOM bus has
+    // ARN .../rule/<bus-name>/<rule-name>, not .../rule/<rule-name> — using
+    // spotGuardRule.arn avoids hand-building that wrong. aws:SourceAccount is
+    // belt-and-braces against a same-service confused deputy from another account.
+    const spotGuardQueuePolicy = new aws.sqs.QueuePolicy("spot-guard-queue-policy", {
+        queueUrl: spotGuardQueue.id,
+        policy: pulumi.all([spotGuardQueue.arn, spotGuardRule.arn, accountId]).apply(
+            ([queueArn, ruleArn, acctId]) =>
+                JSON.stringify({
+                    Version: "2012-10-17",
+                    Statement: [{
+                        Sid: "AllowSpotGuardRuleToSend",
+                        Effect: "Allow",
+                        Principal: { Service: "events.amazonaws.com" },
+                        Action: "sqs:SendMessage",
+                        Resource: queueArn,
+                        Condition: {
+                            ArnEquals: { "aws:SourceArn": ruleArn },
+                            StringEquals: { "aws:SourceAccount": acctId },
+                        },
+                    }],
+                })
+        ),
+    });
+
+    // Same-account SQS target needs no roleArn. dependsOn the queue policy so the
+    // target is never live before the queue will accept the rule's SendMessage.
+    new aws.cloudwatch.EventTarget("spot-guard-target", {
+        rule: spotGuardRule.name,
+        eventBusName: spotGuardBus.name,
+        targetId: "spot-guard-sqs",
+        arn: spotGuardQueue.arn,
+        deadLetterConfig: { arn: spotGuardDlq.arn },
+        retryPolicy: { maximumRetryAttempts: 4, maximumEventAgeInSeconds: 600 },
+    }, { dependsOn: [spotGuardQueuePolicy] });
+
+    // Workers: consume the ingest queue. ChangeMessageVisibility is included so the
+    // consumer can shorten visibility on a message it received but chose not to
+    // process during shutdown, returning it to the surviving replica immediately
+    // instead of after the full 60s.
+    new aws.iam.RolePolicy("workers-spot-guard-sqs-policy", {
+        role: workersTaskRole.id,
+        policy: pulumi.all([spotGuardQueue.arn, spotGuardDlq.arn]).apply(([qArn, dlqArn]) =>
+            JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [{
+                    Effect: "Allow",
+                    Action: [
+                        "sqs:ReceiveMessage",
+                        "sqs:DeleteMessage",
+                        "sqs:GetQueueAttributes",
+                        "sqs:GetQueueUrl",
+                        "sqs:ChangeMessageVisibility",
+                    ],
+                    Resource: [qArn, dlqArn],
+                }],
+            })
+        ),
+    });
+
+    // Workers: own the bus resource policy (the onboarded-account allowlist).
+    // PutPermission with a `Policy` document REPLACES the entire bus policy — that
+    // invariant is why nothing else may write here.
+    //
+    // NOTE: events:PutResourcePolicy does NOT exist as an EventBridge IAM action.
+    // The only bus-policy actions are PutPermission / RemovePermission /
+    // DescribeEventBus / CreateEventBus / UpdateEventBus.
+    new aws.iam.RolePolicy("workers-spot-guard-bus-policy", {
+        role: workersTaskRole.id,
+        policy: spotGuardBus.arn.apply((busArn) =>
+            JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [{
+                    Effect: "Allow",
+                    Action: [
+                        "events:PutPermission",
+                        "events:RemovePermission",
+                        "events:DescribeEventBus",
+                    ],
+                    Resource: [busArn],
+                }],
+            })
+        ),
+    });
+}
+
 const workersSecurityGroup = new aws.ec2.SecurityGroup("workers-sg", {
-    name: "nucleus-cloud-ops-workers-sg",
+    name: `${appName}-workers-sg`,
     description: "Security group for pg-boss workers - egress only",
     vpcId: vpcId,
     egress: [{
@@ -1283,7 +1593,7 @@ const workersSecurityGroup = new aws.ec2.SecurityGroup("workers-sg", {
 });
 
 const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
-    family: "nucleus-cloud-ops-workers-task",
+    family: `${appName}-workers-task`,
     cpu: "2048",
     memory: "4096",
     networkMode: "awsvpc",
@@ -1306,10 +1616,15 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
         databaseUrlSm.arn,
         internalApiKeySm.arn,
         cloudFrontDistribution.domainName,
+        // Spot Guard. Resolve to "" when the stack has not opted in, so the tuple
+        // arity is constant and the destructuring below never shifts.
+        spotGuardQueue?.url ?? pulumi.output(""),
+        spotGuardBus?.name ?? pulumi.output(""),
     ]).apply(([
         appBucketN,
         workersLogGroupN, snsTopicArn, imageUri,
         clusterArn, ephTaskDefArn, workersSgId, subnetsJoined, databaseUrlArn, internalApiKeyArn, cloudFrontDomain,
+        spotGuardQueueUrl, spotGuardBusName,
     ]) => JSON.stringify([{
         name: "WorkersContainer",
         image: imageUri,
@@ -1368,12 +1683,35 @@ const workersTaskDef = new aws.ecs.TaskDefinition("workers-task-def", {
             { name: "HORIZONTAL_SUBNETS", value: subnetsJoined },
             { name: "HORIZONTAL_SECURITY_GROUP", value: workersSgId },
             { name: "HORIZONTAL_TASK_TIMEOUT_MS", value: "900000" },
+            // Fargate Spot Guard. Present ONLY on this long-lived workers task
+            // definition and ONLY when the stack opted in — never on
+            // ephemeralWorkerTaskDef, because an ephemeral job-runner task must not
+            // poll SQS. (It also structurally cannot: HorizontalExecutor overrides the
+            // container command to `node dist/job-runner.js`, which never imports the
+            // consumer. Withholding the queue URL is a second, independent guard.)
+            //
+            // SPOT_GUARD_ENABLED gates the worker-side registration, so the job family
+            // can be dark-deployed: the image ships everywhere, the behaviour only
+            // turns on where the infra exists.
+            ...(spotGuardEnabled
+                ? [
+                      { name: "SPOT_GUARD_ENABLED", value: "true" },
+                      { name: "SPOT_GUARD_QUEUE_URL", value: spotGuardQueueUrl },
+                      { name: "SPOT_GUARD_BUS_NAME", value: spotGuardBusName },
+                      { name: "SPOT_GUARD_POLL_WAIT_SECONDS", value: "20" },
+                      { name: "SPOT_GUARD_POLL_BATCH_SIZE", value: "10" },
+                  ]
+                : []),
+            // SCALING_AUDIT_ENABLED gates the worker-side registration (same
+            // dark-deploy pattern as SPOT_GUARD_ENABLED above): the image ships
+            // everywhere, the daily poll only turns on where the stack opted in.
+            ...(scalingAuditEnabled ? [{ name: "SCALING_AUDIT_ENABLED", value: "true" }] : []),
         ],
     }])),
 }, { retainOnDelete: true });
 
 const workersService = new aws.ecs.Service("workers-service", {
-    name: "nucleus-cloud-ops-workers-service",
+    name: `${appName}-workers-service`,
     cluster: ecsCluster.arn,
     taskDefinition: workersTaskDef.arn,
     // 2 replicas for HA / zero-downtime rollouts. Safe now that duplicate execution
@@ -1381,7 +1719,7 @@ const workersService = new aws.ecs.Service("workers-service", {
     // per-tenant stately singletonKeys + idempotent ECS launch (startedBy). pg-boss
     // itself dedups cron fires across instances (singletonKey + singletonSeconds),
     // and work() uses SELECT ... FOR UPDATE SKIP LOCKED so a job runs on one replica.
-    desiredCount: 2,
+    desiredCount: workersDesiredCount,
     launchType: "FARGATE",
     forceNewDeployment: true,
     // Roll one task at a time (keep >=1 serving) and let ECS roll back a bad deploy.
@@ -1410,6 +1748,20 @@ export const originVerifySecretValue = pulumi.secret(originVerifySecret.result);
 export const workersServiceName = workersService.name;
 export const workersEcrRepoUrl = workersEcrRepo.repositoryUrl;
 export const ephemeralWorkerTaskDefArn = ephemeralWorkerTaskDef.arn;
+
+// Fargate Spot Guard exports — undefined on stacks that have not opted in.
+//
+// spotGuardBusArn is the load-bearing one: it is the target baked into each
+// customer's onboarding CloudFormation template, and the value a support engineer
+// needs when debugging why a spoke's events are not arriving. Read it with
+//   pulumi stack output spotGuardBusArn --stack sbx
+export const spotGuardEnabledOutput = spotGuardEnabled;
+export const spotGuardBusName = spotGuardBus?.name;
+export const spotGuardBusArn = spotGuardBus?.arn;
+export const spotGuardQueueUrl = spotGuardQueue?.url;
+export const spotGuardQueueArn = spotGuardQueue?.arn;
+export const spotGuardDlqUrl = spotGuardDlq?.url;
+export const spotGuardRuleArn = spotGuardRule?.arn;
 
 // ============================================================================
 // PHASE 11: S3 VECTORS + S3 TABLES — CloudFormation Stack Wrappers

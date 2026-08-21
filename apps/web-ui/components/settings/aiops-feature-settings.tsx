@@ -12,8 +12,8 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { GatedButton } from '@/components/rbac/gated';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -152,9 +152,15 @@ export function AiopsFeatureSettings() {
           ))}
         </div>
 
-        <Button type="button" onClick={save} disabled={saveMutation.isPending}>
+        {/*
+          * Gated on what PUT /api/settings/aiops enforces — authorize('update',
+          * 'Agent') at route.ts:64. Subject 'Agent' is the "AI Agent" submodule
+          * under AI Ops. The sub-agent card below shares this same route, so both
+          * save buttons carry the same gate.
+          */}
+        <GatedButton action="update" subject="Agent" type="button" onClick={save} disabled={saveMutation.isPending}>
           {saveMutation.isPending ? <Spinner size="sm" label="Saving" /> : 'Save behavior settings'}
-        </Button>
+        </GatedButton>
       </CardContent>
     </Card>
   );

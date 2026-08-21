@@ -14,7 +14,7 @@
     "infra/*"
   ],
   "scripts": {
-    "setup": "[ -f .env ] || cp .env.example .env && bun install && bun run prepare && prisma migrate deploy --schema=./libs/prisma/schema.prisma",
+    "setup": "[ -f .env ] || cp .env.example .env && bun install && bun run prepare && prisma migrate deploy --schema=./libs/prisma/schema.prisma && prisma db execute --file ./libs/prisma/ensure-vector-indexes.sql --schema=./libs/prisma/schema.prisma",
     "prepare": "prisma generate --schema=./libs/prisma/schema.prisma",
     "dev": "nx serve web-ui",
     "dev:workers": "nx serve workers",
@@ -31,6 +31,8 @@
     "affected:test": "nx affected -t test",
     "affected:build": "nx affected -t build",
     "verify": "bun run affected:typecheck && bun run affected:test && bun run affected:build",
+    "rbac:sync": "nx rbac-sync web-ui",
+    "rbac:check": "nx rbac-check web-ui",
     "e2e": "nx e2e web-ui-e2e",
     "e2e:ui": "nx e2e:ui web-ui-e2e",
     "codegen": "nx codegen web-ui-e2e",
@@ -65,9 +67,15 @@
     "@prisma/client": "^5.22.0",
     "cheerio": "^1.2.0",
     "dayjs": "^1.11.10",
+    "deepagents": "1.12.2",
     "dotenv": "^17.3.1",
     "jwt-decode": "^4.0.0",
     "next-auth": "^4.24.11",
     "source-map-support": "^0.5.21"
+  },
+  "patchedDependencies": {
+    "@langchain/core@1.2.1": "patches/@langchain%2Fcore@1.2.1.patch",
+    "langchain@1.5.2": "patches/langchain@1.5.2.patch",
+    "next@15.5.15": "patches/next@15.5.15.patch"
   }
 }

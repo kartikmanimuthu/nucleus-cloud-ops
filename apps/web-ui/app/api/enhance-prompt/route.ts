@@ -5,6 +5,12 @@ import { resolveDefaultModelConfig } from "@/lib/agent/model-resolver";
 import { createAgentModels } from "@/lib/agent/model-factory";
 import { isProviderConfigError } from "@/lib/agent/provider-errors";
 import { contentToText } from "@/lib/agent/llm-json";
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'read', subject: 'Agent' },
+};
 
 export async function POST(req: Request) {
     try {

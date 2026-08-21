@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -244,13 +245,26 @@ export function SyncAccountsDialog({
                         <Button variant="outline" onClick={handleClose} disabled={syncing}>
                             Cancel
                         </Button>
-                        <Button onClick={handleSync} disabled={syncing || selected.size === 0}>
+                        {/*
+                         * The control that actually POSTs /api/inventory/sync,
+                         * gated on the update/Resource that route enforces —
+                         * the "Inventory Resource" submodule row. The opener on
+                         * the inventory page carries the same gate; this one is
+                         * here because it is the button that fires the request,
+                         * so the two cannot drift apart.
+                         */}
+                        <GatedButton
+                            action="update"
+                            subject="Resource"
+                            onClick={handleSync}
+                            disabled={syncing || selected.size === 0}
+                        >
                             {syncing ? (
                                 <><Loader2 className="h-4 w-4 animate-spin mr-2" />Queuing...</>
                             ) : (
                                 <><RefreshCw className="h-4 w-4 mr-2" />Sync Selected</>
                             )}
-                        </Button>
+                        </GatedButton>
                     </div>
                 </DialogFooter>
             </DialogContent>

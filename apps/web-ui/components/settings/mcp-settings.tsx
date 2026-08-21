@@ -18,6 +18,8 @@ import {
 import { configToFormRows, formRowsToConfig, mcpFormSchema, type McpFormValues } from '@/lib/agent/mcp-form-schema';
 import { McpServerForm } from './mcp-server-form';
 import { useMcpConfig, useSaveMcpConfig, useResetMcpConfig } from '@/lib/queries/mcp-servers';
+import { GatedButton } from '@/components/rbac/gated';
+import { useCan, useDenialReason } from '@/hooks/use-can';
 
 const MONACO_SCHEMA = {
   uri: 'https://nucleus-platform/mcp-config.schema.json',
@@ -33,6 +35,24 @@ type Mode = 'form' | 'json';
 
 export function MCPSettings({ apiPath = '/api/mcp-servers' }: MCPSettingsProps) {
   const { resolvedTheme } = useTheme();
+  /**
+   * ── ONE SUBJECT, BOTH ENDPOINTS ─────────────────────────────────────────────
+   * This used to branch on apiPath, because the two routes it serves guarded
+   * themselves differently — /api/mcp-servers on 'AIOps', /api/agent-ops/
+   * mcp-settings on 'Settings'. Both were module-wide catch-alls that the role
+   * editor hides, so neither mount could be granted from the matrix, and the
+   * agent-ops one answered to the wrong module entirely (nav-config.ts:41 files
+   * MCP Servers under AIOps, not Settings).
+   *
+   * Both now gate on 'McpServer' — a registry subject that has existed since
+   * 20260812100000 and rendered as a grantable row governing nothing. One
+   * subject for one editor, so the branch is gone: whichever page mounts this,
+   * the same permission decides it.
+   */
+  const writeSubject = 'McpServer';
+  const canWrite = useCan('update', writeSubject);
+  const writeDenialReason = useDenialReason('update', writeSubject);
+
   const { data, isLoading } = useMcpConfig(apiPath);
   const saveMutation = useSaveMcpConfig(apiPath);
   const resetMutation = useResetMcpConfig(apiPath);
@@ -185,13 +205,18 @@ export function MCPSettings({ apiPath = '/api/mcp-servers' }: MCPSettingsProps) 
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Button size="sm" onClick={handleSave} disabled={saving || (mode === 'json' && !isValidJson)} className={cn('h-8 text-xs gap-1.5', savedFlash && 'bg-green-600 hover:bg-green-700')}>
+              {/*
+                Every mutation either endpoint exposes — PUT, DELETE (reset) and
+                the /test subroute — declares `update McpServer`, so one grant
+                governs everything this editor can do, on both mounts.
+              */}
+              <GatedButton action="update" subject={writeSubject} size="sm" onClick={handleSave} disabled={saving || (mode === 'json' && !isValidJson)} className={cn('h-8 text-xs gap-1.5', savedFlash && 'bg-green-600 hover:bg-green-700')}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : savedFlash ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
                 {savedFlash ? 'Saved' : 'Save'}
-              </Button>
-              <Button size="sm" variant="outline" onClick={handleReset} disabled={!isCustom || saving} className="h-8 text-xs gap-1.5" title="Reset to defaults">
+              </GatedButton>
+              <GatedButton action="update" subject={writeSubject} size="sm" variant="outline" onClick={handleReset} disabled={!isCustom || saving} className="h-8 text-xs gap-1.5" title="Reset to defaults">
                 <RotateCcw className="h-3.5 w-3.5" /> Reset to Defaults
-              </Button>
+              </GatedButton>
               {mode === 'json' && (
                 <Button size="sm" variant="ghost" onClick={() => navigator.clipboard.writeText(editorValue)} className="h-8 text-xs gap-1.5" title="Copy">
                   <Copy className="h-3.5 w-3.5" />
@@ -221,7 +246,7 @@ export function MCPSettings({ apiPath = '/api/mcp-servers' }: MCPSettingsProps) 
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : mode === 'form' ? (
-            <McpServerForm value={formValues} onChange={setFormValues} apiPath={apiPath} />
+            <McpServerForm value={formValues} onChange={setFormValues} apiPath={apiPath} readOnly={!canWrite} readOnlyReason={writeDenialReason} />
           ) : (
             <div className="border rounded-lg overflow-hidden">
               <Editor
@@ -232,6 +257,11 @@ export function MCPSettings({ apiPath = '/api/mcp-servers' }: MCPSettingsProps) 
                 onMount={handleEditorMount}
                 theme={resolvedTheme === 'dark' ? 'vs-dark' : 'light'}
                 options={{
+                  // The JSON view edits the SAME config as the form. Leaving it
+                  // writable would let a denied caller compose a change, hit an
+                  // already-disabled Save, and lose the work — or paste over the
+                  // live config and believe it took.
+                  readOnly: !canWrite,
                   minimap: { enabled: false }, fontSize: 13, lineNumbers: 'on', folding: true,
                   bracketPairColorization: { enabled: true }, formatOnPaste: true, automaticLayout: true,
                   scrollBeyondLastLine: false, tabSize: 2, wordWrap: 'on', renderLineHighlight: 'line',

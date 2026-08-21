@@ -19,6 +19,7 @@ import {
 } from '@aws-sdk/client-auto-scaling';
 import { logger } from '../utils/logger.js';
 import { createAuditLog } from '../services/dynamodb-service.js';
+import { recordPlatformScalingEvent } from '../../scaling-audit/services/platform-recorder.js';
 import type {
     Schedule,
     ScheduleResource,
@@ -190,6 +191,27 @@ export async function processECSResource(
                     accountId: metadata.account.accountId,
                     region: metadata.region,
                 });
+
+                // SEBI compliance record (SA-001): a direct ecs:UpdateService call
+                // is invisible to application-autoscaling:DescribeScalingActivities
+                // — that API only reports activities Application Auto Scaling
+                // itself initiated.
+                await recordPlatformScalingEvent({
+                    tenantId: schedule.tenantId,
+                    accountId: metadata.account.accountId,
+                    region: metadata.region,
+                    scope: 'ecs',
+                    resourceId: `service/${clusterArn}/${serviceName}`,
+                    clusterName: clusterArn,
+                    serviceName,
+                    activityId: `${metadata.executionId}-${serviceName}-stop`,
+                    description: `Cost Scheduler stopped ECS service ${serviceName} for schedule "${schedule.name}"`,
+                    statusCode: 'Successful',
+                    desiredBefore: currentDesiredCount,
+                    desiredAfter: 0,
+                    initiatedBy: schedule.name,
+                    correlationId: metadata.executionId,
+                });
             }
 
             // 2. Check if cluster is idle (or will be) and manage ASGs
@@ -272,6 +294,29 @@ export async function processECSResource(
                 tenantId: schedule.tenantId,
                                         accountId: metadata.account.accountId,
                                         region: metadata.region,
+                                    });
+
+                                    // SEBI compliance record (SA-001): a min/max
+                                    // guardrail mutation the ASG activity API
+                                    // never reports.
+                                    await recordPlatformScalingEvent({
+                                        tenantId: schedule.tenantId,
+                                        accountId: metadata.account.accountId,
+                                        region: metadata.region,
+                                        scope: 'asg',
+                                        resourceId: asgName,
+                                        asgName,
+                                        activityId: `${metadata.executionId}-${asgName}-idle-stop`,
+                                        description: `Cost Scheduler stopped backing ASG ${asgName} as ECS cluster ${clusterArn} became idle (schedule "${schedule.name}")`,
+                                        statusCode: 'Successful',
+                                        desiredBefore: state.desiredCapacity,
+                                        desiredAfter: 0,
+                                        minBefore: state.minSize,
+                                        maxBefore: state.maxSize,
+                                        minAfter: 0,
+                                        maxAfter: 0,
+                                        initiatedBy: schedule.name,
+                                        correlationId: metadata.executionId,
                                     });
                                 } else {
                                     log.info(`ASG ${asgName} already stopped (0/0/0)`);
@@ -373,6 +418,24 @@ export async function processECSResource(
                             accountId: metadata.account.accountId,
                             region: metadata.region,
                         });
+
+                        // SEBI compliance record (SA-001).
+                        await recordPlatformScalingEvent({
+                            tenantId: schedule.tenantId,
+                            accountId: metadata.account.accountId,
+                            region: metadata.region,
+                            scope: 'asg',
+                            resourceId: state.name,
+                            asgName: state.name,
+                            activityId: `${metadata.executionId}-${state.name}-restore`,
+                            description: `Cost Scheduler restored backing ASG ${state.name} before starting ECS service ${serviceName} (schedule "${schedule.name}")`,
+                            statusCode: 'Successful',
+                            desiredAfter: state.desiredCapacity,
+                            minAfter: state.minSize,
+                            maxAfter: state.maxSize,
+                            initiatedBy: schedule.name,
+                            correlationId: metadata.executionId,
+                        });
                     } catch (err) {
                         log.error(`Failed to restore backing ASG ${state.name}`, err);
                         // Continue even if ASG fails? Yes, try to start service anyway.
@@ -425,6 +488,29 @@ export async function processECSResource(
                                     accountId: metadata.account.accountId,
                                     region: metadata.region,
                                 });
+
+                                // SEBI compliance record (SA-001) — flagged as a
+                                // fallback in rawPayload since no prior state was
+                                // captured, so this is NOT a true restore to the
+                                // group's pre-stop capacity.
+                                await recordPlatformScalingEvent({
+                                    tenantId: schedule.tenantId,
+                                    accountId: metadata.account.accountId,
+                                    region: metadata.region,
+                                    scope: 'asg',
+                                    resourceId: asgName,
+                                    asgName,
+                                    activityId: `${metadata.executionId}-${asgName}-fallback-restore`,
+                                    description: `Cost Scheduler applied fallback default capacity (1) to backing ASG ${asgName} — no prior state was captured (schedule "${schedule.name}")`,
+                                    statusCode: 'Successful',
+                                    desiredBefore: 0,
+                                    desiredAfter: 1,
+                                    minAfter: newMin,
+                                    maxAfter: newMax,
+                                    initiatedBy: schedule.name,
+                                    correlationId: metadata.executionId,
+                                    rawPayload: { usedFallbackDefaults: true },
+                                });
                             }
                         } catch (err) {
                             log.error(`Failed to apply fallback capacity to ASG ${asgName}`, err);
@@ -457,6 +543,24 @@ export async function processECSResource(
                 tenantId: schedule.tenantId,
                 accountId: metadata.account.accountId,
                 region: metadata.region,
+            });
+
+            // SEBI compliance record (SA-001).
+            await recordPlatformScalingEvent({
+                tenantId: schedule.tenantId,
+                accountId: metadata.account.accountId,
+                region: metadata.region,
+                scope: 'ecs',
+                resourceId: `service/${clusterArn}/${serviceName}`,
+                clusterName: clusterArn,
+                serviceName,
+                activityId: `${metadata.executionId}-${serviceName}-start`,
+                description: `Cost Scheduler started ECS service ${serviceName} for schedule "${schedule.name}"`,
+                statusCode: 'Successful',
+                desiredBefore: currentDesiredCount,
+                desiredAfter: targetDesiredCount,
+                initiatedBy: schedule.name,
+                correlationId: metadata.executionId,
             });
 
             return {
@@ -510,6 +614,24 @@ export async function processECSResource(
                 tenantId: schedule.tenantId,
             accountId: metadata.account.accountId,
             region: metadata.region,
+        });
+
+        // SEBI compliance record (SA-001): a failed scaling attempt is itself
+        // audit-relevant — do not only record successes.
+        await recordPlatformScalingEvent({
+            tenantId: schedule.tenantId,
+            accountId: metadata.account.accountId,
+            region: metadata.region,
+            scope: 'ecs',
+            resourceId: `service/${clusterArn}/${serviceName}`,
+            clusterName: clusterArn,
+            serviceName,
+            activityId: `${metadata.executionId}-${serviceName}-${action}-error`,
+            description: `Cost Scheduler failed to ${action} ECS service ${serviceName} for schedule "${schedule.name}": ${errorMessage}`,
+            statusCode: 'Failed',
+            statusMessage: errorMessage,
+            initiatedBy: schedule.name,
+            correlationId: metadata.executionId,
         });
 
         return {

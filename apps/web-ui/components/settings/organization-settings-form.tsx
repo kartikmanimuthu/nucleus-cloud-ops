@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Upload } from "lucide-react";
+import { useCan } from "@/hooks/use-can";
 
 const orgSettingsSchema = z.object({
     name: z.string().min(1, "Organization name is required").max(100),
@@ -59,9 +60,20 @@ export function OrganizationSettingsForm() {
     const [loading, setLoading] = useState(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const role = session?.user?.role as string | undefined;
     const isSuperAdmin = session?.user?.isSuperAdmin as boolean | undefined;
-    const canEdit = role === "Owner" || role === "Admin" || isSuperAdmin === true;
+    // PUT /api/tenants/settings and both handlers in /api/tenants/logo require
+    // `update Tenant` — read the routes, not this comment's ancestor, which
+    // claimed `update Settings` and was wrong.
+    //
+    // That mismatch is why the controls stayed live for a role the API refuses:
+    // 'Settings' is the module-wide catch-all the role editor HIDES, so anyone
+    // holding the Settings module passed this check, while the server asked
+    // about the 'Tenant' row — a real, visible submodule that governed nothing
+    // here. Asking the same question the route answers puts that row in charge.
+    //
+    // Whole-section hide (not a per-field tooltip) is intentional and kept: a
+    // Member/Viewer should not know edit controls exist here.
+    const canEdit = useCan("update", "Tenant") || isSuperAdmin === true;
 
     const {
         register,

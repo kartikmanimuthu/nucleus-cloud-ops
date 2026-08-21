@@ -38,6 +38,25 @@ export async function getSessionUserId(): Promise<string> {
 }
 
 /**
+ * Extract the session user's email — the human-readable actor for audit trails
+ * (createdBy/updatedBy/enabledBy/disabledBy columns, AuditService `user`, event `actor`).
+ *
+ * NOT getSessionUserId(): that returns `USER#<id>`, a legacy DynamoDB-format key some
+ * ownership columns (chat threads, KB sessions) still match against. It was never meant for
+ * display, but Spot Guard's mutation routes used it as the actor anyway, which is why those
+ * columns showed a raw id instead of an email while every sibling module (accounts, schedules,
+ * right-sizing, certificates) already calls session.user.email directly for the same purpose.
+ * Throws if no session — callers should catch and return 401.
+ */
+export async function getSessionUserEmail(): Promise<string> {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+        throw new Error("Unauthenticated: no valid session");
+    }
+    return session.user.email;
+}
+
+/**
  * Assert the current user is a super admin.
  * Returns null if authorized, or a NextResponse with 401/403 if not.
  */

@@ -11,7 +11,7 @@
  * Multi-tenant safety: every query scoped by tenantId.
  */
 import { v4 as uuidv4 } from 'uuid';
-import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
+import { andWhere, getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
 import type { AgentOpsRun, AgentOpsStatus, TriggerMetadata, TriggerSource, RunListResult } from '@/lib/agent-ops/types';
 import type {
     IAgentOpsRunRepository,
@@ -177,20 +177,23 @@ export class AgentOpsRunPostgresRepository implements IAgentOpsRunRepository {
         // JSON-path filter on the trigger payload — same shape listActiveRunsByTask uses.
         if (query.taskId) where.trigger = { path: ['taskId'], equals: query.taskId };
 
+        // Gate 3: intersect the caller's readable rows.
+        const scoped = andWhere(where, query.rowFilter);
+
         const orderBy = this.buildOrderBy(query.sortBy, query.sortDir);
 
         const [records, total] = await Promise.all([
             getTenantClient(query.tenantId).agentOpsRun.findMany({
-                where,
+                where: scoped,
                 orderBy,
                 skip,
                 take: limit,
             }),
-            getTenantClient(query.tenantId).agentOpsRun.count({ where }),
+            getTenantClient(query.tenantId).agentOpsRun.count({ where: scoped }),
         ]);
 
         const runs = records.map(toAgentOpsRun);
-        const stats = await this.computeStats(query.tenantId, where);
+        const stats = await this.computeStats(query.tenantId, scoped);
 
         return { runs, total, stats };
     }

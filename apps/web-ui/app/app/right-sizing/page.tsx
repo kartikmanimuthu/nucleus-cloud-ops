@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PaginationBar } from "@/components/ui/pagination-bar";
@@ -128,10 +129,22 @@ function RightSizingPageInner() {
                             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
                             <span className="ml-1">Refresh</span>
                         </Button>
-                        <Button onClick={runScan} disabled={scanning}>
+                        {/*
+                          * POST /api/right-sizing/runs enforces
+                          * authorize('update', 'RightSizing'). Refresh beside it stays
+                          * ungated: every read route on this page is `read
+                          * RightSizing`, the permission that already loaded it, so
+                          * gating Refresh would disable a control that cannot 403.
+                          */}
+                        <GatedButton
+                            action="update"
+                            subject="RightSizing"
+                            onClick={runScan}
+                            disabled={scanning}
+                        >
                             {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                             <span className="ml-1">Run scan</span>
-                        </Button>
+                        </GatedButton>
                     </>
                 }
             />

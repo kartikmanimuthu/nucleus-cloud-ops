@@ -207,6 +207,84 @@ describe('pg-writer', () => {
       expect(metadata.clusterArn).toBe('arn:cluster1');
     });
 
+    // ── SG-013: Fargate Spot Guard metadata ─────────────────────────────────
+    //
+    // These use the REAL AWS DescribeServices shape. Note the test above feeds
+    // `ClusterArn` with a capital C, which is what the `clusterArn` mapping expects — but
+    // ECS actually returns lower-case `clusterArn`, so that mapping never matches on real
+    // data and metadata.clusterArn is absent on every live row. The fixture above encodes
+    // the wrong shape, which is exactly why the discrepancy went unnoticed. It is
+    // documented and worked around (ecsClusterArn) rather than changed, since fixing the
+    // old mapping would make a value appear where consumers currently see undefined.
+    it('should capture the capacity provider strategy for Spot Guard', () => {
+        const resource: Resource = {
+            resourceType: 'ecs_services', resourceId: 'arn:svc-spot', region: 'ap-south-1', service: 'ecs', tags: {},
+            rawData: {
+                serviceArn: 'arn:aws:ecs:ap-south-1:111111111111:service/cluster-a/api',
+                // Real ECS casing.
+                clusterArn: 'arn:aws:ecs:ap-south-1:111111111111:cluster/cluster-a',
+                status: 'ACTIVE',
+                desiredCount: 3,
+                platformVersion: '1.4.0',
+                capacityProviderStrategy: [
+                    { capacityProvider: 'FARGATE', weight: 0, base: 0 },
+                    { capacityProvider: 'FARGATE_SPOT', weight: 100, base: 1 },
+                ],
+                loadBalancers: [{ targetGroupArn: 'arn:tg/a', containerPort: 8080 }],
+            },
+        };
+        const metadata = extractMetadata(resource);
+
+        // Without this the Spot Guard eligible-services list cannot exist: there would be
+        // no way to know which discovered services are already Spot-capable.
+        expect(metadata.capacityProviderStrategy).toEqual([
+            { capacityProvider: 'FARGATE', weight: 0, base: 0 },
+            { capacityProvider: 'FARGATE_SPOT', weight: 100, base: 1 },
+        ]);
+        expect(metadata.serviceArn).toBe('arn:aws:ecs:ap-south-1:111111111111:service/cluster-a/api');
+        expect(metadata.serviceStatus).toBe('ACTIVE');
+        expect(metadata.platformVersion).toBe('1.4.0');
+        expect(metadata.loadBalancerCount).toBe(1);
+    });
+
+    it('captures the cluster ARN under a correctly-cased key on real AWS data', () => {
+        const resource: Resource = {
+            resourceType: 'ecs_services', resourceId: 'arn:svc-2', region: 'ap-south-1', service: 'ecs', tags: {},
+            rawData: { clusterArn: 'arn:aws:ecs:ap-south-1:111111111111:cluster/cluster-a' },
+        };
+        const metadata = extractMetadata(resource);
+
+        expect(metadata.ecsClusterArn).toBe('arn:aws:ecs:ap-south-1:111111111111:cluster/cluster-a');
+        // Documents the pre-existing bug: with the REAL lower-case field, the old
+        // capital-C mapping produces nothing. Asserting it keeps the workaround honest —
+        // if someone fixes the old mapping, this test tells them a behaviour change happened.
+        expect(metadata.clusterArn).toBeUndefined();
+    });
+
+    it('omits loadBalancerCount for a service with no load balancer', () => {
+        const metadata = extractMetadata({
+            resourceType: 'ecs_services', resourceId: 'arn:svc-3', region: 'ap-south-1', service: 'ecs', tags: {},
+            rawData: { desiredCount: 1 },
+        });
+        // pick() skips undefined mappings, so no spurious key appears.
+        expect(metadata.loadBalancerCount).toBeUndefined();
+    });
+
+    it('captures cluster capacity providers so the UI can explain ineligibility', () => {
+        const metadata = extractMetadata({
+            resourceType: 'ecs_clusters', resourceId: 'arn:cluster-a', region: 'ap-south-1', service: 'ecs', tags: {},
+            rawData: {
+                status: 'ACTIVE',
+                capacityProviders: ['FARGATE', 'FARGATE_SPOT'],
+                defaultCapacityProviderStrategy: [{ capacityProvider: 'FARGATE', weight: 1 }],
+            },
+        });
+        expect(metadata.capacityProviders).toEqual(['FARGATE', 'FARGATE_SPOT']);
+        expect(metadata.defaultCapacityProviderStrategy).toEqual([{ capacityProvider: 'FARGATE', weight: 1 }]);
+        // Existing keys untouched.
+        expect(metadata.status).toBe('ACTIVE');
+    });
+
     it('should extract S3 bucket metadata', () => {
       const resource: Resource = {
         resourceType: 's3_buckets', resourceId: 'my-bucket', region: 'us-east-1', service: 's3', tags: {},

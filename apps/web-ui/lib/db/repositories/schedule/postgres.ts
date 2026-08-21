@@ -9,7 +9,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
-import { getTenantClient } from '@/lib/db/pg-config';
+import { andWhere, getTenantClient } from '@/lib/db/pg-config';
 import type { UISchedule } from '@/lib/types';
 import type { IScheduleRepository, ScheduleFilters, SchedulePage } from './interface';
 
@@ -43,6 +43,7 @@ export class SchedulePostgresRepository implements IScheduleRepository {
                 accountId,
                 page = 1,
                 limit = 20,
+                rowFilter,
             } = filters;
 
             const where: Record<string, unknown> = { tenantId };
@@ -64,10 +65,15 @@ export class SchedulePostgresRepository implements IScheduleRepository {
 
             const skip = (page - 1) * limit;
 
+            // Gate 3: intersect the caller's readable rows. andWhere() nests
+            // under AND so the `OR` search clause above survives, and tenantId is
+            // still injected on top by the tenant client.
+            const scoped = andWhere(where, rowFilter);
+
             const [total, rows] = await Promise.all([
-                getTenantClient(tenantId).schedule.count({ where }),
+                getTenantClient(tenantId).schedule.count({ where: scoped }),
                 getTenantClient(tenantId).schedule.findMany({
-                    where,
+                    where: scoped,
                     skip,
                     take: limit,
                     orderBy: { createdAt: 'desc' },

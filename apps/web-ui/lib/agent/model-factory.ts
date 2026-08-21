@@ -27,6 +27,8 @@ import { createGetRightSizingRecommendationsTool } from "./right-sizing-tool";
 import { createSearchKnowledgeBaseTool } from "./kb-tool";
 import { createLoadSkillTool } from "./skill-tool";
 import { getActiveMCPTools, isOpenAICompatibleProvider, type AccountContext, type ResolvedModelConfig } from "./agent-shared";
+import { resolveAgentAbility, type AgentAbility } from "./agent-ability";
+import { createToolGate, type GateableTool } from "./tool-gate";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { saveMemory, searchMemory } from "./persistence";
@@ -198,6 +200,18 @@ export interface AssembleToolsOptions {
     knowledgeBaseIds?: string[] | null;
     /** When set, adds the dispatch_agent fan-out tool built from these deps. */
     dispatchAgentTool?: unknown;
+    /**
+     * Pre-compiled ability + principal for capability gating (Workstream H).
+     * Omit and assembleTools resolves them from `tenantId` + `userId`; pass them
+     * when the caller already holds a compiled ability (e.g. the request already
+     * went through getAbilityForSession()) to skip the lookup.
+     */
+    agentAbility?: AgentAbility | null;
+    /**
+     * Set false to assemble the ungated tool list. ONLY for callers that have
+     * already applied their own capability check — nothing in-tree does.
+     */
+    enforceCapabilities?: boolean;
 }
 
 /**
@@ -241,11 +255,21 @@ export function createMemoryTools(tenantId: string, userId: string) {
 }
 
 /**
- * Assembles the full tool list: built-in tools + optional S3 tools + MCP tools.
- * Logs MCP tool count when any are loaded.
+ * Assembles the full tool list: built-in tools + optional S3 tools + MCP tools,
+ * then applies capability gating (Workstream H) so the model is only ever bound
+ * to tools the requesting user is allowed to use.
+ *
+ * Gating needs an ability. It is resolved from (tenantId, userId), or supplied
+ * via `options.agentAbility`. When neither yields one — an anonymous or purely
+ * system-initiated run — the list is returned UNGATED and the fact is logged.
+ * That is a deliberate fail-open at exactly one point: the alternative, handing
+ * every such run an agent with no shell, no files and no web, would be a silent
+ * platform-wide outage triggered by a role lookup miss. Every path that carries a
+ * real user (chat, ask-ai, agent-ops) passes both ids, so in practice the ungated
+ * branch is the system's own background work.
  */
 export async function assembleTools(options: AssembleToolsOptions = {}) {
-    const { includeS3Tools = false, includeMemoryTools = false, includeSkillTool = true, userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds } = options;
+    const { includeS3Tools = false, includeMemoryTools = false, includeSkillTool = true, userId, mcpServerIds, tenantId, accounts, knowledgeBaseIds, enforceCapabilities = true } = options;
 
     const effectiveTenantId = tenantId || 'default';
     if (!tenantId) {
@@ -282,5 +306,49 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
         console.log(`[ModelFactory] Loaded ${mcpTools.length} MCP tools from servers: ${mcpServerIds?.join(', ')}`);
     }
 
-    return [...customTools, ...mcpTools];
+    const allTools = [...customTools, ...mcpTools];
+    if (!enforceCapabilities) return allTools;
+
+    const agentAbility =
+        options.agentAbility !== undefined
+            ? options.agentAbility
+            : await resolveAgentAbility(tenantId, userId);
+
+    if (!agentAbility) {
+        console.warn(
+            `[ModelFactory] no ability for tenant=${tenantId ?? '(none)'} user=${userId ?? '(none)'} — ` +
+            `agent tools are NOT capability-gated for this run`
+        );
+        return allTools;
+    }
+
+    // MCP tool names are server-defined, so origin (not name) decides that they
+    // gate on `use AgentMcp`.
+    const mcpToolNames = new Set(mcpTools.map((t: { name: string }) => t.name));
+
+    const { tools, omitted } = createToolGate({
+        ability: agentAbility.ability,
+        principal: agentAbility.principal,
+        actionAliases: agentAbility.actionAliases,
+        mcpToolNames,
+    }).filter(allTools as unknown as GateableTool[]);
+
+    if (omitted.length > 0) {
+        console.log(
+            `[ModelFactory] capability gate omitted ${omitted.length} tool(s) for role ` +
+            `'${agentAbility.principal.roleName}': ${omitted.join(', ')}`
+        );
+    }
+
+    return tools as unknown as typeof allTools;
 }
+
+/**
+ * Capability-gated tool assembly.
+ *
+ * Named alias for assembleTools() — the Workstream H specification calls this
+ * entry point `createTools`, and the gating contract ("takes an ability, OMITS
+ * what the user may not use") is easier to find under that name. Identical
+ * behaviour; assembleTools() remains the name every existing call site uses.
+ */
+export const createTools = assembleTools;

@@ -7,8 +7,16 @@ import { NextResponse } from 'next/server';
 import { listScheduledTasks, createScheduledTask, validateScheduleInput } from '@/lib/agent-ops/scheduled-task-service';
 import { registerTask } from '@/lib/agent-ops/scheduler-engine';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
+import { getAbilityForSession } from '@/lib/rbac/session-ability';
 import { AuditService } from '@/lib/audit-service';
 import type { TaskListQuery } from '@/lib/db/repositories/scheduled-task/interface';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'ScheduledTask' },
+    POST: { action: 'create', subject: 'ScheduledTask' },
+};
 
 const VALID_SORT_FIELDS: TaskListQuery['sortBy'][] = ['name', 'taskStatus', 'nextRunAt', 'lastRunAt', 'createdAt', 'updatedAt', 'runCount'];
 
@@ -41,6 +49,17 @@ export async function POST(req: Request) {
         const tenantId = await getSessionTenantId();
         const body = await req.json();
 
+        // The task becomes a STORED GRANT that fires autonomously for as long as
+        // it exists, so record WHOSE authority it runs under — from the session,
+        // never from the body (`body.createdBy` below is a display string the
+        // client controls). lib/agent-ops/scheduled-task-permission.ts recompiles
+        // this user's ability at every execution.
+        const creatorSession = await getAuthSession();
+        const createdByUserId = creatorSession?.user?.id;
+        // Role id is a creation-time snapshot for audit/drift only — the
+        // execution-time check always re-resolves the CURRENT role.
+        const createdByRoleId = (await getAbilityForSession())?.principal.roleId ?? undefined;
+
         const scheduleError = validateScheduleInput(body);
         if (scheduleError) {
             return NextResponse.json({ error: scheduleError }, { status: 400 });
@@ -66,10 +85,12 @@ export async function POST(req: Request) {
             knowledgeBaseIds: body.knowledgeBaseIds,
             notification: body.notification || { type: 'none' },
             createdBy: body.createdBy || 'api',
+            createdByUserId,
+            createdByRoleId,
         });
         registerTask(task);
 
-        const session = await getAuthSession();
+        const session = creatorSession;
         AuditService.logUserAction({
             eventType: 'agent.task.created',
             severity: 'medium',

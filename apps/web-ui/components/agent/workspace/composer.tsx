@@ -34,6 +34,12 @@ export interface ComposerProps {
   onStop: () => void;
   isStreaming: boolean;
   disabled?: boolean;
+  /**
+   * Why the composer is disabled, shown in place of the hint row. Supplied by
+   * the session when the user lacks permission to run the agent — a disabled
+   * box with no explanation reads as a bug.
+   */
+  disabledReason?: string;
   context: ComposerContext;
   attachments: FileAttachment[];
   onAttach: (files: FileAttachment[]) => void;
@@ -57,6 +63,7 @@ export function Composer({
   onStop,
   isStreaming,
   disabled,
+  disabledReason,
   context,
   attachments,
   onAttach,
@@ -119,8 +126,9 @@ export function Composer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask the agent to plan, execute, reflect, and revise..."
-          disabled={locked}
+          placeholder={disabledReason ?? "Ask the agent to plan, execute, reflect, and revise..."}
+          disabled={disabled}
+          title={disabledReason}
           data-testid="composer-input"
           rows={1}
           maxLength={MAX_CHARS}
