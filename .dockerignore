@@ -1,0 +1,64 @@
+# Build context for BOTH images.
+#
+# Docker reads the .dockerignore next to the build CONTEXT, and infra/compute/index.ts sets
+# `context: repoRoot` for web-ui-image and workers-image alike — so this file is the one that
+# applies, and apps/web-ui/.dockerignore is never consulted by either build.
+#
+# Two things this buys:
+#
+#  1. The docker-build provider hashes the context to decide whether an image is stale. With the
+#     whole repo in scope, editing infra/compute/index.ts invalidated that hash and rebuilt AND
+#     redeployed both ECS services for a change that cannot affect either image.
+#  2. The context was 2.8 GB, almost all of it node_modules (2.3 GB) and apps/web-ui/.next
+#     (232 MB) — uploaded to the daemon on every build to be discarded.
+#
+# Safe because between them the two Dockerfiles copy only four paths from the host:
+#   apps/web-ui/   apps/workers/   libs/prisma/   tsconfig.base.json
+# Everything else in here is outside those, or is a build output regenerated inside the image.
+#
+# Before adding a pattern that could touch one of those four, check it: build a throwaway image
+# against this same context that COPYs the four paths and asserts the files each Dockerfile needs
+# still arrive (package.json + bun.lock, apps/web-ui/app, next.config.mjs, docker-entrypoint.sh,
+# public/, apps/workers/src, libs/prisma/schema.prisma + migrations, tsconfig.base.json). That is
+# how this file was validated — the context went from 2.8 GB to 12 MB with all of them intact.
+
+# ── Dependencies: every image runs its own `bun install` ─────────────────────
+node_modules
+**/node_modules
+.pnpm-store
+
+# ── Build outputs, regenerated inside the image ─────────────────────────────
+**/.next
+**/dist
+**/out
+**/.turbo
+.nx
+
+# ── Not copied by any Dockerfile ────────────────────────────────────────────
+# infra/ is the reason this file exists: Pulumi source cannot affect an app image.
+infra
+docs
+# The Playwright project. Its specs change often and no image contains them.
+apps/web-ui-e2e
+.git
+.github
+.claude
+.vscode
+.idea
+
+# ── Local env files. Nothing COPYs them (they sit at the repo root, outside the
+#    four copied paths), so this only keeps the build cache stable when secrets change.
+.env
+.env.*
+
+# ── Test and tooling artefacts ──────────────────────────────────────────────
+**/coverage
+**/.nyc_output
+**/test-results
+**/playwright-report
+**/*.lcov
+
+# ── Noise ───────────────────────────────────────────────────────────────────
+**/*.log
+**/.DS_Store
+**/*.pem

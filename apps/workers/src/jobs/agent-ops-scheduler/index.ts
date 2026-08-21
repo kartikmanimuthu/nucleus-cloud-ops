@@ -90,6 +90,15 @@ export interface TaskTickData {
     tenantId: string;
 }
 
+/**
+ * The trigger endpoint's marker for "the creator's grant no longer covers this
+ * run". Kept in sync with PERMISSION_REVOKED in
+ * apps/web-ui/lib/agent-ops/scheduled-task-permission.ts, which is also the
+ * taskStatus value the CHECK constraint in 20260731000000_agent_ops_creator_grant
+ * allows.
+ */
+export const PERMISSION_REVOKED = 'permission_revoked';
+
 let _prisma: import('@prisma/client').PrismaClient | null = null;
 async function getPrisma(): Promise<import('@prisma/client').PrismaClient> {
     if (!_prisma) {
@@ -168,6 +177,57 @@ async function advanceIntervalAnchor(task: ActiveTaskRow, nowMs: number): Promis
     });
 }
 
+/**
+ * Takes a task out of the firing set because the person it runs on behalf of may
+ * no longer authorize it.
+ *
+ * This is the enforcement, not a label: `loadActiveTasks()` selects
+ * taskStatus = 'active', so moving the row here is what actually stops the task.
+ * It is deliberately NOT 'paused' — a human chose 'paused', and an operator must
+ * be able to tell "someone turned this off" from "this lost its authority", which
+ * is also why re-activating it has to go through the UI (and therefore through a
+ * fresh authorization) rather than through a resume button.
+ */
+async function markPermissionRevoked(tenantId: string, taskId: string, reason: string): Promise<void> {
+    try {
+        const prisma = await getPrisma();
+        await prisma.scheduledTask.updateMany({
+            where: { tenantId, taskId },
+            data: { taskStatus: PERMISSION_REVOKED },
+        });
+    } catch (error) {
+        // Even if the write fails the tick still ends terminally (no retry), so the
+        // task cannot execute. It will simply be re-evaluated on the next sweep and
+        // denied again — noisy, but never permissive.
+        log.error('Failed to mark task permission_revoked', {
+            taskId,
+            tenantId,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+
+    await writeAuditLog({
+        tenantId,
+        eventType: 'agent.task.permission_revoked',
+        action: 'Scheduled Task Permission Revoked',
+        resourceId: taskId,
+        status: 'error',
+        severity: 'high',
+        details: `Scheduled task ${taskId} disabled — creator's permission was revoked: ${reason}`,
+        metadata: { taskId, tenantId, reason, taskStatus: PERMISSION_REVOKED },
+    });
+}
+
+/** Reads the `code` field out of a trigger error body without throwing on non-JSON. */
+export function parseTriggerFailure(body: string): { code?: string; error?: string } {
+    try {
+        const parsed = JSON.parse(body) as { code?: string; error?: string };
+        return { code: parsed?.code, error: parsed?.error };
+    } catch {
+        return {};
+    }
+}
+
 export async function handleAgentOpsTick(jobData: unknown): Promise<void> {
     const { taskId, tenantId } = jobData as TaskTickData;
     log.info(`Tick: task=${taskId} tenant=${tenantId}`);
@@ -204,6 +264,21 @@ export async function handleAgentOpsTick(jobData: unknown): Promise<void> {
     if (!res.ok) {
         const body = await res.text();
         log.error(`Trigger failed for task ${taskId}: ${res.status} ${body}`);
+
+        // ── Stored-grant revocation ──────────────────────────────────────────
+        // The web-ui recompiled the CREATOR's ability at execution time and found
+        // it no longer covers an agent run. Handled BEFORE the generic failure
+        // path because 403 is otherwise classified as retryable (an
+        // INTERNAL_API_KEY misconfiguration must be loud), and retrying a
+        // revocation would re-deny 3 times per tick, forever. A revoked grant is
+        // terminal by definition: no amount of retrying restores a permission.
+        const failure = parseTriggerFailure(body);
+        if (res.status === 403 && failure.code === PERMISSION_REVOKED) {
+            log.warn(`Task ${taskId} disabled — creator permission revoked`, { tenantId });
+            await markPermissionRevoked(tenantId, taskId, failure.error || 'creator permission revoked');
+            return;
+        }
+
         await writeAuditLog({
             tenantId,
             eventType: 'agent.task.cron_failed',

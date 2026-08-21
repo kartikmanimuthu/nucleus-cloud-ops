@@ -7,6 +7,8 @@
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant access.
  */
 
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
+
 export type Finding = 'over_provisioned' | 'under_provisioned' | 'idle' | 'optimized';
 export type RiskLevel = 'low' | 'medium' | 'high';
 export type RecommendationStatus = 'open' | 'approved' | 'dismissed' | 'snoozed' | 'applied';
@@ -63,6 +65,13 @@ export interface RecommendationFilters {
     page?: number;
     limit?: number;
     sort?: 'savings' | 'confidence' | 'resource';
+    /**
+     * Gate 3 (RBAC row filtering): a Prisma `where` fragment restricting the
+     * result to the rows the caller may read. Built by
+     * getReadRowFilter() in lib/rbac/row-filter.ts and INTERSECTED with the
+     * query below via andWhere() — never merged over it.
+     */
+    rowFilter?: PrismaRowFilter | null;
 }
 
 export interface RecommendationPage {

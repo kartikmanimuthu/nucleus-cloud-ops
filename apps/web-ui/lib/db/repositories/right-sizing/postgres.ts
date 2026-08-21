@@ -7,7 +7,7 @@
  * Multi-tenant safety: every query goes through getTenantClient(tenantId), which
  * injects tenantId into reads/writes. Aggregations use groupBy scoped by tenantId.
  */
-import { getTenantClient } from '@/lib/db/pg-config';
+import { andWhere, getTenantClient } from '@/lib/db/pg-config';
 import type {
     IRightSizingRepository,
     RightSizingRecommendation,
@@ -133,6 +133,7 @@ export class RightSizingPostgresRepository implements IRightSizingRepository {
             page = 1,
             limit = 50,
             sort = 'savings',
+            rowFilter,
         } = filters;
 
         const skip = (page - 1) * limit;
@@ -158,10 +159,15 @@ export class RightSizingPostgresRepository implements IRightSizingRepository {
                   ? { resourceId: 'asc' as const }
                   : { estimatedMonthlySavings: 'desc' as const };
 
+        // Gate 3: intersect the caller's readable rows. andWhere() nests under
+        // AND so the `OR` search clause above survives, and tenantId is still
+        // injected on top by the tenant client.
+        const scoped = andWhere(where, rowFilter);
+
         const client = getTenantClient(tenantId);
         const [total, rows] = await Promise.all([
-            client.rightSizingRecommendation.count({ where }),
-            client.rightSizingRecommendation.findMany({ where, skip, take: limit, orderBy }),
+            client.rightSizingRecommendation.count({ where: scoped }),
+            client.rightSizingRecommendation.findMany({ where: scoped, skip, take: limit, orderBy }),
         ]);
         return { recommendations: (rows as RecRow[]).map(transformRec), total };
     }

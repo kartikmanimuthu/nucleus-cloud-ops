@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ScheduleService } from '@/lib/schedule-service';
 import { getSessionTenantId } from '@/lib/auth-session';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Schedule' },
+};
 
 // GET /api/accounts/[accountId]/schedules - Fetch schedules for a specific account
 export async function GET(

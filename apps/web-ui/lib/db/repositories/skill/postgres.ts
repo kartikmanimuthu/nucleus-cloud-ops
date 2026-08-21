@@ -1,6 +1,6 @@
-import { getTenantClient } from '@/lib/db/pg-config';
+import { andWhere, getTenantClient } from '@/lib/db/pg-config';
 import type {
-    ISkillRepository, SkillRecord, SkillCreateInput, SkillUpdateInput, SkillTier, SkillSource,
+    ISkillRepository, SkillRecord, SkillCreateInput, SkillUpdateInput, SkillTier, SkillSource, SkillListOptions,
 } from './interface';
 
 type Row = {
@@ -14,11 +14,13 @@ function toRecord(r: Row): SkillRecord {
 }
 
 export class SkillPostgresRepository implements ISkillRepository {
-    async listByTenant(tenantId: string, opts?: { includeDisabled?: boolean }): Promise<SkillRecord[]> {
+    async listByTenant(tenantId: string, opts?: SkillListOptions): Promise<SkillRecord[]> {
         const where: Record<string, unknown> = { tenantId };
         if (!opts?.includeDisabled) where.isEnabled = true;
+        // Gate 3: intersect the caller's readable rows.
+        const scoped = andWhere(where, opts?.rowFilter);
         const rows = await getTenantClient(tenantId).skill.findMany({
-            where, orderBy: { name: 'asc' },
+            where: scoped, orderBy: { name: 'asc' },
         });
         return (rows as Row[]).map(toRecord);
     }

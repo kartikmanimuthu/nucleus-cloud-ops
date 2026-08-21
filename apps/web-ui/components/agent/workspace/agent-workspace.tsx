@@ -10,6 +10,7 @@
 import { useCallback, useState } from "react";
 import { Menu, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { SessionSidebar, type SessionStatus } from "./session-sidebar";
 import { SessionView } from "./session-view";
@@ -129,10 +130,17 @@ export function AgentWorkspace() {
           >
             <Menu className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={handleNew} className="gap-1.5">
+          <GatedButton
+            action="create"
+            subject="Agent"
+            variant="ghost"
+            size="sm"
+            onClick={handleNew}
+            className="gap-1.5"
+          >
             <Plus className="h-4 w-4" />
             New chat
-          </Button>
+          </GatedButton>
         </div>
 
         {/* Sessions — mounted once each, hidden (not unmounted) when inactive */}

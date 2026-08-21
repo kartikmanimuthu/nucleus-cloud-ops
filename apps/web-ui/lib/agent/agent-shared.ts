@@ -504,6 +504,57 @@ export function tagMessagePhase<T extends BaseMessage>(msg: T, phase: string): T
     return msg;
 }
 
+/** Phases whose text IS the deliverable the user asked for. */
+const DELIVERABLE_PHASES = new Set(['execution', 'revision']);
+
+/** Floor for a marked deliverable — guards against promoting a stub like "Done." when
+ *  the plan's last step turned out to have nothing to run. Deliberately low: a marked
+ *  turn is already the run's terminal prose (never mid-plan narration), and rejecting a
+ *  real answer costs more than promoting a stub — it falls through to finalNode's
+ *  synthesis path, which is where invented values come from. Observed live: a correct
+ *  answer of exactly 38 chars, which a floor of 40 wrongly rejected. */
+const MIN_MARKED_DELIVERABLE = 20;
+
+/**
+ * Marks a message as the answer to the plan's compose step. Set by the executor when
+ * a prose turn consumes the LAST plan step, so findRenderedDeliverable can promote a
+ * SHORT answer — length is a poor proxy for "is this the deliverable", and a correct
+ * 60-char answer used to fall through to finalNode's synthesis path and get replaced
+ * by invented values.
+ */
+export function tagMessageAsDeliverable<T extends BaseMessage>(msg: T): T {
+    (msg as any).response_metadata = { ...((msg as any).response_metadata ?? {}), agentDeliverable: true };
+    return msg;
+}
+
+/**
+ * The answer the executor (or reviser) already composed in-chat, so finalNode can
+ * promote it verbatim instead of re-synthesizing from a 3-tool-output window.
+ *
+ * Content is normalized through contentToText because a reasoning model does not
+ * return a string: a turn that emits reasoning alongside the answer arrives as a
+ * block array, and Sonnet 5 keeps every streamed delta as its own text block (544
+ * blocks for one 7k-char report in the run this was written from). A raw
+ * `typeof content === 'string'` test silently misses those, which drops a finished
+ * report on the floor and makes the run end in "I wasn't able to produce…".
+ */
+export function findRenderedDeliverable(messages: BaseMessage[], minLength = 800): string | null {
+    let found: string | null = null;
+    for (const m of messages) {
+        if (m._getType() !== 'ai') continue;
+        const meta = (m as unknown as { response_metadata?: { agentPhase?: string; agentDeliverable?: boolean } }).response_metadata;
+        if (!DELIVERABLE_PHASES.has(meta?.agentPhase ?? '')) continue;
+        const text = contentToText(m.content);
+        const length = text.trim().length;
+        // Marked-at-source (the compose step's own output) OR long enough to be a report
+        // on its own. The length rule stays for the reviser, whose turns carry no marker,
+        // and for threads checkpointed before marking existed.
+        const qualifies = (meta?.agentDeliverable === true && length >= MIN_MARKED_DELIVERABLE) || length >= minLength;
+        if (qualifies) found = text; // keep scanning — last one wins (latest revision)
+    }
+    return found;
+}
+
 // Get recent messages safely - ensuring tool call/result pairs are kept together
 // Also filters out empty messages that cause Bedrock API errors
 export function getRecentMessages(messages: BaseMessage[], maxMessages: number = 30): BaseMessage[] {
@@ -860,6 +911,9 @@ export interface GraphConfig {
     /** Live sub-agent progress sink. Set by the chat route so dispatch_agent
      *  activity can be streamed as data-subagent parts. */
     onSubagentEvent?: (event: import('./dispatch-agent-tool').SubagentEvent) => void;
+    /** Live memory recall/save progress sink. Set by the chat route so memory
+     *  activity can be streamed as data-memory parts. */
+    onMemoryEvent?: (op: 'recall' | 'save', summary: string) => void;
 }
 
 // --- MCP Integration ---

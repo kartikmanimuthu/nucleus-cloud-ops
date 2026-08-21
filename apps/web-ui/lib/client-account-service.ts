@@ -111,6 +111,10 @@ export class ClientAccountService {
         externalId?: string;
         regions: string[];
         active: boolean;
+        /** Fargate Spot Guard opt-in, chosen at onboarding. */
+        spotAutomationEnabled?: boolean;
+        /** Scale Sentinel opt-in, chosen at onboarding. */
+        scalingAuditEnabled?: boolean;
         description?: string;
         createdBy?: string;
         updatedBy?: string;
@@ -151,6 +155,10 @@ export class ClientAccountService {
         roleArn: string;
         regions: string[];
         active: boolean;
+        /** Fargate Spot Guard opt-in. Changing it triggers a hub bus-policy reconcile. */
+        spotAutomationEnabled: boolean;
+        /** Scaling Audit opt-in — includes this account in the daily scaling-audit poll. */
+        scalingAuditEnabled: boolean;
         description?: string;
         createdBy?: string;
         updatedBy?: string;

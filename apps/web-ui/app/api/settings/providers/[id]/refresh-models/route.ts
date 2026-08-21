@@ -7,6 +7,22 @@ import {
     type ProviderModelEntry,
 } from '@/lib/provider-model-service';
 import { discoverModels } from '@/lib/agent/model-discovery';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/**
+ * Layer 1 permission declaration.
+ *
+ * Subject is Provider (the "LLM Provider" row under AI Ops), not Settings and no
+ * longer the bare AIOps module. LLM providers exist to power the agents, the
+ * page lives under /app/agent-ops/providers, and the nav groups it with Agentic
+ * Ops. It first resolved to Settings by inference from the /api/settings/* path,
+ * which is why a role holding AIOps could not reach its own providers; it then
+ * gated on the AIOps catch-all, which the role editor hides, so the Provider row
+ * it already rendered governed nothing. Now that row is the control.
+ */
+export const authz: RouteAuthz = {
+    POST: { action: 'update', subject: 'Provider' },
+};
 
 /**
  * POST /api/settings/providers/[id]/refresh-models
@@ -17,7 +33,7 @@ import { discoverModels } from '@/lib/agent/model-discovery';
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
     console.log(`API - POST /api/settings/providers/${id}/refresh-models`);
-    const authError = await authorize('update', 'Settings');
+    const authError = await authorize('update', 'Provider');
     if (authError) return authError;
 
     try {

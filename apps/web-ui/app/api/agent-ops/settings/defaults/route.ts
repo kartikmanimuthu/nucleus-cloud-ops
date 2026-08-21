@@ -18,6 +18,12 @@ import {
     validateAgentOpsDefaults,
 } from '@/lib/agent-ops/agent-ops-defaults';
 import type { AgentOpsDefaultsConfig } from '@/lib/agent-ops/types';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Settings' },
+};
 
 export async function GET() {
     try {

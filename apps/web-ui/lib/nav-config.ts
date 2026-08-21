@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Server,
   Settings,
+  ShieldCheck,
 } from "lucide-react"
 
 import type { NavItem } from "@/components/nav-main"
@@ -20,62 +21,79 @@ export const navMenus: NavItem[] = [
     title: "Overview",
     icon: LayoutDashboard,
     items: [
-      { title: "Dashboard", href: "/app/dashboard" },
-      { title: "Audit Logs", href: "/app/audit" },
+      { title: "Dashboard", href: "/app/dashboard", module: "Dashboard" },
+      // Audit lives under Accounts in the permission matrix, matching
+      // SUBJECT_TO_MODULE's AuditLog -> Accounts mapping.
+      { title: "Audit Logs", href: "/app/audit", module: "Accounts" },
     ],
   },
   {
     title: "Agentic Ops",
     icon: Bot,
     items: [
-      { title: "AI Ops", href: "/app/agent" },
-      { title: "Agent Ops", href: "/app/agent-ops" },
-      { title: "Memory", href: "/app/memory" },
-      { title: "Scheduled Tasks", href: "/app/agent-ops/scheduled-tasks" },
-      { title: "Knowledge Base", href: "/app/knowledge-base" },
-      { title: "Ask", href: "/app/knowledge-base/ask" },
-      { title: "Skills", href: "/app/skills" },
-      { title: "MCP Servers", href: "/app/agent-ops/mcp-settings" },
-      // Sub-agent settings deliberately have no nav entry: they open from the
-      // AI Ops console's header menu ("AI Ops settings"), where they are used.
-      // LLM providers power the agents — grouped with Agentic Ops, not Settings.
-      { title: "Providers", href: "/app/settings/providers" },
+      { title: "AI Ops", href: "/app/agent", module: "AIOps" },
+      { title: "Agent Ops", href: "/app/agent-ops", module: "AIOps" },
+      { title: "Memory", href: "/app/memory", module: "AIOps" },
+      { title: "Scheduled Tasks", href: "/app/agent-ops/scheduled-tasks", module: "AIOps" },
+      { title: "Knowledge Base", href: "/app/knowledge-base", module: "AIOps" },
+      { title: "Ask", href: "/app/knowledge-base/ask", module: "AIOps" },
+      { title: "Skills", href: "/app/skills", module: "AIOps" },
+      { title: "MCP Servers", href: "/app/agent-ops/mcp-settings", module: "AIOps" },
+      // LLM providers power the agents, so they live under Agentic Ops in every
+      // sense now: the page is at /app/agent-ops/providers and the API declares
+      // AIOps. It used to sit under /app/settings/*, which meant three different
+      // permissions guarded one feature — the nav said AIOps, the settings layout
+      // demanded `read Account`, and the API inferred Settings from its path.
+      { title: "Providers", href: "/app/agent-ops/providers", module: "AIOps" },
     ],
   },
   {
     title: "Cloud Operations",
     icon: Server,
     items: [
-      { title: "AWS Accounts", href: "/app/accounts" },
-      { title: "Inventory", href: "/app/inventory" },
-      { title: "Certificates", href: "/app/certificates" },
+      { title: "AWS Accounts", href: "/app/accounts", module: "Accounts" },
+      { title: "Inventory", href: "/app/inventory", module: "Inventory" },
+      // Certificate -> Settings, per SUBJECT_TO_MODULE.
+      { title: "Certificates", href: "/app/certificates", module: "Settings" },
+      { title: "Scale Sentinel", href: "/app/cloud-operations/scale-sentinel" },
     ],
   },
   {
     title: "Cost Optimization",
     icon: Gauge,
     items: [
-      { title: "Right Sizing", href: "/app/right-sizing" },
-      { title: "Cost Scheduler", href: "/app/schedules" },
+      // RightSizing -> Inventory: it only reads inventory and writes advice.
+      { title: "Right Sizing", href: "/app/right-sizing", module: "Inventory" },
+      // SpotGuard -> Schedules, NOT Inventory. It restarts live ECS tasks, so it
+      // belongs with the permission that already means "may change running AWS
+      // compute". See the note in lib/rbac/types.ts.
+      { title: "Spot Guard", href: "/app/cost-optimization/spot-guard", module: "Schedules" },
+      { title: "Cost Scheduler", href: "/app/schedules", module: "Schedules" },
     ],
   },
   {
     title: "Connectors",
     icon: Cable,
     items: [
-      { title: "Channels", href: "/app/channels" },
-      { title: "Slack", href: "/app/agent-ops/slack-settings" },
-      { title: "Telegram", href: "/app/channels/telegram-settings" },
+      { title: "Channels", href: "/app/channels", module: "AIOps" },
+      { title: "Slack", href: "/app/channels/slack-settings", module: "AIOps" },
+      { title: "Telegram", href: "/app/channels/telegram-settings", module: "AIOps" },
+    ],
+  },
+  {
+    title: "IAM",
+    icon: ShieldCheck,
+    items: [
+      { title: "Members", href: "/app/iam/members", module: "IAM" },
+      { title: "Roles", href: "/app/iam/roles", module: "IAM" },
     ],
   },
   {
     title: "Settings",
     icon: Settings,
     items: [
-      { title: "Overview", href: "/app/settings" },
-      { title: "Members", href: "/app/settings/members" },
-      { title: "Roles & Permissions", href: "/app/settings/roles" },
-      { title: "Organization", href: "/app/settings/organization" },
+      { title: "Overview", href: "/app/settings", module: "Settings" },
+      { title: "Organization", href: "/app/settings/organization", module: "Settings" },
     ],
   },
 ]

@@ -12,6 +12,7 @@ import {
 import type { DeepAgentThread } from '@/lib/deep-agent/types';
 import { getRelativeTime } from '@/lib/date-utils';
 import { useTenant } from '@/lib/tenant-context';
+import { useDenialReason } from '@/hooks/use-can';
 
 type ThreadStub = Omit<DeepAgentThread, 'messages'>;
 
@@ -33,6 +34,11 @@ export function ThreadSidebar({
   const { timezone } = useTenant();
   const [search, setSearch] = useState('');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  // DELETE /api/deep-agent/threads/[threadId] requires `delete Agent`. The
+  // registry declares no conditional attributes for Agent, so there is no
+  // per-thread row to evaluate against — one check covers every thread.
+  const deleteDenialReason = useDenialReason('delete', 'Agent');
 
   const filtered = threads.filter(t =>
     t.title.toLowerCase().includes(search.toLowerCase()),
@@ -121,9 +127,12 @@ export function ThreadSidebar({
                   <button
                     onClick={e => {
                       e.stopPropagation();
+                      if (deleteDenialReason) return;
                       onDeleteThread(thread.threadId);
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                    disabled={!!deleteDenialReason}
+                    title={deleteDenialReason ?? 'Delete conversation'}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-50 disabled:pointer-events-none"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>

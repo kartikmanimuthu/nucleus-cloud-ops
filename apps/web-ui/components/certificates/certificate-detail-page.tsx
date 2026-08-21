@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { GatedButton } from "@/components/rbac/gated";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, ShieldCheck, UploadCloud, Radar, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -89,7 +90,10 @@ export function CertificateDetailPage({ certificateId }: CertificateDetailPagePr
                     <p className="text-sm text-muted-foreground font-mono">{cert.domainName}</p>
                 </div>
                 <div className="flex flex-col items-end gap-3">
-                    <Button
+                    <GatedButton
+                        action="update"
+                        subject="Certificate"
+                        data={{ domain: cert.domainName }}
                         variant="outline"
                         size="sm"
                         className="gap-1.5"
@@ -102,7 +106,7 @@ export function CertificateDetailPage({ certificateId }: CertificateDetailPagePr
                             <Radar className="h-3.5 w-3.5" />
                         )}
                         {discover.isPending ? "Discovering..." : "Discover / Rescan"}
-                    </Button>
+                    </GatedButton>
                     <div className="text-right text-sm space-y-1">
                         <div>
                             <span className="text-muted-foreground">Issuer: </span>
@@ -142,7 +146,10 @@ export function CertificateDetailPage({ certificateId }: CertificateDetailPagePr
                         <p className="text-sm text-muted-foreground">
                             Accounts where this certificate is deployed or discovered (ACM, live).
                         </p>
-                        <Button
+                        <GatedButton
+                            action="update"
+                            subject="Certificate"
+                            data={{ domain: cert.domainName }}
                             variant="outline"
                             size="sm"
                             className="gap-1"
@@ -150,7 +157,7 @@ export function CertificateDetailPage({ certificateId }: CertificateDetailPagePr
                         >
                             <UploadCloud className="h-3.5 w-3.5" />
                             Deploy to Account
-                        </Button>
+                        </GatedButton>
                     </div>
                     <CertificateAccountsTab certificateId={certificateId} />
                 </TabsContent>

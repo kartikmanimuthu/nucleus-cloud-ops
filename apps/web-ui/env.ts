@@ -32,6 +32,15 @@ export const env = createEnv({
         AWS_ACCOUNT_ID: z.string().optional(),
         HUB_ACCOUNT_ID: z.string().optional(),
 
+        // Fargate Spot Guard — the hub event bus customers forward ECS events to.
+        // Injected from the Pulumi output spotGuardBusArn, and baked as the default of
+        // the HubEventBusArn parameter in each customer's onboarding template. Plumbed
+        // from infra rather than reconstructed from parts because appName differs per
+        // stack (nucleus-cloud-ops vs stx-nucleus-ops-sbx), so a hardcoded bus name
+        // would silently be wrong on sbx. Absent on stacks that have not opted in.
+        SPOT_GUARD_BUS_ARN: z.string().optional(),
+        SPOT_GUARD_BUS_NAME: z.string().optional(),
+
         // Auth (NextAuth + Cognito)
         NEXTAUTH_SECRET: z.string().min(1),
         NEXTAUTH_URL: z.string().url().optional(),
@@ -99,6 +108,15 @@ export const env = createEnv({
         // agents, since unattended runs (e.g. AWS auth → cost query → Slack) need
         // more steps. Defaults to 150 when unset.
         AGENT_OPS_MAX_ITERATIONS: z.string().optional(),
+
+        // ChatBotPersona + Triage
+        CHATBOT_PERSONA_ENABLED: z.string().optional(),
+        CHATBOT_PERSONA_CHANNELS: z.string().optional(),
+        CHAT_TRIAGE_ENABLED: z.string().optional(),
+
+        // Run narration checklist — strict allowlist, so unset means no channel
+        // narrates. e.g. "telegram" or "telegram,slack".
+        NARRATION_CHANNELS: z.string().optional(),
     },
 
     /**

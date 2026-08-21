@@ -45,6 +45,40 @@ export const queryKeys = {
         details: () => [...queryKeys.rightSizing.all, 'detail'] as const,
         detail: (id: string) => [...queryKeys.rightSizing.details(), id] as const,
     },
+    scalingAudit: {
+        all: ['scaling-audit'] as const,
+        resources: (filters?: unknown) => [...queryKeys.scalingAudit.all, 'resources', filters ?? {}] as const,
+        events: (filters?: unknown) => [...queryKeys.scalingAudit.all, 'events', filters ?? {}] as const,
+        details: () => [...queryKeys.scalingAudit.all, 'detail'] as const,
+        detail: (id: string) => [...queryKeys.scalingAudit.details(), id] as const,
+        summary: () => [...queryKeys.scalingAudit.all, 'summary'] as const,
+        runs: (filters?: unknown) => [...queryKeys.scalingAudit.all, 'runs', filters ?? {}] as const,
+        coverage: () => [...queryKeys.scalingAudit.all, 'coverage'] as const,
+    },
+    networkLinks: {
+        all: ['network-links'] as const,
+        report: (filters?: unknown) => [...queryKeys.networkLinks.all, 'report', filters ?? {}] as const,
+    },
+    capacityPlanning: {
+        all: ['capacity-planning'] as const,
+        summary: (filters?: unknown) => [...queryKeys.capacityPlanning.all, 'summary', filters ?? {}] as const,
+        breaches: (filters?: unknown) => [...queryKeys.capacityPlanning.all, 'breaches', filters ?? {}] as const,
+        runs: (filters?: unknown) => [...queryKeys.capacityPlanning.all, 'runs', filters ?? {}] as const,
+        resource: (resourceId: string, filters?: unknown) =>
+            [...queryKeys.capacityPlanning.all, 'resource', resourceId, filters ?? {}] as const,
+    },
+    spotGuard: {
+        facets: () => [...queryKeys.spotGuard.all, 'facets'] as const,
+        all: ['spot-guard'] as const,
+        services: (filters?: unknown) => [...queryKeys.spotGuard.all, 'services', filters ?? {}] as const,
+        details: () => [...queryKeys.spotGuard.all, 'detail'] as const,
+        detail: (id: string) => [...queryKeys.spotGuard.details(), id] as const,
+        eligible: (filters?: unknown) => [...queryKeys.spotGuard.all, 'eligible', filters ?? {}] as const,
+        events: (filters?: unknown) => [...queryKeys.spotGuard.all, 'events', filters ?? {}] as const,
+        summary: () => [...queryKeys.spotGuard.all, 'summary'] as const,
+        report: (range?: unknown) => [...queryKeys.spotGuard.all, 'report', range ?? {}] as const,
+        settings: () => [...queryKeys.spotGuard.all, 'settings'] as const,
+    },
     certificates: {
         all: ['certificates'] as const,
         lists: () => [...queryKeys.certificates.all, 'list'] as const,
@@ -104,9 +138,38 @@ export const queryKeys = {
         all: ['threads'] as const,
         lists: () => [...queryKeys.threads.all, 'list'] as const,
     },
+    /**
+     * Per-tenant AI Ops settings — the sub-agent budget and the feature flags.
+     *
+     * `lib/queries/aiops-settings.ts` has referenced this domain since it landed,
+     * but the domain itself was never added here, so `queryKeys.aiopsSettings`
+     * was `undefined` and every render of RunRail (via useAiopsSubagentSettings)
+     * threw `Cannot read properties of undefined (reading 'subagents')` — taking
+     * the whole /app/agent page down with it.
+     */
     aiopsSettings: {
         all: ['aiops-settings'] as const,
         subagents: () => [...queryKeys.aiopsSettings.all, 'subagents'] as const,
+    },
+    /** The caller's own compiled ability. Invalidated by every RBAC mutation. */
+    ability: {
+        all: ['ability'] as const,
+        me: () => [...queryKeys.ability.all, 'me'] as const,
+    },
+    rbac: {
+        all: ['rbac'] as const,
+        registry: () => [...queryKeys.rbac.all, 'registry'] as const,
+        modules: () => [...queryKeys.rbac.all, 'modules'] as const,
+        actions: () => [...queryKeys.rbac.all, 'actions'] as const,
+        subjects: () => [...queryKeys.rbac.all, 'subjects'] as const,
+        roles: () => [...queryKeys.rbac.all, 'roles'] as const,
+        role: (id: string) => [...queryKeys.rbac.roles(), id] as const,
+        routes: () => [...queryKeys.rbac.all, 'routes'] as const,
+        unmapped: () => [...queryKeys.rbac.all, 'unmapped'] as const,
+        denials: (filters?: unknown) => [...queryKeys.rbac.all, 'denials', filters ?? {}] as const,
+        ledger: (filters?: unknown) => [...queryKeys.rbac.all, 'ledger', filters ?? {}] as const,
+        principalAttributes: () => [...queryKeys.rbac.all, 'principal-attrs'] as const,
+        userAttributes: (memberId: string) => [...queryKeys.rbac.all, 'user-attrs', memberId] as const,
     },
     dashboard: {
         all: ['dashboard'] as const,

@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
+import { Gate, GatedDropdownItem } from "@/components/rbac/gated";
 import {
   Table,
   TableBody,
@@ -286,32 +287,54 @@ export function AccountsTable({
                       
                        {/* Quick Actions */}
                       <div className="flex items-center space-x-2 pt-1">
-                        <button
-                          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-7 px-2"
-                          onClick={() => validateConnection(account.id)}
-                          disabled={loadingActions === account.id}
-                          title="Validate Connection"
+                        <Gate
+                          action="validate"
+                          subject="Account"
+                          data={account as unknown as Record<string, unknown>}
                         >
-                          {loadingActions === account.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <CheckCircle className="h-3 w-3" />
+                          {({ allowed, reason }) => (
+                            <button
+                              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-7 px-2"
+                              onClick={() => validateConnection(account.id)}
+                              disabled={loadingActions === account.id || !allowed}
+                              title={allowed ? "Validate Connection" : (reason ?? undefined)}
+                            >
+                              {loadingActions === account.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <CheckCircle className="h-3 w-3" />
+                              )}
+                            </button>
                           )}
-                        </button>
-                        <button
-                          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-7 px-2"
-                          onClick={() => toggleAccountStatus(account)}
-                          disabled={loadingActions === account.id}
-                          title={account.active ? "Deactivate" : "Activate"}
+                        </Gate>
+                        <Gate
+                          action="update"
+                          subject="Account"
+                          data={account as unknown as Record<string, unknown>}
                         >
-                          {loadingActions === account.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : account.active ? (
-                            <PowerOff className="h-3 w-3" />
-                          ) : (
-                            <Power className="h-3 w-3" />
+                          {({ allowed, reason }) => (
+                            <button
+                              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-7 px-2"
+                              onClick={() => toggleAccountStatus(account)}
+                              disabled={loadingActions === account.id || !allowed}
+                              title={
+                                allowed
+                                  ? account.active
+                                    ? "Deactivate"
+                                    : "Activate"
+                                  : (reason ?? undefined)
+                              }
+                            >
+                              {loadingActions === account.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : account.active ? (
+                                <PowerOff className="h-3 w-3" />
+                              ) : (
+                                <Power className="h-3 w-3" />
+                              )}
+                            </button>
                           )}
-                        </button>
+                        </Gate>
                       </div>
                     </div>
                   </TableCell>
@@ -344,27 +367,39 @@ export function AccountsTable({
                           <Eye className="mr-2 h-4 w-4" />
                           View Details
                         </DropdownMenuItem>
-                        <DropdownMenuItem
+                        {/* F-1: these three were reachable by a Viewer. The row
+                            is passed so a conditional grant ("only your assigned
+                            accounts") decides per account. */}
+                        <GatedDropdownItem
+                          action="update"
+                          subject="Account"
+                          data={account as unknown as Record<string, unknown>}
                           onClick={() =>
                             router.push(`/app/accounts/${account.id}/edit`)
                           }
                         >
                           <Edit className="mr-2 h-4 w-4" />
                           Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
+                        </GatedDropdownItem>
+                        <GatedDropdownItem
+                          action="validate"
+                          subject="Account"
+                          data={account as unknown as Record<string, unknown>}
                           onClick={() => validateConnection(account.id)}
                         >
                           <RefreshCw className="mr-2 h-4 w-4" />
                           Validate Connection
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
+                        </GatedDropdownItem>
+                        <GatedDropdownItem
+                          action="delete"
+                          subject="Account"
+                          data={account as unknown as Record<string, unknown>}
                           onClick={() => setDeletingAccount(account)}
                           className="text-destructive"
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           Delete
-                        </DropdownMenuItem>
+                        </GatedDropdownItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

@@ -1,5 +1,6 @@
 import type { MemoryCategory } from '@/lib/agent-memory/category';
 import type { MemoryKind } from '@/lib/agent/memory/types';
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
 
 export interface AgentMemoryRecord {
     id: string;
@@ -37,6 +38,13 @@ export interface AgentMemoryFilters {
     /** Sort column; defaults to most-recently-updated first when omitted. */
     sortBy?: AgentMemorySortField;
     sortDir?: SortDirection;
+    /**
+     * Gate 3 (RBAC row filtering): a Prisma `where` fragment restricting the
+     * result to the rows the caller may read. Built by
+     * getReadRowFilter() in lib/rbac/row-filter.ts and INTERSECTED with the
+     * query below via andWhere() — never merged over it.
+     */
+    rowFilter?: PrismaRowFilter | null;
 }
 
 export interface AgentMemoryPage {

@@ -14,6 +14,15 @@ phases:
       - cd infra/compute && bun install && pulumi install && cd ../..
   build:
     commands:
+      # Layer 1 coverage gate: every HTTP handler must declare the permission it
+      # requires (`export const authz`) or hold a justified allowlist entry, and
+      # the committed route manifest must be current.
+      #
+      # ENFORCING as of Workstream D: all 215 handlers are accounted for
+      # (15 allowlisted + 103 declared + 97 inferred), so an undeclared endpoint
+      # now fails the build. That is the whole point of default-deny — coverage
+      # stops being a discipline problem and becomes a compile error.
+      - bun run rbac:check
       # Nx task graph: build + test across all projects (web-ui, workers)
       - bun run build
       - bun run test

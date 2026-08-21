@@ -2,6 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuditService } from '@/lib/audit-service';
 import { getSessionTenantId } from '@/lib/auth-session';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'AuditLog' },
+};
 
 export async function GET(
     request: NextRequest,

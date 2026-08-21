@@ -3,7 +3,17 @@
  *
  * GET /api/agent-ops/settings/slack — Returns Slack config (secrets masked)
  * DELETE /api/agent-ops/settings/slack — Resets (deletes) the stored config
- * PUT /api/agent-ops/settings/slack — Validates and saves Slack config to PostgreSQL
+ * POST /api/agent-ops/settings/slack — Creates the config (first-time connect)
+ * PUT /api/agent-ops/settings/slack — Updates the existing config
+ *
+ * POST and PUT share one handler but are NOT interchangeable: POST refuses when a
+ * config already exists, PUT refuses when one does not. That split is what makes
+ * `create` and `update` mean different things here. Layer 1 resolves a single
+ * (action, subject) per method from the manifest and cannot branch on runtime
+ * state, so "create a connection" and "edit a connection" have to be two methods
+ * for the two permissions to be separable at all — a role holding only `create`
+ * can connect Slack but not edit it afterwards, and a role holding only `update`
+ * can toggle or re-key an existing connection but never establish one.
  */
 
 import { NextResponse } from 'next/server';
@@ -14,6 +24,29 @@ import { authorize } from '@/lib/rbac/authorize';
 import { getSlackWorkspaceLinkRepository } from '@/lib/db/repository-factory';
 import { SlackWorkspaceLinkConflictError } from '@/lib/db/repositories/slack-workspace-link/interface';
 import type { SlackIntegrationConfig } from '@/lib/agent-ops/types';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/**
+ * Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set.
+ *
+ * Subject is 'Channel' (→ AIOps), not 'Settings'. See SUBJECT_TO_MODULE in
+ * lib/rbac/types.ts for why the move happened.
+ *
+ * GET is `read`, and it used to be `update` by accident. It carried no `authz`
+ * entry, so rbac-sync inferred one from the first `authorize()` call in the
+ * body — which was the gate on the old `?reveal=1` secret branch. That leaked
+ * outward and made simply *loading* the Channels page demand write access: a
+ * user without it got a 403 on every status fetch, which the client degrades to
+ * `{ configured: false }`, so a live Slack connection rendered as "Not
+ * configured". Reveal now lives at GET /reveal with its own `update`
+ * declaration, so nothing in this handler needs a stricter gate than the method.
+ */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Channel' },
+    POST: { action: 'create', subject: 'Channel' },
+    PUT: { action: 'update', subject: 'Channel' },
+    DELETE: { action: 'delete', subject: 'Channel' },
+};
 
 const CONFIG_KEY = 'agent-ops-slack';
 
@@ -54,7 +87,7 @@ function maskSecret(value: string | undefined): string {
     return value.slice(0, 4) + '****' + value.slice(-4);
 }
 
-export async function GET(req: Request) {
+export async function GET() {
     try {
         const tenantId = await getSessionTenantId();
         const config = await TenantConfigService.getConfig<SlackIntegrationConfig>(CONFIG_KEY, tenantId);
@@ -63,42 +96,15 @@ export async function GET(req: Request) {
             return NextResponse.json({ configured: false, enabled: false });
         }
 
-        // Plaintext secrets are only returned when explicitly revealed by the
-        // authenticated tenant admin (eye toggle), never on the default load.
-        const reveal = new URL(req.url).searchParams.get('reveal') === '1';
-
-        if (reveal) {
-            const authError = await authorize('update', 'Agent');
-            if (authError) return authError;
-        }
-
-        const show = (value: string | undefined) => (reveal ? value ?? '' : maskSecret(value));
+        // Always masked. Plaintext lives behind GET /reveal, which requires
+        // `update` and audits — see lib/channels/secret-reveal.ts.
         const link = await getSlackWorkspaceLinkRepository().getLinkForTenant(tenantId);
-
-        if (reveal) {
-            const session = await getAuthSession();
-            AuditService.logUserAction({
-                eventType: 'agent.settings.slack_secret_reveal',
-                severity: 'high',
-                apiRoute: 'GET /api/agent-ops/settings/slack',
-                httpMethod: 'GET',
-                action: 'channel_secret_reveal',
-                resourceType: 'agent',
-                resourceId: 'slack-integration',
-                resourceName: 'Slack Integration',
-                user: session?.user?.email || 'unknown',
-                userType: 'user',
-                status: 'success',
-                details: 'Revealed plaintext Slack integration secrets',
-                metadata: { tenantId },
-            }).catch(() => {});
-        }
 
         return NextResponse.json({
             configured: true,
             enabled: config.enabled,
-            signingSecret: show(config.signingSecret),
-            botToken: show(config.botToken),
+            signingSecret: maskSecret(config.signingSecret),
+            botToken: maskSecret(config.botToken),
             teamId: link?.teamId ?? null,
         });
     } catch (error: any) {
@@ -110,7 +116,17 @@ export async function GET(req: Request) {
     }
 }
 
+/** First-time connect. 409s if Slack is already configured — that is PUT's job. */
+export async function POST(req: Request) {
+    return handleSave(req, 'create');
+}
+
+/** Edit an existing connection (credentials, workspace id, enable toggle). */
 export async function PUT(req: Request) {
+    return handleSave(req, 'update');
+}
+
+async function handleSave(req: Request, mode: 'create' | 'update') {
     try {
         const tenantId = await getSessionTenantId();
         const body = await req.json() as Partial<SlackIntegrationConfig> & { teamId?: string };
@@ -119,6 +135,24 @@ export async function PUT(req: Request) {
         // stored config so blank secret fields retain what's already saved rather
         // than wiping it.
         const existing = await TenantConfigService.getConfig<SlackIntegrationConfig>(CONFIG_KEY, tenantId);
+
+        // The create/update boundary. Layer 1 has already checked the permission
+        // for the method; this enforces that the method matches reality, so an
+        // update-only role cannot reach the create path by sending PUT at an
+        // unconfigured channel (which the old single-PUT handler treated as a
+        // create), and a create-only role cannot edit by sending POST.
+        if (mode === 'create' && existing) {
+            return NextResponse.json(
+                { error: 'Slack is already configured — use PUT to update the existing connection' },
+                { status: 409 }
+            );
+        }
+        if (mode === 'update' && !existing) {
+            return NextResponse.json(
+                { error: 'Slack is not configured yet — use POST to create the connection' },
+                { status: 404 }
+            );
+        }
 
         const signingSecret = body.signingSecret?.trim() || existing?.signingSecret;
         if (!signingSecret) {
@@ -198,20 +232,23 @@ export async function PUT(req: Request) {
 
         console.log('[API /agent-ops/settings/slack] Saved Slack config, linked team:', teamId);
 
+        const created = mode === 'create';
         const session = await getAuthSession();
         AuditService.logUserAction({
-            eventType: 'agent.settings.slack_updated',
+            eventType: created ? 'agent.settings.slack_created' : 'agent.settings.slack_updated',
             severity: 'medium',
-            apiRoute: 'PUT /api/agent-ops/settings/slack',
-            httpMethod: 'PUT',
-            action: 'Updated Slack Settings',
+            apiRoute: `${created ? 'POST' : 'PUT'} /api/agent-ops/settings/slack`,
+            httpMethod: created ? 'POST' : 'PUT',
+            action: created ? 'Connected Slack' : 'Updated Slack Settings',
             resourceType: 'agent',
             resourceId: 'slack-integration',
             resourceName: 'Slack Integration',
             user: session?.user?.email || 'unknown',
             userType: 'user',
             status: 'success',
-            details: 'Updated Slack integration settings',
+            details: created
+                ? 'Created the Slack integration connection'
+                : 'Updated Slack integration settings',
             metadata: { tenantId },
         }).catch(() => {});
 
@@ -224,7 +261,7 @@ export async function PUT(req: Request) {
             teamId,
         });
     } catch (error: any) {
-        console.error('[API /agent-ops/settings/slack] PUT error:', error);
+        console.error(`[API /agent-ops/settings/slack] ${mode} error:`, error);
         return NextResponse.json(
             { error: error.message || 'Failed to save Slack settings' },
             { status: 500 }
@@ -245,7 +282,7 @@ export async function PUT(req: Request) {
  */
 export async function DELETE() {
     try {
-        const authError = await authorize('delete', 'Agent');
+        const authError = await authorize('delete', 'Channel');
         if (authError) return authError;
 
         const tenantId = await getSessionTenantId();

@@ -56,6 +56,7 @@ import { Badge } from "@/components/ui/badge";
 import { Clock, Calendar, Save, Loader2, Server, RefreshCw, Check, ChevronsUpDown } from "lucide-react";
 import { ClientScheduleService } from "@/lib/client-schedule-service";
 import { ClientAccountService } from "@/lib/client-account-service";
+import { useAccountOptions } from "@/lib/queries/accounts";
 import { UIAccount, Schedule, UISchedule } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -107,7 +108,13 @@ interface ScheduleFormProps {
 export function ScheduleForm({ initialData, isEditing = false }: ScheduleFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [accounts, setAccounts] = useState<UIAccount[]>([]);
+  // A role can hold `create Schedules` without `read Accounts`; the gated hook
+  // then reports the denial instead of requesting a forbidden list.
+  const { accounts, denied: accountsDenied } = useAccountOptions({
+    statusFilter: 'active',
+    connectionFilter: 'connected',
+    limit: 1000,
+  });
   const [isScanning, setIsScanning] = useState(false);
   const [scanResults, setScanResults] = useState<{
     ec2: Array<{ id: string, name: string, type: 'ec2', arn: string }>;
@@ -135,19 +142,6 @@ export function ScheduleForm({ initialData, isEditing = false }: ScheduleFormPro
 
   const selectedAccountId = form.watch("accountId");
   const selectedResources = form.watch("resources") || [];
-
-  useEffect(() => {
-    // Fetch accounts on mount
-    const fetchAccounts = async () => {
-      try {
-        const result = await ClientAccountService.getAccounts({ statusFilter: 'active', connectionFilter: 'connected', limit: 1000 });
-        setAccounts(result.accounts);
-      } catch (error) {
-        console.error("Failed to fetch accounts:", error);
-      }
-    };
-    fetchAccounts();
-  }, []);
 
   // When editing, if we have an account ID and resources but no scan results yet, trigger a silent scan to populate the grid options
   useEffect(() => {
@@ -313,7 +307,7 @@ export function ScheduleForm({ initialData, isEditing = false }: ScheduleFormPro
                       <Command>
                         <CommandInput placeholder="Search account..." />
                         <CommandList>
-                          <CommandEmpty>No account found.</CommandEmpty>
+                          <CommandEmpty>{accountsDenied ?? "No account found."}</CommandEmpty>
                           <CommandGroup>
                             {accounts.map((account) => (
                               <CommandItem

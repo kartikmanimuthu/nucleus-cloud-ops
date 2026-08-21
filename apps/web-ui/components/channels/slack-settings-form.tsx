@@ -6,6 +6,7 @@ import { useChannelSettings, useSaveChannelSettings, revealChannelSecrets } from
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, PlugZap, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { GatedButton } from '@/components/rbac/gated';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -264,7 +265,14 @@ function SlackSettingsFormInner({
                                 onChange={e => setForm(prev => ({ ...prev, signingSecret: e.target.value }))}
                                 className="pr-10 font-mono"
                             />
-                            <Button
+                            {/*
+                              * Revealing a stored secret hits GET ?reveal=1, which the route
+                              * guards with `update` (and audits at high severity) — so the eye
+                              * needs the same permission, not merely `read`.
+                              */}
+                            <GatedButton
+                                action="update"
+                                subject="Channel"
                                 type="button"
                                 variant="ghost"
                                 size="icon"
@@ -275,7 +283,7 @@ function SlackSettingsFormInner({
                                 }}
                             >
                                 {showSigningSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                            </Button>
+                            </GatedButton>
                         </div>
                         <p className="text-xs text-muted-foreground">
                             Verifies that incoming requests really come from Slack. Found in your Slack app under{' '}
@@ -297,7 +305,9 @@ function SlackSettingsFormInner({
                                 onChange={e => setForm(prev => ({ ...prev, botToken: e.target.value }))}
                                 className="pr-10 font-mono"
                             />
-                            <Button
+                            <GatedButton
+                                action="update"
+                                subject="Channel"
                                 type="button"
                                 variant="ghost"
                                 size="icon"
@@ -308,7 +318,7 @@ function SlackSettingsFormInner({
                                 }}
                             >
                                 {showBotToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                            </Button>
+                            </GatedButton>
                         </div>
                         <p className="text-xs text-muted-foreground">
                             Needed to post run results, scheduled-task digests, and approval buttons back to Slack
@@ -366,7 +376,15 @@ function SlackSettingsFormInner({
 
                     {/* Actions */}
                     <div className="flex items-center gap-2">
-                        <Button
+                        {/*
+                          * Save asks for `create` on an unconfigured channel and `update`
+                          * on a configured one, mirroring the POST/PUT split the mutation
+                          * picks between — so the control is live exactly when the request
+                          * it sends would be allowed.
+                          */}
+                        <GatedButton
+                            action={configured ? 'update' : 'create'}
+                            subject="Channel"
                             onClick={handleSave}
                             disabled={saving || testing}
                             className={saveStatus === 'saved' ? 'bg-green-600 hover:bg-green-700' : ''}
@@ -379,8 +397,10 @@ function SlackSettingsFormInner({
                                 <Save className="h-4 w-4 mr-2" />
                             )}
                             {saveStatus === 'saved' ? 'Saved' : 'Save Settings'}
-                        </Button>
-                        <Button
+                        </GatedButton>
+                        <GatedButton
+                            action="update"
+                            subject="Channel"
                             variant="outline"
                             onClick={handleTestConnection}
                             disabled={saving || testing || (!configured && !form.botToken.trim())}
@@ -391,7 +411,7 @@ function SlackSettingsFormInner({
                                 <PlugZap className="h-4 w-4 mr-2" />
                             )}
                             Test Connection
-                        </Button>
+                        </GatedButton>
                     </div>
                     <p className="text-xs text-muted-foreground">
                         Test Connection verifies the Bot Token against Slack&apos;s{' '}

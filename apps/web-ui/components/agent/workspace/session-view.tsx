@@ -29,6 +29,7 @@ import { Transcript } from "./transcript";
 import { EmptyState } from "./empty-state";
 import { TranscriptHeader, type TranscriptMenuAction } from "./transcript-header";
 import { RunRail } from "@/components/agent/chat/run-rail";
+import { useDenialReason } from "@/hooks/use-can";
 import { Composer } from "./composer";
 import { useSessionPickers } from "./use-session-pickers";
 import type { SessionStatus } from "./session-sidebar";
@@ -68,6 +69,10 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
   // process rows (tools/thinking/narration) tucked behind the "Show work (N
   // steps)" button until the user opts in.
   const [showWork, setShowWork] = useState(false);
+
+  // Null when the user may run the agent; otherwise the reason to show them.
+  // Sending a message CREATES an agent run, so `create` is the right verb.
+  const agentDenialReason = useDenialReason("create", "Agent");
 
   // ── Right rail open pref (lg+ only) ─────────────────────────────────────────
   const [railOpen, setRailOpen] = useState(true);
@@ -298,6 +303,7 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
             isStreaming={isStreaming}
             elapsedMs={elapsedMs}
             onMenuAction={handleMenuAction}
+            isDeep={pickers.agentMode === "deep"}
           />
         </div>
         <button
@@ -364,6 +370,12 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
                 onAutoLoadSkillsChange={pickers.setAutoLoadSkills}
                 onEnhance={handleEnhancePrompt}
                 isEnhancing={isEnhancing}
+                // Gated here rather than inside Composer: Composer is
+                // presentational and its tests render it bare, where a hook
+                // would find no provider, fall back to the empty ability and
+                // disable the whole thing. The session owns the permission.
+                disabled={agentDenialReason !== null}
+                disabledReason={agentDenialReason ?? undefined}
               />
             </div>
           </div>
@@ -378,7 +390,7 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
           )}
         >
           <div className="h-full w-72 xl:w-80">
-            <RunRail runState={runState} isStreaming={isStreaming} context={pickers.railContext} threadId={threadId} />
+            <RunRail runState={runState} isStreaming={isStreaming} context={pickers.railContext} threadId={threadId} isDeep={pickers.agentMode === "deep"} />
           </div>
         </div>
       </div>

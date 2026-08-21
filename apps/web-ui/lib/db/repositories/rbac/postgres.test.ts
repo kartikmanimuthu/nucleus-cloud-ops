@@ -14,6 +14,10 @@ type MockUserTenantRole = {
     upsert: MockedFunction<(...args: unknown[]) => unknown>;
 };
 
+type MockCustomRole = {
+    findFirst: MockedFunction<(...args: unknown[]) => unknown>;
+};
+
 const makeRoleRecord = (overrides: Partial<{
     userId: string;
     tenantId: string;
@@ -34,6 +38,7 @@ const makeRoleRecord = (overrides: Partial<{
 describe('RbacPostgresRepository', () => {
     let repo: RbacPostgresRepository;
     let mockUserTenantRole: MockUserTenantRole;
+    let mockCustomRole: MockCustomRole;
 
     beforeEach(() => {
         mockUserTenantRole = {
@@ -41,7 +46,15 @@ describe('RbacPostgresRepository', () => {
             findMany: vi.fn(),
             upsert: vi.fn(),
         };
-        vi.mocked(getPrismaClient).mockReturnValue({ userTenantRole: mockUserTenantRole } as never);
+        // assignUserRole resolves the CustomRole row so it can populate the
+        // UserTenantRole.roleId FK the CASL rule compiler reads from.
+        mockCustomRole = {
+            findFirst: vi.fn().mockResolvedValue(null),
+        };
+        vi.mocked(getPrismaClient).mockReturnValue({
+            userTenantRole: mockUserTenantRole,
+            customRole: mockCustomRole,
+        } as never);
         repo = new RbacPostgresRepository();
     });
 
@@ -133,6 +146,37 @@ describe('RbacPostgresRepository', () => {
             await expect(
                 repo.assignUserRole('user-2', 'u2@example.com', 'tenant-2', 'viewer', 'assigner@example.com')
             ).resolves.toBeUndefined();
+        });
+
+        it('resolves the CustomRole for the tenant and threads its id into roleId', async () => {
+            mockCustomRole.findFirst.mockResolvedValueOnce({ id: 'role-abc' });
+            mockUserTenantRole.upsert.mockResolvedValueOnce({});
+
+            await repo.assignUserRole('user-3', 'u3@example.com', 'tenant-3', 'admin', 'assigner@example.com');
+
+            expect(mockCustomRole.findFirst).toHaveBeenCalledWith({
+                where: { tenantId: 'tenant-3', name: 'admin' },
+            });
+            expect(mockUserTenantRole.upsert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    create: expect.objectContaining({ roleId: 'role-abc' }),
+                    update: expect.objectContaining({ roleId: 'role-abc' }),
+                })
+            );
+        });
+
+        it('writes roleId null when no CustomRole matches the role name', async () => {
+            mockCustomRole.findFirst.mockResolvedValueOnce(null);
+            mockUserTenantRole.upsert.mockResolvedValueOnce({});
+
+            await repo.assignUserRole('user-4', 'u4@example.com', 'tenant-4', 'viewer', 'assigner@example.com');
+
+            expect(mockUserTenantRole.upsert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    create: expect.objectContaining({ roleId: null }),
+                    update: expect.objectContaining({ roleId: null }),
+                })
+            );
         });
     });
 

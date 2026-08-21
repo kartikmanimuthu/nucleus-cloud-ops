@@ -2,6 +2,8 @@
 
 import { Bot, ClipboardList, DollarSign, Server, Zap } from "lucide-react";
 
+import { Gate } from "@/components/rbac/gated";
+
 const SUGGESTIONS: Array<{ icon: React.ElementType; title: string; prompt: string }> = [
   {
     icon: Server,
@@ -52,29 +54,59 @@ export function EmptyState({ onSuggestion }: { onSuggestion: (prompt: string) =>
           </p>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2">
-          {SUGGESTIONS.map((s) => (
-            <button
-              key={s.title}
-              type="button"
-              onClick={() => onSuggestion(s.prompt)}
-              data-testid="empty-state-suggestion"
-              className="group flex items-start gap-2.5 rounded-lg border bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
-            >
-              <s.icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium leading-tight">{s.title}</span>
-                <span className="mt-1 block text-xs leading-snug text-muted-foreground line-clamp-2">
-                  {s.prompt}
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
+        {/**
+         * One Gate around the whole grid rather than one per card: all four ask
+         * the identical question, so a single hook call answers it and each card
+         * applies the result. `Gate` (render-prop) instead of GatedButton because
+         * these are hand-rolled buttons — routing them through the Button
+         * primitive would silently restyle the cards.
+         *
+         * Running a suggestion posts to /api/chat, which declares `create Agent`.
+         * The cards only PREFILL the composer, and the composer is already
+         * disabled for a denied caller — but a card that highlights on hover and
+         * accepts a click while nothing can come of it reads as a broken app.
+         */}
+        <Gate action="create" subject="Agent">
+          {({ allowed, reason }) => (
+            <>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s.title}
+                    type="button"
+                    disabled={!allowed}
+                    title={allowed ? undefined : (reason ?? undefined)}
+                    onClick={allowed ? () => onSuggestion(s.prompt) : undefined}
+                    data-testid="empty-state-suggestion"
+                    className={
+                      "group flex items-start gap-2.5 rounded-lg border bg-card p-3 text-left transition-colors " +
+                      (allowed
+                        ? "hover:border-primary/40 hover:bg-muted/40"
+                        : // No hover affordance, and the cursor says why. Kept on the
+                          // button itself (not a wrapper) because these carry no
+                          // `disabled:pointer-events-none`, so hover still reaches them.
+                          "cursor-not-allowed opacity-60")
+                    }
+                  >
+                    <s.icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium leading-tight">{s.title}</span>
+                      <span className="mt-1 block text-xs leading-snug text-muted-foreground line-clamp-2">
+                        {s.prompt}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
 
-        <p className="text-xs text-muted-foreground">
-          Pick accounts, model, mode, and skill in the composer below — or just start typing.
-        </p>
+              <p className="text-xs text-muted-foreground">
+                {allowed
+                  ? "Pick accounts, model, mode, and skill in the composer below — or just start typing."
+                  : (reason ?? "You do not have permission to run the agent.")}
+              </p>
+            </>
+          )}
+        </Gate>
       </div>
     </div>
   );

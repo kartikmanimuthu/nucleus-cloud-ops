@@ -1,8 +1,54 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { createMongoAbility } from '@casl/ability';
+import { AbilityProvider as CaslAbilityProvider } from '@casl/react';
+import type { AppAbility } from '@nucleus/rbac';
 import { SessionSidebar } from '../session-sidebar';
+import { AbilityMetaContext, type AbilityMeta } from '@/providers/ability-provider';
 import type { Thread } from '@/lib/queries/threads';
+
+/**
+ * The write controls in this sidebar are permission-gated, so these tests must
+ * supply an ability — without a provider the hooks deny everything and every
+ * click assertion fails for the wrong reason.
+ *
+ * `create Agent` / `delete Agent` are the real compiled subjects: POST /api/chat,
+ * POST /api/threads and DELETE /api/threads/:id all declare subject `Agent`, not
+ * the module key `AIOps`. Granting the module key here would make these tests
+ * pass against an implementation that is wrong in production.
+ */
+const AGENT_WRITER = createMongoAbility([
+  { action: 'read', subject: 'Agent' },
+  { action: 'create', subject: 'Agent' },
+  { action: 'delete', subject: 'Agent' },
+]) as AppAbility;
+
+const AGENT_READER = createMongoAbility([{ action: 'read', subject: 'Agent' }]) as AppAbility;
+
+function renderSidebar(
+  props: React.ComponentProps<typeof SessionSidebar>,
+  ability: AppAbility = AGENT_WRITER,
+) {
+  const meta: AbilityMeta = {
+    modules: [{ key: 'AIOps', label: 'AI Ops', icon: null, navPath: '/app/agent', sortOrder: 40 }],
+    actions: [],
+    subjects: [{ key: 'Agent', label: 'Agent', kind: 'capability', moduleKey: 'AIOps' }],
+    // Required on AbilityMeta since the grantable cells began riding along with
+    // the ability payload. Empty: these tests are not about the role grid.
+    moduleActions: [],
+    actionAliases: {},
+    version: '1.1',
+    isLoaded: true,
+  };
+  return render(
+    <CaslAbilityProvider value={ability}>
+      <AbilityMetaContext.Provider value={meta}>
+        <SessionSidebar {...props} />
+      </AbilityMetaContext.Provider>
+    </CaslAbilityProvider>,
+  );
+}
 
 const mutateMock = vi.fn();
 const useThreadsMock = vi.fn();
@@ -52,7 +98,7 @@ describe('SessionSidebar', () => {
     ];
     useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
 
-    render(<SessionSidebar {...baseProps()} />);
+    renderSidebar(baseProps());
 
     expect(screen.getByText('Today')).toBeTruthy();
     expect(screen.getByText('Yesterday')).toBeTruthy();
@@ -67,7 +113,7 @@ describe('SessionSidebar', () => {
     useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
     const statuses = new Map<string, 'streaming' | 'attention' | 'idle'>([['streaming-1', 'streaming']]);
 
-    render(<SessionSidebar {...baseProps()} statuses={statuses} />);
+    renderSidebar({ ...baseProps(), statuses });
 
     expect(screen.getByTestId('status-streaming')).toBeTruthy();
   });
@@ -77,7 +123,7 @@ describe('SessionSidebar', () => {
     useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
     const statuses = new Map<string, 'streaming' | 'attention' | 'idle'>([['attn-1', 'attention']]);
 
-    render(<SessionSidebar {...baseProps()} statuses={statuses} />);
+    renderSidebar({ ...baseProps(), statuses });
 
     expect(screen.getByTestId('status-attention')).toBeTruthy();
   });
@@ -86,7 +132,7 @@ describe('SessionSidebar', () => {
     const threads: Thread[] = [makeThread({ id: 'idle-1', title: 'Idle session' })];
     useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
 
-    render(<SessionSidebar {...baseProps()} />);
+    renderSidebar(baseProps());
 
     expect(screen.queryByTestId('status-streaming')).toBeNull();
     expect(screen.queryByTestId('status-attention')).toBeNull();
@@ -99,7 +145,7 @@ describe('SessionSidebar', () => {
     ];
     useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
 
-    render(<SessionSidebar {...baseProps()} />);
+    renderSidebar(baseProps());
 
     const search = screen.getByPlaceholderText(/search/i);
     fireEvent.change(search, { target: { value: 'deploy' } });
@@ -113,7 +159,7 @@ describe('SessionSidebar', () => {
     useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
     const props = baseProps();
 
-    render(<SessionSidebar {...props} />);
+    renderSidebar(props);
     fireEvent.click(screen.getByText('Click me'));
 
     expect(props.onSelect).toHaveBeenCalledWith('clickable', undefined);
@@ -123,7 +169,7 @@ describe('SessionSidebar', () => {
     useThreadsMock.mockReturnValue({ data: [], isLoading: false });
     const props = baseProps();
 
-    render(<SessionSidebar {...props} />);
+    renderSidebar(props);
     fireEvent.click(screen.getByRole('button', { name: /new chat/i }));
 
     expect(props.onNew).toHaveBeenCalled();
@@ -133,7 +179,7 @@ describe('SessionSidebar', () => {
     const threads: Thread[] = [makeThread({ id: 'active-1', title: 'Active session' })];
     useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
 
-    render(<SessionSidebar {...baseProps()} activeId="active-1" />);
+    renderSidebar({ ...baseProps(), activeId: "active-1" });
 
     const row = screen.getByText('Active session').closest('[data-testid="session-row"]');
     expect(row?.className).toContain('bg-muted');
@@ -143,7 +189,7 @@ describe('SessionSidebar', () => {
     const threads: Thread[] = [makeThread({ id: 'hidden-1', title: 'Hidden title' })];
     useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
 
-    render(<SessionSidebar {...baseProps()} collapsed />);
+    renderSidebar({ ...baseProps(), collapsed: true });
 
     expect(screen.queryByText('Hidden title')).toBeNull();
     expect(screen.queryByPlaceholderText(/search/i)).toBeNull();
@@ -153,7 +199,7 @@ describe('SessionSidebar', () => {
     useThreadsMock.mockReturnValue({ data: [], isLoading: false });
     const props = baseProps();
 
-    render(<SessionSidebar {...props} />);
+    renderSidebar(props);
     fireEvent.click(screen.getByTestId('sidebar-collapse-toggle'));
 
     expect(props.onToggleCollapse).toHaveBeenCalled();
@@ -163,7 +209,7 @@ describe('SessionSidebar', () => {
     useThreadsMock.mockReturnValue({ data: [], isLoading: false });
     const props = baseProps();
 
-    render(<SessionSidebar {...props} pendingSessions={['pending-1']} />);
+    renderSidebar({ ...props, pendingSessions: ['pending-1'] });
 
     const pendingRow = screen.getByTestId('session-row-pending');
     expect(pendingRow).toBeTruthy();
@@ -175,10 +221,65 @@ describe('SessionSidebar', () => {
     const threads: Thread[] = [makeThread({ id: 'pending-1', title: 'Now persisted' })];
     useThreadsMock.mockReturnValue({ data: threads, isLoading: false });
 
-    render(<SessionSidebar {...baseProps()} pendingSessions={['pending-1']} />);
+    renderSidebar({ ...baseProps(), pendingSessions: ['pending-1'] });
 
     // No ephemeral row — the persisted thread row is the single source now.
     expect(screen.queryByTestId('session-row-pending')).toBeNull();
     expect(screen.getByText('Now persisted')).toBeTruthy();
+  });
+
+  /**
+   * A read-only role could start a new chat: the button was ungated, so the click
+   * opened a session that then failed at POST /api/chat. Reading history is the
+   * whole of what `read Agent` grants; creating and deleting are separate verbs
+   * and must be separately visible as unavailable.
+   */
+  describe('read-only role', () => {
+    it('disables "New chat" instead of letting the click through', () => {
+      useThreadsMock.mockReturnValue({ data: [], isLoading: false });
+      const props = baseProps();
+
+      renderSidebar(props, AGENT_READER);
+
+      const button = screen.getByRole('button', { name: /new chat/i }) as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+
+      fireEvent.click(button);
+      expect(props.onNew).not.toHaveBeenCalled();
+    });
+
+    it('disables the per-session delete control', () => {
+      useThreadsMock.mockReturnValue({ data: [makeThread({ id: 'keep-me' })], isLoading: false });
+
+      renderSidebar(baseProps(), AGENT_READER);
+
+      const del = screen.getByRole('button', { name: /delete session/i }) as HTMLButtonElement;
+      expect(del.disabled).toBe(true);
+
+      fireEvent.click(del);
+      expect(mutateMock).not.toHaveBeenCalled();
+    });
+
+    it('still lists existing sessions — read access is unaffected', () => {
+      useThreadsMock.mockReturnValue({
+        data: [makeThread({ id: 'past', title: 'Previous conversation' })],
+        isLoading: false,
+      });
+
+      renderSidebar(baseProps(), AGENT_READER);
+
+      expect(screen.getByText('Previous conversation')).toBeTruthy();
+    });
+
+    it('a writer role keeps both controls live — the negative half of the pair', () => {
+      useThreadsMock.mockReturnValue({ data: [makeThread({ id: 'x' })], isLoading: false });
+      const props = baseProps();
+
+      renderSidebar(props);
+
+      expect((screen.getByRole('button', { name: /new chat/i }) as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.click(screen.getByRole('button', { name: /new chat/i }));
+      expect(props.onNew).toHaveBeenCalled();
+    });
   });
 });

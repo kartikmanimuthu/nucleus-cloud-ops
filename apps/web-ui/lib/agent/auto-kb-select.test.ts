@@ -88,3 +88,15 @@ describe('resolveKnowledgeBaseIds', () => {
         expect(ids).toEqual(['kb-runbooks']);
     });
 });
+
+// Both of these failed silently on every turn of a real deep thread — caught and
+// logged as "non-fatal", so no KB was ever selected and nobody could tell.
+describe('autoSelectKb — malformed input and empty messages', () => {
+    it('skips the model call entirely when there is no user text', async () => {
+        // A resume turn carries a Command, not a message. Calling the model with an
+        // empty HumanMessage throws "'human' must contain non-empty content".
+        const result = await autoSelectKb({ tenantId: 't1', message: '   ', model: {} as never });
+        expect(result).toEqual({ kbIds: [], reasoning: '' });
+    });
+});
+

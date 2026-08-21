@@ -37,6 +37,34 @@ export interface AccountMetadata {
     description?: string;
     connectionStatus?: 'connected' | 'error' | 'warning' | 'validating' | 'unknown';
     connectionError?: string;
+
+    // ── Fargate Spot Guard ────────────────────────────────────────────────────
+    /** Customer deployed their onboarding stack with EnableSpotAutomation=true. */
+    spotAutomationEnabled?: boolean;
+    /**
+     * Whether the customer-side EventBridge forwarding rule is actually in place.
+     *
+     * Deliberately SEPARATE from connectionStatus. That field has two independent
+     * writers — web-ui validateAccount and the workers discovery job, which derives it
+     * from lastSyncStatus — so any Spot value written there would be clobbered by the
+     * next nightly discovery scan. It is also semantically wrong: a customer who has
+     * not opted in does not have a broken connection and must not show as an error.
+     *
+     *   not_configured — flag off, or never probed
+     *   pending        — flag on but the forwarding rule is missing/disabled
+     *   ready          — rule exists, ENABLED, and targets our bus
+     *   error          — probe failed for some other reason
+     */
+    spotAutomationStatus?: 'not_configured' | 'pending' | 'ready' | 'error';
+    spotAutomationCheckedAt?: string;
+    spotAutomationError?: string;
+    /** Onboarding template version deployed, read from the role's tags. */
+    templateVersion?: number;
+
+    // ── Scaling Audit ───────────────────────────────────────────────────────────
+    /** Per-account opt-in for the daily scaling-audit poll (mirrors spotAutomationEnabled). */
+    scalingAuditEnabled?: boolean;
+
     lastValidated?: string;
     resourceCount?: number;
     schedulesCount?: number;

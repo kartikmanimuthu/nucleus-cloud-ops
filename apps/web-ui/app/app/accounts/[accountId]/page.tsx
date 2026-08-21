@@ -437,6 +437,21 @@ export default function AccountDetailPage({ params }: AccountDetailPageProps) {
                       </Badge>
                     </div>
                     <div className="flex justify-between">
+                      <span className="text-muted-foreground">Features:</span>
+                      {account.scalingAuditEnabled || account.spotAutomationEnabled ? (
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {account.scalingAuditEnabled && (
+                            <Badge variant="outline">Scale Sentinel</Badge>
+                          )}
+                          {account.spotAutomationEnabled && (
+                            <Badge variant="outline">Spot Guard</Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">None</span>
+                      )}
+                    </div>
+                    <div className="flex justify-between">
                       <span className="text-muted-foreground">
                         Description:
                       </span>

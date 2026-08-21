@@ -372,7 +372,7 @@ export function ProviderWizard({
                 await updateProvider.mutateAsync({ id: provider.id, ...payload });
                 toast.success("Provider updated.");
             }
-            router.push("/app/settings/providers");
+            router.push("/app/agent-ops/providers");
         } catch (err) {
             toast.error(err instanceof Error ? err.message : "Failed to save provider.");
         }

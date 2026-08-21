@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { Download, Trash2, Radar, Loader2 } from "lucide-react";
 import { daysUntilExpiry, getExpiryColor, maskDomain } from "@/lib/certificate-utils";
 import type { CertificateRow } from "@/lib/queries/certificates";
@@ -121,7 +122,10 @@ export function CertificateGrid({
             cell: ({ row }) => (
                 <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     {onDiscover && (
-                        <Button
+                        <GatedButton
+                            action="update"
+                            subject="Certificate"
+                            data={{ domain: row.original.domainName }}
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
@@ -134,7 +138,7 @@ export function CertificateGrid({
                             ) : (
                                 <Radar className="h-4 w-4" />
                             )}
-                        </Button>
+                        </GatedButton>
                     )}
                     <Button
                         variant="ghost"
@@ -145,7 +149,10 @@ export function CertificateGrid({
                     >
                         <Download className="h-4 w-4" />
                     </Button>
-                    <Button
+                    <GatedButton
+                        action="delete"
+                        subject="Certificate"
+                        data={{ domain: row.original.domainName }}
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive"
@@ -153,7 +160,7 @@ export function CertificateGrid({
                         onClick={() => onDelete(row.original)}
                     >
                         <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </GatedButton>
                 </div>
             ),
         },

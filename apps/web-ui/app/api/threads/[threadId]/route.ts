@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import { AuditService } from '@/lib/audit-service';
 import { getSessionTenantId, getSessionUserId } from '@/lib/auth-session';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    PATCH: { action: 'update', subject: 'Agent' },
+    DELETE: { action: 'delete', subject: 'Agent' },
+};
 
 interface NormalizedThread {
     id: string;

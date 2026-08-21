@@ -1,4 +1,4 @@
-import { AIMessage, SystemMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
+import { AIMessage, BaseMessage, SystemMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { getSkillContent, getSkillSummaries } from "@/lib/skill-service";
@@ -16,6 +16,8 @@ import {
     sanitizeMessagesForBedrock,
     withUnresolvedToolCallsOnly,
     tagMessagePhase,
+    tagMessageAsDeliverable,
+    findRenderedDeliverable,
     llmAuditLog,
     getCheckpointer,
     getStore,
@@ -87,6 +89,169 @@ export function mapUpdatedPlanEntries(entries: unknown[], plan: PlanStep[]): Pla
     if (statusByIndex.size === 0) return [];
 
     return plan.map((s, i) => ({ ...s, status: statusByIndex.get(i) ?? s.status }));
+}
+
+/**
+ * Grounding block for finalNode's synthesis path (the only route by which invented
+ * values can reach the user — see the promotion branch in finalNode).
+ *
+ * Deliberately untruncated. `toolResults` is reducer-capped at 10 entries and each
+ * entry's output was already cut to 1000 chars when collected, so the whole set is
+ * ≤10KB. The previous `slice(-3)` + re-truncation to 500 chars stacked a second cut on
+ * top of the first and removed the answer's own source data: observed live, a
+ * package.json read was cut mid-"scripts", the dependencies block never reached the
+ * model, and it answered with invented version numbers that contradicted the tool
+ * output it was supposedly summarizing.
+ */
+/**
+ * Is this executor turn the one that produces the user-facing answer?
+ *
+ * A turn that called tools never is. Otherwise true in two cases:
+ *
+ * 1. The run ends here regardless of the plan. shouldContinueFromGenerate routes a
+ *    no-tool turn straight to `final` when it sees iterationCount <= 1, and this node
+ *    increments the counter — so `iterationCount === 0` here means the edge will see 1
+ *    and end the run, leaving any remaining plan steps untouched. Observed gap: the
+ *    planner over-plans a conversational follow-up ("say that again"), the executor
+ *    answers directly on move one, and steps 2..n stay pending — so the open-step test
+ *    below rejected an answer that was already final.
+ * 2. No plan step remains open — it consumed the last step, or the plan was already
+ *    exhausted (the common case: the tools node completes each in_progress step, so two
+ *    tool turns finish a 2-step plan and the compose prose arrives with nothing open).
+ *
+ * Anything else is mid-plan narration and must not be promoted as the answer.
+ */
+export function isDeliverableTurn(plan: PlanStep[], hasToolCalls: boolean, iterationCount: number): boolean {
+    if (hasToolCalls) return false;
+    if (iterationCount === 0) return true;
+    const openIdx = plan.findIndex(p => p.status === 'pending' || p.status === 'in_progress');
+    return openIdx === -1 || openIdx === plan.length - 1;
+}
+
+export function buildToolDigest(entries: ToolResultEntry[]): string {
+    if (entries.length === 0) return '(no tool output was captured)';
+    return entries
+        .map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}]\n${e.output}`)
+        .join('\n\n---\n\n');
+}
+
+/**
+ * Prior-turn context for the planner, as PLAIN TEXT rather than a message window.
+ *
+ * The planner is invoked on `model` (no bindTools), and Bedrock Converse rejects any
+ * request whose messages carry toolUse/toolResult blocks without a toolConfig
+ * ("The toolConfig field must be defined when using toolUse and toolResult content
+ * blocks") — and sanitizeMessagesForBedrock deliberately PRESERVES those blocks. A
+ * digest sidesteps that entirely, and planNode's catch would otherwise have swallowed
+ * the ValidationException into a one-step fallback plan.
+ *
+ * Only 'final'-phase AI messages count as answers: execution prose, reflection
+ * feedback and the "📋 Created an N-step plan" notice are internal chatter, and
+ * feeding a plan-emitter its own past plans invites it to copy them.
+ */
+export function buildConversationDigest(
+    messages: BaseMessage[],
+    previousPlan: PlanStep[],
+    maxTurns = 3,
+): string {
+    // Last message is the request being planned right now, not history.
+    const prior = messages.slice(0, -1);
+
+    const turns: Array<{ request: string; answer?: string }> = [];
+    for (const msg of prior) {
+        if (msg._getType() === 'human') {
+            const text = contentToText(msg.content).trim();
+            if (text) turns.push({ request: text });
+        } else if (
+            msg._getType() === 'ai' &&
+            (msg as any).response_metadata?.agentPhase === 'final' &&
+            turns.length > 0
+        ) {
+            turns[turns.length - 1].answer = contentToText(msg.content).trim();
+        }
+    }
+
+    if (turns.length === 0) return '';
+
+    const turnBlocks = turns.slice(-maxTurns).map((t, i) => {
+        const answer = t.answer
+            ? `Your answer: ${truncateOutput(t.answer, 600)}`
+            : `(this request did not reach a delivered answer)`;
+        return `### Earlier turn ${i + 1}\nUser asked: ${truncateOutput(t.request, 300)}\n${answer}`;
+    });
+
+    const planBlock = previousPlan.length > 0
+        ? `\n\n### Plan used for the previous request\n${previousPlan.map((s, i) => `${i + 1}. [${s.status}] ${s.step}`).join('\n')}`
+        : '';
+
+    return `
+## Conversation So Far
+
+This is a CONTINUING conversation. The request you are planning is a follow-up.
+
+${turnBlocks.join('\n\n')}${planBlock}
+`;
+}
+
+/**
+ * Extracts the plan array from the planner's raw output.
+ *
+ * Uses a string-aware balanced-bracket scan for the FIRST complete top-level array,
+ * mirroring parseReflectorResponse's brace scan. The previous greedy
+ * `/\[[\s\S]*\]/` ran from the first '[' to the LAST ']' in the whole response, so
+ * when the model ignored "only return the JSON array" and appended prose — observed
+ * live: a valid 5-step array followed by a role-played execution transcript full of
+ * `Reservations[].Instances[]` and `Tags[?Key=='Name']|[0]` — the match spanned all of
+ * it and JSON.parse rejected the lot, discarding a plan that was already valid at
+ * offset 0 in favour of the one-step "Analyze and respond" fallback.
+ *
+ * Returns [] when nothing usable is present; the caller applies the fallback.
+ */
+export function parsePlanResponse(content: string): PlanStep[] {
+    let from = 0;
+
+    while (from < content.length) {
+        const start = content.indexOf('[', from);
+        if (start === -1) break;
+
+        const end = scanBalancedArray(content, start);
+        if (end !== -1) {
+            try {
+                const parsed = JSON.parse(content.slice(start, end + 1));
+                if (Array.isArray(parsed)) {
+                    const steps = parsed
+                        .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+                        .map(step => ({ step: step.trim(), status: 'pending' as const }));
+                    if (steps.length > 0) return steps;
+                }
+            } catch {
+                // Not the plan — a bracketed aside the model wrote before it, e.g.
+                // "Plan (steps [1-5]): [...]". Fall through to the next candidate.
+            }
+        }
+        from = start + 1;
+    }
+
+    if (content.includes('[')) {
+        console.error('[Planner] Plan parsing failed: no usable JSON array of steps in planner output');
+    }
+    return [];
+}
+
+/** End index of the balanced array opening at `start`, or -1 if it never closes.
+ *  String-aware so brackets inside step text (JMESPath queries) don't shift depth. */
+function scanBalancedArray(content: string, start: number): number {
+    let depth = 0, inString = false, escaped = false;
+    for (let i = start; i < content.length; i++) {
+        const ch = content[i];
+        if (escaped) { escaped = false; continue; }
+        if (ch === '\\') { escaped = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === '[') depth++;
+        else if (ch === ']' && --depth === 0) return i;
+    }
+    return -1;
 }
 
 export interface ParsedReflectorResult {
@@ -301,6 +466,7 @@ export async function createReflectionGraph(config: GraphConfig) {
         );
         const lastMessage = messages[messages.length - 1];
         const taskDescription = contentToText(lastMessage.content);
+        const conversationDigest = buildConversationDigest(messages, state.plan ?? []);
 
         console.log(`\n================================================================================`);
         console.log(`🤖 [PLANNER] Initiating planning phase`);
@@ -314,6 +480,7 @@ ${effectiveSkillSection}
 ${CORE_PRINCIPLES}
 ${memoryContext ? `\n## Relevant Context from Memory\n${memoryContext}\n` : ''}
 ${workingMemorySection}
+${conversationDigest}
 ## Planning Methodology
 
 Work through three phases when building the plan:
@@ -338,7 +505,9 @@ Work through three phases when building the plan:
 - For multi-account tasks, add one credential acquisition step per account before any account-specific steps.
 - If a step is a mutation (create, update, delete, stop, start, deploy), the step immediately after it must be a verification step (describe, list, get, check status).
 - For file-system or code tasks: read before write, check before create.
-- If the task is ambiguous, the first step should be a targeted discovery to resolve the ambiguity before committing to an action plan.
+- If the task is ambiguous, the first step should be a targeted discovery to resolve the ambiguity before committing to an action plan.${conversationDigest ? `
+- FOLLOW-UP: resolve references like "do the same", "that one", "those", "now for X" against the Conversation So Far — the subject and scope carry over from the earlier turn. Read the request in that context before decomposing it, and never reinterpret a carried-over term to mean something the earlier turn did not.
+- Plan only the work still outstanding. Do NOT re-plan steps the previous plan already completed (credentials already acquired, data already gathered) unless the user is explicitly asking to redo them or the data would now be stale.` : ''}
 ${reportStrategy}
 ${accountContext}
 
@@ -362,24 +531,7 @@ Only return the JSON array, nothing else.`);
             response = new AIMessage({ content: '' });
         }
 
-        let planSteps: PlanStep[] = [];
-        try {
-            const content = contentToText(response.content);
-            const jsonMatch = content.match(/\[[\s\S]*\]/);
-            if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
-                planSteps = parsed.map((step: string) => ({
-                    step,
-                    status: 'pending' as const
-                }));
-            }
-        } catch (e) {
-            console.error("[Planner] Plan parsing failed:", e);
-            planSteps = [{
-                step: "Analyze and respond to user request",
-                status: 'pending' as const
-            }];
-        }
+        let planSteps = parsePlanResponse(contentToText(response.content));
 
         if (planSteps.length === 0) {
             planSteps = [{
@@ -397,6 +549,13 @@ Only return the JSON array, nothing else.`);
         return {
             plan: planSteps,
             taskDescription,
+            // The iteration cap is a per-REQUEST budget. Left accumulating across turns,
+            // a thread that spent 6 iterations on turn 1 starts turn 2 at 7/30, and by a
+            // few turns in every new request opens already at the cap and gets forced
+            // straight to reflection. planNode runs once per new request (an
+            // approval-gate resume re-enters at the gate, not here), so this is the
+            // right place to zero it.
+            iterationCount: 0,
             // Keep a short text (with phase marker) for legacy rendering + history;
             // the structured plan streams as data-plan parts.
             messages: [tagMessagePhase(new AIMessage({ content: `📋 Created a ${planSteps.length}-step execution plan.` }), 'planning')],
@@ -511,15 +670,21 @@ The user sees plan progress in a UI rail — your prose must NEVER duplicate it:
         // with nothing to run) — mark it completed directly. This monotonic
         // advancement is what makes the generate→generate continue-loop in
         // shouldContinueFromGenerate terminate: every prose pass consumes a step.
+        const currentIdx = plan.findIndex(p => p.status === 'pending' || p.status === 'in_progress');
         const updatedPlan = plan.map((s, i) => {
-            if (i === plan.findIndex(p => p.status === 'pending' || p.status === 'in_progress')) {
+            if (i === currentIdx) {
                 return { ...s, status: genHasToolCalls ? 'in_progress' as const : 'completed' as const };
             }
             return s;
         });
 
+        // The prose turn that ends the plan is the answer, however short. Marking it lets
+        // finalNode promote it verbatim rather than re-synthesizing from a tool digest,
+        // which is the only place fabricated values can enter the user-facing answer.
+        const tagged = tagMessagePhase(response, 'execution');
+
         return {
-            messages: [tagMessagePhase(response, 'execution')],
+            messages: [isDeliverableTurn(plan, genHasToolCalls, iterationCount) ? tagMessageAsDeliverable(tagged) : tagged],
             iterationCount: iterationCount + 1,
             plan: updatedPlan,
             ...stateUpdate,
@@ -882,18 +1047,7 @@ ${accountContext}`);
         // has only the last 3 truncated tool outputs as context, so it invents
         // follow-ups that contradict the real report (observed in live testing).
         // Verbatim promotion = zero drift, zero hallucination surface, zero cost.
-        const deliverablePhases = new Set(['execution', 'revision']);
-        let renderedDeliverable: string | null = null;
-        for (const m of state.messages) {
-            if (
-                m._getType() === 'ai' &&
-                deliverablePhases.has((m as unknown as { response_metadata?: { agentPhase?: string } }).response_metadata?.agentPhase ?? '') &&
-                typeof m.content === 'string' &&
-                m.content.trim().length >= 800
-            ) {
-                renderedDeliverable = m.content; // keep scanning — last one wins (latest revision)
-            }
-        }
+        const renderedDeliverable = findRenderedDeliverable(state.messages);
 
         if (renderedDeliverable) {
             console.log(`--- FINAL: Promoting already-rendered deliverable verbatim (no LLM call) ---`);
@@ -905,10 +1059,10 @@ ${accountContext}`);
 
         const summaryContext = `User's request: ${taskDescription}
 
-Key Tool Outputs (most recent):
-${toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}]\n${truncateOutput(e.output, 500)}`).join('\n\n---\n\n')}`;
+Key Tool Outputs:
+${buildToolDigest(toolResults)}`;
 
-        const groundingRule = `STRICT GROUNDING: state only facts that literally appear in the Key Tool Outputs above. Never introduce or extrapolate counts, region lists, resource names, or metrics that are not present there — when a detail is unavailable, refer the user to the report above instead of estimating. Write in second person ("you"), never about "the agent", plan steps, or iteration counts.`;
+        const groundingRule = `STRICT GROUNDING: every fact, number, name, version, and identifier in your answer must appear literally in the Key Tool Outputs above. Never introduce or extrapolate counts, region lists, resource names, versions, or metrics that are not present there. If the outputs do not contain a value the user asked for, state plainly that it was not captured — never supply an approximate or plausible-looking value in its place. Write in second person ("you"), never about "the agent", plan steps, or iteration counts.`;
 
         const summarySystemPrompt = new SystemMessage(`You are a senior DevOps engineer answering the user's request directly. Give them the answer — not a report about how it was produced.
 
@@ -939,13 +1093,10 @@ ${groundingRule}`);
             // A finalize failure must never crash the run — assemble a best-effort answer
             // from the tool results already captured in state.
             console.error(`⚠️ [FINAL] Summary synthesis failed: ${err?.message ?? err}`);
-            const toolDigest = toolResults.length > 0
-                ? toolResults.slice(-3).map(e => `[${e.isError ? '❌' : '✅'} ${e.toolName}]\n${truncateOutput(e.output, 500)}`).join('\n\n---\n\n')
-                : '(no tool output was captured)';
             summaryContent = `⚠️ I could not generate a polished answer due to a model/provider error (${err?.message ?? err}), but here is what was gathered:
 
 **Key tool outputs:**
-${toolDigest}`;
+${buildToolDigest(toolResults)}`;
         }
 
         console.log(`--- FINAL: Answer generated ---`);

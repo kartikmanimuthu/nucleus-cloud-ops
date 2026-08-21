@@ -8,10 +8,10 @@
 // stable `body` function useChatSession expects.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ClientAccountService } from "@/lib/client-account-service";
-import type { UIAccount } from "@/lib/types";
 import { useProviderModels, defaultModelId } from "@/lib/queries/providers";
 import { useKnowledgeBases } from "@/lib/queries/knowledge-base";
+import { useAbilityMeta, useCan, useDenialReason } from "@/hooks/use-can";
+import { useAccountOptions } from "@/lib/queries/accounts";
 import type { ComposerContext } from "./composer-pickers";
 
 interface McpServerOption {
@@ -55,9 +55,40 @@ export function useSessionPickers({
   skillLocked: boolean;
 }): UseSessionPickersResult {
   // ── Accounts ───────────────────────────────────────────────────────────────
-  const [accounts, setAccounts] = useState<UIAccount[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
-  const [accountsLoading, setAccountsLoading] = useState(true);
+  const {
+    accounts,
+    isLoading: accountsLoading,
+    denied: accountsDeniedReason,
+  } = useAccountOptions({ statusFilter: "active", connectionFilter: "connected", limit: 1000 });
+
+  // `abilityLoaded` still gates the skill and MCP fetches below, which are plain
+  // fetches rather than query hooks.
+  const { isLoaded: abilityLoaded } = useAbilityMeta();
+
+  /**
+   * The skill and MCP lists have their own permissions behind them, and unlike
+   * accounts their fetches only checked `res.ok` — so a 403 produced no console
+   * error but also no explanation: the pickers rendered "No skill" and "No
+   * connected tools available", which claims the tenant has none rather than
+   * that this caller may not see them. Silent is not better than noisy here;
+   * both misinform.
+   *
+   * The subjects match what each route actually enforces:
+   *   · GET /api/skills      — Layer 1 `authz` declares { read, Skill }
+   *   · GET /api/mcp-servers — authorize('read', 'McpServer')
+   * A role can reach this workspace without either, so they are asked
+   * separately rather than inferred from one another.
+   *
+   * The MCP check follows its route: it asked `read AIOps` while that route
+   * gated on the AIOps catch-all. Both moved to the McpServer row together —
+   * asking the module here while the route enforces the subject would re-open
+   * the enabled-control-then-403 gap this pairing exists to close.
+   */
+  const canReadSkills = useCan("read", "Skill");
+  const skillsDeniedReason = useDenialReason("read", "Skill");
+  const canReadMcp = useCan("read", "McpServer");
+  const mcpDeniedReason = useDenialReason("read", "McpServer");
 
   // ── Model (tenant-configured providers only) ────────────────────────────────
   const { data: availableModels = [] } = useProviderModels();
@@ -92,31 +123,24 @@ export function useSessionPickers({
     );
   }, [availableModels]);
 
-  // Fetch accounts on mount.
+  // A denied account list must not keep a stale selection travelling in the
+  // request body: the server would refuse those accounts and fail the run.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        setAccountsLoading(true);
-        const { accounts: fetched } = await ClientAccountService.getAccounts({
-          statusFilter: "active",
-          connectionFilter: "connected",
-          limit: 1000,
-        });
-        if (!cancelled) setAccounts(fetched);
-      } catch (error) {
-        console.error("[useSessionPickers] Failed to load accounts:", error);
-      } finally {
-        if (!cancelled) setAccountsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (accountsDeniedReason) setSelectedAccountIds([]);
+  }, [accountsDeniedReason]);
 
-  // Fetch skills on mount.
+  // Fetch skills once the ability is known and permits it.
   useEffect(() => {
+    if (!abilityLoaded) return;
+
+    if (!canReadSkills) {
+      setAvailableSkills([]);
+      // A skill selected before the grant was revoked must not keep travelling
+      // in the request body — the server would refuse it and fail the run.
+      setSelectedSkill(null);
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       try {
@@ -132,10 +156,19 @@ export function useSessionPickers({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [abilityLoaded, canReadSkills]);
 
-  // Fetch MCP servers on mount.
+  // Fetch MCP servers once the ability is known and permits it.
   useEffect(() => {
+    if (!abilityLoaded) return;
+
+    if (!canReadMcp) {
+      setMcpServers([]);
+      setSelectedMcpServerIds([]);
+      setMcpLoading(false);
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       try {
@@ -154,7 +187,7 @@ export function useSessionPickers({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [abilityLoaded, canReadMcp]);
 
   // Active-only capability filter (parity with chat-interface.tsx:2406/2524).
   const activeKbs = useMemo(() => knowledgeBases.filter((kb) => kb.status === "active"), [knowledgeBases]);
@@ -190,6 +223,7 @@ export function useSessionPickers({
         selectedIds: selectedAccountIds,
         onChange: setSelectedAccountIds,
         loading: accountsLoading,
+        denied: accountsDeniedReason,
       },
       model: {
         available: availableModels.map((m) => ({ id: m.id, label: m.label, provider: m.provider })),
@@ -201,6 +235,7 @@ export function useSessionPickers({
         selectedId: selectedSkill,
         onChange: setSelectedSkill,
         disabled: skillLocked,
+        denied: canReadSkills ? null : skillsDeniedReason,
       },
       kb: {
         available: activeKbs.map((kb) => ({ id: kb.id, name: kb.name })),
@@ -211,13 +246,22 @@ export function useSessionPickers({
         available: enabledMcp.map((s) => ({ id: s.id, name: s.name, description: s.description })),
         selectedIds: selectedMcpServerIds,
         onChange: setSelectedMcpServerIds,
-        loading: mcpLoading,
+        // Still "loading" while the ability is in flight: the fetch is deferred
+        // until then, and an empty list would otherwise assert "no tools exist".
+        loading: mcpLoading || !abilityLoaded,
+        denied: canReadMcp ? null : mcpDeniedReason,
       },
     }),
     [
       accounts,
       selectedAccountIds,
       accountsLoading,
+      accountsDeniedReason,
+      abilityLoaded,
+      canReadSkills,
+      skillsDeniedReason,
+      canReadMcp,
+      mcpDeniedReason,
       availableModels,
       selectedModel,
       availableSkills,

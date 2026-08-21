@@ -6,6 +6,8 @@
  * The feature flag USE_PG_INVENTORY controls which implementation is active.
  */
 
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
+
 export interface InventoryResource {
     id: string;
     tenantId: string;
@@ -30,6 +32,13 @@ export interface InventoryFilters {
     searchTerm?: string;
     page?: number;
     limit?: number;
+    /**
+     * Gate 3 (RBAC row filtering): a Prisma `where` fragment restricting the
+     * result to the rows the caller may read. Built by
+     * getReadRowFilter() in lib/rbac/row-filter.ts and INTERSECTED with the
+     * query below via andWhere() — never merged over it.
+     */
+    rowFilter?: PrismaRowFilter | null;
 }
 
 export interface InventoryPage {

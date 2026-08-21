@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { DictationTextarea } from "@/components/voice/dictation-textarea"
 import { Label } from "@/components/ui/label"
+import { GatedButton } from "@/components/rbac/gated"
 
 export function NewRunDialog({
     tenantId = "default"
@@ -36,7 +37,13 @@ export function NewRunDialog({
         setLoading(true)
 
         try {
-            const res = await fetch("/api/v1/trigger/api", {
+            // /api/v1/gateway/api, NOT /api/v1/trigger/api. The trigger path is a
+            // backward-compat alias for external API-key clients and is
+            // ALLOWLISTED out of the route guard; the gateway path declares
+            // { POST: create Agent } and is enforced. Both reach the same handler,
+            // so calling the compat alias from the browser silently skipped the
+            // only permission check on starting an agent run.
+            const res = await fetch("/api/v1/gateway/api", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -61,11 +68,19 @@ export function NewRunDialog({
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
+            {/* Starting a run is `create AgentOps` — enforced on the route this
+                dialog posts to (/api/v1/gateway/api, see the fetch above).
+                Deliberately NOT `create Agent`: this button lives on the Agent
+                Ops page, so gating it on the interactive-agent subject meant an
+                admin could hold Agent Ops in full and still find it disabled,
+                with nothing on screen explaining which other submodule was
+                responsible. The button and the route must be changed together —
+                they are the same permission stated twice. */}
             <DialogTrigger asChild>
-                <Button className="gap-2">
+                <GatedButton action="create" subject="AgentOps" className="gap-2">
                     <Play className="h-4 w-4" />
                     New Agent Run
-                </Button>
+                </GatedButton>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
                 <DialogHeader>

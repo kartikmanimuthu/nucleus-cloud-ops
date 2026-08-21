@@ -1,7 +1,6 @@
-'use client';
+import { redirect } from "next/navigation";
 
-import { JiraSettingsForm } from '@/components/channels/jira-settings-form';
-
-export default function JiraSettingsPage() {
-    return <JiraSettingsForm backHref="/app/channels" backLabel="Back to Channels" />;
+// Same duplication as slack-settings. Canonical page is under Channels.
+export default function AgentOpsJiraSettingsRedirect() {
+  redirect("/app/channels/jira-settings");
 }

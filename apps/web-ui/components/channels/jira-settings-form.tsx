@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink, Eye, EyeOff, Loader2, PlugZap, RefreshCw, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { GatedButton } from '@/components/rbac/gated';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -299,7 +300,14 @@ function JiraSettingsFormInner({
                                     onChange={e => setForm(prev => ({ ...prev, webhookSecret: e.target.value }))}
                                     className="pr-10 font-mono"
                                 />
-                                <Button
+                                {/*
+                                  * Revealing a stored secret hits GET ?reveal=1, which the route
+                                  * guards with `update` (and audits at high severity) — so the eye
+                                  * needs the same permission, not merely `read`.
+                                  */}
+                                <GatedButton
+                                    action="update"
+                                    subject="Channel"
                                     type="button"
                                     variant="ghost"
                                     size="icon"
@@ -310,7 +318,7 @@ function JiraSettingsFormInner({
                                     }}
                                 >
                                     {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                                </Button>
+                                </GatedButton>
                             </div>
                             <Button type="button" variant="outline" size="sm" onClick={generateSecret}>
                                 <RefreshCw className="h-3.5 w-3.5 mr-2" />
@@ -379,7 +387,9 @@ function JiraSettingsFormInner({
                                 onChange={e => setForm(prev => ({ ...prev, apiToken: e.target.value }))}
                                 className="pr-10 font-mono"
                             />
-                            <Button
+                            <GatedButton
+                                action="update"
+                                subject="Channel"
                                 type="button"
                                 variant="ghost"
                                 size="icon"
@@ -390,7 +400,7 @@ function JiraSettingsFormInner({
                                 }}
                             >
                                 {showApiToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                            </Button>
+                            </GatedButton>
                         </div>
                         <p className="text-xs text-muted-foreground">
                             Sign in as the account above, then create a token at{' '}
@@ -453,7 +463,15 @@ function JiraSettingsFormInner({
 
                     {/* Actions */}
                     <div className="flex items-center gap-2">
-                        <Button
+                        {/*
+                          * Save asks for `create` on an unconfigured channel and `update`
+                          * on a configured one, mirroring the POST/PUT split the mutation
+                          * picks between — so the control is live exactly when the request
+                          * it sends would be allowed.
+                          */}
+                        <GatedButton
+                            action={configured ? 'update' : 'create'}
+                            subject="Channel"
                             onClick={handleSave}
                             disabled={saving || testing}
                             className={saveStatus === 'saved' ? 'bg-green-600 hover:bg-green-700' : ''}
@@ -466,8 +484,10 @@ function JiraSettingsFormInner({
                                 <Save className="h-4 w-4 mr-2" />
                             )}
                             {saveStatus === 'saved' ? 'Saved' : 'Save Settings'}
-                        </Button>
-                        <Button
+                        </GatedButton>
+                        <GatedButton
+                            action="update"
+                            subject="Channel"
                             variant="outline"
                             onClick={handleTestConnection}
                             disabled={
@@ -482,7 +502,7 @@ function JiraSettingsFormInner({
                                 <PlugZap className="h-4 w-4 mr-2" />
                             )}
                             Test Connection
-                        </Button>
+                        </GatedButton>
                     </div>
                     <p className="text-xs text-muted-foreground">
                         Test Connection verifies Base URL, User Email, and API Token against Jira and auto-fills the Bot

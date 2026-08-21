@@ -39,12 +39,27 @@ import {
 } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Save, Loader2, AlertCircle, Copy, Check, ChevronDown, Terminal, Download, FileCode, FileJson } from "lucide-react";
 import { ClientAccountService } from "@/lib/client-account-service";
+import { GatedButton } from "@/components/rbac/gated";
+
+/**
+ * Optional stack features offered as a checklist, rather than one field per feature.
+ *
+ * Spot Automation is the only one today, but the control is built as a real multi-select (an
+ * array of ids) rather than a single boolean field, so a second CFN-gated feature is one entry
+ * here instead of a second Select bolted on beside it.
+ */
+const CFN_FEATURES = [
+  { id: "spotAutomation", label: "Spot Guard" },
+  { id: "scalingAudit", label: "Scale Sentinel" },
+] as const;
+type CfnFeatureId = (typeof CFN_FEATURES)[number]["id"];
 
 const createAccountSchema = z.object({
   accountId: z
@@ -63,6 +78,17 @@ const createAccountSchema = z.object({
   externalId: z.string().min(1, "External ID is required"),
   description: z.string().optional(),
   region: z.string().min(1, "Region is required"),
+  /**
+   * Optional stack features, checked in the multi-select. Spot Automation is the only entry
+   * today; the array shape is what makes adding a second one later just another checkbox
+   * instead of another field.
+   *
+   * No `.default()` here — useForm's own defaultValues already covers it, and
+   * a zod-level default on a field a RHF-controlled form always supplies just
+   * splits the schema's inferred input/output types, which is what broke
+   * zodResolver's Resolver<> generic previously.
+   */
+  features: z.array(z.enum(CFN_FEATURES.map((f) => f.id) as [CfnFeatureId, ...CfnFeatureId[]])),
   // Active is removed from UI but we default it to true in submission
 });
 
@@ -98,6 +124,9 @@ export function CreateAccountForm({ hubAccountId }: CreateAccountFormProps) {
   const form = useForm<CreateAccountFormValues>({
     resolver: zodResolver(createAccountSchema),
     defaultValues: {
+      // Defaults to nothing selected: onboarding must not silently start forwarding a
+      // customer's ECS events.
+      features: [],
       accountId: "",
       name: "",
       roleArn: "",
@@ -120,7 +149,11 @@ export function CreateAccountForm({ hubAccountId }: CreateAccountFormProps) {
       setGenerating(true);
       // hubAccountId is now passed as prop
       
-      const response = await fetch(`/api/accounts/template?targetAccountId=${accountId}&accountName=${encodeURIComponent(accountName || '')}&hubAccountId=${hubAccountId}`);
+      // Pass the choice through so the template's EnableSpotAutomation Default matches what was
+      // selected here — otherwise the operator checks the box and then downloads a template
+      // defaulting to false, and the two silently disagree.
+      const spotFlag = form.getValues("features").includes("spotAutomation");
+      const response = await fetch(`/api/accounts/template?targetAccountId=${accountId}&accountName=${encodeURIComponent(accountName || '')}&hubAccountId=${hubAccountId}&enableSpotAutomation=${spotFlag}`);
       if (!response.ok) throw new Error("Failed to generate template");
       
       const data = await response.json();
@@ -195,8 +228,13 @@ export function CreateAccountForm({ hubAccountId }: CreateAccountFormProps) {
         name: data.name,
         roleArn: data.roleArn,
         externalId: data.externalId,
-        regions: [data.region], 
+        regions: [data.region],
         active: true, // Default to active on creation
+        // Converted to a real boolean here — the array form exists only to bind the checklist.
+        // The repository create path persists it; it used to omit the field, so the API returned
+        // 201 and the choice was silently dropped.
+        spotAutomationEnabled: data.features.includes("spotAutomation"),
+        scalingAuditEnabled: data.features.includes("scalingAudit"),
         description: data.description || "",
         createdBy: session?.user?.email || "web-ui-user",
         updatedBy: session?.user?.email || "web-ui-user",
@@ -276,6 +314,66 @@ export function CreateAccountForm({ hubAccountId }: CreateAccountFormProps) {
                     <FormMessage />
                     </FormItem>
                 )}
+                />
+
+                <FormField
+                control={form.control}
+                name="features"
+                render={({ field }) => {
+                    const selected: CfnFeatureId[] = field.value ?? [];
+                    const toggle = (id: CfnFeatureId, checked: boolean) => {
+                        field.onChange(checked ? [...selected, id] : selected.filter((v) => v !== id));
+                    };
+                    return (
+                        <FormItem>
+                        <FormLabel>Features</FormLabel>
+                        {/* No FormControl here, deliberately: FormControl clones its aria-* props
+                            onto its child via Slot, and DropdownMenuTrigger asChild ALSO uses
+                            Slot to merge onto the Button beneath it — two Slot layers stacked on
+                            one element silently dropped the trigger's click handling (visually
+                            fine, inert to every input). Select's own trigger works nested in
+                            FormControl above because SelectTrigger is a plain forwardRef button,
+                            not a second asChild/Slot consumer. */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-10 w-full justify-between font-normal"
+                                >
+                                    <span className="line-clamp-1 text-left">
+                                        {selected.length === 0
+                                            ? "No optional features selected"
+                                            : CFN_FEATURES.filter((f) => selected.includes(f.id))
+                                                  .map((f) => f.label)
+                                                  .join(", ")}
+                                    </span>
+                                    <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                                align="start"
+                                className="w-[--radix-dropdown-menu-trigger-width]"
+                            >
+                                {CFN_FEATURES.map((feature) => (
+                                    <DropdownMenuCheckboxItem
+                                        key={feature.id}
+                                        checked={selected.includes(feature.id)}
+                                        onCheckedChange={(checked) => toggle(feature.id, checked)}
+                                        // Without this, Radix treats a checkbox item like any other
+                                        // menu item and closes the whole dropdown on every click —
+                                        // fine for one checkbox, wrong for a list meant to grow.
+                                        onSelect={(e) => e.preventDefault()}
+                                    >
+                                        {feature.label}
+                                    </DropdownMenuCheckboxItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                        <FormMessage />
+                        </FormItem>
+                    );
+                }}
                 />
             </div>
 
@@ -469,11 +567,19 @@ export function CreateAccountForm({ hubAccountId }: CreateAccountFormProps) {
           <Button type="button" variant="outline" onClick={() => router.back()}>
             Cancel
           </Button>
-          <Button type="submit" disabled={loading}>
+          {/*
+            The page itself is reachable by URL: Layer 1 carries requirements for
+            /api/* only, so page paths fall through, and the entry button on the
+            list page is merely disabled. Without this, a role lacking `create
+            Account` could fill the whole form in and learn at submit that
+            POST /api/accounts refuses it — the work is lost, and the 403 reads as
+            a malfunction rather than a permission.
+          */}
+          <GatedButton action="create" subject="Account" type="submit" disabled={loading}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             <Save className="mr-2 h-4 w-4" />
             Create Account
-          </Button>
+          </GatedButton>
         </div>
       </form>
     </Form>

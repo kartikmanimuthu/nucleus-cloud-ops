@@ -81,6 +81,22 @@ export interface ChannelAdapter {
     sendStreamChunk?(run: AgentOpsRun, event: AgentOpsEvent): Promise<void>;
 
     /**
+     * Send a one-shot conversational reply (small talk / capability question)
+     * without creating an Agent Ops run.
+     *
+     * Optional, and deliberately unimplemented on Slack / Discord / Jira /
+     * webhook / API: generating the reply costs two sequential LLM calls, which
+     * blows Slack's and Discord's 3-second interaction deadline, and Jira's
+     * webhook caller discards response bodies entirely. Absent implementation
+     * means the persona router falls through to the normal task path.
+     *
+     * Returns the webhook Response only when the reply was genuinely delivered.
+     * `null` means NOT delivered — the caller must fall through to the normal
+     * task path so the user's message is never silently dropped.
+     */
+    sendDirectReply?(req: NextRequest, text: string): Promise<Response | null>;
+
+    /**
      * Proactive one-shot digest for a scheduled run (server → channel,
      * unidirectional). Destination comes from task.notification; credentials
      * from TenantConfig via run.tenantId. Implementations must never throw.

@@ -3,6 +3,7 @@ import { AccountService } from '@/lib/account-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]/route';
 import { authorize } from '@/lib/rbac/authorize';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
 import { getSessionTenantId } from '@/lib/auth-session';
 
 export async function GET(request: NextRequest) {
@@ -28,6 +29,10 @@ export async function GET(request: NextRequest) {
             limit,
             page,
             tenantId: await getSessionTenantId(),
+            // Gate 3. authorize() above settled WHETHER this caller may list
+            // accounts; this settles WHICH ones, in SQL, so page counts stay
+            // honest.
+            rowFilter: await getReadRowFilter('Account'),
         };
 
         const result = await AccountService.getAccounts(filters);

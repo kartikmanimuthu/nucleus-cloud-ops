@@ -15,6 +15,13 @@ import {
 import { register as registerCertificateExpiryMonitorJobs } from './jobs/certificate-expiry-monitor/index.js';
 import { register as registerRightSizingPricingRefresh } from './jobs/right-sizing/pricing-refresh.js';
 import { register as registerRightSizingJobs } from './jobs/right-sizing/index.js';
+import { register as registerScalingAuditJobs } from './jobs/scaling-audit/index.js';
+import { register as registerCapacityPlanningJobs } from './jobs/capacity-planning/index.js';
+import {
+  register as registerSpotGuardJobs,
+  stopSpotGuardConsumer,
+  closeSpotGuardResources,
+} from './jobs/spot-guard/index.js';
 import { env } from './env.js';
 
 const log = createLogger('workers');
@@ -47,6 +54,13 @@ async function shutdown(signal: string): Promise<void> {
     // Stop scheduling new agent-ops ticks BEFORE draining, so the sweeper interval
     // cannot enqueue against a stopping boss during the drain window.
     stopAgentOpsSweeper();
+    // Same rationale for the Spot Guard SQS bridge: stop pulling from SQS before the
+    // drain so no message is enqueued against a stopping boss. Awaited (unlike the
+    // sweeper) because the loop may be parked in a 20s ReceiveMessage long poll — the
+    // abort inside makes this return in milliseconds instead of burning a sixth of the
+    // 120s ECS stopTimeout. Anything already received but not yet enqueued is simply not
+    // deleted, so it reappears on the surviving replica after the visibility timeout.
+    await stopSpotGuardConsumer();
     // Stop advancing the heartbeat and fail the health check immediately so ECS
     // stops routing work to a draining task.
     stopLocalHeartbeat();
@@ -58,6 +72,7 @@ async function shutdown(signal: string): Promise<void> {
         log.info('pg-boss stopped');
         // After the drain, in-flight tick handlers are done — safe to close DB handles.
         await closeAgentOpsResources();
+        await closeSpotGuardResources();
         process.exit(0);
     } catch (err) {
         log.error('Error during graceful shutdown', { error: err instanceof Error ? err.message : String(err) });
@@ -96,6 +111,12 @@ async function main() {
     await registerCertificateExpiryMonitorJobs(boss, executor);
     await registerRightSizingPricingRefresh(boss, executor);
     await registerRightSizingJobs(boss, executor);
+    // No-op unless SCALING_AUDIT_ENABLED=true.
+    await registerScalingAuditJobs(boss, executor);
+    // Same flag — presented as one module ("Scale Sentinel") with the report tab.
+    await registerCapacityPlanningJobs(boss, executor);
+    // No-ops unless SPOT_GUARD_ENABLED=true (sbx today).
+    await registerSpotGuardJobs(boss, executor);
 
     markReady();
     log.info('All jobs registered. Waiting for work...');

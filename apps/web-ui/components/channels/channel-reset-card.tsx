@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import { Loader2, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { GatedButton } from '@/components/rbac/gated';
 import { Card, CardContent } from '@/components/ui/card';
 import {
     AlertDialog,
@@ -71,7 +71,15 @@ export function ChannelResetCard({ channel, name, clears, configured, onReset }:
                             Removes the stored {clears} for {name}.
                         </p>
                     </div>
-                    <Button
+                    {/*
+                      * Reset deletes the stored credentials, so it asks for `delete`,
+                      * matching the route's DELETE gate. Already a state-controlled
+                      * dialog rather than AlertDialogTrigger, so GatedButton's disabled
+                      * state survives — see the note in components/rbac/gated.tsx.
+                      */}
+                    <GatedButton
+                        action="delete"
+                        subject="Channel"
                         variant="outline"
                         size="sm"
                         className="gap-2 shrink-0 text-destructive hover:text-destructive"
@@ -79,7 +87,7 @@ export function ChannelResetCard({ channel, name, clears, configured, onReset }:
                     >
                         <RotateCcw className="h-3.5 w-3.5" />
                         Reset
-                    </Button>
+                    </GatedButton>
                 </CardContent>
             </Card>
 

@@ -51,6 +51,15 @@ export async function DELETE(
             return NextResponse.json({ success: false, error: 'Certificate not found' }, { status: 404 });
         }
 
+        // Layer 2 — resource-aware, after the row is loaded and before anything
+        // is destroyed. The coarse check above cannot see which certificate this
+        // is, so a condition like "not production domains" can only bite here.
+        const scopedAuthError = await authorize('delete', 'Certificate', {
+            domain: cert.domain,
+            accountId: cert.accountId,
+        });
+        if (scopedAuthError) return scopedAuthError;
+
         // Remove S3 material for every version, then cascade-delete DB rows.
         const versions = await repo.listVersions(tenantId, id);
         const keys = versions.flatMap(v => [v.s3BodyKey, v.s3ChainKey, v.s3PrivateKeyKey]);

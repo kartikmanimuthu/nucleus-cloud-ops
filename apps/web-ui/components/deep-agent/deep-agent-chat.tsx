@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { cn } from '@/lib/utils';
 import { formatTime } from '@/lib/date-utils';
 import { useTenant } from '@/lib/tenant-context';
+import { useDenialReason } from '@/hooks/use-can';
 import { useProviderModels, defaultModelId } from '@/lib/queries/providers';
 import { ThreadSidebar } from './thread-sidebar';
 import { TodoPanel } from './todo-panel';
@@ -102,6 +103,11 @@ export function DeepAgentChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
+
+  // /api/deep-agent/chat requires `create Agent` — same permission the
+  // fast/plan/deep composer checks (session-view.tsx). No row exists yet
+  // (a new conversation), so no `data` to pass.
+  const sendDenialReason = useDenialReason('create', 'Agent');
 
   // --- Scroll to bottom ---
   const scrollToBottom = useCallback(() => {
@@ -619,20 +625,22 @@ export function DeepAgentChat() {
                 value={input}
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
-                placeholder="Describe your DevOps task… (Shift+Enter for newline)"
+                placeholder={sendDenialReason ?? "Describe your DevOps task… (Shift+Enter for newline)"}
                 rows={2}
                 style={{ minHeight: '52px', maxHeight: '200px' }}
                 className="w-full bg-transparent px-4 pt-3 pb-11 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none overflow-y-auto"
-                disabled={isLoading}
+                disabled={isLoading || !!sendDenialReason}
+                title={sendDenialReason ?? undefined}
               />
               <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1">
                 <MicButton value={input} onChange={setInput} disabled={isLoading} size="sm" />
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim() || isLoading}
+                  disabled={!input.trim() || isLoading || !!sendDenialReason}
+                  title={sendDenialReason ?? undefined}
                   className={cn(
                     'w-8 h-8 rounded-lg flex items-center justify-center transition-all',
-                    input.trim() && !isLoading
+                    input.trim() && !isLoading && !sendDenialReason
                       ? 'bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-lg shadow-violet-500/30 hover:shadow-violet-500/50 hover:scale-105 active:scale-95'
                       : 'bg-muted text-muted-foreground cursor-not-allowed opacity-50',
                   )}

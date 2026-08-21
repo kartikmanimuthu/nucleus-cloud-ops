@@ -1,0 +1,100 @@
+diff --git a/dist/agents/middleware/hitl.cjs b/dist/agents/middleware/hitl.cjs
+index 97903fd7b3bc11a2cc3e6bedeabe4b2e79d06efc..80a8a86a21ec619cc06db855d8a2da67541f7181 100644
+--- a/dist/agents/middleware/hitl.cjs
++++ b/dist/agents/middleware/hitl.cjs
+@@ -13,7 +13,8 @@ const DescriptionFunctionSchema = zod_v3.z.function().args(zod_v3.z.custom(), zo
+ const ALLOWED_DECISIONS = [
+ 	"approve",
+ 	"edit",
+-	"reject"
++	"reject",
++	"respond"
+ ];
+ const DecisionType = zod_v3.z.enum(ALLOWED_DECISIONS);
+ const InterruptOnConfigSchema = zod_v3.z.object({
+@@ -390,6 +391,17 @@ function humanInTheLoopMiddleware(options) {
+ 				toolMessage: null
+ 			};
+ 		}
++		if (decision.type === "respond" && allowedDecisions.includes("respond")) {
++			if (typeof decision.message !== "string") throw new Error(`Tool call response for "${toolCall.name}" must be a string, got ${typeof decision.message}`);
++			return {
++				revisedToolCall: toolCall,
++				toolMessage: new _langchain_core_messages.ToolMessage({
++					content: decision.message,
++					name: toolCall.name,
++					tool_call_id: toolCall.id
++				})
++			};
++		}
+ 		if (decision.type === "reject" && allowedDecisions.includes("reject")) {
+ 			/**
+ 			* Validate that message is a string if provided
+@@ -481,7 +493,7 @@ function humanInTheLoopMiddleware(options) {
+ 				if (decisions.length !== interruptToolCalls.length) throw new Error(`Number of human decisions (${decisions.length}) does not match number of hanging tool calls (${interruptToolCalls.length}).`);
+ 				const revisedToolCalls = [...autoApprovedToolCalls];
+ 				const artificialToolMessages = [];
+-				const hasRejectedToolCalls = decisions.some((decision) => decision.type === "reject");
++				const hasRejectedToolCalls = decisions.some((decision) => decision.type === "reject" || decision.type === "respond");
+ 				/**
+ 				* Process each decision using helper method
+ 				*/
+@@ -490,7 +502,7 @@ function humanInTheLoopMiddleware(options) {
+ 					const toolCall = interruptToolCalls[i];
+ 					const interruptConfig = resolvedConfigs[toolCall.name];
+ 					const { revisedToolCall, toolMessage } = processDecision(decision, toolCall, interruptConfig);
+-					if (revisedToolCall && (!hasRejectedToolCalls || decision.type === "reject")) revisedToolCalls.push(revisedToolCall);
++					if (revisedToolCall && (!hasRejectedToolCalls || decision.type === "reject" || decision.type === "respond")) revisedToolCalls.push(revisedToolCall);
+ 					if (toolMessage) artificialToolMessages.push(toolMessage);
+ 				}
+ 				/**
+diff --git a/dist/agents/middleware/hitl.js b/dist/agents/middleware/hitl.js
+index b8059bbfb74da7e882f58831d4b63a9c61fd3616..0c5709628039de3c7b4a257bf3d56c935a792423 100644
+--- a/dist/agents/middleware/hitl.js
++++ b/dist/agents/middleware/hitl.js
+@@ -12,7 +12,8 @@ const DescriptionFunctionSchema = z.function().args(z.custom(), z.custom(), z.cu
+ const ALLOWED_DECISIONS = [
+ 	"approve",
+ 	"edit",
+-	"reject"
++	"reject",
++	"respond"
+ ];
+ const DecisionType = z.enum(ALLOWED_DECISIONS);
+ const InterruptOnConfigSchema = z.object({
+@@ -389,6 +390,17 @@ function humanInTheLoopMiddleware(options) {
+ 				toolMessage: null
+ 			};
+ 		}
++		if (decision.type === "respond" && allowedDecisions.includes("respond")) {
++			if (typeof decision.message !== "string") throw new Error(`Tool call response for "${toolCall.name}" must be a string, got ${typeof decision.message}`);
++			return {
++				revisedToolCall: toolCall,
++				toolMessage: new ToolMessage({
++					content: decision.message,
++					name: toolCall.name,
++					tool_call_id: toolCall.id
++				})
++			};
++		}
+ 		if (decision.type === "reject" && allowedDecisions.includes("reject")) {
+ 			/**
+ 			* Validate that message is a string if provided
+@@ -480,7 +492,7 @@ function humanInTheLoopMiddleware(options) {
+ 				if (decisions.length !== interruptToolCalls.length) throw new Error(`Number of human decisions (${decisions.length}) does not match number of hanging tool calls (${interruptToolCalls.length}).`);
+ 				const revisedToolCalls = [...autoApprovedToolCalls];
+ 				const artificialToolMessages = [];
+-				const hasRejectedToolCalls = decisions.some((decision) => decision.type === "reject");
++				const hasRejectedToolCalls = decisions.some((decision) => decision.type === "reject" || decision.type === "respond");
+ 				/**
+ 				* Process each decision using helper method
+ 				*/
+@@ -489,7 +501,7 @@ function humanInTheLoopMiddleware(options) {
+ 					const toolCall = interruptToolCalls[i];
+ 					const interruptConfig = resolvedConfigs[toolCall.name];
+ 					const { revisedToolCall, toolMessage } = processDecision(decision, toolCall, interruptConfig);
+-					if (revisedToolCall && (!hasRejectedToolCalls || decision.type === "reject")) revisedToolCalls.push(revisedToolCall);
++					if (revisedToolCall && (!hasRejectedToolCalls || decision.type === "reject" || decision.type === "respond")) revisedToolCalls.push(revisedToolCall);
+ 					if (toolMessage) artificialToolMessages.push(toolMessage);
+ 				}
+ 				/**

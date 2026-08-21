@@ -442,6 +442,38 @@ export const ALLOWED_FLAGS: Record<string, FlagSpec> = {
 
 export type ParamValue = string | string[] | true;
 
+/**
+ * What the MODEL may send. Several CLI parameters are JSON documents — Cost Explorer's
+ * `--group-by` is `[{"Type":"DIMENSION","Key":"SERVICE"}]` — and the model naturally emits
+ * them as objects rather than pre-serialised strings. Accepting only strings made every
+ * such call fail schema validation before it reached the CLI.
+ */
+type JsonObject = Record<string, unknown>;
+export type RawParamValue = ParamValue | JsonObject | JsonObject[];
+
+/**
+ * Serialise structured values so the rest of the pipeline only ever sees strings. This
+ * does not widen what is reachable: a JSON.stringify of an object or array always begins
+ * with "{" or "[", so it can only ever match the `filter` shape's JSON-document branch,
+ * and a leading URI scheme stays unrepresentable.
+ */
+export function normalizeParams(params?: Record<string, RawParamValue>): Record<string, ParamValue> | undefined {
+    if (!params) return undefined;
+    const out: Record<string, ParamValue> = {};
+    for (const [flag, value] of Object.entries(params)) {
+        if (value === true || typeof value === 'string') {
+            out[flag] = value;
+        } else if (Array.isArray(value)) {
+            out[flag] = value.map(v => (typeof v === 'string' ? v : JSON.stringify(v)));
+        } else if (value && typeof value === 'object') {
+            out[flag] = JSON.stringify(value);
+        } else {
+            out[flag] = String(value);
+        }
+    }
+    return out;
+}
+
 const SERVICE = /^[a-z0-9][a-z0-9-]*$/;
 /**
  * Anchored to a leading letter, not merely to the lowercase-and-hyphen character
@@ -572,7 +604,8 @@ export function createAwsReadTool(tenantId: string, userId?: string) {
     // through — remote MCP tool names are unprefixed, so a tenant-configured MCP
     // server could both bypass the jail and shadow the real tool.
     return markSubagentReadOnlyTool(tool(
-        async (input: AwsReadRequest): Promise<string> => {
+        async (raw: AwsReadRequest & { params?: Record<string, RawParamValue> }): Promise<string> => {
+            const input: AwsReadRequest = { ...raw, params: normalizeParams(raw.params) };
             const error = validateAwsReadRequest(input);
             if (error) return `REFUSED: ${error}`;
 
@@ -620,7 +653,7 @@ export function createAwsReadTool(tenantId: string, userId?: string) {
             name: 'aws_read',
             description: `Run a permitted READ-ONLY AWS CLI operation. This is your only route to AWS — you have no shell.
 
-Give the service and operation separately; never write a command line. Parameters are a map of flag to value, where a value is a string, an array of strings for multi-value flags, or true for flags that take no value.
+Give the service and operation separately; never write a command line. Parameters are a map of flag to value, where a value is a string, an array of strings for multi-value flags, true for flags that take no value, or a JSON object / array of objects for parameters that take a JSON document (Cost Explorer's --group-by, for instance).
 
 Values must be plain AWS values — resource ids, names, ARNs, Name=…,Values=… filters, JMESPath expressions, ISO timestamps or epoch seconds. A value may not begin with "-" and may not carry a URI scheme (no file://, http://): a parameter is never a path or a URL to be fetched.
 
@@ -633,9 +666,14 @@ Only an explicit allowlist of services and operations is permitted. If you need 
                 operation: z.string().describe('Read-only operation, e.g. "describe-instances"'),
                 region: z.string().optional().describe('AWS region'),
                 profile: z.string().optional().describe('Profile name from get_aws_credentials'),
-                params: z.record(z.string(), z.union([z.string(), z.array(z.string()), z.literal(true)]))
+                params: z.record(z.string(), z.union([
+                    z.string(),
+                    z.literal(true),
+                    z.array(z.union([z.string(), z.record(z.string(), z.unknown())])),
+                    z.record(z.string(), z.unknown()),
+                ]))
                     .optional()
-                    .describe('Flags: string, string[] for multi-value, or true for valueless flags'),
+                    .describe('Flags: string, string[] for multi-value, true for valueless flags, or a JSON object / array of objects for parameters that take a JSON document (e.g. Cost Explorer --group-by)'),
             }),
         },
     ));

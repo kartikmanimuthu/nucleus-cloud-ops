@@ -3,18 +3,21 @@ import { authorize } from '@/lib/rbac/authorize';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { createCustomRole, getCustomRoles, getPresetRoles } from '@/lib/rbac/custom-role-service';
 import type { PermissionSet } from '@/lib/rbac/types';
+import type { SubjectOverrides } from '@/lib/rbac/role-subject-overrides';
 import { AuditService } from '@/lib/audit-service';
 
 export async function GET(_request: NextRequest) {
     console.log('API - GET /api/settings/roles - Fetching roles');
-    const authError = await authorize('read', 'Settings');
+    const authError = await authorize('read', 'Role');
     if (authError) return authError;
 
     try {
         const tenantId = await getSessionTenantId();
         const [customRoles, presetRoles] = await Promise.all([
             getCustomRoles(tenantId),
-            getPresetRoles(),
+            // Tenant passed so a tenant-authored module/action override resolves alongside
+            // the global registry rows the preset rules point at.
+            getPresetRoles(tenantId),
         ]);
 
         return NextResponse.json({
@@ -32,16 +35,27 @@ export async function GET(_request: NextRequest) {
 
 export async function POST(request: NextRequest) {
     console.log('API - POST /api/settings/roles - Creating custom role');
-    const authError = await authorize('create', 'Settings');
+    const authError = await authorize('create', 'Role');
     if (authError) return authError;
 
+    // Hoisted out of the try so the catch can reference them. They were
+    // declared inside it, so the error handler itself threw ReferenceError —
+    // turning every failure into a 500 with an EMPTY body, which reaches the
+    // browser as "Unexpected end of JSON input" and hides the real cause.
+    let tenantId = 'unknown';
+    let callerEmail = 'unknown';
+
     try {
-        const tenantId = await getSessionTenantId();
+        tenantId = await getSessionTenantId();
         const session = await getAuthSession();
-        const callerEmail = session?.user?.email ?? 'unknown';
+        callerEmail = session?.user?.email ?? 'unknown';
         const body = await request.json();
 
-        const { name, permissions } = body as { name: string; permissions: PermissionSet };
+        const { name, permissions, overrides } = body as {
+            name: string;
+            permissions: PermissionSet;
+            overrides?: SubjectOverrides;
+        };
 
         if (!name || typeof name !== 'string' || name.trim().length === 0) {
             return NextResponse.json({ success: false, error: 'Role name is required' }, { status: 400 });
@@ -56,7 +70,11 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: 'Permissions object is required' }, { status: 400 });
         }
 
-        const role = await createCustomRole(tenantId, { name: name.trim(), permissions }, callerEmail);
+        const role = await createCustomRole(
+            tenantId,
+            { name: name.trim(), permissions, overrides: overrides ?? {} },
+            { userId: session?.user?.id ?? 'unknown', email: callerEmail }
+        );
 
         AuditService.logUserAction({
             eventType: 'rbac.role.created',
@@ -71,7 +89,7 @@ export async function POST(request: NextRequest) {
             userType: 'user',
             status: 'success',
             details: `Created custom role "${name.trim()}"`,
-            metadata: { tenantId, permissions },
+            metadata: { tenantId, permissions, overrides: overrides ?? {} },
         }).catch(() => {});
 
         return NextResponse.json({ success: true, data: role }, { status: 201 });

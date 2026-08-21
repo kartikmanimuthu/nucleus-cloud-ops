@@ -15,6 +15,12 @@ import { executeAgentRun } from '@/lib/agent-ops/agent-executor';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { finalizeScheduledRun } from '@/lib/agent-ops/scheduled-notifier';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'update', subject: 'AgentOps' },
+};
 
 export async function POST(
     req: Request,
@@ -81,7 +87,7 @@ export async function POST(
             apiRoute: 'POST /api/agent-ops/[runId]/resume',
             httpMethod: 'POST',
             action: 'Resumed Agent Run',
-            resourceType: 'agent',
+            resourceType: 'AgentOps',
             resourceId: runId,
             resourceName: run.taskDescription?.slice(0, 80) || runId,
             user: 'system',

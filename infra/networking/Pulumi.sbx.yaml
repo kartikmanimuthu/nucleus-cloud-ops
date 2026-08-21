@@ -1,0 +1,6 @@
+config:
+  aws:region: ap-south-1
+  nucleus-networking:vpcCidr: 10.0.0.0/16
+  nucleus-networking:appName: stx-nucleus-ops-sbx
+  nucleus-networking:natStrategy: single
+encryptionsalt: v1:143nSnbuoPc=:v1:X3E/Slg5GuHdAtSA:gO/gXkIa2H5RZE8GUmfE+6Pq52P5kw==

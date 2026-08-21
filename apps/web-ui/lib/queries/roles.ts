@@ -6,11 +6,14 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PermissionSet } from '@/lib/rbac/types';
+import type { SubjectOverrides } from '@/lib/rbac/role-subject-overrides';
 
 export interface PredefinedRole {
     id: string;
     name: string;
     permissions: PermissionSet;
+    /** Subject-level exceptions to `permissions`. Empty object when there are none. */
+    overrides: SubjectOverrides;
     level: number;
     predefined: true;
 }
@@ -20,6 +23,8 @@ export interface CustomRole {
     tenantId: string;
     name: string;
     permissions: PermissionSet;
+    /** Subject-level exceptions to `permissions`. Empty object when there are none. */
+    overrides: SubjectOverrides;
     level: number;
     createdAt: string;
     updatedAt: string;
@@ -58,17 +63,19 @@ export function useSaveRole() {
             id,
             name,
             permissions,
+            overrides,
         }: {
             id?: string;
             name: string;
             permissions: PermissionSet;
+            overrides: SubjectOverrides;
         }) => {
             const res = await fetch(
                 id ? `/api/settings/roles/${id}` : '/api/settings/roles',
                 {
                     method: id ? 'PUT' : 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, permissions }),
+                    body: JSON.stringify({ name, permissions, overrides }),
                 },
             );
             const json = await res.json();

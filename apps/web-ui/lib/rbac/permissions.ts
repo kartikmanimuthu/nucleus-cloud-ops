@@ -1,10 +1,10 @@
-import type { Module, Action, PredefinedRole, RoleLevel, PermissionSet } from './types';
+import type { Module, Action, LegacyModule, LegacyAction, PredefinedRole, RoleLevel, PermissionSet } from './types';
 
 /**
  * Static permission map for the 4 predefined roles across 5 modules.
  * Per D-01, D-04: Owner > Admin > Member > Viewer hierarchy.
  */
-export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
+export const ROLE_PERMISSIONS: Record<PredefinedRole, Record<LegacyModule, LegacyAction[]>> = {
     Owner: {
         Accounts: ['create', 'read', 'update', 'delete'],
         Schedules: ['create', 'read', 'update', 'delete'],
@@ -12,6 +12,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         Inventory: ['create', 'read', 'update', 'delete'],
         Settings: ['create', 'read', 'update', 'delete'],
         Dashboard: ['read'], // Dashboard is read-only for everyone
+        IAM: ['create', 'read', 'update', 'delete'],
     },
     Admin: {
         Accounts: ['create', 'read', 'update', 'delete'],
@@ -20,6 +21,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         Inventory: ['create', 'read', 'update', 'delete'],
         Settings: ['create', 'read', 'update'], // No delete on Settings per D-04
         Dashboard: ['read'],
+        IAM: ['create', 'read', 'update'], // No delete on IAM, same bar as Settings
     },
     Member: {
         Accounts: ['create', 'read', 'update'],
@@ -28,6 +30,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         Inventory: ['create', 'read', 'update'],
         Settings: ['read'], // R only on Settings per D-04
         Dashboard: ['read'],
+        IAM: ['read'], // R only on IAM, same bar as Settings
     },
     Viewer: {
         Accounts: ['read'],
@@ -36,6 +39,7 @@ export const ROLE_PERMISSIONS: Record<PredefinedRole, PermissionSet> = {
         Inventory: ['read'],
         Settings: ['read'],
         Dashboard: ['read'],
+        IAM: ['read'],
     },
 };
 
@@ -59,7 +63,12 @@ const MIN_ASSIGN_LEVEL: RoleLevel = 3;
 export function hasPermission(role: PredefinedRole, action: Action, module: Module): boolean {
     const perms = ROLE_PERMISSIONS[role];
     if (!perms) return false;
-    return perms[module]?.includes(action) ?? false;
+    // `perms` is keyed by the closed LegacyModule union; `module` is the now-open
+    // Module (string) so a runtime-registered module can reach this call site
+    // (e.g. via authorize()'s legacy fallback). Cast for the lookup only — a
+    // module outside the legacy union simply isn't a key here, so this stays a
+    // plain miss (`undefined`), not a behavior change.
+    return (perms as Record<string, Action[]>)[module]?.includes(action) ?? false;
 }
 
 /**
@@ -84,14 +93,24 @@ export function canAssignRole(assignerRole: PredefinedRole, targetRole: Predefin
 
 /**
  * Per D-10: auto-level a custom role by its total permission count.
- * Thresholds: Owner-level(4), 15+=Admin-level(3), 8+=Member-level(2), else Viewer-level(1).
- * Owner threshold is derived from the static Owner permission set so it stays correct
- * when new read-only modules (e.g. Dashboard) are added.
+ *
+ * `ownerActionCount` is the number of grantable (module, action) cells in the
+ * REGISTRY. It must be passed by any caller that can see the registry, because
+ * the static Owner set is no longer the ceiling: once modules are authored from
+ * the UI, a role can accumulate 21 ticks across ordinary modules and clear the
+ * static threshold — silently reaching level 4, the level that may assign roles.
+ * Defaulting to the static count keeps the legacy fallback path unchanged.
  */
-export function getAutoLevel(permissions: PermissionSet): RoleLevel {
+export function getAutoLevel(permissions: PermissionSet, ownerActionCount?: number): RoleLevel {
     const totalActions = Object.values(permissions).flat().length;
-    const ownerActionCount = Object.values(ROLE_PERMISSIONS.Owner).flat().length;
-    if (totalActions >= ownerActionCount) return 4;
+    const staticCeiling = Object.values(ROLE_PERMISSIONS.Owner).flat().length;
+    // A non-positive ceiling means the caller's registry read is broken or
+    // inconsistent, not "everyone qualifies for Owner." Falling open to
+    // level 4 there — level 4 may assign Owner-level roles to anyone — is
+    // the exact failure this ceiling was introduced to prevent. Treat it
+    // the same as an absent ceiling: fall back to the safe static default.
+    const ceiling = ownerActionCount && ownerActionCount > 0 ? ownerActionCount : staticCeiling;
+    if (totalActions >= ceiling) return 4;
     if (totalActions >= 15) return 3;
     if (totalActions >= 8) return 2;
     return 1;

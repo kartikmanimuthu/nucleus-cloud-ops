@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { GatedButton } from "@/components/rbac/gated"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import {
     Select,
@@ -153,7 +154,19 @@ export default function ScheduledTasksPage() {
                         <RefreshCw className={`h-4 w-4 mr-2 ${tasksQuery.isFetching ? "animate-spin" : ""}`} />
                         Refresh
                     </Button>
-                    <ScheduledTaskDialog tenantId={tenantId} onSaved={() => tasksQuery.refetch()} />
+                    {/* Scheduled tasks authorise under the AI Ops subject `Agent`, NOT
+                        `Schedule` -- the cost scheduler at /app/schedules is a different
+                        feature. See libs/rbac/generated/route-manifest.json. */}
+                    <ScheduledTaskDialog
+                        tenantId={tenantId}
+                        onSaved={() => tasksQuery.refetch()}
+                        trigger={
+                            <GatedButton action="create" subject="ScheduledTask" className="gap-2">
+                                <CalendarClock className="h-4 w-4" />
+                                New Scheduled Task
+                            </GatedButton>
+                        }
+                    />
                     {prefill && (
                         <ScheduledTaskDialog
                             tenantId={tenantId}
@@ -252,34 +265,39 @@ export default function ScheduledTasksPage() {
                                             {lastStatus === "failed" && <XCircle className="h-4 w-4 text-red-500" />}
                                             {lastStatus === "in_progress" && <Loader2 className="h-4 w-4 animate-spin text-blue-500" />}
                                             <StatusBadge status={task.taskStatus} />
-                                            <Button variant="ghost" size="sm" className="h-7 px-2" disabled={busy}
+                                            <GatedButton action="execute" subject="ScheduledTask" data={task as unknown as Record<string, unknown>}
+                                                variant="ghost" size="sm" className="h-7 px-2" disabled={busy}
                                                 onClick={() => handleTrigger(task)} title="Run now">
                                                 {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                                            </Button>
+                                            </GatedButton>
                                             {task.taskStatus === "active"
-                                                ? <Button variant="ghost" size="sm" className="h-7 px-2" disabled={busy}
+                                                ? <GatedButton action="update" subject="ScheduledTask" data={task as unknown as Record<string, unknown>}
+                                                    variant="ghost" size="sm" className="h-7 px-2" disabled={busy}
                                                     onClick={() => handlePause(task)} title="Pause">
                                                     <Pause className="h-3 w-3" />
-                                                </Button>
-                                                : <Button variant="ghost" size="sm" className="h-7 px-2" disabled={busy}
+                                                </GatedButton>
+                                                : <GatedButton action="update" subject="ScheduledTask" data={task as unknown as Record<string, unknown>}
+                                                    variant="ghost" size="sm" className="h-7 px-2" disabled={busy}
                                                     onClick={() => handleResume(task)} title="Resume">
                                                     <Play className="h-3 w-3 text-green-500" />
-                                                </Button>
+                                                </GatedButton>
                                             }
                                             <ScheduledTaskDialog
                                                 tenantId={tenantId}
                                                 task={task}
                                                 onSaved={() => tasksQuery.refetch()}
                                                 trigger={
-                                                    <Button variant="ghost" size="sm" className="h-7 px-2" title="Edit">
+                                                    <GatedButton action="update" subject="ScheduledTask" data={task as unknown as Record<string, unknown>}
+                                                        variant="ghost" size="sm" className="h-7 px-2" title="Edit">
                                                         <Zap className="h-3 w-3" />
-                                                    </Button>
+                                                    </GatedButton>
                                                 }
                                             />
-                                            <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive hover:text-destructive"
-                                                disabled={busy} onClick={() => handleDelete(task)} title="Delete">
+                                            <GatedButton action="delete" subject="ScheduledTask" data={task as unknown as Record<string, unknown>}
+                                                disabled={busy} onClick={() => handleDelete(task)} title="Delete"
+                                                variant="ghost" size="sm" className="h-7 px-2 text-destructive hover:text-destructive">
                                                 <Trash2 className="h-3 w-3" />
-                                            </Button>
+                                            </GatedButton>
                                         </div>
                                     </div>
                                 )

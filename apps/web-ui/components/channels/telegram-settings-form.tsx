@@ -6,6 +6,7 @@ import { useChannelSettings, useSaveChannelSettings, revealChannelSecrets } from
 import { ArrowLeft, CheckCircle2, Copy, Eye, EyeOff, Loader2, PlugZap, RefreshCw, Save, Webhook } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { GatedButton } from '@/components/rbac/gated';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -237,7 +238,9 @@ function TelegramSettingsFormInner({
                         Method: <code className="bg-muted px-1 rounded">POST</code>
                     </p>
                     <div>
-                        <Button
+                        <GatedButton
+                            action="update"
+                            subject="Channel"
                             variant="outline"
                             size="sm"
                             onClick={handleRegisterWebhook}
@@ -249,7 +252,7 @@ function TelegramSettingsFormInner({
                                 <Webhook className="h-4 w-4 mr-2" />
                             )}
                             Register Webhook
-                        </Button>
+                        </GatedButton>
                         <p className="text-xs text-muted-foreground mt-2">
                             One-click registration with Telegram. Works only after the Bot Token and Secret Token are
                             saved (or typed above), and the app must be reachable over HTTPS.
@@ -283,7 +286,14 @@ function TelegramSettingsFormInner({
                                 onChange={e => setForm(prev => ({ ...prev, botToken: e.target.value }))}
                                 className="pr-10 font-mono"
                             />
-                            <Button
+                            {/*
+                              * Revealing a stored secret hits GET ?reveal=1, which the route
+                              * guards with `update` (and audits at high severity) — so the eye
+                              * needs the same permission, not merely `read`.
+                              */}
+                            <GatedButton
+                                action="update"
+                                subject="Channel"
                                 type="button"
                                 variant="ghost"
                                 size="icon"
@@ -294,7 +304,7 @@ function TelegramSettingsFormInner({
                                 }}
                             >
                                 {showBotToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                            </Button>
+                            </GatedButton>
                         </div>
                         <p className="text-xs text-muted-foreground">
                             Get this from <strong>@BotFather</strong> when you create a bot (looks like{' '}
@@ -317,7 +327,9 @@ function TelegramSettingsFormInner({
                                     onChange={e => setForm(prev => ({ ...prev, secretToken: e.target.value }))}
                                     className="pr-10 font-mono"
                                 />
-                                <Button
+                                <GatedButton
+                                    action="update"
+                                    subject="Channel"
                                     type="button"
                                     variant="ghost"
                                     size="icon"
@@ -328,7 +340,7 @@ function TelegramSettingsFormInner({
                                     }}
                                 >
                                     {showSecretToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                                </Button>
+                                </GatedButton>
                             </div>
                             <Button type="button" variant="outline" size="sm" onClick={generateSecret}>
                                 <RefreshCw className="h-3.5 w-3.5 mr-2" />
@@ -368,7 +380,15 @@ function TelegramSettingsFormInner({
 
                     {/* Actions */}
                     <div className="flex items-center gap-2">
-                        <Button
+                        {/*
+                          * Save asks for `create` on an unconfigured channel and `update`
+                          * on a configured one, mirroring the POST/PUT split the mutation
+                          * picks between — so the control is live exactly when the request
+                          * it sends would be allowed.
+                          */}
+                        <GatedButton
+                            action={configured ? 'update' : 'create'}
+                            subject="Channel"
                             onClick={handleSave}
                             disabled={saving || testing}
                             className={saveStatus === 'saved' ? 'bg-green-600 hover:bg-green-700' : ''}
@@ -381,8 +401,10 @@ function TelegramSettingsFormInner({
                                 <Save className="h-4 w-4 mr-2" />
                             )}
                             {saveStatus === 'saved' ? 'Saved' : 'Save Settings'}
-                        </Button>
-                        <Button
+                        </GatedButton>
+                        <GatedButton
+                            action="update"
+                            subject="Channel"
                             variant="outline"
                             onClick={handleTestConnection}
                             disabled={saving || testing || (!configured && !form.botToken.trim())}
@@ -393,7 +415,7 @@ function TelegramSettingsFormInner({
                                 <PlugZap className="h-4 w-4 mr-2" />
                             )}
                             Test Connection
-                        </Button>
+                        </GatedButton>
                     </div>
                     <p className="text-xs text-muted-foreground">
                         Test Connection verifies the Bot Token against Telegram&apos;s{' '}

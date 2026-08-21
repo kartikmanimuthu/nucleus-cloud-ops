@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth-session";
 import { getPrismaClient } from "@/lib/db/pg-config";
 import { TenantConfigService } from "@/lib/tenant-config-service";
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Tenant' },
+};
 
 export async function GET() {
     try {

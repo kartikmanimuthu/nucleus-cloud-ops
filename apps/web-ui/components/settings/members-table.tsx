@@ -19,9 +19,11 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
 import { useTenant } from "@/lib/tenant-context";
+import { Gate, GatedButton } from "@/components/rbac/gated";
+import { MemberAttributesDialog } from "./member-attributes-dialog";
 
 const PAGE_SIZE = 10;
 
@@ -50,6 +52,8 @@ export function MembersTable({
 }) {
     const { timezone } = useTenant();
     const [page, setPage] = useState(0);
+    /** Member whose principal attributes are being edited, if any. */
+    const [attributesFor, setAttributesFor] = useState<string | null>(null);
 
     if (error) {
         return <p className="text-sm text-destructive">{error}</p>;
@@ -83,6 +87,7 @@ export function MembersTable({
                         <TableHead>Email</TableHead>
                         <TableHead>Role</TableHead>
                         <TableHead>Joined</TableHead>
+                        <TableHead className="w-10 sr-only">Attributes</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -93,30 +98,60 @@ export function MembersTable({
                                 {m.userId === currentUserId ? (
                                     <Badge variant="secondary">{m.role}</Badge>
                                 ) : (
-                                    <Select
-                                        defaultValue={m.role}
-                                        onValueChange={(val) => onRoleChange(m.id, val)}
-                                    >
-                                        <SelectTrigger className="h-7 w-32 text-xs">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {availableRoles.map((r) => (
-                                                <SelectItem key={r} value={r} className="text-xs">
-                                                    {r}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Gate action="update" subject="User" data={m as unknown as Record<string, unknown>}>
+                                        {({ allowed, reason }) => (
+                                            <Select
+                                                disabled={!allowed}
+                                                defaultValue={m.role}
+                                                onValueChange={(val) => onRoleChange(m.id, val)}
+                                            >
+                                                <SelectTrigger
+                                                    className="h-7 w-32 text-xs"
+                                                    title={allowed ? undefined : (reason ?? undefined)}
+                                                >
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {availableRoles.map((r) => (
+                                                        <SelectItem key={r} value={r} className="text-xs">
+                                                            {r}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                    </Gate>
                                 )}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
                                 {formatDate(m.assignedAt, 'shortDate', timezone)}
                             </TableCell>
+                            <TableCell className="text-right">
+                                <GatedButton
+                                    action="update"
+                                    subject="User"
+                                    data={m as unknown as Record<string, unknown>}
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    title="Edit attributes"
+                                    aria-label={`Edit attributes for ${m.email}`}
+                                    onClick={() => setAttributesFor(m.id)}
+                                >
+                                    <SlidersHorizontal className="h-4 w-4" />
+                                </GatedButton>
+                            </TableCell>
                         </TableRow>
                     ))}
                 </TableBody>
             </Table>
+
+            <MemberAttributesDialog
+                memberId={attributesFor}
+                open={attributesFor !== null}
+                onOpenChange={(open) => !open && setAttributesFor(null)}
+            />
+
 
             {totalPages > 1 && (
                 <div className="flex items-center justify-end gap-2 text-sm text-muted-foreground">

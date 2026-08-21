@@ -281,3 +281,21 @@ describe('TranscriptHeader', () => {
     expect(onMenuAction).toHaveBeenCalledWith('export-report')
   })
 })
+
+// Plan/Execute/Reflect/Revise are the planning agent's graph nodes. Deep has no such
+// nodes, so Reflect and Revise stayed permanently greyed on every deep run.
+describe('TranscriptHeader — no phase stepper in deep mode', () => {
+  const noop = () => {}
+  const active: RunState = { ...EMPTY_RUN_STATE, currentPhase: 'execution', phases: [{ phase: 'execution', node: 'model_request', ts: 1 }] }
+
+  it('renders the stepper for fast/plan', () => {
+    render(<TranscriptHeader title="t" runState={active} isStreaming elapsedMs={null} onMenuAction={noop} />)
+    expect(screen.getByTestId('phase-stepper')).toBeTruthy()
+  })
+
+  it('omits the stepper for deep', () => {
+    render(<TranscriptHeader title="t" runState={active} isStreaming elapsedMs={null} onMenuAction={noop} isDeep />)
+    expect(screen.queryByTestId('phase-stepper')).toBeNull()
+  })
+})
+

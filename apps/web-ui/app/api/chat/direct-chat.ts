@@ -2,7 +2,7 @@ import { HumanMessage, AIMessage, SystemMessage, BaseMessage } from '@langchain/
 import { NextResponse } from 'next/server';
 import { createUIMessageStreamResponse, UIMessageChunk } from 'ai';
 import { createAgentModels } from '@/lib/agent/model-factory';
-import { buildBaseIdentity } from '@/lib/agent/prompt-templates';
+import { buildDirectSystemPrompt } from '@/lib/agent/prompt-templates';
 import { contentToText, type ResolvedModelConfig } from '@/lib/agent/agent-shared';
 
 /**
@@ -43,19 +43,6 @@ function buildDirectMessages(messages: ClientMessage[]): BaseMessage[] {
             : new AIMessage({ content: textOf(m) })));
 }
 
-function buildDirectSystemPrompt(): SystemMessage {
-    return new SystemMessage(`${buildBaseIdentity()}
-
-## Conversational Reply Mode
-
-The user's message is conversational — a greeting, thanks, a question about your capabilities, or something answerable from the conversation itself. Reply naturally and briefly. No tools are available in this mode, and none are needed.
-
-- Be warm and direct; a greeting gets a short greeting back, not a paragraph.
-- If asked what you can do: you operate AWS across the tenant's connected accounts — inventory and health checks, incident triage, cost analysis and right-sizing, resource scheduling, log/metric investigation, and recurring scheduled tasks. Invite the user to describe a task in plain language.
-- If the message references earlier findings in this conversation, answer from that visible history only — never invent data, resource IDs, or metrics.
-- If the request actually needs live data or an action, say you're ready to run it as a task and ask them to confirm or elaborate — do not fabricate results.`);
-}
-
 export async function respondDirect(params: {
     messages: ClientMessage[];
     resolvedModel: ResolvedModelConfig;
@@ -72,7 +59,7 @@ export async function respondDirect(params: {
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
     const userText = lastUser ? textOf(lastUser) : '';
     const sessionTitle = userText.slice(0, 60) || 'New Chat';
-    const lcInput = [buildDirectSystemPrompt(), ...history];
+    const lcInput = [new SystemMessage(buildDirectSystemPrompt()), ...history];
     const { main: model } = createAgentModels(resolvedModel);
 
     // Persist the exchange so thread reload shows it (the workflow path persists

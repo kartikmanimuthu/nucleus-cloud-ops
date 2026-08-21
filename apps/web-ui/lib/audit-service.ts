@@ -2,6 +2,7 @@
 // Use USE_PG_AUDIT_LOGS=true to switch to PostgreSQL backend
 import { AuditLog } from './types';
 import { getAuditLogRepository } from '@/lib/db/repository-factory';
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
 import type { NextRequest } from 'next/server';
 import { env } from '@/env';
 
@@ -22,6 +23,13 @@ export interface AuditLogFilters {
     searchTerm?: string;
     limit?: number;
     nextPageToken?: string;
+    /**
+     * Gate 3 (RBAC row filtering): a Prisma `where` fragment restricting the
+     * result to the rows the caller may read. Built by
+     * getReadRowFilter() in lib/rbac/row-filter.ts and INTERSECTED with the
+     * query below via andWhere() — never merged over it.
+     */
+    rowFilter?: PrismaRowFilter | null;
 }
 
 export interface AuditLogResponse {

@@ -12,6 +12,7 @@ import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSlackWorkspaceLinkRepository } from '@/lib/db/repository-factory';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
+import { NarrationSessions } from '@/lib/gateway/narration/narration-session';
 import type {
     ChannelAdapter,
     ChannelType,
@@ -68,6 +69,9 @@ export class SlackAdapter implements ChannelAdapter {
         approvalButtons: true,
         threadedReplies: true,
     };
+
+    private narration = new NarrationSessions();
+    private streamMessages = new Map<string, { channel: string; ts: string }>();
 
     // ─── Inbound ──────────────────────────────────────────────────────
 
@@ -157,15 +161,63 @@ export class SlackAdapter implements ChannelAdapter {
 
     // ─── Outbound ─────────────────────────────────────────────────────
 
+    async sendStreamChunk(run: AgentOpsRun, event: AgentOpsEvent): Promise<void> {
+        const trigger = run.trigger as SlackTriggerMeta;
+        if (!trigger?.channelId) return;
+
+        const text = await this.narration.applyEvent(run, event);
+        if (text === null) return;
+
+        // Narration edits a channel message in place, which needs chat.update and
+        // therefore a bot token. Without one, skip silently — that's today's
+        // behavior (no narration at all), not a regression.
+        const config = await this.loadConfig(run.tenantId);
+        if (!config?.botToken) return;
+
+        const auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${config.botToken}` };
+        const existing = this.streamMessages.get(run.runId);
+
+        try {
+            if (existing) {
+                await fetch('https://slack.com/api/chat.update', {
+                    method: 'POST',
+                    headers: auth,
+                    body: JSON.stringify({ channel: existing.channel, ts: existing.ts, text }),
+                });
+                return;
+            }
+
+            const res = await fetch('https://slack.com/api/chat.postMessage', {
+                method: 'POST',
+                headers: auth,
+                body: JSON.stringify({ channel: trigger.channelId, thread_ts: trigger.threadTs, text }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                this.streamMessages.set(run.runId, { channel: data.channel, ts: data.ts });
+            } else {
+                // e.g. not_in_channel — leave streamMessages unset so the next
+                // boundary retries a fresh post rather than updating nothing.
+                console.warn('[SlackAdapter] Narration post failed:', data.error);
+            }
+        } catch (err) {
+            console.error('[SlackAdapter] sendStreamChunk error:', err);
+        }
+    }
+
     async sendResult(run: AgentOpsRun, _events: AgentOpsEvent[]): Promise<void> {
+        this.narration.finish(run.runId);
         const summary = run.result?.summary ?? '(no summary)';
         const text = `✅ Complete\n${summary}`;
         await this.postToSlackThreadOrWebhook(text, run);
+        this.streamMessages.delete(run.runId);
     }
 
     async sendError(run: AgentOpsRun, error: string): Promise<void> {
+        this.narration.finish(run.runId);
         const text = `❌ Agent Ops failed: ${error}`;
         await this.postToSlackThreadOrWebhook(text, run);
+        this.streamMessages.delete(run.runId);
     }
 
     async sendClarification(run: AgentOpsRun, question: string): Promise<void> {

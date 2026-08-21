@@ -12,6 +12,13 @@ import { handleAgentOpsTick } from './jobs/agent-ops-scheduler/index.js';
 import { handleCertificateExpiryMonitor } from './jobs/certificate-expiry-monitor/index.js';
 import { handleScan as handleRightSizingScan } from './jobs/right-sizing/index.js';
 import { handlePricingRefresh } from './jobs/right-sizing/pricing-refresh.js';
+import {
+    handleSpotGuardRestoreScan,
+    handleSpotGuardReport,
+    handleSpotGuardObserveScan,
+} from './jobs/spot-guard/index.js';
+import { handleScan as handleScalingAuditScan } from './jobs/scaling-audit/index.js';
+import { handleScan as handleCapacityPlanningScan } from './jobs/capacity-planning/index.js';
 
 const log = createLogger('job-runner');
 
@@ -25,6 +32,22 @@ const HANDLERS: Record<string, (jobData: unknown) => Promise<unknown>> = {
     'right-sizing-pricing-refresh': handlePricingRefresh,
     // Single agent-ops tick queue (sweeper design — see agent-ops-scheduler/index.ts).
     'agent-ops-tick': handleAgentOpsTick,
+    // Fargate Spot Guard — ONLY the per-tenant restore scan belongs here.
+    //
+    // 'spot-guard-event' and 'spot-guard-bus-policy-reconcile' are DELIBERATELY ABSENT.
+    // They run in-process in the long-lived workers service (see the executor-bypass
+    // rationale in jobs/spot-guard/index.ts): dispatching one ephemeral Fargate task per
+    // ECS event would cost roughly $9.5k/month at 50 accounts and would miss the ~2
+    // minute Spot interruption window every time. Their absence is the enforcement — if
+    // someone later routes them through the executor, the ephemeral task fails loudly on
+    // an unknown job name rather than quietly burning money. Do not "complete" this map.
+    'spot-guard-restore-scan': handleSpotGuardRestoreScan,
+    'spot-guard-report-scan': handleSpotGuardReport,
+    // Read-only hourly re-observation. Executor-routed like the two above: it fans out over a
+    // whole tenant estate, which is the other side of the dividing line described above.
+    'spot-guard-observe-scan': handleSpotGuardObserveScan,
+    'scaling-audit-scan': handleScalingAuditScan,
+    'capacity-planning-scan': handleCapacityPlanningScan,
 };
 
 function parseArgs(): { job: string; data: unknown } {

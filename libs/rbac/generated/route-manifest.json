@@ -1,0 +1,2267 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "pattern": "/api/accounts",
+      "file": "apps/web-ui/app/api/accounts/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Account",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Account",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/accounts/:accountId",
+      "file": "apps/web-ui/app/api/accounts/[accountId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Account",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Account",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Account",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/accounts/:accountId/activity",
+      "file": "apps/web-ui/app/api/accounts/[accountId]/activity/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "AuditLog",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/accounts/:accountId/resources",
+      "file": "apps/web-ui/app/api/accounts/[accountId]/resources/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Resource",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/accounts/:accountId/scan",
+      "file": "apps/web-ui/app/api/accounts/[accountId]/scan/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Resource",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/accounts/:accountId/schedules",
+      "file": "apps/web-ui/app/api/accounts/[accountId]/schedules/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Schedule",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/accounts/:accountId/validate",
+      "file": "apps/web-ui/app/api/accounts/[accountId]/validate/route.ts",
+      "methods": {
+        "POST": {
+          "action": "validate",
+          "subject": "Account",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/accounts/bulk",
+      "file": "apps/web-ui/app/api/accounts/bulk/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "Account",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/accounts/template",
+      "file": "apps/web-ui/app/api/accounts/template/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Account",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "read",
+          "subject": "Account",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/accounts/validate",
+      "file": "apps/web-ui/app/api/accounts/validate/route.ts",
+      "methods": {
+        "POST": {
+          "action": "validate",
+          "subject": "Account",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-memories",
+      "file": "apps/web-ui/app/api/agent-memories/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Memory",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-memories/:id",
+      "file": "apps/web-ui/app/api/agent-memories/[id]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Memory",
+          "source": "inferred"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Memory",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops",
+      "file": "apps/web-ui/app/api/agent-ops/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "AgentOps",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/:runId",
+      "file": "apps/web-ui/app/api/agent-ops/[runId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "AgentOps",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/:runId/approve",
+      "file": "apps/web-ui/app/api/agent-ops/[runId]/approve/route.ts",
+      "methods": {
+        "POST": {
+          "action": "approve",
+          "subject": "AgentOps",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/:runId/cancel",
+      "file": "apps/web-ui/app/api/agent-ops/[runId]/cancel/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "AgentOps",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/:runId/resume",
+      "file": "apps/web-ui/app/api/agent-ops/[runId]/resume/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "AgentOps",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/:runId/stream",
+      "file": "apps/web-ui/app/api/agent-ops/[runId]/stream/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "AgentOps",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/mcp-settings",
+      "file": "apps/web-ui/app/api/agent-ops/mcp-settings/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "McpServer",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "McpServer",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "update",
+          "subject": "McpServer",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/mcp-settings/test",
+      "file": "apps/web-ui/app/api/agent-ops/mcp-settings/test/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "McpServer",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/scheduled-tasks",
+      "file": "apps/web-ui/app/api/agent-ops/scheduled-tasks/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScheduledTask",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "ScheduledTask",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/scheduled-tasks/:taskId",
+      "file": "apps/web-ui/app/api/agent-ops/scheduled-tasks/[taskId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScheduledTask",
+          "source": "declared"
+        },
+        "PATCH": {
+          "action": "update",
+          "subject": "ScheduledTask",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "ScheduledTask",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/scheduled-tasks/:taskId/pause",
+      "file": "apps/web-ui/app/api/agent-ops/scheduled-tasks/[taskId]/pause/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "ScheduledTask",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/scheduled-tasks/:taskId/resume",
+      "file": "apps/web-ui/app/api/agent-ops/scheduled-tasks/[taskId]/resume/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "ScheduledTask",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/scheduled-tasks/:taskId/runs",
+      "file": "apps/web-ui/app/api/agent-ops/scheduled-tasks/[taskId]/runs/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScheduledTask",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/scheduled-tasks/:taskId/trigger",
+      "file": "apps/web-ui/app/api/agent-ops/scheduled-tasks/[taskId]/trigger/route.ts",
+      "methods": {
+        "POST": {
+          "action": "execute",
+          "subject": "ScheduledTask",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/scheduled-tasks/distill",
+      "file": "apps/web-ui/app/api/agent-ops/scheduled-tasks/distill/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "ScheduledTask",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/:channel/reveal",
+      "file": "apps/web-ui/app/api/agent-ops/settings/[channel]/reveal/route.ts",
+      "methods": {
+        "GET": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/defaults",
+      "file": "apps/web-ui/app/api/agent-ops/settings/defaults/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Settings",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Agent",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/discord",
+      "file": "apps/web-ui/app/api/agent-ops/settings/discord/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Channel",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/jira",
+      "file": "apps/web-ui/app/api/agent-ops/settings/jira/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Channel",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/jira/test",
+      "file": "apps/web-ui/app/api/agent-ops/settings/jira/test/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/slack",
+      "file": "apps/web-ui/app/api/agent-ops/settings/slack/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Channel",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/slack/test",
+      "file": "apps/web-ui/app/api/agent-ops/settings/slack/test/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/telegram",
+      "file": "apps/web-ui/app/api/agent-ops/settings/telegram/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Channel",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/telegram/test",
+      "file": "apps/web-ui/app/api/agent-ops/settings/telegram/test/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/telegram/webhook",
+      "file": "apps/web-ui/app/api/agent-ops/settings/telegram/webhook/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/agent-ops/settings/webhook",
+      "file": "apps/web-ui/app/api/agent-ops/settings/webhook/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Channel",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Channel",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/ask-ai",
+      "file": "apps/web-ui/app/api/ask-ai/route.ts",
+      "methods": {
+        "POST": {
+          "action": "read",
+          "subject": "Resource",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/audit",
+      "file": "apps/web-ui/app/api/audit/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "AuditLog",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "read",
+          "subject": "AuditLog",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "AuditLog",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/audit/correlation/:correlationId",
+      "file": "apps/web-ui/app/api/audit/correlation/[correlationId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "AuditLog",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/audit/filters",
+      "file": "apps/web-ui/app/api/audit/filters/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "AuditLog",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/audit/stats",
+      "file": "apps/web-ui/app/api/audit/stats/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "AuditLog",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/auth/:nextauth*",
+      "file": "apps/web-ui/app/api/auth/[...nextauth]/route.ts",
+      "methods": {
+        "GET": {
+          "source": "allowlist",
+          "why": "NextAuth internals (callback, session, csrf, providers) plus self-service signup. This IS the authentication system; it cannot require authentication."
+        },
+        "POST": {
+          "source": "allowlist",
+          "why": "NextAuth internals (callback, session, csrf, providers) plus self-service signup. This IS the authentication system; it cannot require authentication."
+        }
+      }
+    },
+    {
+      "pattern": "/api/auth/signup",
+      "file": "apps/web-ui/app/api/auth/signup/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "NextAuth internals (callback, session, csrf, providers) plus self-service signup. This IS the authentication system; it cannot require authentication."
+        }
+      }
+    },
+    {
+      "pattern": "/api/capacity-planning/breaches",
+      "file": "apps/web-ui/app/api/capacity-planning/breaches/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/capacity-planning/runs",
+      "file": "apps/web-ui/app/api/capacity-planning/runs/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "update",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/capacity-planning/summary",
+      "file": "apps/web-ui/app/api/capacity-planning/summary/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates",
+      "file": "apps/web-ui/app/api/certificates/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Certificate",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id",
+      "file": "apps/web-ui/app/api/certificates/[id]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Certificate",
+          "source": "inferred"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/accounts",
+      "file": "apps/web-ui/app/api/certificates/[id]/accounts/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/accounts/:accountId",
+      "file": "apps/web-ui/app/api/certificates/[id]/accounts/[accountId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/associated-resources",
+      "file": "apps/web-ui/app/api/certificates/[id]/associated-resources/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/content",
+      "file": "apps/web-ui/app/api/certificates/[id]/content/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/deploy",
+      "file": "apps/web-ui/app/api/certificates/[id]/deploy/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/discover",
+      "file": "apps/web-ui/app/api/certificates/[id]/discover/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/download",
+      "file": "apps/web-ui/app/api/certificates/[id]/download/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/executions",
+      "file": "apps/web-ui/app/api/certificates/[id]/executions/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/reimport",
+      "file": "apps/web-ui/app/api/certificates/[id]/reimport/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/versions",
+      "file": "apps/web-ui/app/api/certificates/[id]/versions/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Certificate",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "update",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/versions/:versionId",
+      "file": "apps/web-ui/app/api/certificates/[id]/versions/[versionId]/route.ts",
+      "methods": {
+        "DELETE": {
+          "action": "update",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/certificates/:id/versions/:versionId/activate",
+      "file": "apps/web-ui/app/api/certificates/[id]/versions/[versionId]/activate/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Certificate",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/chat",
+      "file": "apps/web-ui/app/api/chat/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/chat/subagents/:threadId",
+      "file": "apps/web-ui/app/api/chat/subagents/[threadId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Agent",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/dashboard",
+      "file": "apps/web-ui/app/api/dashboard/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Dashboard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/deep-agent/approve",
+      "file": "apps/web-ui/app/api/deep-agent/approve/route.ts",
+      "methods": {
+        "POST": {
+          "action": "approve",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/deep-agent/chat",
+      "file": "apps/web-ui/app/api/deep-agent/chat/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/deep-agent/threads",
+      "file": "apps/web-ui/app/api/deep-agent/threads/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Agent",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/deep-agent/threads/:threadId",
+      "file": "apps/web-ui/app/api/deep-agent/threads/[threadId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Agent",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/deep-agent/todos",
+      "file": "apps/web-ui/app/api/deep-agent/todos/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Agent",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Agent",
+          "source": "declared"
+        },
+        "PATCH": {
+          "action": "update",
+          "subject": "Agent",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/discovery/execute",
+      "file": "apps/web-ui/app/api/discovery/execute/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "Resource",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/discovery/status",
+      "file": "apps/web-ui/app/api/discovery/status/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Resource",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/enhance-prompt",
+      "file": "apps/web-ui/app/api/enhance-prompt/route.ts",
+      "methods": {
+        "POST": {
+          "action": "read",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/health",
+      "file": "apps/web-ui/app/api/health/route.ts",
+      "methods": {
+        "GET": {
+          "source": "allowlist",
+          "why": "ALB and container health probe. Returns liveness only — no tenant data, no side effects."
+        },
+        "HEAD": {
+          "source": "allowlist",
+          "why": "ALB and container health probe. Returns liveness only — no tenant data, no side effects."
+        }
+      }
+    },
+    {
+      "pattern": "/api/internal/spot-guard/notify",
+      "file": "apps/web-ui/app/api/internal/spot-guard/notify/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "SpotGuard",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/inventory/export",
+      "file": "apps/web-ui/app/api/inventory/export/route.ts",
+      "methods": {
+        "POST": {
+          "action": "export",
+          "subject": "Resource",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/inventory/resources",
+      "file": "apps/web-ui/app/api/inventory/resources/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Resource",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/inventory/status",
+      "file": "apps/web-ui/app/api/inventory/status/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Resource",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/inventory/sync",
+      "file": "apps/web-ui/app/api/inventory/sync/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Resource",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/invitations",
+      "file": "apps/web-ui/app/api/invitations/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "User",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "User",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/invitations/:id/resend",
+      "file": "apps/web-ui/app/api/invitations/[id]/resend/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "User",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/invitations/:id/revoke",
+      "file": "apps/web-ui/app/api/invitations/[id]/revoke/route.ts",
+      "methods": {
+        "POST": {
+          "action": "delete",
+          "subject": "User",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base",
+      "file": "apps/web-ui/app/api/knowledge-base/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/:kbId",
+      "file": "apps/web-ui/app/api/knowledge-base/[kbId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/:kbId/documents",
+      "file": "apps/web-ui/app/api/knowledge-base/[kbId]/documents/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/:kbId/documents/:dsId",
+      "file": "apps/web-ui/app/api/knowledge-base/[kbId]/documents/[dsId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/:kbId/sources",
+      "file": "apps/web-ui/app/api/knowledge-base/[kbId]/sources/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/:kbId/sources/:dsId",
+      "file": "apps/web-ui/app/api/knowledge-base/[kbId]/sources/[dsId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/:kbId/sources/:dsId/sync",
+      "file": "apps/web-ui/app/api/knowledge-base/[kbId]/sources/[dsId]/sync/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/:kbId/upload",
+      "file": "apps/web-ui/app/api/knowledge-base/[kbId]/upload/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/query",
+      "file": "apps/web-ui/app/api/knowledge-base/query/route.ts",
+      "methods": {
+        "POST": {
+          "action": "read",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/sessions",
+      "file": "apps/web-ui/app/api/knowledge-base/sessions/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/sessions/:sessionId",
+      "file": "apps/web-ui/app/api/knowledge-base/sessions/[sessionId]/route.ts",
+      "methods": {
+        "DELETE": {
+          "action": "delete",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/knowledge-base/sessions/:sessionId/history",
+      "file": "apps/web-ui/app/api/knowledge-base/sessions/[sessionId]/history/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "KnowledgeBase",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/mcp-servers",
+      "file": "apps/web-ui/app/api/mcp-servers/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "McpServer",
+          "source": "inferred"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "McpServer",
+          "source": "inferred"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "McpServer",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/mcp-servers/test",
+      "file": "apps/web-ui/app/api/mcp-servers/test/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "McpServer",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/me/ability",
+      "file": "apps/web-ui/app/api/me/ability/route.ts",
+      "methods": {
+        "GET": {
+          "source": "allowlist",
+          "why": "Session-gated, NOT in config.matcher's exemptions — a caller with no session gets NextAuth's 401, and the handler itself 401s when getAbilityForSession() returns null. It is exempt from a *permission* because it returns only the caller's own compiled rules, which is what every authenticated user needs before any control can render. Requiring a permission here would be circular: a role that could not read it would boot into an empty ability and see nothing."
+        }
+      }
+    },
+    {
+      "pattern": "/api/regions",
+      "file": "apps/web-ui/app/api/regions/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Account",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/right-sizing/recommendations",
+      "file": "apps/web-ui/app/api/right-sizing/recommendations/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "RightSizing",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/right-sizing/recommendations/:id",
+      "file": "apps/web-ui/app/api/right-sizing/recommendations/[id]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "RightSizing",
+          "source": "inferred"
+        },
+        "PATCH": {
+          "action": "update",
+          "subject": "RightSizing",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/right-sizing/runs",
+      "file": "apps/web-ui/app/api/right-sizing/runs/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "RightSizing",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "update",
+          "subject": "RightSizing",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/right-sizing/summary",
+      "file": "apps/web-ui/app/api/right-sizing/summary/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "RightSizing",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/scaling-audit/coverage",
+      "file": "apps/web-ui/app/api/scaling-audit/coverage/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/scaling-audit/events",
+      "file": "apps/web-ui/app/api/scaling-audit/events/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/scaling-audit/events/:id",
+      "file": "apps/web-ui/app/api/scaling-audit/events/[id]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/scaling-audit/export",
+      "file": "apps/web-ui/app/api/scaling-audit/export/route.ts",
+      "methods": {
+        "POST": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/scaling-audit/resources",
+      "file": "apps/web-ui/app/api/scaling-audit/resources/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/scaling-audit/runs",
+      "file": "apps/web-ui/app/api/scaling-audit/runs/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "update",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/scaling-audit/summary",
+      "file": "apps/web-ui/app/api/scaling-audit/summary/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/scheduler/execute",
+      "file": "apps/web-ui/app/api/scheduler/execute/route.ts",
+      "methods": {
+        "POST": {
+          "action": "execute",
+          "subject": "Schedule",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/scheduler/settings",
+      "file": "apps/web-ui/app/api/scheduler/settings/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Settings",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Settings",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/schedules",
+      "file": "apps/web-ui/app/api/schedules/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Schedule",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Schedule",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/schedules/:scheduleId",
+      "file": "apps/web-ui/app/api/schedules/[scheduleId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Schedule",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Schedule",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Schedule",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/schedules/:scheduleId/execute",
+      "file": "apps/web-ui/app/api/schedules/[scheduleId]/execute/route.ts",
+      "methods": {
+        "POST": {
+          "action": "execute",
+          "subject": "Schedule",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/schedules/:scheduleId/history",
+      "file": "apps/web-ui/app/api/schedules/[scheduleId]/history/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Schedule",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/schedules/:scheduleId/history/:executionId",
+      "file": "apps/web-ui/app/api/schedules/[scheduleId]/history/[executionId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Schedule",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/schedules/:scheduleId/toggle",
+      "file": "apps/web-ui/app/api/schedules/[scheduleId]/toggle/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Schedule",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/schedules/bulk",
+      "file": "apps/web-ui/app/api/schedules/bulk/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Schedule",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/aiops",
+      "file": "apps/web-ui/app/api/settings/aiops/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Agent",
+          "source": "inferred"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Agent",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/discovery",
+      "file": "apps/web-ui/app/api/settings/discovery/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Resource",
+          "source": "inferred"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Resource",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/members",
+      "file": "apps/web-ui/app/api/settings/members/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "User",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/members/:memberId",
+      "file": "apps/web-ui/app/api/settings/members/[memberId]/route.ts",
+      "methods": {
+        "PATCH": {
+          "action": "update",
+          "subject": "User",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/members/:memberId/attributes",
+      "file": "apps/web-ui/app/api/settings/members/[memberId]/attributes/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "User",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "User",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/providers",
+      "file": "apps/web-ui/app/api/settings/providers/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Provider",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "update",
+          "subject": "Provider",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/providers/:id",
+      "file": "apps/web-ui/app/api/settings/providers/[id]/route.ts",
+      "methods": {
+        "PUT": {
+          "action": "update",
+          "subject": "Provider",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "update",
+          "subject": "Provider",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/providers/:id/refresh-models",
+      "file": "apps/web-ui/app/api/settings/providers/[id]/refresh-models/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Provider",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/providers/:id/set-default",
+      "file": "apps/web-ui/app/api/settings/providers/[id]/set-default/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Provider",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/providers/:id/test",
+      "file": "apps/web-ui/app/api/settings/providers/[id]/test/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Provider",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/providers/discover",
+      "file": "apps/web-ui/app/api/settings/providers/discover/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Provider",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/providers/probe-embedding",
+      "file": "apps/web-ui/app/api/settings/providers/probe-embedding/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Provider",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/rbac/modules",
+      "file": "apps/web-ui/app/api/settings/rbac/modules/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "IAM",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "IAM",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/rbac/modules/:moduleId",
+      "file": "apps/web-ui/app/api/settings/rbac/modules/[moduleId]/route.ts",
+      "methods": {
+        "PUT": {
+          "action": "update",
+          "subject": "IAM",
+          "source": "inferred"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "IAM",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/rbac/permissions",
+      "file": "apps/web-ui/app/api/settings/rbac/permissions/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "IAM",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "IAM",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/rbac/permissions/:actionId",
+      "file": "apps/web-ui/app/api/settings/rbac/permissions/[actionId]/route.ts",
+      "methods": {
+        "PUT": {
+          "action": "update",
+          "subject": "IAM",
+          "source": "inferred"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "IAM",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/rbac/registry",
+      "file": "apps/web-ui/app/api/settings/rbac/registry/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "IAM",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/roles",
+      "file": "apps/web-ui/app/api/settings/roles/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Role",
+          "source": "inferred"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Role",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/settings/roles/:roleId",
+      "file": "apps/web-ui/app/api/settings/roles/[roleId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Role",
+          "source": "inferred"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Role",
+          "source": "inferred"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Role",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/skills",
+      "file": "apps/web-ui/app/api/skills/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Skill",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Skill",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/skills/:id",
+      "file": "apps/web-ui/app/api/skills/[id]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Skill",
+          "source": "declared"
+        },
+        "PATCH": {
+          "action": "update",
+          "subject": "Skill",
+          "source": "inferred"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Skill",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/skills/distill",
+      "file": "apps/web-ui/app/api/skills/distill/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "Skill",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/eligible",
+      "file": "apps/web-ui/app/api/spot-guard/eligible/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/events",
+      "file": "apps/web-ui/app/api/spot-guard/events/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/facets",
+      "file": "apps/web-ui/app/api/spot-guard/facets/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/report",
+      "file": "apps/web-ui/app/api/spot-guard/report/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/services",
+      "file": "apps/web-ui/app/api/spot-guard/services/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/services/:id",
+      "file": "apps/web-ui/app/api/spot-guard/services/[id]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        },
+        "PATCH": {
+          "action": "update",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/services/:id/disable",
+      "file": "apps/web-ui/app/api/spot-guard/services/[id]/disable/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/services/:id/enable",
+      "file": "apps/web-ui/app/api/spot-guard/services/[id]/enable/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/services/:id/restore",
+      "file": "apps/web-ui/app/api/spot-guard/services/[id]/restore/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/settings",
+      "file": "apps/web-ui/app/api/spot-guard/settings/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/spot-guard/summary",
+      "file": "apps/web-ui/app/api/spot-guard/summary/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "SpotGuard",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/tenants",
+      "file": "apps/web-ui/app/api/tenants/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "Tenant",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/tenants/check-slug",
+      "file": "apps/web-ui/app/api/tenants/check-slug/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Tenant",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/tenants/logo",
+      "file": "apps/web-ui/app/api/tenants/logo/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Tenant",
+          "source": "inferred"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Tenant",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/tenants/my-orgs",
+      "file": "apps/web-ui/app/api/tenants/my-orgs/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Tenant",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/tenants/settings",
+      "file": "apps/web-ui/app/api/tenants/settings/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Tenant",
+          "source": "declared"
+        },
+        "PUT": {
+          "action": "update",
+          "subject": "Tenant",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/tenants/switch",
+      "file": "apps/web-ui/app/api/tenants/switch/route.ts",
+      "methods": {
+        "POST": {
+          "action": "update",
+          "subject": "Tenant",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/threads",
+      "file": "apps/web-ui/app/api/threads/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Agent",
+          "source": "declared"
+        },
+        "POST": {
+          "action": "create",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/threads/:threadId",
+      "file": "apps/web-ui/app/api/threads/[threadId]/route.ts",
+      "methods": {
+        "PATCH": {
+          "action": "update",
+          "subject": "Agent",
+          "source": "declared"
+        },
+        "DELETE": {
+          "action": "delete",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/threads/:threadId/history",
+      "file": "apps/web-ui/app/api/threads/[threadId]/history/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/gateway/api",
+      "file": "apps/web-ui/app/api/v1/gateway/api/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "AgentOps",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/gateway/discord",
+      "file": "apps/web-ui/app/api/v1/gateway/discord/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "Discord interactions — verified via Ed25519 signature in the adapter."
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/gateway/jira",
+      "file": "apps/web-ui/app/api/v1/gateway/jira/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "Jira webhook — verified via a shared secret in the adapter."
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/gateway/slack",
+      "file": "apps/web-ui/app/api/v1/gateway/slack/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "Slack events and interactions — verified via Slack HMAC request signing in the adapter. Covers /slack and /slack/interactions."
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/gateway/slack/interactions",
+      "file": "apps/web-ui/app/api/v1/gateway/slack/interactions/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "Slack events and interactions — verified via Slack HMAC request signing in the adapter. Covers /slack and /slack/interactions."
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/gateway/stream/:runId",
+      "file": "apps/web-ui/app/api/v1/gateway/stream/[runId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Agent",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/gateway/telegram",
+      "file": "apps/web-ui/app/api/v1/gateway/telegram/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "Telegram webhook — verified via the X-Telegram-Bot-Api-Secret-Token header in the adapter."
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/gateway/webhook",
+      "file": "apps/web-ui/app/api/v1/gateway/webhook/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "Generic outbound-integration callback — verified via a per-tenant shared secret in the adapter."
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/trigger/api",
+      "file": "apps/web-ui/app/api/v1/trigger/api/route.ts",
+      "methods": {
+        "POST": {
+          "action": "create",
+          "subject": "Agent",
+          "source": "inferred"
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/trigger/jira",
+      "file": "apps/web-ui/app/api/v1/trigger/jira/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "Inbound integration triggers. Each adapter verifies its own signature or shared secret in validateRequest before any work happens. EXCEPTION: the `api` channel DOES accept a session cookie (ApiAdapter.validateRequest), so /api/v1/trigger/api carries its own authorize(\"create\", \"Agent\") for cookie-bearing callers — see the comment there. Any new trigger adapter that accepts a session must do the same."
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/trigger/slack",
+      "file": "apps/web-ui/app/api/v1/trigger/slack/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "Inbound integration triggers. Each adapter verifies its own signature or shared secret in validateRequest before any work happens. EXCEPTION: the `api` channel DOES accept a session cookie (ApiAdapter.validateRequest), so /api/v1/trigger/api carries its own authorize(\"create\", \"Agent\") for cookie-bearing callers — see the comment there. Any new trigger adapter that accepts a session must do the same."
+        }
+      }
+    },
+    {
+      "pattern": "/api/v1/trigger/slack/interactions",
+      "file": "apps/web-ui/app/api/v1/trigger/slack/interactions/route.ts",
+      "methods": {
+        "POST": {
+          "source": "allowlist",
+          "why": "Inbound integration triggers. Each adapter verifies its own signature or shared secret in validateRequest before any work happens. EXCEPTION: the `api` channel DOES accept a session cookie (ApiAdapter.validateRequest), so /api/v1/trigger/api carries its own authorize(\"create\", \"Agent\") for cookie-bearing callers — see the comment there. Any new trigger adapter that accepts a session must do the same."
+        }
+      }
+    }
+  ]
+}

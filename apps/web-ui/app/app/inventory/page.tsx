@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { StatCard } from "@/components/shared/stat-card";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import { PageHeader } from "@/components/shared/page-header";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,8 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { RefreshCw, Download, Search, Filter, Database, Server, Loader2, Check, ChevronsUpDown, Sparkles, X, SlidersHorizontal, Settings } from "lucide-react";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import { toast } from "sonner";
-import { ClientAccountService } from "@/lib/client-account-service";
-import { UIAccount } from "@/lib/types";
+import { useAccountOptions } from "@/lib/queries/accounts";
 import { ResourceDetailDialog, ResourceDetailProps } from "@/components/inventory/resource-detail-dialog";
 import { AskAIDialog } from "@/components/inventory/ask-ai-dialog";
 import { ResourceGrid } from "@/components/inventory/resource-grid";
@@ -59,7 +59,14 @@ export default function InventoryPage() {
     const [inventoryStatus, setInventoryStatus] = useState<InventoryStatus | null>(null);
 
     // Accounts for filter
-    const [accounts, setAccounts] = useState<UIAccount[]>([]);
+    // Accounts come from the gated picker hook: a role may hold `read Inventory`
+    // without `read Accounts`, and this filter must then say so rather than
+    // requesting a list it cannot have (see useAccountOptions).
+    const { accounts, denied: accountsDenied } = useAccountOptions({
+        statusFilter: "active",
+        connectionFilter: "connected",
+        limit: 1000,
+    });
     const [openAccountCombobox, setOpenAccountCombobox] = useState(false);
     const [accountSearch, setAccountSearch] = useState("");
     const [openResourceTypeCombobox, setOpenResourceTypeCombobox] = useState(false);
@@ -217,18 +224,6 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchTerm, resourceType, region, selectedAccounts, currentPage, pageSize]);
 
-    useEffect(() => {
-        const fetchAccounts = async () => {
-            try {
-                const result = await ClientAccountService.getAccounts({ statusFilter: "active", connectionFilter: "connected", limit: 1000 });
-                setAccounts(result.accounts);
-            } catch (error) {
-                console.error("Failed to fetch accounts:", error);
-            }
-        };
-        fetchAccounts();
-    }, []);
-
     const handleRowClick = (resource: Resource) => {
         setSelectedResource({
             resourceId: resource.resourceId,
@@ -275,10 +270,22 @@ export default function InventoryPage() {
                                 {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
                                 Export
                             </Button>
-                            <Button onClick={() => setSyncDialogOpen(true)}>
+                            {/*
+                             * Sync Now kicks off a real multi-account AWS scan
+                             * via STS AssumeRole — POST /api/inventory/sync
+                             * enforces update/Resource, so the button asks the
+                             * same question. 'Resource' is the "Inventory
+                             * Resource" submodule: this whole screen is that
+                             * submodule, so its controls answer to that row.
+                             * The others here are reads (Refresh, Ask AI, and
+                             * Export, whose `export` verb aliases to `read`),
+                             * already covered by the read/Resource this page
+                             * needs to render at all.
+                             */}
+                            <GatedButton action="update" subject="Resource" onClick={() => setSyncDialogOpen(true)}>
                                 <RefreshCw className="h-4 w-4 mr-2" />
                                 Sync Now
-                            </Button>
+                            </GatedButton>
                         </>
                     }
                 />
@@ -499,7 +506,9 @@ export default function InventoryPage() {
                                                     );
                                                 })}
                                                 {filtered.length === 0 && (
-                                                    <p className="py-6 text-center text-sm text-muted-foreground">No accounts found.</p>
+                                                    <p className="py-6 text-center text-sm text-muted-foreground">
+                                                        {accountsDenied ?? "No accounts found."}
+                                                    </p>
                                                 )}
                                                 </>
                                             );

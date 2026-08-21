@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useKnowledgeBases, useCreateKnowledgeBase, useDeleteKnowledgeBase, useSetKnowledgeBaseStatus } from '@/lib/queries/knowledge-base';
 import { Spinner } from '@/components/ui/spinner';
 import { BookOpen, Loader2, Plus, Database, Trash2 } from 'lucide-react';
+import { GatedButton } from '@/components/rbac/gated';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -89,10 +90,10 @@ export default function KnowledgeBasePage() {
           title="Knowledge Base"
           description="Manage your knowledge bases and the documents they contain."
           actions={
-            <Button onClick={openDialog} className="gap-2">
+            <GatedButton action="create" subject="KnowledgeBase" onClick={openDialog} className="gap-2">
               <Plus className="h-4 w-4" />
               Create Knowledge Base
-            </Button>
+            </GatedButton>
           }
         />
 
@@ -110,10 +111,10 @@ export default function KnowledgeBasePage() {
                 Create your first knowledge base to start ingesting documents.
               </p>
             </div>
-            <Button onClick={openDialog} variant="outline" className="gap-2 mt-2">
+            <GatedButton action="create" subject="KnowledgeBase" onClick={openDialog} variant="outline" className="gap-2 mt-2">
               <Plus className="h-4 w-4" />
               Create Knowledge Base
-            </Button>
+            </GatedButton>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -148,7 +149,10 @@ export default function KnowledgeBasePage() {
                     >
                       Open
                     </Button>
-                    <Button
+                    <GatedButton
+                      action="update"
+                      subject="KnowledgeBase"
+                      data={kb as unknown as Record<string, unknown>}
                       variant="ghost"
                       size="sm"
                       className="shrink-0"
@@ -167,8 +171,11 @@ export default function KnowledgeBasePage() {
                       title={kb.status === 'active' ? 'Deactivate' : 'Activate'}
                     >
                       {kb.status === 'active' ? 'Deactivate' : 'Activate'}
-                    </Button>
-                    <Button
+                    </GatedButton>
+                    <GatedButton
+                      action="delete"
+                      subject="KnowledgeBase"
+                      data={kb as unknown as Record<string, unknown>}
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
@@ -176,7 +183,7 @@ export default function KnowledgeBasePage() {
                       title="Delete knowledge base"
                     >
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </GatedButton>
                   </div>
                 </CardContent>
               </Card>

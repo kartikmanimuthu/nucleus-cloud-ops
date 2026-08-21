@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { GatedButton, GatedDropdownItem } from "@/components/rbac/gated";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -294,7 +295,10 @@ export function SchedulesTable({
                       {schedule.active ? "Active" : "Inactive"}
                     </Badge>
                     <div className="flex items-center space-x-2">
-                      <Button
+                      <GatedButton
+                        action="update"
+                        subject="Schedule"
+                        data={schedule as unknown as Record<string, unknown>}
                         variant="outline"
                         size="sm"
                         onClick={() => toggleScheduleStatus(schedule)}
@@ -309,7 +313,7 @@ export function SchedulesTable({
                             {schedule.active ? "Deactivate" : "Activate"}
                           </>
                         )}
-                      </Button>
+                      </GatedButton>
                     </div>
                   </div>
                 </TableCell>
@@ -346,7 +350,13 @@ export function SchedulesTable({
                         <Eye className="mr-2 h-4 w-4" />
                         View Details
                       </DropdownMenuItem>
-                      <DropdownMenuItem
+                      {/* The row is passed to every gate: a conditional grant
+                          ("only your assigned accounts") must be decided per
+                          schedule, not per subject type. */}
+                      <GatedDropdownItem
+                        action="update"
+                        subject="Schedule"
+                        data={schedule as unknown as Record<string, unknown>}
                         className="cursor-pointer"
                         onClick={() =>
                           router.push(
@@ -358,28 +368,38 @@ export function SchedulesTable({
                       >
                         <Edit className="mr-2 h-4 w-4" />
                         Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
+                      </GatedDropdownItem>
+                      {/* Duplicate WRITES a new schedule, so it is gated on
+                          create, not on update of the row it copies. */}
+                      <GatedDropdownItem
+                        action="create"
+                        subject="Schedule"
                         className="cursor-pointer"
                         onClick={() => setDuplicatingSchedule(schedule)}
                       >
                         <Copy className="mr-2 h-4 w-4" />
                         Duplicate
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
+                      </GatedDropdownItem>
+                      <GatedDropdownItem
+                        action="execute"
+                        subject="Schedule"
+                        data={schedule as unknown as Record<string, unknown>}
                         className="cursor-pointer"
                         onClick={() => executeScheduleNow(schedule.id)}
                       >
                         <Play className="mr-2 h-4 w-4" />
                         Execute Now
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
+                      </GatedDropdownItem>
+                      <GatedDropdownItem
+                        action="delete"
+                        subject="Schedule"
+                        data={schedule as unknown as Record<string, unknown>}
                         className="cursor-pointer text-destructive"
                         onClick={() => deleteSchedule(schedule)}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Delete
-                      </DropdownMenuItem>
+                      </GatedDropdownItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>

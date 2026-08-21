@@ -9,6 +9,10 @@ retries=0
 while [ $retries -lt $MAX_RETRIES ]; do
     if npx --yes prisma@5 migrate deploy --schema=./libs/prisma/schema.prisma 2>&1; then
         echo "Prisma migrations applied successfully."
+        npx --yes prisma@5 db execute \
+            --file ./libs/prisma/ensure-vector-indexes.sql \
+            --schema=./libs/prisma/schema.prisma 2>&1
+        echo "Vector indexes ensured."
         break
     fi
 

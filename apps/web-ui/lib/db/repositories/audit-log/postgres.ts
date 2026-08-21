@@ -12,7 +12,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
-import { getTenantClient } from '@/lib/db/pg-config';
+import { andWhere, getTenantClient } from '@/lib/db/pg-config';
 import type { AuditLog } from '@/lib/types';
 import type { AuditLogFilters, AuditLogResponse } from '@/lib/audit-service';
 import type { IAuditLogRepository } from './interface';
@@ -179,9 +179,14 @@ export class AuditLogPostgresRepository implements IAuditLogRepository {
                 }
             }
 
+            // Gate 3: intersect the caller's readable rows. andWhere() nests
+            // under AND so it composes safely with the cursor-pagination AND
+            // built above, rather than displacing it.
+            const scoped = andWhere(where, filters?.rowFilter);
+
             // Fetch limit+1 to determine if there's a next page
             const rows = await getTenantClient(tenantId).auditLog.findMany({
-                where,
+                where: scoped,
                 orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
                 take: limit + 1,
             });

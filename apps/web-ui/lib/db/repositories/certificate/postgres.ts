@@ -1,4 +1,4 @@
-import { getTenantClient } from '@/lib/db/pg-config';
+import { andWhere, getTenantClient } from '@/lib/db/pg-config';
 import type {
     ICertificateRepository,
     CertificateRecord,
@@ -108,14 +108,19 @@ export class CertificatePostgresRepository implements ICertificateRepository {
             ];
         }
 
+        // Gate 3: intersect the caller's readable rows. andWhere() nests under
+        // AND so the `OR` search clause above survives, and tenantId is still
+        // injected on top by the tenant client.
+        const scoped = andWhere(where, filters.rowFilter);
+
         const [certificates, total] = await Promise.all([
             db.certificate.findMany({
-                where,
+                where: scoped,
                 orderBy: [{ notAfter: { sort: 'asc', nulls: 'last' } }],
                 skip,
                 take: limit,
             }),
-            db.certificate.count({ where }),
+            db.certificate.count({ where: scoped }),
         ]);
 
         return { certificates: certificates.map(toCertRecord), total };

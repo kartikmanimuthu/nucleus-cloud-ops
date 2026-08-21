@@ -20,6 +20,8 @@ export interface TranscriptHeaderProps {
   isStreaming: boolean;
   elapsedMs: number | null;
   onMenuAction: (action: TranscriptMenuAction) => void;
+  /** Deep mode: hide the fast/plan phase stepper. */
+  isDeep?: boolean;
 }
 
 type StepKey = "plan" | "execute" | "reflect" | "revise";
@@ -36,7 +38,7 @@ interface StepDef {
 // memory_save — see run-state.ts's phase vocabulary).
 const STEPS: StepDef[] = [
   { key: "plan", label: "Plan", phases: ["planning"] },
-  { key: "execute", label: "Execute", phases: ["execution", "memory_recall"] },
+  { key: "execute", label: "Execute", phases: ["execution", "memory_recall", "text"] },
   { key: "reflect", label: "Reflect", phases: ["reflection"] },
   { key: "revise", label: "Revise", phases: ["revision", "memory_save"] },
 ];
@@ -106,8 +108,11 @@ function StepBadge({
   );
 }
 
-export function TranscriptHeader({ title, runState, isStreaming, elapsedMs, onMenuAction }: TranscriptHeaderProps) {
+export function TranscriptHeader({ title, runState, isStreaming, elapsedMs, onMenuAction, isDeep = false }: TranscriptHeaderProps) {
   const { phases, currentPhase, plan } = runState;
+  // Plan/Execute/Reflect/Revise are the planning agent's four graph nodes. Deep has no
+  // such nodes — only model turns and tool turns — so Reflect and Revise could never
+  // light up. Showing a stepper that is permanently half-dead is worse than showing none.
   const isIdle = !isStreaming && phases.length === 0;
   const isFinal = currentPhase === "final";
   const activeIndex = stepIndexForPhase(currentPhase);
@@ -117,7 +122,7 @@ export function TranscriptHeader({ title, runState, isStreaming, elapsedMs, onMe
     <div className="flex items-center gap-3 border-b px-4 py-2">
       <h2 className="truncate text-sm font-medium" title={title}>{title}</h2>
 
-      {!isIdle && (
+      {!isIdle && !isDeep && (
         <div data-testid="phase-stepper" className="flex shrink-0 items-center gap-2 text-xs">
           {STEPS.map((step, i) => {
             const status: StepStatus = isFinal

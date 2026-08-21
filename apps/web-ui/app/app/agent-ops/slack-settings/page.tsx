@@ -1,7 +1,8 @@
-'use client';
+import { redirect } from "next/navigation";
 
-import { SlackSettingsForm } from '@/components/channels/slack-settings-form';
-
-export default function SlackSettingsPage() {
-    return <SlackSettingsForm backHref="/app/channels" backLabel="Back to Channels" />;
+// Slack settings live under Channels, beside Telegram/Discord/Jira/Webhook.
+// The duplicate under agent-ops meant one feature had two URLs and only one
+// could be gated by the Channel subject. Old URL kept working via redirect.
+export default function AgentOpsSlackSettingsRedirect() {
+  redirect("/app/channels/slack-settings");
 }

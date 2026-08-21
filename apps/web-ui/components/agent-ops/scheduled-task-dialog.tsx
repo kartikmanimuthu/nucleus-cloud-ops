@@ -12,6 +12,7 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { GatedButton } from "@/components/rbac/gated"
 import { Input } from "@/components/ui/input"
 import { DictationTextarea } from "@/components/voice/dictation-textarea"
 import { Label } from "@/components/ui/label"
@@ -154,10 +155,19 @@ export function ScheduledTaskDialog({ tenantId = "default", task, prefill, onSav
             {(trigger || openProp === undefined) && (
                 <DialogTrigger asChild>
                     {trigger ?? (
-                        <Button className="gap-2">
+                        // The default trigger, used where no `trigger` is passed
+                        // (the task detail page). handleSave PATCHes when `task`
+                        // is set and POSTs otherwise, so the gate follows the same
+                        // fork the request does.
+                        <GatedButton
+                            action={task ? "update" : "create"}
+                            subject="ScheduledTask"
+                            data={task as unknown as Record<string, unknown> | undefined}
+                            className="gap-2"
+                        >
                             <CalendarClock className="h-4 w-4" />
                             New Scheduled Task
-                        </Button>
+                        </GatedButton>
                     )}
                 </DialogTrigger>
             )}

@@ -220,9 +220,36 @@ export function extractMetadata(resource: Resource): Record<string, unknown> {
 
   if (type === 'ecs_services' || type === 'ecs_describe_services') {
     return pick(raw, {
+      // ── existing keys, UNCHANGED so any consumer of metadata.launchType etc. is safe
       desiredCount: 'desiredCount', runningCount: 'runningCount',
       pendingCount: 'pendingCount', launchType: 'launchType',
       clusterArn: 'ClusterArn', taskDefinition: 'taskDefinition',
+
+      // ── SG-013 additive: Fargate Spot Guard needs to list Spot-ELIGIBLE services
+      // before any ECS event has ever arrived, so the capacity provider strategy has to
+      // survive discovery. The deep ECS scanner (custom-scanners.ts ecsServicesDeep)
+      // already calls DescribeServices and has these fields on `raw` — they were simply
+      // never mapped through.
+      capacityProviderStrategy: 'capacityProviderStrategy',
+      serviceArn: 'serviceArn',
+      serviceStatus: 'status',
+      platformVersion: 'platformVersion',
+
+      // NOTE ON `clusterArn` ABOVE: it maps from 'ClusterArn' with a capital C, but ECS
+      // DescribeServices returns lower-case 'clusterArn'. Since pick() only copies a key
+      // that is actually present on `raw`, metadata.clusterArn is ABSENT on every
+      // ecs_services row today — a pre-existing bug, unrelated to Spot Guard.
+      //
+      // Adding a correctly-cased key alongside it is zero-risk. FIXING the old mapping in
+      // place would make a value suddenly appear where consumers currently receive
+      // undefined, which is a behaviour change deserving its own commit — so it is
+      // deliberately NOT done here.
+      ecsClusterArn: 'clusterArn',
+
+      // Cheap signal for the UI: whether the service sits behind a load balancer, which
+      // determines whether the ALB pre-drain path applies at all. Same numeric-literal
+      // trick pick() already supports (see ipPermissionsCount).
+      loadBalancerCount: raw.loadBalancers?.length,
     });
   }
 
@@ -231,6 +258,14 @@ export function extractMetadata(resource: Resource): Record<string, unknown> {
       status: 'status', registeredContainerInstancesCount: 'registeredContainerInstancesCount',
       runningTasksCount: 'runningTasksCount', pendingTasksCount: 'pendingTasksCount',
       activeServicesCount: 'activeServicesCount',
+
+      // ── SG-013 additive: which capacity providers the cluster actually offers.
+      // Without this the UI cannot explain WHY a service is not Spot-eligible, and the
+      // enable mutation's 409 ("cluster offers [FARGATE]") would be the first the user
+      // hears of it. describe_clusters is already an enrichment in scanfile.json, so
+      // these keys are present on `raw`.
+      capacityProviders: 'capacityProviders',
+      defaultCapacityProviderStrategy: 'defaultCapacityProviderStrategy',
     });
   }
 

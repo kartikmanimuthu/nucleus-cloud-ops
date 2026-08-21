@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GatedButton } from "@/components/rbac/gated";
 import {
     Table,
     TableBody,
@@ -83,7 +84,10 @@ export function CertificateVersionsTab({ certificateId, domainName }: Props) {
                     Material versions for <span className="font-mono">{domainName}</span>. One
                     version is active at a time; activate an older version to roll back.
                 </p>
-                <Button
+                <GatedButton
+                    action="update"
+                    subject="Certificate"
+                    data={{ domain: domainName }}
                     variant="outline"
                     size="sm"
                     className="gap-1"
@@ -91,7 +95,7 @@ export function CertificateVersionsTab({ certificateId, domainName }: Props) {
                 >
                     <Plus className="h-3.5 w-3.5" />
                     Upload New Version
-                </Button>
+                </GatedButton>
             </div>
 
             {isLoading ? (
@@ -149,7 +153,10 @@ export function CertificateVersionsTab({ certificateId, domainName }: Props) {
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-2">
                                             {!v.isActive && (
-                                                <Button
+                                                <GatedButton
+                                                    action="update"
+                                                    subject="Certificate"
+                                                    data={{ domain: domainName }}
                                                     variant="outline"
                                                     size="sm"
                                                     className="h-8"
@@ -161,7 +168,7 @@ export function CertificateVersionsTab({ certificateId, domainName }: Props) {
                                                     ) : (
                                                         "Make Active"
                                                     )}
-                                                </Button>
+                                                </GatedButton>
                                             )}
                                             <Button
                                                 variant="ghost"
@@ -171,7 +178,10 @@ export function CertificateVersionsTab({ certificateId, domainName }: Props) {
                                             >
                                                 <Download className="h-4 w-4" />
                                             </Button>
-                                            <Button
+                                            <GatedButton
+                                                action="update"
+                                                subject="Certificate"
+                                                data={{ domain: domainName }}
                                                 variant="ghost"
                                                 size="icon"
                                                 className="h-8 w-8 text-destructive"
@@ -184,7 +194,7 @@ export function CertificateVersionsTab({ certificateId, domainName }: Props) {
                                                 onClick={() => remove(v.id)}
                                             >
                                                 <Trash2 className="h-4 w-4" />
-                                            </Button>
+                                            </GatedButton>
                                         </div>
                                     </TableCell>
                                 </TableRow>

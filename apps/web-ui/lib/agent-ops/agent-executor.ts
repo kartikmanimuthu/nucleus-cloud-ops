@@ -38,6 +38,7 @@ async function resolveRunModel(runModel: string | undefined, tenantId: string): 
     return resolveDefaultModelConfig(tenantId);
 }
 import { agentOpsService } from './agent-ops-service';
+import { recordAndEmit } from './record-and-emit';
 import { getMCPManager } from '../agent/mcp-manager';
 import { registerRun, cleanupRun, isAborted } from './run-manager';
 import type { AgentOpsRun, AgentEventType } from './types';
@@ -194,7 +195,7 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
             }
 
             try {
-                const processed = await processLangGraphEvent(runId, tenantId, event, toolsUsed);
+                const processed = await processLangGraphEvent(runId, tenantId, event, toolsUsed, eventBus);
                 if (processed) {
                     iterationCount += processed.iterationDelta || 0;
                     totalInputTokens += processed.inputTokens || 0;
@@ -406,7 +407,8 @@ async function processLangGraphEvent(
     runId: string,
     tenantId: string,
     event: any,
-    toolsUsed: Set<string>
+    toolsUsed: Set<string>,
+    eventBus?: GatewayEventBus
 ): Promise<EventProcessingResult> {
     const result: EventProcessingResult = {};
     const node = event.metadata?.langgraph_node || event.name || 'unknown';
@@ -421,7 +423,7 @@ async function processLangGraphEvent(
                 }
             }
             if (node === 'reflect' && event.data?.output?.reflection) {
-                await agentOpsService.recordEvent({
+                await recordAndEmit(eventBus, {
                     runId, tenantId, eventType: 'reflection', node,
                     content: String(event.data.output.reflection).slice(0, 5000),
                     metadata: { isComplete: event.data.output.isComplete, errors: event.data.output.errors },
@@ -429,7 +431,7 @@ async function processLangGraphEvent(
             }
             if (node === 'planner' && Array.isArray(event.data?.output?.plan)) {
                 const planText = event.data.output.plan.map((s: any, i: number) => `${i + 1}. ${s.step}`).join('\n');
-                await agentOpsService.recordEvent({
+                await recordAndEmit(eventBus, {
                     runId, tenantId, eventType: 'planning', node,
                     content: `Plan created:\n${planText}`,
                     metadata: { stepCount: event.data.output.plan.length, steps: event.data.output.plan },
@@ -443,14 +445,14 @@ async function processLangGraphEvent(
                         ? `Recalled ${plural(stats.facts.length, 'fact')} · ${plural(stats.rules.length, 'rule')} · ${plural(stats.episodes.length, 'episode')}`
                         : 'No relevant memories found')
                     : `Saved ${plural(stats.savedFacts, 'fact')} · ${plural(stats.savedRules, 'rule')}${stats.episodeCaptured ? ' · episode captured' : ''}`;
-                await agentOpsService.recordEvent({
+                await recordAndEmit(eventBus, {
                     runId, tenantId, eventType: node as AgentEventType, node,
                     content, metadata: stats,
                 });
             }
             if (node === 'evaluator' && event.data?.output?.evaluation) {
                 const eval_ = event.data.output.evaluation;
-                await agentOpsService.recordEvent({
+                await recordAndEmit(eventBus, {
                     runId, tenantId, eventType: 'evaluation', node,
                     content: eval_.reasoning || JSON.stringify(eval_, null, 2),
                     metadata: {
@@ -481,7 +483,7 @@ async function processLangGraphEvent(
             const toolCalls = output.tool_calls || [];
             for (const tc of toolCalls) {
                 toolsUsed.add(tc.name);
-                await agentOpsService.recordEvent({
+                await recordAndEmit(eventBus, {
                     runId, tenantId, eventType: 'tool_call', node,
                     toolName: tc.name,
                     toolArgs: tc.args || tc.input || {},
@@ -520,7 +522,7 @@ async function processLangGraphEvent(
                 if (node === 'final' || (node === 'generate' && !toolCalls.length)) {
                     result.finalContent = textContent;
                 }
-                await agentOpsService.recordEvent({
+                await recordAndEmit(eventBus, {
                     runId, tenantId, eventType: mapNodeToEventType(node), node,
                     content: textContent.slice(0, 10000),
                     metadata: {
@@ -542,7 +544,7 @@ async function processLangGraphEvent(
             else if (output && 'content' in output) outputStr = typeof output.content === 'string' ? output.content : JSON.stringify(output.content);
             else outputStr = JSON.stringify(output ?? '');
 
-            await agentOpsService.recordEvent({
+            await recordAndEmit(eventBus, {
                 runId, tenantId, eventType: 'tool_result', node: node || toolName,
                 toolName,
                 toolOutput: outputStr.slice(0, 10000),
@@ -672,7 +674,7 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
                 break;
             }
             try {
-                const processed = await processLangGraphEvent(runId, tenantId, event, toolsUsed);
+                const processed = await processLangGraphEvent(runId, tenantId, event, toolsUsed, eventBus);
                 if (processed) {
                     iterationCount += processed.iterationDelta || 0;
                     totalInputTokens += processed.inputTokens || 0;

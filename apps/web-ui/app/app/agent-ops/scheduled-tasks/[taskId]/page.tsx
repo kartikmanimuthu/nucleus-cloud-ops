@@ -11,6 +11,7 @@ import {
     MessageSquare, Globe, StopCircle, ShieldCheck,
 } from "lucide-react"
 import type { ScheduledTask, AgentOpsStatus } from "@/lib/agent-ops/types"
+import { GatedButton } from "@/components/rbac/gated"
 import { ScheduledTaskDialog } from "@/components/agent-ops/scheduled-task-dialog"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { formatDateTime } from "@/lib/date-utils"
@@ -143,22 +144,34 @@ export default function ScheduledTaskDetailPage() {
                     <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
                         <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Refresh
                     </Button>
-                    <Button variant="outline" size="sm" onClick={handleTrigger} disabled={busy}>
+                    {/*
+                     * Gated on the same (action, subject) each route enforces —
+                     * execute/update/delete on ScheduledTask. These were plain
+                     * Buttons: the list page gated its row controls but this
+                     * detail page did not, and it is reachable by URL, so a
+                     * denied role got live controls and a 403. Refresh stays
+                     * ungated; the GET it repeats is already read-gated.
+                     */}
+                    <GatedButton action="execute" subject="ScheduledTask" data={task as unknown as Record<string, unknown>}
+                        variant="outline" size="sm" onClick={handleTrigger} disabled={busy}>
                         {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
                         Run Now
-                    </Button>
+                    </GatedButton>
                     {task.taskStatus === "active"
-                        ? <Button variant="outline" size="sm" onClick={handlePause} disabled={busy}>
+                        ? <GatedButton action="update" subject="ScheduledTask" data={task as unknown as Record<string, unknown>}
+                            variant="outline" size="sm" onClick={handlePause} disabled={busy}>
                             <Pause className="h-4 w-4 mr-2" /> Pause
-                        </Button>
-                        : <Button variant="outline" size="sm" onClick={handleResume} disabled={busy}>
+                        </GatedButton>
+                        : <GatedButton action="update" subject="ScheduledTask" data={task as unknown as Record<string, unknown>}
+                            variant="outline" size="sm" onClick={handleResume} disabled={busy}>
                             <Play className="h-4 w-4 mr-2 text-green-500" /> Resume
-                        </Button>
+                        </GatedButton>
                     }
                     <ScheduledTaskDialog tenantId={tenantId} task={task} onSaved={fetchData} />
-                    <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={handleDelete} disabled={busy}>
+                    <GatedButton action="delete" subject="ScheduledTask" data={task as unknown as Record<string, unknown>}
+                        variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={handleDelete} disabled={busy}>
                         <Trash2 className="h-4 w-4 mr-2" /> Delete
-                    </Button>
+                    </GatedButton>
                 </div>
             </div>
 

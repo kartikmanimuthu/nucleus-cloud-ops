@@ -4,6 +4,7 @@ import { SlackAdapter } from '@/lib/gateway/adapters/slack-adapter';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { getSlackWorkspaceLinkRepository } from '@/lib/db/repository-factory';
 import type { ScheduledTask, AgentOpsRun } from '@/lib/agent-ops/types';
+import { NarrationSessions } from '@/lib/gateway/narration/narration-session';
 
 vi.mock('@/lib/tenant-config-service', () => ({
     TenantConfigService: {
@@ -20,6 +21,14 @@ vi.mock('@/lib/agent-ops/agent-ops-service', () => ({
         findAwaitingRunBySlackThread: vi.fn().mockResolvedValue(null),
         updateApprovalMessageTs: vi.fn().mockResolvedValue(undefined),
     },
+}));
+
+vi.mock('@/lib/agent/model-resolver', () => ({
+    resolveModelConfig: vi.fn().mockResolvedValue({ provider: 'bedrock', modelId: 'test-model' }),
+    resolveDefaultModelConfig: vi.fn().mockResolvedValue({ provider: 'bedrock', modelId: 'test-model' }),
+}));
+vi.mock('@/lib/gateway/narration/translate-event', () => ({
+    translateEventWithFallback: vi.fn().mockResolvedValue({ active: 'Running an AWS CLI command...', done: 'Ran an AWS CLI command' }),
 }));
 
 // team_id (Slack's workspace id) must be translated to our internal tenantId
@@ -250,5 +259,64 @@ describe('SlackAdapter.sendScheduledNotification', () => {
     it('never throws when fetch rejects', async () => {
         vi.mocked(global.fetch).mockRejectedValue(new Error('network down'));
         await expect(adapter.sendScheduledNotification!(task, run, 'result')).resolves.toBeUndefined();
+    });
+});
+
+describe('sendStreamChunk narration', () => {
+    let adapter: SlackAdapter;
+
+    const run = {
+        runId: 'run-1', tenantId: 'tenant-1', source: 'slack', taskDescription: 'test',
+        trigger: { channelId: 'C456', userId: 'U123', responseUrl: 'https://hooks.slack.com/test' },
+    } as any;
+
+    beforeEach(() => {
+        adapter = new SlackAdapter();
+        (adapter as any).narration = new NarrationSessions(0);
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, channel: 'C456', ts: '111.222' }) });
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({ botToken: 'slack-bot-token', signingSecret: 'secret' } as any);
+    });
+
+    it('does nothing when the tenant has no Slack bot token configured', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue(null as any);
+        await adapter.sendStreamChunk!(run, { eventType: 'tool_call', node: 'agent', toolName: 'execute_command' } as any);
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('ignores event types that are not step boundaries', async () => {
+        await adapter.sendStreamChunk!(run, { eventType: 'memory_save', node: 'memory_save' } as any);
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('posts a new message on the first step, then updates it on later steps', async () => {
+        await adapter.sendStreamChunk!(run, { eventType: 'tool_call', node: 'agent', toolName: 'execute_command' } as any);
+        expect(vi.mocked(global.fetch).mock.calls[0][0]).toBe('https://slack.com/api/chat.postMessage');
+
+        vi.mocked(global.fetch).mockClear();
+
+        await adapter.sendStreamChunk!(run, { eventType: 'tool_result', node: 'agent', toolName: 'execute_command' } as any);
+        const [url, init] = vi.mocked(global.fetch).mock.calls[0];
+        expect(url).toBe('https://slack.com/api/chat.update');
+        const body = JSON.parse(init!.body as string);
+        expect(body.ts).toBe('111.222');
+        expect(body.text).toContain('✅');
+    });
+
+    it('retries a fresh postMessage when the first post was rejected by Slack', async () => {
+        vi.mocked(global.fetch).mockResolvedValue({ ok: true, json: async () => ({ ok: false, error: 'not_in_channel' }) } as any);
+        await adapter.sendStreamChunk!(run, { eventType: 'tool_call', node: 'agent', toolName: 'execute_command' } as any);
+        vi.mocked(global.fetch).mockClear();
+
+        await adapter.sendStreamChunk!(run, { eventType: 'tool_call', node: 'agent', toolName: 'read_file' } as any);
+        expect(vi.mocked(global.fetch).mock.calls[0][0]).toBe('https://slack.com/api/chat.postMessage');
+    });
+
+    it('stops narrating once the run has delivered its result', async () => {
+        await adapter.sendStreamChunk!(run, { eventType: 'tool_call', node: 'agent', toolName: 'execute_command' } as any);
+        await adapter.sendResult({ ...run, result: { summary: 'done' } } as any, []);
+        vi.mocked(global.fetch).mockClear();
+
+        await adapter.sendStreamChunk!(run, { eventType: 'tool_call', node: 'agent', toolName: 'read_file' } as any);
+        expect(global.fetch).not.toHaveBeenCalled();
     });
 });

@@ -19,7 +19,7 @@ function periodToNextEligible(lastRunAt: string | null, period: Period): string 
 export async function GET() {
     console.log('API - GET /api/settings/discovery - Fetching discovery cron config');
 
-    const authError = await authorize('read', 'Discovery');
+    const authError = await authorize('read', 'Resource');
     if (authError) return authError;
 
     try {
@@ -55,7 +55,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
     console.log('API - PUT /api/settings/discovery - Saving discovery cron config');
 
-    const authError = await authorize('update', 'Discovery');
+    const authError = await authorize('update', 'Resource');
     if (authError) return authError;
 
     try {

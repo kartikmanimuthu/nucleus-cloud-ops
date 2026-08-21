@@ -12,7 +12,7 @@
  *
  * Multi-tenant safety: every query is scoped by tenantId — no cross-tenant data access.
  */
-import { getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
+import { andWhere, getPrismaClient, getTenantClient } from '@/lib/db/pg-config';
 import type {
     IInventoryRepository,
     InventoryResource,
@@ -63,12 +63,23 @@ export class InventoryPostgresRepository implements IInventoryRepository {
                 searchTerm,
                 page = 1,
                 limit = 50,
+                rowFilter,
             } = filters;
 
             const skip = (page - 1) * limit;
+            const restricted = Boolean(rowFilter && Object.keys(rowFilter).length > 0);
 
-            // When searchTerm is provided, use raw SQL with tsvector fulltext search
-            if (searchTerm?.trim()) {
+            // When searchTerm is provided, use raw SQL with tsvector fulltext search.
+            //
+            // EXCEPT when a Gate 3 row filter is active: that path is
+            // $queryRawUnsafe, which the tenant extension does not intercept and
+            // into which a Prisma `where` fragment cannot be spliced. Rather than
+            // hand-compile the filter to SQL — a second, divergent translator on
+            // the authorization path — the search falls back to the Prisma path
+            // below, where the filter composes safely. The cost is ts_rank
+            // relevance ordering, not correctness, and it is paid only by roles
+            // that actually hold a conditional read grant.
+            if (searchTerm?.trim() && !restricted) {
                 return this.listResourcesFulltext(
                     tenantId, searchTerm.trim(), { accountId, accountIds, region, resourceType }, skip, limit
                 );
@@ -82,11 +93,24 @@ export class InventoryPostgresRepository implements IInventoryRepository {
             if (region) where.region = region;
             if (resourceType) where.resourceType = resourceType;
 
+            const term = searchTerm?.trim();
+            if (term) {
+                where.OR = [
+                    { name: { contains: term, mode: 'insensitive' } },
+                    { resourceId: { contains: term, mode: 'insensitive' } },
+                ];
+            }
+
+            // Gate 3: intersect the caller's readable rows. andWhere() nests under
+            // AND so the `OR` search clause above survives, and tenantId is still
+            // injected on top by the tenant client.
+            const scoped = andWhere(where, rowFilter);
+
             const client = getTenantClient(tenantId);
             const [total, rows] = await Promise.all([
-                client.inventoryResource.count({ where }),
+                client.inventoryResource.count({ where: scoped }),
                 client.inventoryResource.findMany({
-                    where,
+                    where: scoped,
                     skip,
                     take: limit,
                     orderBy: { discoveredAt: 'desc' },

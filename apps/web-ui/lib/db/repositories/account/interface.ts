@@ -5,6 +5,7 @@
  * Implemented by AccountDynamoRepository and AccountPostgresRepository.
  * The feature flag USE_PG_ACCOUNTS controls which implementation is active.
  */
+import type { PrismaRowFilter } from '@/lib/db/pg-config';
 import type { UIAccount } from '@/lib/types';
 
 export interface AccountFilters {
@@ -14,6 +15,13 @@ export interface AccountFilters {
     page?: number;
     limit?: number;
     tenantId?: string;
+    /**
+     * Gate 3 (RBAC row filtering): a Prisma `where` fragment restricting the
+     * result to the rows the caller may read. Built by
+     * getReadRowFilter() in lib/rbac/row-filter.ts and INTERSECTED with the
+     * query below via andWhere() — never merged over it.
+     */
+    rowFilter?: PrismaRowFilter | null;
 }
 
 export interface AccountPage {

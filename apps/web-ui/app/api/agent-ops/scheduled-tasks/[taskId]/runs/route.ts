@@ -9,6 +9,12 @@
 import { NextResponse } from 'next/server';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { getSessionTenantId } from '@/lib/auth-session';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'ScheduledTask' },
+};
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;

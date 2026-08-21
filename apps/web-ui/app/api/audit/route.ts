@@ -2,7 +2,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuditService, AuditLogFilters } from '@/lib/audit-service';
 import { authorize } from '@/lib/rbac/authorize';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
 import { getSessionTenantId } from '@/lib/auth-session';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'read', subject: 'AuditLog' },
+    DELETE: { action: 'delete', subject: 'AuditLog' },
+};
 
 export async function GET(request: NextRequest) {
     // Authorization check
@@ -31,6 +39,10 @@ export async function GET(request: NextRequest) {
         if (searchParams.get('searchTerm')) filters.searchTerm = searchParams.get('searchTerm')!;
         if (searchParams.get('limit')) filters.limit = parseInt(searchParams.get('limit')!);
         if (searchParams.get('nextPageToken')) filters.nextPageToken = searchParams.get('nextPageToken')!;
+
+        // Gate 3. authorize() above settled WHETHER this caller may list audit
+        // logs; this settles WHICH ones, in SQL, so the list stays honest.
+        filters.rowFilter = await getReadRowFilter('AuditLog');
 
         console.log('API - Fetching audit logs with filters:', filters);
 

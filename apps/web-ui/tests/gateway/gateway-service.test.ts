@@ -1,5 +1,5 @@
 // web-ui/tests/gateway/gateway-service.test.ts
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GatewayService } from '@/lib/gateway/gateway-service';
 import { GatewayEventBus } from '@/lib/gateway/event-bus';
 import { AdapterRegistry } from '@/lib/gateway/adapter-registry';
@@ -38,7 +38,19 @@ vi.mock('@/lib/audit-service', () => ({
     },
 }));
 
-function makeMockAdapter(): ChannelAdapter {
+vi.mock('@/lib/agent/triage', () => ({
+    triageChatMessage: vi.fn(),
+    chatTriageEnabled: vi.fn().mockReturnValue(true),
+}));
+
+vi.mock('@/lib/agent/model-resolver', () => ({
+    resolveModelConfig: vi.fn().mockResolvedValue({ provider: 'bedrock', modelId: 'test-model' }),
+    resolveDefaultModelConfig: vi.fn().mockResolvedValue({ provider: 'bedrock', modelId: 'test-model' }),
+}));
+
+vi.mock('@/lib/gateway/persona/direct-reply', () => ({ generateDirectReply: vi.fn() }));
+
+function makeMockAdapter(overrides: Partial<ChannelAdapter> = {}): ChannelAdapter {
     return {
         channelType: 'slack',
         deliveryMode: 'callback',
@@ -57,6 +69,7 @@ function makeMockAdapter(): ChannelAdapter {
         sendApprovalRequest: vi.fn().mockResolvedValue(undefined),
         sendSessionReset: vi.fn().mockResolvedValue(undefined),
         getConfig: vi.fn().mockResolvedValue({}),
+        ...overrides,
     } as any;
 }
 
@@ -162,6 +175,221 @@ describe('GatewayService', () => {
         const res = await service.handleInbound('slack', req as any);
         expect(agentOpsService.closeTelegramSession).toHaveBeenCalledWith('tenant-1', 'run-1');
         expect(adapter.sendSessionReset).toHaveBeenCalledWith('tenant-1', 67890);
+        expect(res.status).toBe(200);
+    });
+});
+
+describe('GatewayService persona routing', () => {
+    let service: GatewayService;
+    let adapter: ChannelAdapter;
+    let bus: GatewayEventBus;
+
+    beforeEach(async () => {
+        vi.clearAllMocks();
+        process.env.CHATBOT_PERSONA_ENABLED = 'true';
+
+        const { triageChatMessage, chatTriageEnabled } = await import('@/lib/agent/triage');
+        const { resolveDefaultModelConfig } = await import('@/lib/agent/model-resolver');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        // clearAllMocks wipes implementations set at declaration time — restore them.
+        vi.mocked(chatTriageEnabled).mockReturnValue(true);
+        vi.mocked(resolveDefaultModelConfig).mockResolvedValue({ provider: 'bedrock', modelId: 'test-model' } as any);
+        vi.mocked(triageChatMessage).mockResolvedValue({ route: 'task', skillId: null, reasoning: '' });
+        vi.mocked(agentOpsService.createRun).mockResolvedValue({
+            runId: 'run-1', tenantId: 'tenant-1', source: 'telegram',
+            taskDescription: 'test', threadId: 'thread-1', trigger: {},
+        } as any);
+
+        bus = new GatewayEventBus();
+        const registry = new AdapterRegistry();
+        adapter = makeMockAdapter({
+            channelType: 'telegram',
+            deliveryMode: 'streaming',
+            sendDirectReply: vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 })),
+        });
+        registry.register(adapter);
+        service = new GatewayService(registry, bus, new NotificationRouter(bus, registry));
+    });
+
+    afterEach(() => {
+        delete process.env.CHATBOT_PERSONA_ENABLED;
+    });
+
+    it('replies directly and never creates a run when triage classifies "direct"', async () => {
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { generateDirectReply } = await import('@/lib/gateway/persona/direct-reply');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(triageChatMessage).mockResolvedValue({ route: 'direct', skillId: null, reasoning: 'greeting' });
+        vi.mocked(generateDirectReply).mockResolvedValue('Hey! What can I help with?');
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        const res = await service.handleInbound('telegram', req as any);
+
+        expect(adapter.sendDirectReply).toHaveBeenCalledWith(expect.anything(), 'Hey! What can I help with?');
+        expect(agentOpsService.createRun).not.toHaveBeenCalled();
+        expect(res.status).toBe(200);
+    });
+
+    it('falls through to the normal task path when triage classifies "task"', async () => {
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        const res = await service.handleInbound('telegram', req as any);
+
+        expect(adapter.sendDirectReply).not.toHaveBeenCalled();
+        expect(agentOpsService.createRun).toHaveBeenCalled();
+        expect(res.status).toBe(200);
+    });
+
+    it('does not classify at all when the persona flag is off', async () => {
+        delete process.env.CHATBOT_PERSONA_ENABLED;
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { resolveDefaultModelConfig } = await import('@/lib/agent/model-resolver');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        await service.handleInbound('telegram', req as any);
+
+        expect(triageChatMessage).not.toHaveBeenCalled();
+        // Pins "provably zero cost when the flag is off": model resolution hits
+        // the DB, so it must not run before the flag check.
+        expect(resolveDefaultModelConfig).not.toHaveBeenCalled();
+        expect(agentOpsService.createRun).toHaveBeenCalled();
+    });
+
+    it('does not classify when chat triage is globally disabled', async () => {
+        const { triageChatMessage, chatTriageEnabled } = await import('@/lib/agent/triage');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(chatTriageEnabled).mockReturnValue(false);
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        await service.handleInbound('telegram', req as any);
+
+        expect(triageChatMessage).not.toHaveBeenCalled();
+        expect(agentOpsService.createRun).toHaveBeenCalled();
+    });
+
+    it('does not classify for a channel outside the allowlist', async () => {
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        const registry = new AdapterRegistry();
+        const slackAdapter = makeMockAdapter({
+            sendDirectReply: vi.fn().mockResolvedValue(new Response('{}', { status: 200 })),
+        });
+        registry.register(slackAdapter);
+        service = new GatewayService(registry, bus, new NotificationRouter(bus, registry));
+
+        const req = new Request('http://localhost/api/v1/gateway/slack', { method: 'POST', body: 'text=hi' });
+        await service.handleInbound('slack', req as any);
+
+        expect(triageChatMessage).not.toHaveBeenCalled();
+        expect(agentOpsService.createRun).toHaveBeenCalled();
+    });
+
+    it('falls through to the task path when the adapter lacks sendDirectReply', async () => {
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(triageChatMessage).mockResolvedValue({ route: 'direct', skillId: null, reasoning: 'greeting' });
+
+        const registry = new AdapterRegistry();
+        registry.register(makeMockAdapter({ channelType: 'telegram', deliveryMode: 'streaming' }));
+        service = new GatewayService(registry, bus, new NotificationRouter(bus, registry));
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        await service.handleInbound('telegram', req as any);
+
+        // Asserting the classifier never ran is what actually pins the
+        // `adapter.sendDirectReply` guard: without it the fail-open catch would
+        // swallow the resulting TypeError and createRun would still be called.
+        expect(triageChatMessage).not.toHaveBeenCalled();
+        expect(agentOpsService.createRun).toHaveBeenCalled();
+    });
+
+    it('fails open to the task path when model resolution throws', async () => {
+        const { resolveDefaultModelConfig } = await import('@/lib/agent/model-resolver');
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(resolveDefaultModelConfig).mockRejectedValue(new Error('no provider configured'));
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        const res = await service.handleInbound('telegram', req as any);
+
+        expect(triageChatMessage).not.toHaveBeenCalled();
+        expect(agentOpsService.createRun).toHaveBeenCalled();
+        expect(res.status).toBe(200);
+    });
+
+    it('fails open to the task path when the classifier throws', async () => {
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(triageChatMessage).mockRejectedValue(new Error('throttled'));
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        await service.handleInbound('telegram', req as any);
+
+        expect(agentOpsService.createRun).toHaveBeenCalled();
+    });
+
+    it('still routes an awaiting-clarification reply to handleResume, never to the classifier', async () => {
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(agentOpsService.getRun).mockResolvedValue({
+            runId: 'run-1', tenantId: 'tenant-1', source: 'telegram',
+            status: 'awaiting_input', taskDescription: 'test', trigger: {},
+        } as any);
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'telegram', tenantId: 'tenant-1', taskDescription: 'hi', channelMeta: {},
+            replyContext: { runId: 'run-1', action: 'clarification_response', content: 'hi', tenantId: 'tenant-1' },
+        });
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        const res = await service.handleInbound('telegram', req as any);
+
+        expect(triageChatMessage).not.toHaveBeenCalled();
+        expect(res.status).toBe(200);
+    });
+
+    it('fails open to the task path when the direct-reply generator throws (empty model output)', async () => {
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { generateDirectReply } = await import('@/lib/gateway/persona/direct-reply');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(triageChatMessage).mockResolvedValue({ route: 'direct', skillId: null, reasoning: 'greeting' });
+        vi.mocked(generateDirectReply).mockRejectedValue(new Error('Direct reply model returned empty content'));
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        const res = await service.handleInbound('telegram', req as any);
+
+        expect(agentOpsService.createRun).toHaveBeenCalled();
+        expect(res.status).toBe(200);
+    });
+
+    it('falls through to a real run when sendDirectReply reports non-delivery (null)', async () => {
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { generateDirectReply } = await import('@/lib/gateway/persona/direct-reply');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(triageChatMessage).mockResolvedValue({ route: 'direct', skillId: null, reasoning: 'greeting' });
+        vi.mocked(generateDirectReply).mockResolvedValue('hi there');
+        (adapter.sendDirectReply as any).mockResolvedValue(null);
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        const res = await service.handleInbound('telegram', req as any);
+
+        expect(adapter.sendDirectReply).toHaveBeenCalled();
+        expect(agentOpsService.createRun).toHaveBeenCalled();
+        expect(res.status).toBe(200);
+    });
+
+    it('fails open to the task path when sendDirectReply rejects', async () => {
+        const { triageChatMessage } = await import('@/lib/agent/triage');
+        const { generateDirectReply } = await import('@/lib/gateway/persona/direct-reply');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(triageChatMessage).mockResolvedValue({ route: 'direct', skillId: null, reasoning: 'greeting' });
+        vi.mocked(generateDirectReply).mockResolvedValue('hi there');
+        (adapter.sendDirectReply as any).mockRejectedValue(new Error('telegram 429'));
+
+        const req = new Request('http://localhost/api/v1/gateway/telegram', { method: 'POST', body: '{}' });
+        const res = await service.handleInbound('telegram', req as any);
+
+        expect(agentOpsService.createRun).toHaveBeenCalled();
         expect(res.status).toBe(200);
     });
 });

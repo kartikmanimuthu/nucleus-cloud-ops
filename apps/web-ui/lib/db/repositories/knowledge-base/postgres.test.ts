@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
-vi.mock('@/lib/db/pg-config', () => ({
+vi.mock('@/lib/db/pg-config', async (importOriginal) => ({
+    // andWhere (Gate 3 row filtering) is real; only the client factory is mocked.
+    ...(await importOriginal<typeof import('@/lib/db/pg-config')>()),
     getTenantClient: vi.fn(),
 }));
 

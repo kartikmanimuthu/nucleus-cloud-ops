@@ -18,7 +18,8 @@ const CONFIG_KEY = 'agent-ops-jira';
 
 export async function POST(req: Request) {
     try {
-        const authError = await authorize('update', 'Agent');
+        // 'Channel', not 'Agent' — see the Slack test route.
+        const authError = await authorize('update', 'Channel');
         if (authError) return authError;
 
         const tenantId = await getSessionTenantId();

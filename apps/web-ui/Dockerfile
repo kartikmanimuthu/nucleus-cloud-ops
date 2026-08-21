@@ -7,6 +7,8 @@ FROM oven/bun:1-slim AS deps
 WORKDIR /app
 
 COPY apps/web-ui/package.json apps/web-ui/bun.lock ./
+# patchedDependencies in package.json resolves these relative to /app
+COPY patches/ ./patches/
 
 # Install production dependencies only
 RUN bun install --frozen-lockfile --production
@@ -16,6 +18,7 @@ FROM oven/bun:1-slim AS deps-all
 WORKDIR /app
 
 COPY apps/web-ui/package.json apps/web-ui/bun.lock ./
+COPY patches/ ./patches/
 
 RUN bun install --frozen-lockfile
 
@@ -33,6 +36,11 @@ COPY apps/web-ui/package.json ./
 # Copy source code and prisma schema
 COPY apps/web-ui/ .
 COPY libs/prisma/ ./libs/prisma/
+
+# @nucleus/rbac is a workspace sibling, so the isolated per-app install above cannot
+# see it. Drop it straight into node_modules under its package name; next.config.mjs
+# already lists it in transpilePackages, so shipping TypeScript source is expected.
+COPY libs/rbac/ ./node_modules/@nucleus/rbac/
 
 # tsconfig.json extends "../../tsconfig.base.json" (correct 2-level-up path in the real
 # monorepo layout apps/web-ui/tsconfig.json -> tsconfig.base.json). Flattened into /app here,

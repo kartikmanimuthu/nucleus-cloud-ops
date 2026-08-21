@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AccountService } from '@/lib/account-service';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'validate', subject: 'Account' },
+};
 
 export async function POST(request: NextRequest) {
     try {

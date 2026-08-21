@@ -2,4 +2,6 @@ config:
   aws:region: ap-south-1
   nucleus-compute:appUrl: https://d2o00a2uwp9po0.cloudfront.net
   nucleus-compute:subscriptionEmails: ""
+  nucleus-compute:scalingAuditEnabled: "true"
+  nucleus-compute:spotGuardEnabled: "true"
 encryptionsalt: v1:az/CRPwQepk=:v1:Q3Wv53cY3/jQQVFW:J/tbx+l/QDjMwXmAliSF0Ca1HhZaqA==

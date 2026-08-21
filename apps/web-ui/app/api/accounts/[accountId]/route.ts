@@ -3,6 +3,15 @@ import { AccountService } from '@/lib/account-service';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { getSessionTenantId } from '@/lib/auth-session';
+import { authorize } from '@/lib/rbac/authorize';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Account' },
+    PUT: { action: 'update', subject: 'Account' },
+    DELETE: { action: 'delete', subject: 'Account' },
+};
 
 export async function GET(
     request: NextRequest,
@@ -54,6 +63,14 @@ export async function PUT(
             return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
         }
 
+        // Layer 2 — resource-aware, evaluated against the STORED row rather than
+        // the request body, which the caller controls.
+        const authError = await authorize('update', 'Account', {
+            accountId: existing.accountId,
+            alias: existing.name,
+        });
+        if (authError) return authError;
+
         const updateData = await request.json();
         console.log('API - Update data:', updateData, 'User:', updatedBy);
 
@@ -91,6 +108,13 @@ export async function DELETE(
         if (!existing) {
             return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
         }
+
+        // Layer 2 — load, authorize, then mutate.
+        const authError = await authorize('delete', 'Account', {
+            accountId: existing.accountId,
+            alias: existing.name,
+        });
+        if (authError) return authError;
 
         await AccountService.deleteAccount(accountId, deletedBy, tenantId);
 

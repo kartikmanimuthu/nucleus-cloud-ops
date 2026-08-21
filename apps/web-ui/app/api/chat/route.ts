@@ -2,6 +2,9 @@ import { HumanMessage, AIMessage, ToolMessage, BaseMessage } from '@langchain/co
 import { NextResponse } from 'next/server';
 import { createUIMessageStreamResponse, UIMessageChunk } from 'ai';
 import { createReflectionGraph, createFastGraph, createDeepGraph } from '@/lib/agent/graph-factory';
+import type { ToolDecision } from './decisions';
+
+// Tools deep pauses on. Everything else runs straight through, even with autoApprove off.
 import { resolveModelConfig, resolveDefaultModelConfig } from '@/lib/agent/model-resolver';
 import { isProviderConfigError } from '@/lib/agent/provider-errors';
 import { buildClientErrorText } from '@/lib/agent/stream-error';
@@ -15,6 +18,22 @@ import type { PlanStep } from '@/lib/agent/agent-shared';
 import { logRunSummary } from '@/lib/agent/run-timings';
 import type { SubagentEvent } from '@/lib/agent/dispatch-agent-tool';
 import { getSubagentRunRepository } from '@/lib/db/repository-factory';
+import { authorize } from '@/lib/rbac/authorize';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/**
+ * Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set.
+ *
+ * This route was briefly exempted from `config.matcher` in middleware.ts to dodge a
+ * Next body-locking bug; that exemption is gone (the bug is fixed at the source by
+ * patches/next@15.5.15.patch), so Layer 1 enforces this declaration again. The POST
+ * handler ALSO calls `authorize('create', 'Agent')` — the identical requirement,
+ * kept as defence in depth so the route stays guarded on its own if it ever leaves
+ * the matcher again. Keep the two in step.
+ */
+export const authz: RouteAuthz = {
+    POST: { action: 'create', subject: 'Agent' },
+};
 
 export const maxDuration = 300; // 5 minutes for complex multi-iteration tasks
 
@@ -67,6 +86,12 @@ interface Message {
 }
 
 export async function POST(req: Request) {
+    // Same requirement Layer 1 applies in middleware — see `authz` above. Kept as
+    // defence in depth. Reads the session cookie only, so it runs before req.json()
+    // without touching the body.
+    const authError = await authorize('create', 'Agent');
+    if (authError) return authError;
+
     // Declare outside try so the catch block can always call it safely
     let releaseLock: () => void = () => { };
 
@@ -221,7 +246,7 @@ export async function POST(req: Request) {
         // KB progressive disclosure: manual selection always wins. When none is picked,
         // one cheap reflector call matches the message against the tenant's KB catalog.
         let effectiveKbIds: string[] = Array.isArray(knowledgeBaseIds) ? knowledgeBaseIds : [];
-        if (effectiveKbIds.length === 0 && mode !== 'deep') {
+        if (effectiveKbIds.length === 0) {
             const lastMsg = messages[messages.length - 1];
             const lastUserText = typeof lastMsg?.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg?.content ?? '');
             effectiveKbIds = await resolveKnowledgeBaseIds({ tenantId: resolvedTenantId, selectedIds: null, message: lastUserText, model: resolvedModel });
@@ -240,6 +265,14 @@ export async function POST(req: Request) {
         // up once `controller` is available.
         const liveSubagents = new Map<string, SubagentEvent>();
         const subagentSinkRef: { sink: ((chunk: UIMessageChunk) => void) | null } = { sink: null };
+        const memorySinkRef: { sink: ((chunk: UIMessageChunk) => void) | null } = { sink: null };
+        const emitMemory = (op: 'recall' | 'save', summary: string) => {
+            try {
+                memorySinkRef.sink?.(buildMemoryPart(op, summary) as UIMessageChunk);
+            } catch {
+                // client disconnected — stream teardown handles it
+            }
+        };
         const emitSubagent = (event: SubagentEvent) => {
             liveSubagents.set(event.id, event);
             if (event.status !== 'running') {
@@ -282,6 +315,7 @@ export async function POST(req: Request) {
             userId: resolvedUserId,                 // For memory store scoping
             tenantId: resolvedTenantId,             // For tenant-scoped memory operations
             onSubagentEvent: emitSubagent,
+            onMemoryEvent: emitMemory,
         };
 
         let graph;
@@ -333,89 +367,132 @@ export async function POST(req: Request) {
         }
 
         if (Array.isArray(decisions)) {
-            // Per-tool decision resume (new contract; legacy role:'tool' path below still works)
-            const { buildDecisionToolMessages } = await import('./decisions');
-            const { pendingToolCallsOf } = await import('@/lib/agent/guard');
+            if (mode === 'deep') {
+                const { pendingActions, toResumeMap, hasPendingInterrupt, syntheticOutput } =
+                    await import('@/lib/agent/deep/hitl');
+                const { Command } = await import('@langchain/langgraph');
 
-            const interruptState = await graph.getState(config);
-            preRunMessageCount = interruptState.values?.messages?.length ?? 0;
-            const nextNodes: string[] = (interruptState.next as string[] | undefined) ?? [];
-            if (!nextNodes.includes('approval_gate')) {
-                releaseLock();
-                return new Response(JSON.stringify({ error: 'No pending approval on this thread.' }), {
-                    status: 409, headers: { 'Content-Type': 'application/json' },
-                });
-            }
-            const pending = pendingToolCallsOf(interruptState.values);
-            const result = buildDecisionToolMessages(pending, decisions);
-            if (!result.ok) {
-                releaseLock();
-                return new Response(JSON.stringify({ error: result.error }), {
-                    status: 400, headers: { 'Content-Type': 'application/json' },
-                });
-            }
-            if (result.toolMessages.length > 0) {
-                await graph.updateState(config, { messages: result.toolMessages });
-            }
+                const interruptState = await graph.getState(config);
+                preRunMessageCount = interruptState.values?.messages?.length ?? 0;
 
-            // Resume-stream coherence: emitting tool-input events for the approved
-            // executions requires the isResumedFromApproval path in processStream.
-            const firstApprovedRealTool = pending.find(
-                c => c.name !== 'ask_user' && result.approvedIds.includes(c.id),
-            );
-            if (firstApprovedRealTool) {
-                resumedToolCallId = firstApprovedRealTool.id;
-            }
-            // Only approved real tools execute on resume (rejected + ask_user
-            // calls already received ToolMessages above).
-            resumedPendingCalls = pending
-                .filter(c => c.name !== 'ask_user' && result.approvedIds.includes(c.id))
-                .map(c => ({ id: c.id, name: c.name, args: c.args }));
-
-            // Rejected tools + ask_user calls got their ToolMessages written above;
-            // mirror those results into the response stream as synthetic tool parts
-            // so their cards resolve durably (live AND after reload).
-            const decidedContentById = new Map(
-                result.toolMessages.map(tm => [
-                    tm.tool_call_id,
-                    typeof tm.content === 'string' ? tm.content : JSON.stringify(tm.content),
-                ]),
-            );
-            syntheticDecisionResults = pending
-                .filter(c => decidedContentById.has(c.id))
-                .map(c => ({
-                    toolCallId: c.id,
-                    toolName: c.name,
-                    args: c.args,
-                    output: decidedContentById.get(c.id)!,
-                }));
-
-            // Audit every decision on a mutative call (guard verdicts live in state)
-            try {
-                const { AuditService } = await import('@/lib/audit-service');
-                const verdicts = interruptState.values?.guardVerdicts ?? {};
-                for (const call of pending) {
-                    const v = verdicts[call.id];
-                    if (!v?.isMutative) continue;
-                    const approved = result.approvedIds.includes(call.id);
-                    await AuditService.logAgentEvent({
-                        eventType: 'chat_tool_approval',
-                        action: approved ? 'approve_mutative_tool' : 'reject_mutative_tool',
-                        userId: resolvedUserId,
-                        tenantId: resolvedTenantId,
-                        status: 'success',
-                        details: `${approved ? 'Approved' : 'Rejected'} ${call.name} (severity ${v.severity}): ${v.action}`,
-                        resourceType: 'agent_tool_call',
-                        resourceId: call.id,
-                        metadata: { toolName: call.name, severity: v.severity, argsPreview: JSON.stringify(call.args).slice(0, 200) },
-                        correlationId: threadId,
+                if (!hasPendingInterrupt(interruptState)) {
+                    releaseLock();
+                    return new Response(JSON.stringify({ error: 'No pending approval on this thread.' }), {
+                        status: 409, headers: { 'Content-Type': 'application/json' },
                     });
                 }
-            } catch (auditErr) {
-                console.warn('[Chat API] approval audit failed (non-fatal):', auditErr);
-            }
 
-            input = null; // resume from the approval_gate interrupt
+                const pending = pendingActions(interruptState);
+                const mapped = toResumeMap(pending, decisions);
+                if (!mapped.ok) {
+                    releaseLock();
+                    return new Response(JSON.stringify({ error: mapped.error }), {
+                        status: 400, headers: { 'Content-Type': 'application/json' },
+                    });
+                }
+
+                const decisionById = new Map(decisions.map((d: ToolDecision) => [d.toolCallId, d]));
+                const isApproved = (p: { toolCallId: string }) => decisionById.get(p.toolCallId)?.approved === true;
+
+                // Rejected actions and ask_user never execute, so no tool events fire and their
+                // cards would hang. Mirror the decision into the stream instead.
+                syntheticDecisionResults = pending
+                    .filter(p => !(p.toolName !== 'ask_user' && isApproved(p)))
+                    .map(p => ({
+                        toolCallId: p.toolCallId,
+                        toolName: p.toolName,
+                        args: p.args,
+                        output: syntheticOutput(p, decisionById.get(p.toolCallId)!),
+                    }));
+
+                // Concurrent interrupts (one per parallel subagent) resume as a map keyed by
+                // interrupt id — see the LangGraph interrupts docs.
+                input = new Command({ resume: mapped.resume }) as never;
+            } else {
+                // Per-tool decision resume (new contract; legacy role:'tool' path below still works)
+                const { buildDecisionToolMessages } = await import('./decisions');
+                const { pendingToolCallsOf } = await import('@/lib/agent/guard');
+
+                const interruptState = await graph.getState(config);
+                preRunMessageCount = interruptState.values?.messages?.length ?? 0;
+                const nextNodes: string[] = (interruptState.next as string[] | undefined) ?? [];
+                if (!nextNodes.includes('approval_gate')) {
+                    releaseLock();
+                    return new Response(JSON.stringify({ error: 'No pending approval on this thread.' }), {
+                        status: 409, headers: { 'Content-Type': 'application/json' },
+                    });
+                }
+                const pending = pendingToolCallsOf(interruptState.values);
+                const result = buildDecisionToolMessages(pending, decisions);
+                if (!result.ok) {
+                    releaseLock();
+                    return new Response(JSON.stringify({ error: result.error }), {
+                        status: 400, headers: { 'Content-Type': 'application/json' },
+                    });
+                }
+                if (result.toolMessages.length > 0) {
+                    await graph.updateState(config, { messages: result.toolMessages });
+                }
+
+                // Resume-stream coherence: emitting tool-input events for the approved
+                // executions requires the isResumedFromApproval path in processStream.
+                const firstApprovedRealTool = pending.find(
+                    c => c.name !== 'ask_user' && result.approvedIds.includes(c.id),
+                );
+                if (firstApprovedRealTool) {
+                    resumedToolCallId = firstApprovedRealTool.id;
+                }
+                // Only approved real tools execute on resume (rejected + ask_user
+                // calls already received ToolMessages above).
+                resumedPendingCalls = pending
+                    .filter(c => c.name !== 'ask_user' && result.approvedIds.includes(c.id))
+                    .map(c => ({ id: c.id, name: c.name, args: c.args }));
+
+                // Rejected tools + ask_user calls got their ToolMessages written above;
+                // mirror those results into the response stream as synthetic tool parts
+                // so their cards resolve durably (live AND after reload).
+                const decidedContentById = new Map(
+                    result.toolMessages.map(tm => [
+                        tm.tool_call_id,
+                        typeof tm.content === 'string' ? tm.content : JSON.stringify(tm.content),
+                    ]),
+                );
+                syntheticDecisionResults = pending
+                    .filter(c => decidedContentById.has(c.id))
+                    .map(c => ({
+                        toolCallId: c.id,
+                        toolName: c.name,
+                        args: c.args,
+                        output: decidedContentById.get(c.id)!,
+                    }));
+
+                // Audit every decision on a mutative call (guard verdicts live in state)
+                try {
+                    const { AuditService } = await import('@/lib/audit-service');
+                    const verdicts = interruptState.values?.guardVerdicts ?? {};
+                    for (const call of pending) {
+                        const v = verdicts[call.id];
+                        if (!v?.isMutative) continue;
+                        const approved = result.approvedIds.includes(call.id);
+                        await AuditService.logAgentEvent({
+                            eventType: 'chat_tool_approval',
+                            action: approved ? 'approve_mutative_tool' : 'reject_mutative_tool',
+                            userId: resolvedUserId,
+                            tenantId: resolvedTenantId,
+                            status: 'success',
+                            details: `${approved ? 'Approved' : 'Rejected'} ${call.name} (severity ${v.severity}): ${v.action}`,
+                            resourceType: 'agent_tool_call',
+                            resourceId: call.id,
+                            metadata: { toolName: call.name, severity: v.severity, argsPreview: JSON.stringify(call.args).slice(0, 200) },
+                            correlationId: threadId,
+                        });
+                    }
+                } catch (auditErr) {
+                    console.warn('[Chat API] approval audit failed (non-fatal):', auditErr);
+                }
+
+                input = null; // resume from the approval_gate interrupt
+            }
         } else if (lastMessage.role === 'tool') {
             // Tool result (Human-in-the-Loop approval)
             console.log(`[API] Processing tool message. Full message:`, JSON.stringify(lastMessage));
@@ -527,7 +604,12 @@ export async function POST(req: Request) {
                 }
                 return new HumanMessage({ content });
             });
-            input = { messages: validMessages };
+            if (mode === 'deep') {
+                const lastUser = [...validMessages].reverse().find(m => m instanceof HumanMessage);
+                input = { messages: lastUser ? [lastUser] : validMessages.slice(-1) };
+            } else {
+                input = { messages: validMessages };
+            }
         }
 
         if (stream) {
@@ -540,6 +622,65 @@ export async function POST(req: Request) {
                 console.log('[API] Client disconnected — aborting LangGraph execution');
                 graphAbortController.abort();
             });
+
+            // Deep runs on the v3 projections (messages / toolCalls / subagents / values),
+            // which hand us real tool callIds and surface subagents directly. Fast and plan
+            // stay on the v2 loop below — flipping this condition reverts deep to it.
+            if (mode === 'deep') {
+                const { processDeepStream } = await import('./deep-stream');
+                const deepUsage = { input: 0, output: 0 };
+
+                // @ts-ignore
+                const deepRun = await graph.streamEvents(
+                    input as any,
+                    {
+                        version: "v3",
+                        recursionLimit: 100,
+                        signal: graphAbortController.signal,
+                        configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId },
+                        context: { tenantId: resolvedTenantId, userId: resolvedUserId, threadId },
+                        ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
+                    }
+                );
+
+                console.log(`[ChatStream][${threadId}] mode=deep translator=processDeepStream (v3 projections)`);
+
+                return createUIMessageStreamResponse({
+                    stream: processDeepStream({
+                        run: deepRun as never,
+                        threadId,
+                        releaseLock,
+                        activeSkill: effectiveSkill
+                            ? { slug: effectiveSkill, source: selectedSkill ? 'user' as const : 'auto' as const }
+                            : null,
+                        syntheticDecisionResults,
+                        onSubagentEvent: event => {
+                            if (event.status === 'running') return;
+                            getSubagentRunRepository().save({
+                                tenantId: resolvedTenantId ?? '',
+                                threadId,
+                                subagentId: event.id,
+                                role: event.role,
+                                task: event.task,
+                                status: event.status,
+                                toolCount: event.toolCount,
+                                tokensIn: event.tokensIn,
+                                tokensOut: event.tokensOut,
+                                summary: event.summary ?? null,
+                                transcript: event.transcript ?? null,
+                            }).catch(err => console.error('[DeepStream] failed to persist sub-agent run:', err));
+                        },
+                        getInterruptState: () => graph.getState(config),
+                        onUsage: (i, o) => { deepUsage.input += i; deepUsage.output += o; },
+                        onFinish: () => persistDeepHistory({
+                            getMessages: async () => (await graph.getState(config)).values?.messages ?? [],
+                            threadId,
+                            userId: resolvedUserId, tenantId: resolvedTenantId,
+                            preRunMessageCount, usage: deepUsage,
+                        }),
+                    }),
+                });
+            }
 
             // @ts-ignore
             const streamEvents = await graph.streamEvents(
@@ -560,6 +701,8 @@ export async function POST(req: Request) {
                 }
             );
 
+            console.log(`[ChatStream][${threadId}] mode=${mode ?? 'plan'} translator=processStream (v2)`);
+
             return createUIMessageStreamResponse({
                 stream: processStream(
                     streamEvents,
@@ -577,7 +720,9 @@ export async function POST(req: Request) {
                     syntheticDecisionResults,
                     liveSubagents,
                     subagentSinkRef,
-                    effectiveSkill ? { slug: effectiveSkill, source: selectedSkill ? 'user' as const : 'auto' as const } : null
+                    effectiveSkill ? { slug: effectiveSkill, source: selectedSkill ? 'user' as const : 'auto' as const } : null,
+                    mode,
+                    memorySinkRef
                 )
             });
         } else {
@@ -585,20 +730,24 @@ export async function POST(req: Request) {
                 input,
                 {
                     configurable: { thread_id: threadId, user_id: resolvedUserId, tenant_id: resolvedTenantId },
+                    ...(mode === 'deep' ? { context: { tenantId: resolvedTenantId, userId: resolvedUserId, threadId } } : {}),
                     recursionLimit: 100,
                     signal: req.signal,
                     ...(langfuseCallbacks.length > 0 ? { callbacks: langfuseCallbacks } : {}),
                 }
             );
 
+            // graph is a union of the three mode graphs, so `result` widens to unknown.
+            const { messages: resultMessages } = result as { messages: BaseMessage[] };
+
             // Extract the last message content
-            const lastMsg = result.messages[result.messages.length - 1];
+            const lastMsg = resultMessages[resultMessages.length - 1];
             let content = lastMsg.content;
 
             // Persist NEW messages from this turn to chat history (non-streaming path)
             {
                 try {
-                    const allMessages: BaseMessage[] = result.messages ?? [];
+                    const allMessages: BaseMessage[] = resultMessages ?? [];
                     const newMessages = allMessages.slice(preRunMessageCount);
                     if (newMessages.length > 0) {
                         const { getChatHistory: getHistory } = await import('@/lib/agent/persistence');
@@ -653,6 +802,8 @@ export async function POST(req: Request) {
 }
 
 function getPhaseFromNode(node: string): AgentPhase {
+    if (node.startsWith('DeepMemoryMiddleware.before')) return 'memory_recall';
+    if (node.startsWith('DeepMemoryMiddleware.after')) return 'memory_save';
     switch (node) {
         case 'planner':
             return 'planning';
@@ -730,6 +881,68 @@ interface StreamEvent {
     };
 }
 
+/**
+ * Deep's chat-history write. The v2 path does this inline in processStream, wrapped in
+ * fast/plan-only concerns (phase markers, memory recall/save messages) that deep does not
+ * produce — deep messages are untagged and its memory is tool-driven.
+ */
+async function persistDeepHistory(args: {
+    getMessages: () => Promise<BaseMessage[]>;
+    threadId: string;
+    userId?: string;
+    tenantId?: string;
+    preRunMessageCount: number;
+    usage: { input: number; output: number };
+}): Promise<void> {
+    const { getMessages, threadId, userId, tenantId, preRunMessageCount, usage } = args;
+    if (!userId) return;
+    try {
+        const allMessages = await getMessages();
+        const newMessages = allMessages.slice(preRunMessageCount);
+        console.log(`[DeepStream][${threadId}] persist ${allMessages.length} total, ${newMessages.length} new`);
+        if (newMessages.length === 0) return;
+
+        const mapped = newMessages.map(m => {
+            const role = m._getType();
+            const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+            const metadata: Record<string, unknown> = {};
+            if (role === 'ai') {
+                const ai = m as AIMessage;
+                if (ai.tool_calls?.length) metadata.tool_calls = ai.tool_calls;
+            }
+            if (role === 'tool') {
+                const tm = m as ToolMessage;
+                if (tm.tool_call_id) metadata.tool_call_id = tm.tool_call_id;
+            }
+            return { role, content, metadata: Object.keys(metadata).length ? metadata : undefined };
+        });
+
+        if (usage.input || usage.output) {
+            for (let i = mapped.length - 1; i >= 0; i--) {
+                if (mapped[i].role === 'ai') {
+                    mapped[i].metadata = {
+                        ...(mapped[i].metadata ?? {}),
+                        usage_metadata: { input_tokens: usage.input, output_tokens: usage.output },
+                    };
+                    break;
+                }
+            }
+        }
+
+        const firstHuman = allMessages.find(m => m._getType() === 'human');
+        const sessionTitle = firstHuman && typeof firstHuman.content === 'string'
+            ? firstHuman.content.slice(0, 60)
+            : 'New Chat';
+
+        const { getChatHistory } = await import('@/lib/agent/persistence');
+        const chatHistory = await getChatHistory();
+        await chatHistory.addMessages(tenantId ?? 'default', userId, threadId, mapped, sessionTitle);
+        console.log(`[DeepStream][${threadId}] persisted ${mapped.length} message(s)`);
+    } catch (err) {
+        console.error(`[DeepStream][${threadId}] failed to persist history:`, err);
+    }
+}
+
 function processStream(
     stream: AsyncIterable<StreamEvent>,
     autoApprove: boolean,
@@ -745,7 +958,9 @@ function processStream(
     syntheticDecisionResults: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown>; output: string }> = [],
     liveSubagents: Map<string, SubagentEvent> = new Map(),
     subagentSinkRef: { sink: ((chunk: UIMessageChunk) => void) | null } = { sink: null },
-    activeSkill: { slug: string; source: 'user' | 'auto' } | null = null
+    activeSkill: { slug: string; source: 'user' | 'auto' } | null = null,
+    mode?: string,
+    memorySinkRef: { sink: ((chunk: UIMessageChunk) => void) | null } = { sink: null }
 ): ReadableStream<UIMessageChunk> {
     return new ReadableStream({
         async start(controller) {
@@ -851,6 +1066,7 @@ function processStream(
             // (bound into dispatch_agent's closure back in POST(), before the
             // graph existed) has been buffering into `liveSubagents` for.
             subagentSinkRef.sink = (chunk) => { safeEnqueue(chunk); };
+            memorySinkRef.sink = (chunk) => { safeEnqueue(chunk); };
 
             // CloudFront's originReadTimeout is 60s (infra/compute/index.ts:962). A
             // sub-agent can think for 90s without producing a byte, so re-emit the
@@ -1165,7 +1381,8 @@ function processStream(
                                 toolId = emittedId
                                     || (typeof outputToolCallId === 'string' && outputToolCallId ? outputToolCallId : '')
                                     || toolId;
-                            } else if (!autoApprove && !isResumedFromApproval && pendingToolCalls.has(toolName)) {
+                            } else if (!autoApprove && !isResumedFromApproval
+                                && pendingToolCalls.has(toolName)) {
                                 toolId = pendingToolCalls.get(toolName)!;
                                 pendingToolCalls.delete(toolName);
                             }
@@ -1178,6 +1395,7 @@ function processStream(
 
                                 if (!safeEnqueue({ type: "tool-output-available", toolCallId: toolId, output: outputContent })) break;
                             }
+
                         }
                         else if (event.event === "on_chain_end") {
                             // Graph-node completion: stream plan snapshots when a node changed the plan.
@@ -1191,7 +1409,7 @@ function processStream(
                             // on the one chain-end whose output is actually the node's returned partial
                             // state (internal steps have a differently-shaped output).
                             const node = event.metadata?.langgraph_node || event.name || "";
-                            const output = event.data?.output as { plan?: PlanStep[] } | undefined;
+                            const output = event.data?.output as { plan?: PlanStep[]; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> } | undefined;
                             if (
                                 threadId &&
                                 ["planner", "generate", "reflect", "revise", "tools"].includes(node) &&
@@ -1278,6 +1496,7 @@ function processStream(
                 // can't reach a closed controller through safeEnqueue's stale closure.
                 clearInterval(heartbeat);
                 subagentSinkRef.sink = null;
+                memorySinkRef.sink = null;
 
                 // Emit the per-run timing breakdown regardless of how the run ended,
                 // so aborted and errored runs are measured too.
@@ -1302,7 +1521,7 @@ function processStream(
                                     // mapping drifts when non-persisted model calls (memory/reflector)
                                     // add phaseList entries, so it must not be the primary source.
                                     const taggedPhase = (msg as { response_metadata?: { agentPhase?: string } }).response_metadata?.agentPhase;
-                                    const phase = taggedPhase ?? phaseList[aiIndex] ?? 'text';
+                                    const phase = (taggedPhase ?? phaseList[aiIndex] ?? 'text') as AgentPhase;
                                     if (phase !== 'text') {
                                         const marker = getPhaseMarker(phase);
                                         if (marker && typeof msg.content === 'string') {

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MockedFunction } from 'vitest';
 
-vi.mock('@/lib/db/pg-config', () => ({
+// Partial mock: only the client factories are stubbed. andWhere() is the real
+// implementation — it is pure, and a stub of it would hide the row-filter
+// composition this repository depends on.
+vi.mock('@/lib/db/pg-config', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/db/pg-config')>()),
     getTenantClient: vi.fn(),
 }));
 

@@ -3,6 +3,12 @@ import { getAuthSession } from "@/lib/auth-session";
 import { getPrismaClient } from "@/lib/db/pg-config";
 import { AuditService } from "@/lib/audit-service";
 import { z } from "zod";
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'create', subject: 'Tenant' },
+};
 
 const createTenantSchema = z.object({
     name: z.string().min(1, "Organization name is required").max(100),

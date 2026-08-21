@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { buildCommandEnv } from './tools';
 import {
-    validateAwsReadRequest, buildAwsReadArgv, ALLOWED_FLAGS, ALLOWED_OPS, VALUE_SHAPES,
+    validateAwsReadRequest, buildAwsReadArgv, normalizeParams, ALLOWED_FLAGS, ALLOWED_OPS, VALUE_SHAPES,
     type ParamValue, type ValueShape,
 } from './aws-read-tool';
 import { markSubagentReadOnlyTool } from './subagent-tool-marker';
@@ -469,3 +469,55 @@ describe('the jail exempts aws_read by identity, not by name', () => {
         ]).map(t => t.name)).toEqual(['aws_read', 'get_aws_credentials']);
     });
 });
+
+// Regression: the model emits JSON-document parameters as objects, not pre-serialised
+// strings. Cost Explorer's --group-by killed a whole run with "Invalid input → at
+// params['--group-by']" before it ever reached the CLI.
+describe('normalizeParams — JSON-document parameters', () => {
+    const ce = { service: 'ce', operation: 'get-cost-and-usage' };
+
+    it('serialises an array of objects, and the request then validates', () => {
+        const params = normalizeParams({
+            '--time-period': 'Start=2026-07-01,End=2026-08-01',
+            '--granularity': 'MONTHLY',
+            '--metrics': ['BlendedCost'],
+            '--group-by': [{ Type: 'DIMENSION', Key: 'SERVICE' }],
+        })!;
+        expect(params['--group-by']).toEqual(['{"Type":"DIMENSION","Key":"SERVICE"}']);
+        expect(validateAwsReadRequest({ ...ce, params })).toBeNull();
+        expect(buildAwsReadArgv({ ...ce, params })).toContain('{"Type":"DIMENSION","Key":"SERVICE"}');
+    });
+
+    it('serialises a bare object', () => {
+        expect(normalizeParams({ '--group-by': { Type: 'DIMENSION', Key: 'SERVICE' } })!['--group-by'])
+            .toBe('{"Type":"DIMENSION","Key":"SERVICE"}');
+    });
+
+    it('leaves strings, string arrays and valueless flags untouched', () => {
+        expect(normalizeParams({ a: 'x', b: ['y', 'z'], c: true })).toEqual({ a: 'x', b: ['y', 'z'], c: true });
+    });
+
+    it('cannot smuggle a URI scheme through a structured value', () => {
+        // A serialised object always begins with "{" or "[", so it can never match a
+        // leading scheme — the property the whole shape design rests on.
+        for (const evil of [
+            { '--group-by': [{ Type: 'file:///etc/passwd' }] },
+            { '--group-by': { Key: 'http://169.254.169.254/latest/meta-data/' } },
+        ]) {
+            const params = normalizeParams(evil as never)!;
+            for (const v of Object.values(params)) {
+                for (const one of Array.isArray(v) ? v : [v]) {
+                    expect(String(one)).toMatch(/^[[{]/);
+                    expect(String(one)).not.toMatch(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//);
+                }
+            }
+            expect(validateAwsReadRequest({ ...ce, params })).toBeNull();
+        }
+    });
+
+    it('still refuses a raw string carrying a scheme', () => {
+        const params = normalizeParams({ '--time-period': 'file:///etc/passwd' })!;
+        expect(validateAwsReadRequest({ ...ce, params })).not.toBeNull();
+    });
+});
+

@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { invokeTextToSQL } from '@/lib/agent/text-to-sql';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    POST: { action: 'read', subject: 'Resource' },
+};
 
 // In-memory conversation store (keyed by conversationId)
 // NOTE: single-process only — needs Redis or DB-backed store before horizontal scaling

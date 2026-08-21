@@ -48,6 +48,7 @@ import type {
   RunListQuery,
 } from "@/lib/agent-ops/types";
 import { NewRunDialog } from "@/components/agent-ops/new-run-dialog";
+import { GatedDropdownItem } from "@/components/rbac/gated";
 import { PageHeader } from "@/components/shared/page-header";
 import { formatDateTime } from "@/lib/date-utils";
 import { useTenant } from '@/lib/tenant-context';
@@ -150,6 +151,12 @@ export default function AgentOpsPage() {
               <CalendarClock className="h-4 w-4 mr-2" />
               Scheduled Tasks
             </Button>
+            {/*
+              Agent Defaults is a write destination: PUT
+              /api/agent-ops/settings/defaults calls authorize('update', 'Agent').
+              Gating the ITEM rather than the trigger keeps the menu discoverable
+              and shows the reason on the entry that is actually unavailable.
+            */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -158,9 +165,13 @@ export default function AgentOpsPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => router.push("/app/agent-ops/settings")}>
+                <GatedDropdownItem
+                  action="update"
+                  subject="Agent"
+                  onClick={() => router.push("/app/agent-ops/settings")}
+                >
                   <Settings2 className="h-4 w-4 mr-2" /> Agent Defaults
-                </DropdownMenuItem>
+                </GatedDropdownItem>
               </DropdownMenuContent>
             </DropdownMenu>
             <NewRunDialog tenantId={tenantId} />

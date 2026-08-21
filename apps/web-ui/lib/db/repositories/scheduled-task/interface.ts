@@ -23,7 +23,17 @@ export interface CreateScheduledTaskParams {
     mcpServerIds?: string[];
     knowledgeBaseIds?: string[];
     notification: ScheduledTask['notification'];
+    /** Client-supplied display string. Not an identity. */
     createdBy: string;
+    /**
+     * The creator's identity, resolved server-side from the session. The task's
+     * stored grant is re-checked against THIS user at every execution
+     * (see lib/agent-ops/scheduled-task-permission.ts), so a caller must never be
+     * able to supply it from the request body.
+     */
+    createdByUserId?: string;
+    /** Creation-time role snapshot — recorded for audit, never used to authorize. */
+    createdByRoleId?: string;
 }
 
 export interface UpdateScheduledTaskParams {

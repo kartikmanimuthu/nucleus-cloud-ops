@@ -5,6 +5,13 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { getBoss } from '@/lib/boss-client';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Settings' },
+    PUT: { action: 'update', subject: 'Settings' },
+};
 
 const VALID_INTERVALS = [5, 15, 30, 60] as const;
 type ValidInterval = typeof VALID_INTERVALS[number];

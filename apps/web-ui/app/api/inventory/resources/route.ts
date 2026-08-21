@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getInventoryRepository } from '@/lib/db/repository-factory';
 import { getSessionTenantId } from '@/lib/auth-session';
 import { getTenantClient } from '@/lib/db/pg-config';
+import { getReadRowFilter } from '@/lib/rbac/row-filter';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/** Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set. */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Resource' },
+};
 
 /**
  * GET /api/inventory/resources
@@ -30,6 +37,11 @@ export async function GET(request: NextRequest) {
             searchTerm: searchParams.get('search') || undefined,
             limit: parseInt(searchParams.get('limit') || '50', 10),
             page: parseInt(searchParams.get('page') || '1', 10),
+            // Gate 3. This route is guarded by the `authz` declaration above
+            // (Layer 1), which settles WHETHER the caller may list resources; a
+            // GET list has no single row to check, so WHICH rows is answered
+            // here, pushed into the query.
+            rowFilter: await getReadRowFilter('Resource'),
         });
 
         // Enrich resources with account names

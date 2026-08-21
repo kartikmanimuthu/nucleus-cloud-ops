@@ -1,0 +1,307 @@
+{
+  "_comment": [
+    "SHARED DRIFT GUARD for the two copies of the Spot Guard strategy logic:",
+    "  apps/web-ui/lib/spot-guard/strategy.ts",
+    "  apps/workers/src/jobs/spot-guard/services/engine.ts",
+    "web-ui cannot import from apps/workers (separate npm packages), so the logic exists",
+    "twice. Drift is dangerous: the UI could enable Spot with one strategy shape while the",
+    "hourly restore job asserts a different one, producing an endless update loop.",
+    "",
+    "BOTH test suites load this file. Changing either implementation without changing these",
+    "vectors fails on BOTH sides, which is the point. Do not duplicate or fork this file.",
+    "",
+    "NOTE on spotFirst: it is computed with DEFAULT options, i.e. the RESTORE path. A strategy with BOTH Spot and non-Spot weighted is read as a deliberate blend and preserved, so a service configured 50/50 restores to 50/50 rather than collapsing to Spot-only. Enable does NOT behave this way - it always passes an explicit onDemandWeight (default 0) - because a weight the service merely happened to have is not a blend anyone chose."
+  ],
+  "fallbackOnDemandWeight": 100,
+  "restoreSpotMinWeight": 1,
+  "cases": [
+    {
+      "name": "spot-first service falls back to on-demand, preserving base",
+      "input": [
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 0,
+          "base": 2
+        },
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 100,
+          "base": 1
+        }
+      ],
+      "fallback": [
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 0,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 100,
+          "base": 2
+        }
+      ],
+      "spotFirst": [
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 0,
+          "base": 2
+        },
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 100,
+          "base": 1
+        }
+      ],
+      "isFallbackState": false,
+      "isSpotFirstState": true,
+      "capacityState": "mixed"
+    },
+    {
+      "name": "service in fallback is hardened back to spot",
+      "input": [
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 10,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 0,
+          "base": 0
+        }
+      ],
+      "fallback": [
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 0,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 100,
+          "base": 0
+        }
+      ],
+      "spotFirst": [
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 0,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 1,
+          "base": 0
+        }
+      ],
+      "isFallbackState": true,
+      "isSpotFirstState": false,
+      "capacityState": "on_demand"
+    },
+    {
+      "name": "custom spot-named ASG provider is treated as spot (and its blend is preserved)",
+      "input": [
+        {
+          "capacityProvider": "my-spot-asg",
+          "weight": 5,
+          "base": 0
+        },
+        {
+          "capacityProvider": "on-demand-cp",
+          "weight": 1,
+          "base": 0
+        }
+      ],
+      "fallback": [
+        {
+          "capacityProvider": "my-spot-asg",
+          "weight": 0,
+          "base": 0
+        },
+        {
+          "capacityProvider": "on-demand-cp",
+          "weight": 100,
+          "base": 0
+        }
+      ],
+      "spotFirst": [
+        {
+          "capacityProvider": "my-spot-asg",
+          "weight": 5,
+          "base": 0
+        },
+        {
+          "capacityProvider": "on-demand-cp",
+          "weight": 1,
+          "base": 0
+        }
+      ],
+      "isFallbackState": false,
+      "isSpotFirstState": true,
+      "capacityState": "mixed"
+    },
+    {
+      "name": "spot removed entirely is NOT fallback state (deliberate opt-out)",
+      "input": [
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 10,
+          "base": 0
+        }
+      ],
+      "fallback": [
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 100,
+          "base": 0
+        }
+      ],
+      "spotFirst": [
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 0,
+          "base": 0
+        }
+      ],
+      "isFallbackState": false,
+      "isSpotFirstState": false,
+      "capacityState": "on_demand"
+    },
+    {
+      "name": "on-demand base with zero weight still counts as active capacity",
+      "input": [
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 0,
+          "base": 2
+        },
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 100,
+          "base": 0
+        }
+      ],
+      "fallback": [
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 0,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 100,
+          "base": 2
+        }
+      ],
+      "spotFirst": [
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 0,
+          "base": 2
+        },
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 100,
+          "base": 0
+        }
+      ],
+      "isFallbackState": false,
+      "isSpotFirstState": true,
+      "capacityState": "mixed"
+    },
+    {
+      "name": "empty strategy is unknown and untouched",
+      "input": [],
+      "fallback": [],
+      "spotFirst": [],
+      "isFallbackState": false,
+      "isSpotFirstState": false,
+      "capacityState": "unknown"
+    },
+    {
+      "name": "deliberate 50/50 split survives spotFirst hardening (prod blend)",
+      "input": [
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 50,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 50,
+          "base": 0
+        }
+      ],
+      "fallback": [
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 0,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 100,
+          "base": 0
+        }
+      ],
+      "spotFirst": [
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 50,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 50,
+          "base": 0
+        }
+      ],
+      "isFallbackState": false,
+      "isSpotFirstState": true,
+      "capacityState": "mixed"
+    },
+    {
+      "name": "fallen-back service is NOT a split \u2014 hardening still zeroes on-demand",
+      "input": [
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 0,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 100,
+          "base": 0
+        }
+      ],
+      "fallback": [
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 0,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 100,
+          "base": 0
+        }
+      ],
+      "spotFirst": [
+        {
+          "capacityProvider": "FARGATE_SPOT",
+          "weight": 1,
+          "base": 0
+        },
+        {
+          "capacityProvider": "FARGATE",
+          "weight": 0,
+          "base": 0
+        }
+      ],
+      "isFallbackState": true,
+      "isSpotFirstState": false,
+      "capacityState": "on_demand"
+    }
+  ]
+}

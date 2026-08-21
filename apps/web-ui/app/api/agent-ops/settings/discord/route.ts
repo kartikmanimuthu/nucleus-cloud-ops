@@ -3,7 +3,11 @@
  *
  * GET /api/agent-ops/settings/discord — Returns Discord config (secrets masked)
  * DELETE /api/agent-ops/settings/discord — Resets (deletes) the stored config
- * PUT /api/agent-ops/settings/discord — Validates and saves Discord config to PostgreSQL
+ * POST /api/agent-ops/settings/discord — Creates the config (first-time connect)
+ * PUT /api/agent-ops/settings/discord — Updates the existing config
+ *
+ * POST and PUT share one handler but are NOT interchangeable — see the Slack
+ * route for why the create/update split has to be two methods.
  */
 
 import { NextResponse } from 'next/server';
@@ -12,6 +16,19 @@ import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { AuditService } from '@/lib/audit-service';
 import { authorize } from '@/lib/rbac/authorize';
 import type { DiscordIntegrationConfig } from '@/lib/agent-ops/types';
+import type { RouteAuthz } from '@nucleus/rbac';
+
+/**
+ * Layer 1 permission declaration — see lib/rbac/rbac-allowlist.ts for the public set.
+ * Subject is 'Channel' (→ AIOps), and GET is declared `read` so it is not
+ * inferred from a stricter in-body gate. Full rationale on the Slack route.
+ */
+export const authz: RouteAuthz = {
+    GET: { action: 'read', subject: 'Channel' },
+    POST: { action: 'create', subject: 'Channel' },
+    PUT: { action: 'update', subject: 'Channel' },
+    DELETE: { action: 'delete', subject: 'Channel' },
+};
 
 const CONFIG_KEY = 'agent-ops-discord';
 
@@ -21,7 +38,7 @@ function maskSecret(value: string | undefined): string {
     return value.slice(0, 4) + '****' + value.slice(-4);
 }
 
-export async function GET(req: Request) {
+export async function GET() {
     try {
         const tenantId = await getSessionTenantId();
         const config = await TenantConfigService.getConfig<DiscordIntegrationConfig>(CONFIG_KEY, tenantId);
@@ -30,42 +47,14 @@ export async function GET(req: Request) {
             return NextResponse.json({ configured: false, enabled: false });
         }
 
-        // Plaintext secrets are only returned when explicitly revealed by the
-        // authenticated tenant admin (eye toggle), never on the default load.
-        const reveal = new URL(req.url).searchParams.get('reveal') === '1';
-
-        if (reveal) {
-            const authError = await authorize('update', 'Agent');
-            if (authError) return authError;
-        }
-
-        const show = (value: string | undefined) => (reveal ? value ?? '' : maskSecret(value));
-
-        if (reveal) {
-            const session = await getAuthSession();
-            AuditService.logUserAction({
-                eventType: 'agent.settings.discord_secret_reveal',
-                severity: 'high',
-                apiRoute: 'GET /api/agent-ops/settings/discord',
-                httpMethod: 'GET',
-                action: 'channel_secret_reveal',
-                resourceType: 'agent',
-                resourceId: 'discord-integration',
-                resourceName: 'Discord Integration',
-                user: session?.user?.email || 'unknown',
-                userType: 'user',
-                status: 'success',
-                details: 'Revealed plaintext Discord integration secrets',
-                metadata: { tenantId },
-            }).catch(() => {});
-        }
-
+        // Always masked. Plaintext lives behind GET /reveal, which requires
+        // `update` and audits — see lib/channels/secret-reveal.ts.
         return NextResponse.json({
             configured: true,
             enabled: config.enabled,
             applicationId: config.applicationId || '',
-            publicKey: show(config.publicKey),
-            botToken: show(config.botToken),
+            publicKey: maskSecret(config.publicKey),
+            botToken: maskSecret(config.botToken),
         });
     } catch (error: any) {
         console.error('[API /agent-ops/settings/discord] GET error:', error);
@@ -76,7 +65,17 @@ export async function GET(req: Request) {
     }
 }
 
+/** First-time connect. 409s if Discord is already configured — that is PUT's job. */
+export async function POST(req: Request) {
+    return handleSave(req, 'create');
+}
+
+/** Edit an existing connection (credentials, enable toggle). */
 export async function PUT(req: Request) {
+    return handleSave(req, 'update');
+}
+
+async function handleSave(req: Request, mode: 'create' | 'update') {
     try {
         const tenantId = await getSessionTenantId();
         const body = await req.json() as Partial<DiscordIntegrationConfig>;
@@ -84,6 +83,20 @@ export async function PUT(req: Request) {
         // "Leave blank to keep existing values": merge the incoming body over the
         // stored config so blank fields retain what's already saved.
         const existing = await TenantConfigService.getConfig<DiscordIntegrationConfig>(CONFIG_KEY, tenantId);
+
+        // The create/update boundary — see the Slack route for the full rationale.
+        if (mode === 'create' && existing) {
+            return NextResponse.json(
+                { error: 'Discord is already configured — use PUT to update the existing connection' },
+                { status: 409 }
+            );
+        }
+        if (mode === 'update' && !existing) {
+            return NextResponse.json(
+                { error: 'Discord is not configured yet — use POST to create the connection' },
+                { status: 404 }
+            );
+        }
 
         const applicationId = body.applicationId?.trim() || existing?.applicationId;
         const publicKey = body.publicKey?.trim() || existing?.publicKey;
@@ -106,20 +119,21 @@ export async function PUT(req: Request) {
 
         console.log('[API /agent-ops/settings/discord] Saved Discord config');
 
+        const created = mode === 'create';
         const session = await getAuthSession();
         AuditService.logUserAction({
-            eventType: 'agent.settings.discord_updated',
+            eventType: created ? 'agent.settings.discord_created' : 'agent.settings.discord_updated',
             severity: 'medium',
-            apiRoute: 'PUT /api/agent-ops/settings/discord',
-            httpMethod: 'PUT',
-            action: 'Updated Discord Settings',
+            apiRoute: `${created ? 'POST' : 'PUT'} /api/agent-ops/settings/discord`,
+            httpMethod: created ? 'POST' : 'PUT',
+            action: created ? 'Connected Discord' : 'Updated Discord Settings',
             resourceType: 'agent',
             resourceId: 'discord-integration',
             resourceName: 'Discord Integration',
             user: session?.user?.email || 'unknown',
             userType: 'user',
             status: 'success',
-            details: 'Updated Discord integration settings',
+            details: created ? 'Created the Discord integration connection' : 'Updated Discord integration settings',
             metadata: { tenantId },
         }).catch(() => {});
 
@@ -132,7 +146,7 @@ export async function PUT(req: Request) {
             botToken: maskSecret(config.botToken),
         });
     } catch (error: any) {
-        console.error('[API /agent-ops/settings/discord] PUT error:', error);
+        console.error(`[API /agent-ops/settings/discord] ${mode} error:`, error);
         return NextResponse.json(
             { error: error.message || 'Failed to save Discord settings' },
             { status: 500 }
@@ -148,7 +162,7 @@ export async function PUT(req: Request) {
  */
 export async function DELETE() {
     try {
-        const authError = await authorize('delete', 'Agent');
+        const authError = await authorize('delete', 'Channel');
         if (authError) return authError;
 
         const tenantId = await getSessionTenantId();

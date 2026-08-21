@@ -32,21 +32,55 @@ export function useChannelSettings(channel: string) {
  * the eye toggle to reveal a stored value. Kept out of the default useChannelSettings
  * query on purpose — secrets are only pulled from the server on explicit reveal,
  * never on page load.
+ *
+ * Its own endpoint rather than `?reveal=1` on the settings GET: reading secrets
+ * back out needs `update Channel` while loading the page needs only `read`, and
+ * one method cannot declare two permissions. See lib/channels/secret-reveal.ts.
  */
 export async function revealChannelSecrets(channel: string): Promise<Record<string, unknown>> {
-    const res = await fetch(`/api/agent-ops/settings/${channel}?reveal=1`);
+    const res = await fetch(`/api/agent-ops/settings/${channel}/reveal`);
     return res.json().catch(() => ({}));
 }
 
+/**
+ * Save a channel's settings.
+ *
+ * Picks the method from whether the channel is already configured: POST creates
+ * a connection, PUT edits one. That is not REST pedantry — the two methods carry
+ * the `create` and `update` permissions respectively (see the route's `authz`),
+ * so sending the wrong one is the difference between a 200 and a 403 for a role
+ * that holds only one of them.
+ *
+ * `configured` is read from the settings query cache, which the form that owns
+ * this mutation has always already loaded. If that read is stale — another admin
+ * connected the channel in a different tab — the server answers 409 (POST at a
+ * configured channel) or 404 (PUT at an unconfigured one) and we retry once with
+ * the other method. The retry is not a permission bypass: it goes through Layer 1
+ * exactly like the first attempt, so a create-only role that retries as PUT still
+ * gets a 403. A 403 is never retried, so a genuine denial surfaces immediately.
+ */
 export function useSaveChannelSettings(channel: string) {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: async (body: Record<string, unknown>) => {
-            const res = await fetch(`/api/agent-ops/settings/${channel}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
+            const send = (method: 'POST' | 'PUT') =>
+                fetch(`/api/agent-ops/settings/${channel}`, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+
+            const cached = qc.getQueryData<ChannelSettings>(['channel-settings', channel]);
+            const first = cached?.configured ? 'PUT' : 'POST';
+
+            let res = await send(first);
+
+            // 409 = "already configured" from POST; 404 = "not configured" from PUT.
+            // Both mean only that our cached `configured` was stale.
+            if ((res.status === 409 && first === 'POST') || (res.status === 404 && first === 'PUT')) {
+                res = await send(first === 'POST' ? 'PUT' : 'POST');
+            }
+
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || 'Failed to save');
             return data;

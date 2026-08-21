@@ -24,6 +24,10 @@ import type { IAgentOpsEventRepository } from './repositories/agent-ops-event/in
 import type { IScheduledTaskRepository } from './repositories/scheduled-task/interface';
 import type { ICertificateRepository } from './repositories/certificate/interface';
 import type { IRightSizingRepository } from './repositories/right-sizing/interface';
+import type { IScalingAuditRepository } from './repositories/scaling-audit/interface';
+import type { INetworkLinksRepository } from './repositories/network-links/interface';
+import type { ICapacityPlanningRepository } from './repositories/capacity-planning/interface';
+import type { ISpotGuardRepository } from './repositories/spot-guard/interface';
 import type { IPricingCatalogRepository } from './repositories/pricing/interface';
 import type { IAgentMemoryRepository } from './repositories/agent-memory/interface';
 import type { ISkillRepository } from './repositories/skill/interface';
@@ -114,6 +118,30 @@ export function getRightSizingRepository(): IRightSizingRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { RightSizingPostgresRepository } = require('./repositories/right-sizing/postgres');
     return new RightSizingPostgresRepository();
+}
+
+export function getScalingAuditRepository(): IScalingAuditRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ScalingAuditPostgresRepository } = require('./repositories/scaling-audit/postgres');
+    return new ScalingAuditPostgresRepository();
+}
+
+export function getNetworkLinksRepository(): INetworkLinksRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { NetworkLinksPostgresRepository } = require('./repositories/network-links/postgres');
+    return new NetworkLinksPostgresRepository();
+}
+
+export function getCapacityPlanningRepository(): ICapacityPlanningRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CapacityPlanningPostgresRepository } = require('./repositories/capacity-planning/postgres');
+    return new CapacityPlanningPostgresRepository();
+}
+
+export function getSpotGuardRepository(): ISpotGuardRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { SpotGuardPostgresRepository } = require('./repositories/spot-guard/postgres');
+    return new SpotGuardPostgresRepository();
 }
 
 export function getPricingCatalogRepository(): IPricingCatalogRepository {

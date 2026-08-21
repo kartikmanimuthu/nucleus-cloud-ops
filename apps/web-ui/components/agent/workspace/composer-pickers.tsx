@@ -53,6 +53,16 @@ export interface ComposerAccountsField {
   onChange: (ids: string[]) => void;
   loading?: boolean;
   disabled?: boolean;
+  /**
+   * Set when the caller lacks `read Account`, so the chip can say so instead of
+   * reading as "this tenant has no accounts". An empty list and a forbidden list
+   * look identical otherwise, and the difference is the one thing the user needs.
+   *
+   * The same field appears on the skill and tools pickers, for the same reason —
+   * each of those lists has its own permission behind it (`read Skill`,
+   * `read AIOps`) and a role can hold one without the others.
+   */
+  denied?: string | null;
 }
 
 export interface ComposerModelField {
@@ -67,6 +77,8 @@ export interface ComposerSkillField {
   selectedId: string | null;
   onChange: (id: string | null) => void;
   disabled?: boolean;
+  /** Set when the caller lacks `read Skill` — see ComposerAccountsField.denied. */
+  denied?: string | null;
 }
 
 export interface ComposerKbField {
@@ -82,6 +94,8 @@ export interface ComposerToolsField {
   onChange: (ids: string[]) => void;
   loading?: boolean;
   disabled?: boolean;
+  /** Set when the caller lacks `read AIOps` — see ComposerAccountsField.denied. */
+  denied?: string | null;
 }
 
 export interface ComposerContext {
@@ -148,9 +162,14 @@ function ChipShell({
     <Popover>
       <span
         title={title}
+        aria-disabled={disabled || undefined}
         className={cn(
           "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs",
           active ? "border-primary/40 bg-primary/5 text-foreground" : "text-muted-foreground",
+          // Same reasoning as GatedButton: the disabled <button> inside dispatches
+          // no pointer events, so the cursor and the `title` have to live on the
+          // wrapper or neither is ever reachable.
+          disabled && "cursor-not-allowed opacity-60",
         )}
       >
         <PopoverTrigger asChild>
@@ -198,16 +217,24 @@ function SearchBox({ value, onChange, placeholder }: { value: string; onChange: 
 
 export function AccountChip({ field, disabled }: { field: ComposerAccountsField; disabled?: boolean }) {
   const [search, setSearch] = useState("");
-  const isDisabled = disabled || field.disabled;
+  // A denied chip is inert: there is nothing behind it to open, and leaving it
+  // clickable invites the user to hunt for accounts that will never appear.
+  const isDisabled = disabled || field.disabled || Boolean(field.denied);
   const selected = field.available.filter((a) => field.selectedIds.includes(a.accountId));
-  const label = field.loading
-    ? "Loading…"
-    : selected.length === 0
-      ? "Select accounts"
-      : selected.length === 1
-        ? selected[0].name
-        : `${selected.length} accounts`;
-  const title = selected.length > 0 ? selected.map((a) => a.name).join(", ") : "Select accounts";
+  const label = field.denied
+    ? "No account access"
+    : field.loading
+      ? "Loading…"
+      : selected.length === 0
+        ? "Select accounts"
+        : selected.length === 1
+          ? selected[0].name
+          : `${selected.length} accounts`;
+  const title = field.denied
+    ? field.denied
+    : selected.length > 0
+      ? selected.map((a) => a.name).join(", ")
+      : "Select accounts";
   const filtered = field.available.filter((a) => a.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -304,14 +331,15 @@ export function ModelChip({ field, disabled }: { field: ComposerModelField; disa
 }
 
 export function SkillChip({ field, disabled }: { field: ComposerSkillField; disabled?: boolean }) {
-  const isDisabled = disabled || field.disabled;
+  // Denied ⇒ inert. "No skill" would otherwise read as a choice the user made.
+  const isDisabled = disabled || field.disabled || Boolean(field.denied);
   const selected = field.available.find((s) => s.id === field.selectedId);
-  const label = selected?.name ?? "No skill";
+  const label = field.denied ? "No skill access" : (selected?.name ?? "No skill");
 
   return (
     <ChipShell
       label={label}
-      title={selected?.description ?? "No skill selected"}
+      title={field.denied ?? selected?.description ?? "No skill selected"}
       active={!!selected}
       disabled={isDisabled}
       clearLabel="Clear skill"
@@ -426,7 +454,7 @@ export function KbSection({ field, disabled }: { field: ComposerKbField; disable
 }
 
 export function ToolsSection({ field, disabled }: { field: ComposerToolsField; disabled?: boolean }) {
-  const isDisabled = disabled || field.disabled;
+  const isDisabled = disabled || field.disabled || Boolean(field.denied);
   return (
     <div className="space-y-1.5 border-t pt-2">
       <div className="flex items-center justify-between">
@@ -447,7 +475,9 @@ export function ToolsSection({ field, disabled }: { field: ComposerToolsField; d
       <CheckList
         items={field.available.map((tool) => ({ id: tool.id, label: tool.name, sublabel: tool.description }))}
         selectedIds={field.selectedIds}
-        emptyLabel={field.loading ? "Loading…" : "No connected tools available"}
+        emptyLabel={
+          field.denied ?? (field.loading ? "Loading…" : "No connected tools available")
+        }
         disabled={isDisabled}
         onToggle={(id, checked) =>
           field.onChange(checked ? [...field.selectedIds, id] : field.selectedIds.filter((x) => x !== id))

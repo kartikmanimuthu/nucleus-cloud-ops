@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Plus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { GatedButton } from "@/components/rbac/gated";
 import { PageHeader } from "@/components/shared/page-header";
 import { CertificateGrid } from "./certificate-grid";
 import { UploadCertificateDialog } from "./upload-certificate-dialog";
@@ -82,10 +82,15 @@ export function CertificateClientComponent() {
                         title="Certificate Manager"
                         description="Manage TLS certificates across your AWS accounts"
                         actions={
-                            <Button onClick={() => setUploadOpen(true)} className="gap-2">
+                            <GatedButton
+                                action="create"
+                                subject="Certificate"
+                                onClick={() => setUploadOpen(true)}
+                                className="gap-2"
+                            >
                                 <Plus className="h-4 w-4" />
                                 Upload Certificate
-                            </Button>
+                            </GatedButton>
                         }
                     />
                 </div>

@@ -141,6 +141,7 @@ describe('getAutoLevel', () => {
             Inventory: ['create', 'read', 'update', 'delete'],
             Settings: ['create', 'read', 'update', 'delete'],
             Dashboard: ['read'],
+            IAM: ['create', 'read', 'update', 'delete'],
         };
         expect(getAutoLevel(ownerPerms)).toBe(4);
     });
@@ -181,5 +182,41 @@ describe('hasCustomPermission', () => {
             Dashboard: ['read'],
         };
         expect(hasCustomPermission(customPerms, 'delete', 'Accounts')).toBe(false);
+    });
+});
+
+describe('getAutoLevel with a dynamic registry', () => {
+    it('accepts permission sets with keys outside the legacy module union', () => {
+        const perms: PermissionSet = {
+            CostControl: ['read', 'update'],
+            Accounts: ['read'],
+        };
+        expect(getAutoLevel(perms)).toBe(1);
+    });
+
+    it('scales the Owner threshold with the registry, not the static matrix', () => {
+        // 21 ticks would clear the static Owner threshold (21 actions in
+        // ROLE_PERMISSIONS.Owner) and hand out level 4 — the level that may
+        // assign roles. With the real cell count passed in, it must not.
+        const perms: PermissionSet = {
+            Accounts: ['create', 'read', 'update', 'delete'],
+            Schedules: ['create', 'read', 'update', 'delete'],
+            AIOps: ['create', 'read', 'update', 'delete'],
+            Inventory: ['create', 'read', 'update', 'delete'],
+            CostControl: ['create', 'read', 'update', 'delete'],
+            Dashboard: ['read'],
+        };
+        expect(getAutoLevel(perms, 21)).toBe(4);
+        expect(getAutoLevel(perms, 40)).toBe(3);
+    });
+
+    it('does not fail open to level 4 when ownerActionCount is 0 (broken/inconsistent registry read)', () => {
+        // A `grantableCellCount: 0` from `loadAdminRegistry` must never be treated
+        // as "everyone qualifies for Owner." A single-action role should fall
+        // through to the static-ceiling logic and land at the lowest level, not 4.
+        const oneActionPermissionSet: PermissionSet = {
+            Accounts: ['read'],
+        };
+        expect(getAutoLevel(oneActionPermissionSet, 0)).toBe(1);
     });
 });
