@@ -7,8 +7,12 @@ export default defineConfig({
     test: {
         environment: 'node',
         globals: true,
-        // The suites land with the compiler in Workstream C; until then this
-        // project exists so `nx run-many -t test --all` already includes it.
-        passWithNoTests: true,
+        coverage: {
+            provider: 'v8',
+            reportOnFailure: true,
+            reporter: ['text-summary', 'json-summary', 'html', 'lcov'],
+            include: ['*.ts'],
+            exclude: ['**/*.test.ts', 'vitest.config.ts', 'generated/**'],
+        },
     },
 });

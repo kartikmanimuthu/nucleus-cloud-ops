@@ -8,15 +8,36 @@ import { classifyEligibility, SpotGuardPostgresRepository } from './postgres';
 import type { CapacityProviderStrategyItem, ServiceUpsert } from './interface';
 
 // Hoisted so the vi.mock factory below can close over it (vi.mock is lifted above imports).
-const { mockFindFirst, mockUpdate, mockCreate } = vi.hoisted(() => ({
+const {
+    mockFindFirst, mockUpdate, mockCreate, mockDelete, mockFindMany, mockCount, mockGroupBy,
+    mockEventFindMany, mockEventCount, mockEventCreate, mockQueryRaw, mockQueryRawUnsafe,
+} = vi.hoisted(() => ({
     mockFindFirst: vi.fn(),
     mockUpdate: vi.fn(),
     mockCreate: vi.fn(),
+    mockDelete: vi.fn(),
+    mockFindMany: vi.fn(),
+    mockCount: vi.fn(),
+    mockGroupBy: vi.fn(),
+    mockEventFindMany: vi.fn(),
+    mockEventCount: vi.fn(),
+    mockEventCreate: vi.fn(),
+    mockQueryRaw: vi.fn(),
+    mockQueryRawUnsafe: vi.fn(),
 }));
 
-vi.mock('@/lib/db/pg-config', () => ({
+// andWhere is real (imported via importOriginal) — it's pure, and stubbing it would hide the
+// row-filter composition listServices depends on for Gate 3 tenant-scoping.
+vi.mock('@/lib/db/pg-config', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/db/pg-config')>()),
     getTenantClient: () => ({
-        spotGuardService: { findFirst: mockFindFirst, update: mockUpdate, create: mockCreate },
+        spotGuardService: {
+            findFirst: mockFindFirst, update: mockUpdate, create: mockCreate, delete: mockDelete,
+            findMany: mockFindMany, count: mockCount, groupBy: mockGroupBy,
+        },
+        spotGuardEvent: { findMany: mockEventFindMany, count: mockEventCount, create: mockEventCreate },
+        $queryRaw: mockQueryRaw,
+        $queryRawUnsafe: mockQueryRawUnsafe,
     }),
 }));
 
@@ -114,6 +135,14 @@ describe('findServiceByTarget', () => {
         await new SpotGuardPostgresRepository().findServiceByTarget('tenant-1', TARGET);
         expect(mockFindFirst.mock.calls[0][0].where).toEqual(TARGET);
     });
+
+    it('returns the transformed service when a match is found', async () => {
+        mockFindFirst.mockResolvedValue({
+            id: 'sg-1', createdAt: new Date(), updatedAt: new Date(), desiredStrategy: [], observedStrategy: [],
+        });
+        const result = await new SpotGuardPostgresRepository().findServiceByTarget('tenant-1', TARGET);
+        expect(result?.id).toBe('sg-1');
+    });
 });
 
 describe('upsertService', () => {
@@ -190,5 +219,543 @@ describe('upsertService', () => {
         const data = mockCreate.mock.calls[0][0].data;
         expect(data.restorePending).toBe(false);
         expect(data.backoffUntil).toBeNull();
+    });
+
+    it('passes tenantId explicitly on create even though the tenant client injects it too', async () => {
+        mockFindFirst.mockResolvedValue(null);
+        mockCreate.mockResolvedValue(RECORD);
+
+        await new SpotGuardPostgresRepository().upsertService('tenant-1', BASE);
+
+        expect(mockCreate.mock.calls[0][0].data.tenantId).toBe('tenant-1');
+    });
+
+    it('sets desiredCount, runningCount, and updatedBy only when explicitly supplied, on update', async () => {
+        mockFindFirst.mockResolvedValue({ id: 'sg-1' });
+        mockUpdate.mockResolvedValue(RECORD);
+
+        await new SpotGuardPostgresRepository().upsertService('tenant-1', {
+            ...BASE, desiredCount: 3, runningCount: 2, actor: 'a@b.com',
+        });
+
+        const data = mockUpdate.mock.calls[0][0].data;
+        expect(data.desiredCount).toBe(3);
+        expect(data.runningCount).toBe(2);
+        expect(data.updatedBy).toBe('a@b.com');
+    });
+
+    it('omits desiredCount, runningCount, and updatedBy when not supplied, on update', async () => {
+        mockFindFirst.mockResolvedValue({ id: 'sg-1' });
+        mockUpdate.mockResolvedValue(RECORD);
+
+        await new SpotGuardPostgresRepository().upsertService('tenant-1', BASE);
+
+        const data = mockUpdate.mock.calls[0][0].data;
+        expect(data).not.toHaveProperty('desiredCount');
+        expect(data).not.toHaveProperty('runningCount');
+        expect(data).not.toHaveProperty('updatedBy');
+    });
+
+    it('records createdBy only on the initial insert, never rewritten by a later update', async () => {
+        mockFindFirst.mockResolvedValue(null);
+        mockCreate.mockResolvedValue(RECORD);
+
+        await new SpotGuardPostgresRepository().upsertService('tenant-1', { ...BASE, actor: 'creator@b.com' });
+
+        expect(mockCreate.mock.calls[0][0].data.createdBy).toBe('creator@b.com');
+    });
+
+    it('omits createdBy on insert when no actor is supplied', async () => {
+        mockFindFirst.mockResolvedValue(null);
+        mockCreate.mockResolvedValue(RECORD);
+
+        await new SpotGuardPostgresRepository().upsertService('tenant-1', BASE);
+
+        expect(mockCreate.mock.calls[0][0].data).not.toHaveProperty('createdBy');
+    });
+});
+
+describe('getFacets', () => {
+    it('returns distinct regions and cluster names', async () => {
+        mockGroupBy
+            .mockResolvedValueOnce([{ region: 'ap-south-1' }, { region: 'us-east-1' }])
+            .mockResolvedValueOnce([{ clusterName: 'cluster-a' }]);
+
+        const result = await new SpotGuardPostgresRepository().getFacets('tenant-1');
+
+        expect(result).toEqual({ regions: ['ap-south-1', 'us-east-1'], clusters: ['cluster-a'] });
+    });
+});
+
+describe('listServices', () => {
+    const RECORD = {
+        id: 'sg-1', createdAt: new Date(), updatedAt: new Date(),
+        desiredStrategy: [], observedStrategy: [{ capacityProvider: 'FARGATE_SPOT', weight: 1 }],
+        accountId: 'acct-1', region: 'ap-south-1', serviceName: 'svc-1',
+    };
+
+    beforeEach(() => {
+        mockFindMany.mockReset().mockResolvedValue([RECORD]);
+        mockCount.mockReset().mockResolvedValue(1);
+        mockQueryRawUnsafe.mockReset().mockResolvedValue([]);
+    });
+
+    it('builds an equality where clause from every provided filter', async () => {
+        await new SpotGuardPostgresRepository().listServices({
+            tenantId: 'tenant-1', accountId: 'acct-1', region: 'ap-south-1',
+            clusterName: 'cluster-a', capacityState: 'spot', managementState: 'managed',
+        });
+
+        const where = mockFindMany.mock.calls[0][0].where;
+        expect(where).toMatchObject({
+            accountId: 'acct-1', region: 'ap-south-1', clusterName: 'cluster-a',
+            capacityState: 'spot', managementState: 'managed',
+        });
+    });
+
+    it('searches serviceName and clusterName case-insensitively', async () => {
+        await new SpotGuardPostgresRepository().listServices({ tenantId: 'tenant-1', searchTerm: 'api' });
+
+        const where = mockFindMany.mock.calls[0][0].where;
+        expect(where.OR).toEqual([
+            { serviceName: { contains: 'api', mode: 'insensitive' } },
+            { clusterName: { contains: 'api', mode: 'insensitive' } },
+        ]);
+    });
+
+    it('intersects a Gate-3 row filter under AND without discarding the search OR clause', async () => {
+        await new SpotGuardPostgresRepository().listServices({
+            tenantId: 'tenant-1', searchTerm: 'api', rowFilter: { accountId: { in: ['acct-1'] } },
+        });
+
+        const where = mockFindMany.mock.calls[0][0].where;
+        expect(where.OR).toBeDefined();
+        expect(where.AND).toEqual([{ accountId: { in: ['acct-1'] } }]);
+    });
+
+    it('clamps page to a minimum of 1 and limit to the 1-200 range', async () => {
+        await new SpotGuardPostgresRepository().listServices({ tenantId: 'tenant-1', page: -5, limit: 5000 });
+        expect(mockFindMany.mock.calls[0][0].skip).toBe(0);
+        expect(mockFindMany.mock.calls[0][0].take).toBe(200);
+
+        await new SpotGuardPostgresRepository().listServices({ tenantId: 'tenant-1', page: 3, limit: 0 });
+        expect(mockFindMany.mock.calls[1][0].skip).toBe(2); // page 3 at the limit-clamped-to-1 floor
+        expect(mockFindMany.mock.calls[1][0].take).toBe(1);
+    });
+
+    it('backfills observedStrategy from inventory for rows discovery has not populated, scoped by tenant', async () => {
+        mockFindMany.mockResolvedValue([{ ...RECORD, observedStrategy: [] }]);
+        mockQueryRawUnsafe.mockResolvedValue([
+            { accountId: 'acct-1', region: 'ap-south-1', name: 'svc-1', strategy: [{ capacityProvider: 'FARGATE_SPOT', weight: 1 }] },
+        ]);
+
+        const { services } = await new SpotGuardPostgresRepository().listServices({ tenantId: 'tenant-1' });
+
+        expect(mockQueryRawUnsafe.mock.calls[0]).toContain('tenant-1');
+        expect(services[0].observedStrategy).toEqual([{ capacityProvider: 'FARGATE_SPOT', weight: 1 }]);
+        expect((services[0] as any).strategyFromInventory).toBe(true);
+    });
+
+    it('skips the backfill query entirely when every row already has a strategy', async () => {
+        mockFindMany.mockResolvedValue([RECORD]);
+        const { services } = await new SpotGuardPostgresRepository().listServices({ tenantId: 'tenant-1' });
+
+        expect(mockQueryRawUnsafe).not.toHaveBeenCalled();
+        expect(services[0].observedStrategy).toEqual(RECORD.observedStrategy);
+    });
+
+    it('leaves a gapped row unchanged when inventory has no matching strategy for it', async () => {
+        // Mixed page: one row already has a strategy (short-circuits per-row inside the
+        // map — must NOT be re-fetched or overwritten), one has a gap the inventory join
+        // does not resolve (no matching accountId|region|name key).
+        mockFindMany.mockResolvedValue([RECORD, { ...RECORD, id: 'sg-2', observedStrategy: [] }]);
+        mockQueryRawUnsafe.mockResolvedValue([]); // no inventory row matches the gapped service
+
+        const { services } = await new SpotGuardPostgresRepository().listServices({ tenantId: 'tenant-1' });
+
+        expect(services[0].observedStrategy).toEqual(RECORD.observedStrategy); // untouched, had a strategy
+        expect(services[1].observedStrategy).toEqual([]); // still empty, no match found
+        expect((services[1] as any).strategyFromInventory).toBeUndefined();
+    });
+});
+
+describe('getService', () => {
+    it('returns the transformed service when found', async () => {
+        mockFindFirst.mockResolvedValue({
+            id: 'sg-1', createdAt: new Date(), updatedAt: new Date(), desiredStrategy: [], observedStrategy: [],
+        });
+        const result = await new SpotGuardPostgresRepository().getService('sg-1', 'tenant-1');
+        expect(result?.id).toBe('sg-1');
+    });
+
+    it('returns null when not found', async () => {
+        mockFindFirst.mockResolvedValue(null);
+        const result = await new SpotGuardPostgresRepository().getService('missing', 'tenant-1');
+        expect(result).toBeNull();
+    });
+
+    it('converts a populated optional timestamp and passes through an explicit null one', async () => {
+        mockFindFirst.mockResolvedValue({
+            id: 'sg-1', createdAt: new Date(), updatedAt: new Date(), desiredStrategy: [], observedStrategy: [],
+            lastFallbackAt: new Date('2026-01-02T00:00:00Z'), enabledAt: null,
+        });
+        const result = await new SpotGuardPostgresRepository().getService('sg-1', 'tenant-1');
+        expect(result?.lastFallbackAt).toBe('2026-01-02T00:00:00.000Z');
+        expect(result?.enabledAt).toBeNull();
+    });
+});
+
+describe('setManagementState', () => {
+    beforeEach(() => {
+        mockFindFirst.mockReset();
+        mockUpdate.mockReset();
+    });
+    const RECORD = { id: 'sg-1', createdAt: new Date(), updatedAt: new Date(), desiredStrategy: [], observedStrategy: [] };
+
+    it('throws NOT_FOUND for a cross-tenant id instead of leaking existence via a bare update', async () => {
+        mockFindFirst.mockResolvedValue(null);
+        await expect(
+            new SpotGuardPostgresRepository().setManagementState('sg-x', 'tenant-1', 'managed', 'a@b.com')
+        ).rejects.toThrow('NOT_FOUND');
+        expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('sets enabledBy/enabledAt when moving to managed', async () => {
+        mockFindFirst.mockResolvedValue({ id: 'sg-1' });
+        mockUpdate.mockResolvedValue(RECORD);
+        await new SpotGuardPostgresRepository().setManagementState('sg-1', 'tenant-1', 'managed', 'a@b.com');
+
+        const data = mockUpdate.mock.calls[0][0].data;
+        expect(data.enabledBy).toBe('a@b.com');
+        expect(data.enabledAt).toBeInstanceOf(Date);
+        expect(data).not.toHaveProperty('restorePending');
+    });
+
+    it('sets disabledBy/disabledAt and clears restore state when moving to opted_out', async () => {
+        mockFindFirst.mockResolvedValue({ id: 'sg-1' });
+        mockUpdate.mockResolvedValue(RECORD);
+        await new SpotGuardPostgresRepository().setManagementState('sg-1', 'tenant-1', 'opted_out', 'a@b.com');
+
+        const data = mockUpdate.mock.calls[0][0].data;
+        expect(data.disabledBy).toBe('a@b.com');
+        expect(data.restorePending).toBe(false);
+        expect(data.backoffUntil).toBeNull();
+    });
+});
+
+describe('deleteService', () => {
+    beforeEach(() => {
+        mockFindFirst.mockReset();
+        mockDelete.mockReset();
+    });
+
+    it('throws NOT_FOUND for a cross-tenant id instead of a bare delete', async () => {
+        mockFindFirst.mockResolvedValue(null);
+        await expect(new SpotGuardPostgresRepository().deleteService('sg-x', 'tenant-1')).rejects.toThrow('NOT_FOUND');
+        expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('deletes the row when it belongs to the tenant', async () => {
+        mockFindFirst.mockResolvedValue({ id: 'sg-1' });
+        mockDelete.mockResolvedValue({});
+        await new SpotGuardPostgresRepository().deleteService('sg-1', 'tenant-1');
+        expect(mockDelete).toHaveBeenCalledWith({ where: { id: 'sg-1' } });
+    });
+});
+
+describe('listEvents', () => {
+    const EVENT_RECORD = { id: 'ev-1', occurredAt: new Date(), metadata: null };
+
+    beforeEach(() => {
+        mockEventFindMany.mockReset().mockResolvedValue([EVENT_RECORD]);
+        mockEventCount.mockReset().mockResolvedValue(1);
+    });
+
+    it('filters by a single eventType', async () => {
+        await new SpotGuardPostgresRepository().listEvents({ tenantId: 'tenant-1', eventType: 'interruption' });
+        expect(mockEventFindMany.mock.calls[0][0].where.eventType).toBe('interruption');
+    });
+
+    it('prefers eventTypes (multi-select) over a single eventType when both are given', async () => {
+        await new SpotGuardPostgresRepository().listEvents({
+            tenantId: 'tenant-1', eventType: 'interruption', eventTypes: ['fallback', 'restore'],
+        });
+        expect(mockEventFindMany.mock.calls[0][0].where.eventType).toEqual({ in: ['fallback', 'restore'] });
+    });
+
+    it('filters by since as a gte timestamp', async () => {
+        await new SpotGuardPostgresRepository().listEvents({ tenantId: 'tenant-1', since: '2026-01-01T00:00:00Z' });
+        expect(mockEventFindMany.mock.calls[0][0].where.occurredAt).toEqual({ gte: new Date('2026-01-01T00:00:00Z') });
+    });
+
+    it('returns transformed events and the total count', async () => {
+        const result = await new SpotGuardPostgresRepository().listEvents({ tenantId: 'tenant-1' });
+        expect(result).toEqual({ events: [expect.objectContaining({ id: 'ev-1' })], total: 1 });
+    });
+
+    it('builds an equality where clause from spotServiceId, accountId, serviceName, and severity', async () => {
+        await new SpotGuardPostgresRepository().listEvents({
+            tenantId: 'tenant-1', spotServiceId: 'sg-1', accountId: 'acct-1', serviceName: 'svc-1', severity: 'critical',
+        });
+
+        expect(mockEventFindMany.mock.calls[0][0].where).toMatchObject({
+            spotServiceId: 'sg-1', accountId: 'acct-1', serviceName: 'svc-1', severity: 'critical',
+        });
+    });
+
+    it('carries the before/after strategy snapshot through transformEvent when present', async () => {
+        mockEventFindMany.mockResolvedValue([{
+            ...EVENT_RECORD,
+            strategyBefore: [{ capacityProvider: 'FARGATE', weight: 1 }],
+            strategyAfter: [{ capacityProvider: 'FARGATE_SPOT', weight: 1 }],
+        }]);
+
+        const { events } = await new SpotGuardPostgresRepository().listEvents({ tenantId: 'tenant-1' });
+
+        expect(events[0].strategyBefore).toEqual([{ capacityProvider: 'FARGATE', weight: 1 }]);
+        expect(events[0].strategyAfter).toEqual([{ capacityProvider: 'FARGATE_SPOT', weight: 1 }]);
+    });
+});
+
+describe('recordEvent', () => {
+    beforeEach(() => {
+        mockEventCreate.mockReset();
+    });
+
+    it('defaults severity, actor, and metadata, and binds tenantId explicitly', async () => {
+        mockEventCreate.mockResolvedValue({ id: 'ev-1', occurredAt: new Date(), metadata: {} });
+
+        await new SpotGuardPostgresRepository().recordEvent('tenant-1', {
+            accountId: 'acct-1', region: 'ap-south-1', clusterName: 'c', serviceName: 's', eventType: 'interruption',
+        });
+
+        const data = mockEventCreate.mock.calls[0][0].data;
+        expect(data.tenantId).toBe('tenant-1');
+        expect(data.severity).toBe('info');
+        expect(data.actor).toBe('system');
+        expect(data.metadata).toEqual({});
+        expect(data.expiresAt).toBeInstanceOf(Date);
+    });
+
+    it('passes through explicit severity, taskArn, and capacity transition fields', async () => {
+        mockEventCreate.mockResolvedValue({ id: 'ev-1', occurredAt: new Date(), metadata: {} });
+
+        await new SpotGuardPostgresRepository().recordEvent('tenant-1', {
+            accountId: 'acct-1', region: 'ap-south-1', clusterName: 'c', serviceName: 's', eventType: 'fallback',
+            severity: 'critical', taskArn: 'arn:aws:ecs:task/1', fromCapacity: 'spot', toCapacity: 'on_demand',
+            actor: 'a@b.com',
+        });
+
+        const data = mockEventCreate.mock.calls[0][0].data;
+        expect(data.severity).toBe('critical');
+        expect(data.taskArn).toBe('arn:aws:ecs:task/1');
+        expect(data.actor).toBe('a@b.com');
+    });
+});
+
+describe('getHoursReport', () => {
+    beforeEach(() => {
+        mockQueryRaw.mockReset();
+    });
+
+    it('binds tenantId as a parameter on both the hours and data-quality raw queries', async () => {
+        mockQueryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ orphaned: 0, staleOpen: 0 }]);
+
+        const range = { from: new Date('2026-01-01'), to: new Date('2026-01-08') };
+        await new SpotGuardPostgresRepository().getHoursReport('tenant-1', range);
+
+        expect(mockQueryRaw).toHaveBeenCalledTimes(2);
+        expect(mockQueryRaw.mock.calls[0]).toContain('tenant-1');
+        expect(mockQueryRaw.mock.calls[1]).toContain('tenant-1');
+    });
+
+    it('folds spot and on-demand seconds per service into hours and a spot share', async () => {
+        mockQueryRaw
+            .mockResolvedValueOnce([
+                {
+                    accountId: 'acct-1', accountName: 'Acme', region: 'ap-south-1', clusterName: 'c', serviceName: 's',
+                    capacityType: 'spot', seconds: 3600, sessions: 1, inFlightSessions: 0, interruptions: 0,
+                },
+                {
+                    accountId: 'acct-1', accountName: 'Acme', region: 'ap-south-1', clusterName: 'c', serviceName: 's',
+                    capacityType: 'on_demand', seconds: 1800, sessions: 1, inFlightSessions: 1, interruptions: 1,
+                },
+            ])
+            .mockResolvedValueOnce([{ orphaned: 2, staleOpen: 1 }]);
+
+        const range = { from: new Date('2026-01-01'), to: new Date('2026-01-08') };
+        const report = await new SpotGuardPostgresRepository().getHoursReport('tenant-1', range);
+
+        expect(report.rows).toHaveLength(1);
+        expect(report.rows[0].spotHours).toBe(1);
+        expect(report.rows[0].onDemandHours).toBe(0.5);
+        expect(report.totals.spotShare).toBeCloseTo(2 / 3, 4);
+        expect(report.totals.interruptions).toBe(1);
+        expect(report.totals.inFlightSessions).toBe(1);
+        expect(report.dataQuality).toEqual({ orphaned: 2, staleOpen: 1 });
+    });
+
+    it('reports zero share when there is no time in range', async () => {
+        mockQueryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+        const range = { from: new Date('2026-01-01'), to: new Date('2026-01-08') };
+        const report = await new SpotGuardPostgresRepository().getHoursReport('tenant-1', range);
+
+        expect(report.totals.spotShare).toBe(0);
+        expect(report.dataQuality).toEqual({ orphaned: 0, staleOpen: 0 });
+    });
+
+    it('reports a zero share for a row whose seconds are missing, and null-safes missing fields', async () => {
+        mockQueryRaw
+            .mockResolvedValueOnce([{
+                accountId: 'acct-1', accountName: null, region: 'ap-south-1', clusterName: 'c', serviceName: 's',
+                capacityType: 'spot', seconds: undefined, sessions: null, inFlightSessions: null, interruptions: null,
+            }])
+            .mockResolvedValueOnce([]);
+
+        const range = { from: new Date('2026-01-01'), to: new Date('2026-01-08') };
+        const report = await new SpotGuardPostgresRepository().getHoursReport('tenant-1', range);
+
+        expect(report.rows[0].accountName).toBeUndefined();
+        expect(report.rows[0].spotShare).toBe(0);
+        expect(report.rows[0].sessions).toBe(0);
+        expect(report.dataQuality).toEqual({ orphaned: 0, staleOpen: 0 });
+    });
+});
+
+describe('getSummary', () => {
+    it('aggregates counts and folds in the 7-day hours report', async () => {
+        mockCount
+            .mockResolvedValueOnce(10) // managed
+            .mockResolvedValueOnce(7) // onSpot
+            .mockResolvedValueOnce(3); // inFallback (unmanaged uses a separate mock below)
+        // Order of Promise.all: managed, onSpot, inFallback, unmanaged (service counts),
+        // then interruptions, placementFailures (event counts) — split across the two mocks.
+        mockCount.mockResolvedValueOnce(2); // unmanaged
+        mockEventCount.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+        mockFindFirst.mockResolvedValue({ lastEventAt: new Date('2026-01-05T00:00:00Z') });
+        mockQueryRaw.mockResolvedValue([]); // getHoursReport's two raw queries, both empty
+
+        const summary = await new SpotGuardPostgresRepository().getSummary('tenant-1');
+
+        expect(summary.managedServices).toBe(10);
+        expect(summary.servicesOnSpot).toBe(7);
+        expect(summary.servicesInFallback).toBe(3);
+        expect(summary.servicesUnmanaged).toBe(2);
+        expect(summary.interruptions24h).toBe(1);
+        expect(summary.placementFailures24h).toBe(0);
+        expect(summary.lastEventAt).toBe('2026-01-05T00:00:00.000Z');
+    });
+
+    it('reports a null lastEventAt when no service has ever emitted one', async () => {
+        mockCount.mockResolvedValue(0);
+        mockEventCount.mockResolvedValue(0);
+        mockFindFirst.mockResolvedValue(null);
+        mockQueryRaw.mockResolvedValue([]);
+
+        const summary = await new SpotGuardPostgresRepository().getSummary('tenant-1');
+        expect(summary.lastEventAt).toBeNull();
+    });
+});
+
+// NOTE: postgres.ts:659's `clusterArn.split('/').pop() ?? null` fallback is not exercised
+// anywhere below. String.prototype.split always returns a non-empty array, and .pop() on a
+// non-empty array never returns undefined — the only way to reach that fallback would be an
+// already-impossible empty split result. Left untested as provably unreachable, same
+// convention as the documented dead branches in libs/rbac/rule-compiler.ts.
+describe('listEligibleServices', () => {
+    beforeEach(() => {
+        mockQueryRaw.mockReset();
+    });
+
+    const ROW = {
+        accountId: 'acct-1', region: 'ap-south-1', name: 'svc-1', resourceId: 'res-1',
+        metadata: {
+            capacityProviderStrategy: [{ capacityProvider: 'FARGATE', weight: 1 }],
+            ecsClusterArn: 'arn:aws:ecs:cluster/c1',
+        },
+        clusterProviders: ['FARGATE', 'FARGATE_SPOT'], spotServiceId: null, managementState: null,
+        registryStrategy: null,
+    };
+
+    it('scopes both the rows and the count query to the caller tenant via a bound parameter', async () => {
+        mockQueryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: 0n }]);
+
+        await new SpotGuardPostgresRepository().listEligibleServices({ tenantId: 'tenant-1' });
+
+        expect(mockQueryRaw).toHaveBeenCalledTimes(2);
+        expect(mockQueryRaw.mock.calls[0]).toContain('tenant-1');
+        expect(mockQueryRaw.mock.calls[1]).toContain('tenant-1');
+    });
+
+    it('classifies eligibility and derives clusterName from the cluster ARN', async () => {
+        mockQueryRaw.mockResolvedValueOnce([ROW]).mockResolvedValueOnce([{ total: 1n }]);
+
+        const { services, total } = await new SpotGuardPostgresRepository().listEligibleServices({ tenantId: 'tenant-1' });
+
+        expect(total).toBe(1);
+        expect(services[0].clusterName).toBe('c1');
+        expect(services[0].eligibility).toBe('spot_addable');
+        expect(services[0].registryStrategy).toBeNull();
+    });
+
+    it('surfaces the live registryStrategy only when the row is already tracked in the registry', async () => {
+        mockQueryRaw.mockResolvedValueOnce([
+            { ...ROW, spotServiceId: 'sg-1', registryStrategy: [{ capacityProvider: 'FARGATE_SPOT', weight: 1 }] },
+        ]).mockResolvedValueOnce([{ total: 1n }]);
+
+        const { services } = await new SpotGuardPostgresRepository().listEligibleServices({ tenantId: 'tenant-1' });
+        expect(services[0].registryStrategy).toEqual([{ capacityProvider: 'FARGATE_SPOT', weight: 1 }]);
+    });
+
+    it('wraps a trimmed search term in ILIKE wildcards and binds it as a raw-query parameter', async () => {
+        mockQueryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: 0n }]);
+
+        await new SpotGuardPostgresRepository().listEligibleServices({ tenantId: 'tenant-1', searchTerm: '  api  ' });
+
+        expect(mockQueryRaw.mock.calls[0]).toContain('%api%');
+    });
+
+    it('null-safes a row with sparse metadata and a non-array clusterProviders join result', async () => {
+        mockQueryRaw.mockResolvedValueOnce([{
+            accountId: 'acct-1', region: 'ap-south-1', name: 'svc-1', resourceId: 'res-1',
+            metadata: {}, clusterProviders: null, spotServiceId: null, managementState: null, registryStrategy: null,
+        }]).mockResolvedValueOnce([{ total: 1n }]);
+
+        const { services } = await new SpotGuardPostgresRepository().listEligibleServices({ tenantId: 'tenant-1' });
+
+        expect(services[0].clusterArn).toBeNull();
+        expect(services[0].clusterName).toBeNull();
+        expect(services[0].serviceArn).toBe('res-1'); // falls back to resourceId
+        expect(services[0].launchType).toBeNull();
+        expect(services[0].desiredCount).toBeNull();
+        expect(services[0].clusterCapacityProviders).toEqual([]);
+    });
+
+    it('reports a live desiredCount and serviceArn when discovery metadata has them', async () => {
+        mockQueryRaw.mockResolvedValueOnce([{
+            accountId: 'acct-1', region: 'ap-south-1', name: 'svc-1', resourceId: 'res-1',
+            metadata: { desiredCount: 4, serviceArn: 'arn:aws:ecs:service/1', launchType: 'FARGATE' },
+            clusterProviders: [], spotServiceId: null, managementState: null, registryStrategy: null,
+        }]).mockResolvedValueOnce([{ total: 1n }]);
+
+        const { services } = await new SpotGuardPostgresRepository().listEligibleServices({ tenantId: 'tenant-1' });
+
+        expect(services[0].desiredCount).toBe(4);
+        expect(services[0].serviceArn).toBe('arn:aws:ecs:service/1');
+        expect(services[0].launchType).toBe('FARGATE');
+    });
+
+    it('narrows the returned page by eligibility client-side without narrowing the total count', async () => {
+        mockQueryRaw
+            .mockResolvedValueOnce([ROW, { ...ROW, name: 'svc-2', metadata: { capacityProviderStrategy: [{ capacityProvider: 'FARGATE_SPOT', weight: 1 }] } }])
+            .mockResolvedValueOnce([{ total: 2n }]);
+
+        const { services, total } = await new SpotGuardPostgresRepository().listEligibleServices({
+            tenantId: 'tenant-1', eligibility: 'spot_capable',
+        });
+
+        expect(services).toHaveLength(1);
+        expect(services[0].serviceName).toBe('svc-2');
+        expect(total).toBe(2); // total reflects the unfiltered count, per the pagination-bug regression note
     });
 });

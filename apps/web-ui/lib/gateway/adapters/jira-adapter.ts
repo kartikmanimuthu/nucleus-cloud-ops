@@ -11,6 +11,7 @@ import { TenantConfigService } from '@/lib/tenant-config-service';
 import { env } from '@/env';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { buildDashboardRespondUrl, buildDashboardRunUrl } from '@/lib/gateway/utils/dashboard-url';
+import { isSelectableMode } from '@/lib/gateway/adapters/api-adapter';
 import type {
     ChannelAdapter,
     ChannelType,
@@ -217,7 +218,10 @@ export class JiraAdapter implements ChannelAdapter {
             channelType: 'jira',
             tenantId: projectKey || 'default',
             taskDescription,
-            mode: payload.mode as GatewayMessage['mode'],
+            // Only pass through a mode the client is actually allowed to pick —
+            // a junk truthy value must not bypass resolveDefaultMode and coerce
+            // to plan. Same guard as api-adapter.ts.
+            mode: isSelectableMode(payload.mode) ? payload.mode : undefined,
             accountId: payload.accountId,
             selectedSkill: payload.selectedSkill,
             replyContext,

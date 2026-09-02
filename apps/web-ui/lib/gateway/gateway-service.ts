@@ -13,7 +13,10 @@ import type { AdapterRegistry } from './adapter-registry';
 import type { GatewayEventBus } from './event-bus';
 import type { NotificationRouter } from './notification-router';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
+import { resolveDefaultMode } from '@/lib/agent-ops/agent-ops-defaults';
 import { executeAgentRun, resumeApprovedRun } from '@/lib/agent-ops/agent-executor';
+import { fanOutDecision, resolveDeepPendingActions } from '@/lib/agent-ops/deep-batch-decision';
+import { resumeDeepRun } from '@/lib/agent-ops/deep-run-executor';
 import { triageChatMessage, chatTriageEnabled } from '@/lib/agent/triage';
 import { resolveModelConfig, resolveDefaultModelConfig } from '@/lib/agent/model-resolver';
 import { generateDirectReply } from '@/lib/gateway/persona/direct-reply';
@@ -81,7 +84,7 @@ export class GatewayService {
             tenantId: message.tenantId,
             source: channelType,
             taskDescription: message.taskDescription,
-            mode: message.mode ?? 'fast',
+            mode: message.mode ?? await resolveDefaultMode(message.tenantId),
             trigger: message.channelMeta as any,
             accountId: message.accountId,
             accountName: message.accountName,
@@ -99,10 +102,34 @@ export class GatewayService {
 
         // 8. Fire-and-forget execution with cleanup
         const eventBus = this.eventBus;
-        executeAgentRun(run, eventBus).finally(() => {
-            unsubscribe();
-            eventBus.cleanup(run.runId);
-        });
+        // Fire-and-forget execution. `.finally()` does NOT handle a rejection —
+        // it only runs alongside it — so an uncaught throw here would become an
+        // unhandled promise rejection and crash the process. Mirror the shape of
+        // resumeApprovedRun's own internal failure handling so the run never
+        // gets stranded mid-execution.
+        executeAgentRun(run, eventBus)
+            .catch(async (error) => {
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                console.error(`[GatewayService] ❌ executeAgentRun failed for run ${run.runId}:`, errorMsg);
+                try {
+                    await agentOpsService.updateRunStatus(run.tenantId, run.runId, 'failed', { error: errorMsg });
+                    await agentOpsService.recordEvent({
+                        runId: run.runId, tenantId: run.tenantId, eventType: 'error', node: 'executor',
+                        content: errorMsg,
+                        metadata: { stack: (error instanceof Error ? error.stack : '')?.slice(0, 2000) },
+                    });
+                    eventBus.emit({
+                        type: 'run:failed', runId: run.runId, tenantId: run.tenantId,
+                        timestamp: new Date(), data: { error: errorMsg },
+                    });
+                } catch (recordErr) {
+                    console.error(`[GatewayService] ❌ Failed to record executeAgentRun failure for run ${run.runId}:`, recordErr);
+                }
+            })
+            .finally(() => {
+                unsubscribe();
+                eventBus.cleanup(run.runId);
+            });
 
         return ackResponse;
     }
@@ -133,14 +160,70 @@ export class GatewayService {
                     );
                 }
 
+                // ── DEEP: fan the batch verdict out across every pending action ──
+                // Mirrors the /approve route's deep branch — the two entry points
+                // (web UI's per-action route and this channel-adapter path) must
+                // not disagree about what the same user intent means. Guarded so
+                // plan-mode behaviour below is byte-for-byte unchanged.
+                // resumeApprovedRun throws for deep runs (see its .catch() below),
+                // so this returns before ever reaching it.
+                if (run.mode === 'deep') {
+                    const pendingResult = resolveDeepPendingActions(run);
+                    if (!pendingResult.ok) {
+                        return new Response(
+                            JSON.stringify({ error: pendingResult.error }),
+                            { status: 409 },
+                        );
+                    }
+
+                    const unsubscribe = this.router.attachToRun(run);
+                    const eventBus = this.eventBus;
+
+                    resumeDeepRun(run, fanOutDecision(pendingResult.actions, 'approve'), eventBus)
+                        .catch((error) => {
+                            console.error(`[GatewayService] ❌ resumeDeepRun (approve) failed for run ${run.runId}:`, error);
+                        })
+                        .finally(() => {
+                            unsubscribe();
+                            eventBus.cleanup(run.runId);
+                        });
+
+                    const ackResponse = await adapter.sendAck(req, run.runId);
+                    return ackResponse;
+                }
+
                 const unsubscribe = this.router.attachToRun(run);
                 const eventBus = this.eventBus;
 
-                // Fire-and-forget resume
-                resumeApprovedRun(run, eventBus).finally(() => {
-                    unsubscribe();
-                    eventBus.cleanup(run.runId);
-                });
+                // Fire-and-forget resume. `.finally()` does NOT handle a rejection —
+                // it only runs alongside it — so an uncaught throw here (e.g. the
+                // deep-mode guard in resumeApprovedRun) would become an unhandled
+                // promise rejection and crash the process. Mirror the shape of
+                // resumeApprovedRun's own internal failure handling so the run
+                // never gets stranded at 'awaiting_approval'.
+                resumeApprovedRun(run, eventBus)
+                    .catch(async (error) => {
+                        const errorMsg = error instanceof Error ? error.message : String(error);
+                        console.error(`[GatewayService] ❌ resumeApprovedRun failed for run ${run.runId}:`, errorMsg);
+                        try {
+                            await agentOpsService.updateRunStatus(run.tenantId, run.runId, 'failed', { error: errorMsg });
+                            await agentOpsService.recordEvent({
+                                runId: run.runId, tenantId: run.tenantId, eventType: 'error', node: 'executor',
+                                content: errorMsg,
+                                metadata: { stack: (error instanceof Error ? error.stack : '')?.slice(0, 2000) },
+                            });
+                            eventBus.emit({
+                                type: 'run:failed', runId: run.runId, tenantId: run.tenantId,
+                                timestamp: new Date(), data: { error: errorMsg },
+                            });
+                        } catch (recordErr) {
+                            console.error(`[GatewayService] ❌ Failed to record resumeApprovedRun failure for run ${run.runId}:`, recordErr);
+                        }
+                    })
+                    .finally(() => {
+                        unsubscribe();
+                        eventBus.cleanup(run.runId);
+                    });
 
                 const ackResponse = await adapter.sendAck(req, run.runId);
                 return ackResponse;
@@ -153,6 +236,35 @@ export class GatewayService {
                         JSON.stringify({ error: 'No awaiting-approval run found' }),
                         { status: 404 },
                     );
+                }
+
+                // ── DEEP: a rejection RESUMES the graph with reject decisions —
+                // it is not a cancellation. The agent receives the rejections and
+                // adapts, exactly like the /approve route's deep branch. Guarded
+                // so plan-mode's cancel-on-reject behaviour below is unchanged.
+                if (run.mode === 'deep') {
+                    const pendingResult = resolveDeepPendingActions(run);
+                    if (!pendingResult.ok) {
+                        return new Response(
+                            JSON.stringify({ error: pendingResult.error }),
+                            { status: 409 },
+                        );
+                    }
+
+                    const unsubscribe = this.router.attachToRun(run);
+                    const eventBus = this.eventBus;
+
+                    resumeDeepRun(run, fanOutDecision(pendingResult.actions, 'reject'), eventBus)
+                        .catch((error) => {
+                            console.error(`[GatewayService] ❌ resumeDeepRun (reject) failed for run ${run.runId}:`, error);
+                        })
+                        .finally(() => {
+                            unsubscribe();
+                            eventBus.cleanup(run.runId);
+                        });
+
+                    const ackResponse = await adapter.sendAck(req, run.runId);
+                    return ackResponse;
                 }
 
                 await agentOpsService.updateRunStatus(tenantId, runId, 'cancelled');
@@ -193,11 +305,34 @@ export class GatewayService {
                 const unsubscribe = this.router.attachToRun(updatedRun);
                 const eventBus = this.eventBus;
 
-                // Fire-and-forget re-execution
-                executeAgentRun(updatedRun, eventBus).finally(() => {
-                    unsubscribe();
-                    eventBus.cleanup(updatedRun.runId);
-                });
+                // Fire-and-forget re-execution. `.finally()` does NOT handle a
+                // rejection — it only runs alongside it — so an uncaught throw
+                // here would become an unhandled promise rejection and crash
+                // the process. Mirror the shape of resumeApprovedRun's own
+                // internal failure handling so the run never gets stranded.
+                executeAgentRun(updatedRun, eventBus)
+                    .catch(async (error) => {
+                        const errorMsg = error instanceof Error ? error.message : String(error);
+                        console.error(`[GatewayService] ❌ executeAgentRun (clarification) failed for run ${updatedRun.runId}:`, errorMsg);
+                        try {
+                            await agentOpsService.updateRunStatus(updatedRun.tenantId, updatedRun.runId, 'failed', { error: errorMsg });
+                            await agentOpsService.recordEvent({
+                                runId: updatedRun.runId, tenantId: updatedRun.tenantId, eventType: 'error', node: 'executor',
+                                content: errorMsg,
+                                metadata: { stack: (error instanceof Error ? error.stack : '')?.slice(0, 2000) },
+                            });
+                            eventBus.emit({
+                                type: 'run:failed', runId: updatedRun.runId, tenantId: updatedRun.tenantId,
+                                timestamp: new Date(), data: { error: errorMsg },
+                            });
+                        } catch (recordErr) {
+                            console.error(`[GatewayService] ❌ Failed to record executeAgentRun (clarification) failure for run ${updatedRun.runId}:`, recordErr);
+                        }
+                    })
+                    .finally(() => {
+                        unsubscribe();
+                        eventBus.cleanup(updatedRun.runId);
+                    });
 
                 const ackResponse = await adapter.sendAck(req, run.runId);
                 return ackResponse;

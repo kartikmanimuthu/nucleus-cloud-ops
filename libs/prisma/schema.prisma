@@ -456,6 +456,31 @@ model InventorySyncStatus {
   @@map("inventory_sync_status")
 }
 
+model ResourceEdge {
+  id           String   @id @default(cuid())
+  tenantId     String
+  accountId    String
+  region       String
+  fromType     String
+  fromId       String
+  relation     String
+  toType       String
+  toId         String
+  toAccountId  String?
+  jobRunId     String?
+  isCurrent    Boolean  @default(true)
+  discoveredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Index names are pinned to the migration's hand-written names; Prisma's generated
+  // defaults differ (and the unique one truncates at 63 chars), which reads as drift.
+  @@unique([tenantId, accountId, fromType, fromId, relation, toType, toId], map: "resource_edges_tenant_account_edge_key")
+  @@index([tenantId, fromType, fromId, isCurrent], map: "resource_edges_forward_idx")
+  @@index([tenantId, toType, toId, isCurrent], map: "resource_edges_reverse_idx")
+  @@index([tenantId, accountId, isCurrent], map: "resource_edges_account_idx")
+  @@map("resource_edges")
+}
+
 // AgentOpsRun — migrated from DynamoDB AgentOpsTable run records (AOPS-01)
 // source, status, mode fields use CHECK constraints in migration SQL (not Prisma-native)
 // expiresAt replaces DynamoDB TTL (30-day retention)

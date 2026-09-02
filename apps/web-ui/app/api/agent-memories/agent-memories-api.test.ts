@@ -10,6 +10,9 @@ vi.mock('@/lib/rbac/authorize', () => ({
 vi.mock('@/lib/db/repository-factory', () => ({
     getAgentMemoryRepository: vi.fn(),
 }));
+vi.mock('@/lib/rbac/row-filter', () => ({
+    getReadRowFilter: vi.fn().mockResolvedValue(null),
+}));
 vi.mock('@/lib/audit-service', () => ({
     AuditService: { logUserAction: vi.fn() },
 }));
@@ -101,6 +104,20 @@ describe('GET /api/agent-memories', () => {
         expect(repo.listByTenant).toHaveBeenCalledWith(
             expect.objectContaining({ sortBy: 'key', sortDir: 'asc' })
         );
+    });
+
+    it('returns 401 when the session cannot be resolved', async () => {
+        vi.mocked(getSessionTenantId).mockRejectedValue(new Error('Unauthenticated: no session'));
+        const req = new Request('http://localhost/api/agent-memories');
+        const res = await GET(req as any);
+        expect(res.status).toBe(401);
+    });
+
+    it('returns 500 for an unexpected error', async () => {
+        repo.listByTenant.mockRejectedValue(new Error('DB down'));
+        const req = new Request('http://localhost/api/agent-memories');
+        const res = await GET(req as any);
+        expect(res.status).toBe(500);
     });
 });
 

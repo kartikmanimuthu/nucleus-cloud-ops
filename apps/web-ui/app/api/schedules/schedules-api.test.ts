@@ -11,6 +11,7 @@ vi.mock('@/lib/schedule-service', () => ({
         updateSchedule: vi.fn(),
         deleteSchedule: vi.fn(),
         toggleScheduleStatus: vi.fn(),
+        executeSchedule: vi.fn(),
     },
 }));
 
@@ -32,6 +33,14 @@ vi.mock('@/lib/audit-service', () => ({
 
 vi.mock('@/lib/rbac/authorize', () => ({
     authorize: vi.fn().mockResolvedValue(null),
+}));
+
+// Gate 3 row filter — mocked the same way as authorize() above (Gate 2), so this
+// route-level suite exercises only the route's own logic. `null` matches the
+// module's own "no narrowing" contract; lib/rbac/row-filter.test.ts covers the
+// real translation/shadow-mode behavior.
+vi.mock('@/lib/rbac/row-filter', () => ({
+    getReadRowFilter: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('next-auth', () => ({
@@ -282,6 +291,30 @@ describe('PUT /api/schedules/[scheduleId]', () => {
         const res = await singlePUT(req, asyncParams({ scheduleId: 'sched-1' }) as any);
         expect(res.status).toBe(500);
     });
+
+    it('returns 403 when the schedule does not exist for this tenant (pre-flight ownership check)', async () => {
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(null);
+        const req = makeRequest('http://localhost/api/schedules/sched-missing', {
+            method: 'PUT', body: JSON.stringify({ name: 'X' }),
+        });
+        const res = await singlePUT(req, asyncParams({ scheduleId: 'sched-missing' }) as any);
+        expect(res.status).toBe(403);
+        expect(ScheduleService.updateSchedule).not.toHaveBeenCalled();
+    });
+
+    it('returns the Layer-2 authorize() denial, evaluated against the existing row', async () => {
+        const { NextResponse } = await import('next/server');
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
+        const authError = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        vi.mocked(authorize).mockResolvedValueOnce(authError);
+
+        const req = makeRequest('http://localhost/api/schedules/sched-1', {
+            method: 'PUT', body: JSON.stringify({ name: 'X' }),
+        });
+        const res = await singlePUT(req, asyncParams({ scheduleId: 'sched-1' }) as any);
+        expect(res).toBe(authError);
+        expect(ScheduleService.updateSchedule).not.toHaveBeenCalled();
+    });
 });
 
 describe('DELETE /api/schedules/[scheduleId]', () => {
@@ -303,6 +336,26 @@ describe('DELETE /api/schedules/[scheduleId]', () => {
         const req = makeRequest('http://localhost/api/schedules/sched-1', { method: 'DELETE' });
         const res = await singleDELETE(req, asyncParams({ scheduleId: 'sched-1' }) as any);
         expect(res.status).toBe(500);
+    });
+
+    it('returns 403 when the schedule does not exist for this tenant (pre-flight ownership check)', async () => {
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(null);
+        const req = makeRequest('http://localhost/api/schedules/sched-missing', { method: 'DELETE' });
+        const res = await singleDELETE(req, asyncParams({ scheduleId: 'sched-missing' }) as any);
+        expect(res.status).toBe(403);
+        expect(ScheduleService.deleteSchedule).not.toHaveBeenCalled();
+    });
+
+    it('returns the Layer-2 authorize() denial, evaluated against the existing row', async () => {
+        const { NextResponse } = await import('next/server');
+        vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
+        const authError = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        vi.mocked(authorize).mockResolvedValueOnce(authError);
+
+        const req = makeRequest('http://localhost/api/schedules/sched-1', { method: 'DELETE' });
+        const res = await singleDELETE(req, asyncParams({ scheduleId: 'sched-1' }) as any);
+        expect(res).toBe(authError);
+        expect(ScheduleService.deleteSchedule).not.toHaveBeenCalled();
     });
 });
 
@@ -417,27 +470,29 @@ describe('POST /api/schedules/[scheduleId]/execute', () => {
         expect(res.status).toBe(404);
     });
 
-    it('returns 200 on successful Lambda invocation', async () => {
+    it('returns 200 when ScheduleService.executeSchedule enqueues successfully', async () => {
+        // Route delegates the enqueue + audit + metadata update to
+        // ScheduleService.executeSchedule (lib/schedule-service.test.ts covers that
+        // method's own pg-boss/audit behavior) — this test only covers the route's
+        // own request handling around it.
         vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
-        vi.mocked(ScheduleService.updateSchedule).mockResolvedValue(makeSchedule() as any);
-        mockBossSend.mockResolvedValue(undefined);
+        vi.mocked(ScheduleService.executeSchedule).mockResolvedValue({ executionTime: '2024-01-01T00:00:00.000Z' });
         const req = makeRequest('http://localhost/api/schedules/sched-1/execute', { method: 'POST' });
         const res = await executePOST(req, asyncParams({ scheduleId: 'sched-1' }) as any);
         const body = await res.json();
         expect(res.status).toBe(200);
         expect(body.success).toBe(true);
         expect(body.executionStatus).toBe('success');
+        expect(body.executionTime).toBe('2024-01-01T00:00:00.000Z');
     });
 
-    it('returns 500 when pg-boss enqueue fails', async () => {
+    it('returns 500 when ScheduleService.executeSchedule rejects (pg-boss enqueue failure)', async () => {
         vi.mocked(ScheduleService.getSchedule).mockResolvedValue(makeSchedule() as any);
-        vi.mocked(ScheduleService.updateSchedule).mockResolvedValue(makeSchedule() as any);
-        vi.mocked(ScheduleExecutionService.logExecution).mockResolvedValue({} as any);
-        mockBossSend.mockRejectedValue(new Error('pg-boss timeout'));
+        vi.mocked(ScheduleService.executeSchedule).mockRejectedValue(new Error('pg-boss timeout'));
         const req = makeRequest('http://localhost/api/schedules/sched-1/execute', { method: 'POST' });
         const res = await executePOST(req, asyncParams({ scheduleId: 'sched-1' }) as any);
         const body = await res.json();
         expect(res.status).toBe(500);
-        expect(body.success).toBe(false);
+        expect(body.error).toBe('pg-boss timeout');
     });
 });

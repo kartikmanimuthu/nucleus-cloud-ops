@@ -123,4 +123,10 @@ describe('POST /api/agent-ops/scheduled-tasks/distill', () => {
         expect((res as any)._status).toBe(400);
         expect((res as any)._data.error).toBe('No LLM provider is configured.');
     });
+
+    it('500s on an unexpected error unrelated to provider configuration', async () => {
+        vi.mocked(resolveDefaultModelConfig).mockRejectedValue(new Error('model resolver crashed'));
+        const res = await POST(makeRequest({ transcript: 'USER: hi' }));
+        expect((res as any)._status).toBe(500);
+    });
 });

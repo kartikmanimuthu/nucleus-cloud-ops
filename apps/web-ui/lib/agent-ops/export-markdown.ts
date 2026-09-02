@@ -43,6 +43,14 @@ const STEP_ICONS: Record<string, string> = {
     reflection: "🔍",
     final: "✅",
     error: "❌",
+    todo: "📝",
+    subagent: "🤖",
+}
+
+const SUBAGENT_STATUS_LABEL: Record<string, string> = {
+    running: "running",
+    done: "done",
+    failed: "failed",
 }
 
 export function buildRunReportMarkdown(
@@ -183,6 +191,34 @@ export function buildRunReportMarkdown(
             case "error":
                 push(`${h} ${STEP_ICONS.error} Error — ${t(step.event)}`, ``)
                 if (step.event.content) push(fence(step.event.content), ``)
+                break
+            case "todo": {
+                const done = step.todos.filter(td => td.status === "completed").length
+                push(`${h} ${STEP_ICONS.todo} Plan — ${done}/${step.todos.length} — ${t(step.event)}`, ``)
+                for (const td of step.todos) {
+                    const box = td.status === "completed" ? "x" : " "
+                    const suffix = td.status === "in_progress" ? " *(in progress)*" : ""
+                    push(`- [${box}] ${td.content}${suffix}`)
+                }
+                push(``)
+                break
+            }
+            case "subagent": {
+                const status = SUBAGENT_STATUS_LABEL[step.status] ?? step.status
+                push(`${h} ${STEP_ICONS.subagent} Sub-agent: \`${step.name}\` — ${status}`, ``)
+                if (step.task) push(`**Task:** ${step.task}`, ``)
+                if (step.summary) push(`**Summary:** ${step.summary}`, ``)
+                if (step.steps.length > 0) {
+                    for (const s of step.steps) renderStep(s, depth + 1)
+                } else {
+                    push(`*No recorded activity.*`, ``)
+                }
+                break
+            }
+            default:
+                // Exhaustiveness guard: if TimelineStep grows a new kind, render
+                // something rather than silently dropping content from the report.
+                push(`${h} ⚠️ Unrecognized step (${(step as { kind: string }).kind})`, ``)
                 break
         }
     }

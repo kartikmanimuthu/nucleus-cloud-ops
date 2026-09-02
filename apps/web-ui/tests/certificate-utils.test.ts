@@ -4,6 +4,9 @@ import {
     computeExpiryStatus,
     domainMatches,
     wildcardCovers,
+    maskDomain,
+    daysUntilExpiry,
+    getExpiryColor,
 } from '@/lib/certificate-utils';
 
 const SAMPLE_CERT = `-----BEGIN CERTIFICATE-----
@@ -98,5 +101,50 @@ describe('domainMatches', () => {
     it('returns false on empty inputs', () => {
         expect(domainMatches('', 'example.com')).toBe(false);
         expect(domainMatches('example.com', '')).toBe(false);
+    });
+});
+
+describe('maskDomain', () => {
+    it('masks the leftmost label, keeping the rest', () => {
+        expect(maskDomain('api.example.com')).toBe('***.example.com');
+    });
+
+    it('masks a two-label domain down to the TLD', () => {
+        expect(maskDomain('example.com')).toBe('***.com');
+    });
+
+    it('returns a bare mask for a single-label input with no dots', () => {
+        expect(maskDomain('localhost')).toBe('***');
+    });
+});
+
+describe('daysUntilExpiry', () => {
+    it('returns a positive count for a future date', () => {
+        const in10Days = new Date(Date.now() + 10 * 86400000).toISOString();
+        expect(daysUntilExpiry(in10Days)).toBeGreaterThanOrEqual(9);
+        expect(daysUntilExpiry(in10Days)).toBeLessThanOrEqual(10);
+    });
+
+    it('returns a negative count for a past date', () => {
+        const past = new Date(Date.now() - 10 * 86400000).toISOString();
+        expect(daysUntilExpiry(past)).toBeLessThan(0);
+    });
+});
+
+describe('getExpiryColor', () => {
+    it('flags an already-expired certificate in red', () => {
+        expect(getExpiryColor(-1)).toBe('text-red-600');
+    });
+
+    it('flags a certificate expiring within 30 days in red', () => {
+        expect(getExpiryColor(30)).toBe('text-red-500');
+    });
+
+    it('flags a certificate expiring within 31-60 days in yellow', () => {
+        expect(getExpiryColor(60)).toBe('text-yellow-500');
+    });
+
+    it('leaves a healthy certificate in the default muted color', () => {
+        expect(getExpiryColor(61)).toBe('text-muted-foreground');
     });
 });

@@ -10,6 +10,8 @@ import { EvaluationStep } from "./evaluation-step";
 import { PlanningStep, ReflectionStep, FinalStep, ErrorStep } from "./simple-steps";
 import { ThinkingBubble } from "./thinking-bubble";
 import { WorkingGroup } from "./working-group";
+import { TodoStep } from "./todo-step";
+import { SubagentStep } from "./subagent-step";
 import type { AgentOpsEvent, AgentOpsStatus } from "@/lib/agent-ops/types";
 
 function StepRenderer({ step, timezone }: { step: TimelineStep; timezone?: string }) {
@@ -22,6 +24,14 @@ function StepRenderer({ step, timezone }: { step: TimelineStep; timezone?: strin
     case "reflection": return <ReflectionStep event={step.event} timezone={timezone} />;
     case "final": return <FinalStep event={step.event} timezone={timezone} />;
     case "error": return <ErrorStep event={step.event} timezone={timezone} />;
+    case "todo": return <TodoStep todos={step.todos} />;
+    case "subagent":
+      return (
+        <SubagentStep
+          step={step}
+          renderStep={(s, i) => <StepRenderer key={i} step={s} timezone={timezone} />}
+        />
+      );
     case "group":
       return (
         <WorkingGroup

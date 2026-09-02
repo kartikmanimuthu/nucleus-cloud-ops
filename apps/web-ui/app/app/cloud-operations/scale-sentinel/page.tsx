@@ -100,12 +100,11 @@ function ScalingAuditPageInner() {
     const showGenericFilters = isLive && !isNetworkTab;
 
     const networkWindow = defaultNetworkWindow(DEFAULT_NETWORK_WINDOW_DAYS);
+    // One expression, two consumers (on-screen report + export) — they must
+    // never describe different windows.
+    const networkRange = { dateFrom: dateFrom || networkWindow.start, dateTo: dateTo || networkWindow.end };
     const networkReportQuery = useNetworkAvailabilityReport(
-        {
-            accountId: account !== ALL ? account : undefined,
-            dateFrom: dateFrom || networkWindow.start,
-            dateTo: dateTo || networkWindow.end,
-        },
+        { accountId: account !== ALL ? account : undefined, ...networkRange },
         { enabled: isNetworkTab }
     );
 
@@ -181,8 +180,16 @@ function ScalingAuditPageInner() {
     }
 
     async function runExport(format: "xlsx" | "pdf") {
+        // The network tab's report is a different shape (fixed availability/
+        // bandwidth rows, not an event list) and needs a defined window —
+        // `filters` carries event-list-only state (search/source/scalingType/
+        // effect) and a scope of undefined, which would export every scope's
+        // events instead of the network report.
+        const exportFilters = isNetworkTab
+            ? { scope: "network" as const, accountId: account !== ALL ? account : undefined, ...networkRange }
+            : filters;
         try {
-            await exportMutation.mutateAsync({ format, ...filters });
+            await exportMutation.mutateAsync({ format, ...exportFilters });
             toast.success(`Export downloaded (${format.toUpperCase()})`);
         } catch (e) {
             toast.error(e instanceof Error ? e.message : "Failed to export");
@@ -306,6 +313,7 @@ function ScalingAuditPageInner() {
                             <NetworkAvailabilityReport
                                 rows={networkReportQuery.data ?? []}
                                 loading={networkReportQuery.isFetching}
+                                error={networkReportQuery.isError ? (networkReportQuery.error instanceof Error ? networkReportQuery.error.message : "Unknown error") : null}
                             />
                         ) : t.live ? (
                             <ScalingResourcesTable

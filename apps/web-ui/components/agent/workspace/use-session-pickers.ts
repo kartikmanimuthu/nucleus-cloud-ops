@@ -38,8 +38,6 @@ export interface UseSessionPickersResult {
   body: () => Record<string, unknown>;
   composerContext: ComposerContext;
   railContext: SessionRailContext;
-  agentMode: string;
-  setAgentMode: (mode: string) => void;
   autoApprove: boolean;
   setAutoApprove: (value: boolean) => void;
   autoLoadSkills: boolean;
@@ -110,7 +108,6 @@ export function useSessionPickers({
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
 
   // ── Composer settings ───────────────────────────────────────────────────────
-  const [agentMode, setAgentMode] = useState("fast");
   const [autoApprove, setAutoApprove] = useState(true);
   // "Auto skills": auto-select a skill for the task + allow mid-run load_skill.
   const [autoLoadSkills, setAutoLoadSkills] = useState(true);
@@ -205,7 +202,7 @@ export function useSessionPickers({
     autoApprove,
     autoLoadSkills,
     model: selectedModel,
-    mode: agentMode,
+    mode: 'deep',
     accounts:
       selectedAccounts.length > 0
         ? selectedAccounts.map((a) => ({ accountId: a.accountId, accountName: a.name }))
@@ -291,8 +288,6 @@ export function useSessionPickers({
     body,
     composerContext,
     railContext,
-    agentMode,
-    setAgentMode,
     autoApprove,
     setAutoApprove,
     autoLoadSkills,

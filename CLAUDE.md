@@ -208,7 +208,7 @@ export const myTool = tool(
 Background jobs run in `workers/` as a single Node.js process using pg-boss:
 
 - `workers/src/jobs/scheduler/` — resource start/stop scheduling
-- `workers/src/jobs/discovery/` — multi-account resource scanning
+- `workers/src/jobs/discovery/` — multi-account resource scanning; also derives the resource dependency graph (`resource_edges`) from raw describe responses via `services/edge-spec.ts` + `services/edge-extractor.ts`. Web-ui side: `lib/db/repositories/resource-graph/`, agent tools `get_resource_neighbors` / `get_blast_radius`. See `docs/RESOURCE_GRAPH_ARCHITECTURE.md`.
 - `workers/src/jobs/right-sizing/` — CloudWatch-based right-sizing analysis: per-tenant fan-out scan + weekly pricing refresh. Pure engine + per-type rules (EC2/RDS/EBS/ASG) under `services/`+`rules/`; raw-pg writers (manually tenant-scoped). Gated by `RIGHT_SIZING_ENABLED`. Web-ui side: `/api/right-sizing/*`, `lib/right-sizing-service.ts`, `RightSizing` RBAC subject (→ Inventory module), models `RightSizingRecommendation`/`RightSizingRun`/`PricingCatalogEntry` (the last is global, not tenant-scoped)
 - `workers/src/jobs/kb-sync/` — knowledge base sync (S3, Bitbucket, Confluence)
 - Workers use `createLogger('service-name')` from `workers/src/lib/logger.ts` — not raw `console`
@@ -253,7 +253,10 @@ the old Python discovery Lambda was rewritten in TypeScript. Job dirs:
 
 - **web-ui**: `cd apps/web-ui && bun run test` — runs Vitest once (`vitest run`, not watch mode)
 - **workers**: `cd apps/workers && bun run test` — Vitest
-- **root**: `npm test` at root — Jest with ts-jest
+- **root**: `bun run test` at root — `nx run-many -t test --all` across web-ui, workers, libs/rbac (no Jest config exists anywhere in the repo; `jest`/`ts-jest`/`@types/jest` are unused root devDependencies)
+- **Known pre-existing timing sensitivity**: a small number of tests (e.g. `apps/workers/src/executor/horizontal.test.ts`, which polls on genuine `setTimeout` rather than `vi.useFakeTimers()` — a deliberate choice per its own comment, to avoid fake-timer async-ordering issues) assume generous real-clock margins and can occasionally flake under added CPU overhead: confirmed reproducible via Nx's `nx:run-commands` executor (`nx run workers:test`, and therefore the root `bun run test`/`test:coverage`/`test:integration` — NOT fixed by `--parallel=1`, so it isn't cross-project contention; root cause not fully isolated, suspect stdio-piping overhead) and, separately, under `--coverage`'s v8 instrumentation overhead (observed once on an unrelated agent-ops-scheduler timing test, not reproducible on immediate re-run). Every project's suite is 100% green natively (`cd apps/<project> && bun run test`, verified repeatedly) — if a timing-sensitive test flakes in CI, retry once before assuming a real regression, and consider fake timers or wider margins as a follow-up rather than distrusting the rest of the suite.
+- **Coverage**: `bun run test:coverage` at root (or per-project `test:coverage`) — Vitest `--coverage` via `@vitest/coverage-v8`, configured in each project's `vitest.config.ts`
+- **DB-backed integration tests**: files named `*.integration.test.ts` are `describe.skipIf(!DATABASE_URL)`'d — they no-op in a DB-free run and only execute when `DATABASE_URL` is set (`docker compose up -d postgres` + `bun run db:migrate:deploy`, or `bun run test:integration` at root). web-ui's `vitest.config.ts` snapshots `DATABASE_URL`'s presence once via Vite `define` (`__HAS_DB__`) rather than reading `process.env.DATABASE_URL` live in each test file — constructing a real `PrismaClient` triggers Prisma's own `.env` auto-load as a side effect, which would otherwise leak a truthy `DATABASE_URL` into later test files in the same worker
 - Test files: `*.test.ts` colocated with source or in `tests/`/`__tests__/` subdirectory
 - Property-based tests use `fast-check` (see `apps/web-ui/tests/agent-ops/`)
 
@@ -430,7 +433,7 @@ What `pulumi up` does automatically (change detection = recursive sha256 of the 
 
 ### Post-Deploy Verification
 
-1. CloudFront URL responds 200: `https://d11lr8aqp8vqde.cloudfront.net`
+1. CloudFront URL responds: `https://d2o00a2uwp9po0.cloudfront.net` (`/` returns 307 to `/app/dashboard` when signed out)
 2. ECS services (web-ui + workers) desired count matches running count (ECS console)
 3. Check CloudWatch ECS task logs for errors in the 5 minutes post-deploy
 4. Run smoke test: `bun run e2e` (runs `apps/web-ui-e2e` Playwright suite)
@@ -494,9 +497,9 @@ Active constraints:
 - `@prisma/client` - PostgreSQL ORM (web-ui + workers)
 - mongodb ^7.1.0 - MongoDB client (deep agent checkpointing)
 - `@langchain/langgraph-checkpoint-mongodb` ^1.2.0 - LangGraph MongoDB checkpointer
-- Vitest ^4.0.18 (web-ui + workers) - Unit tests
-- Jest ^29.7.0 + ts-jest ^29.2.5 (root) - Root-level tests
-- `@vitest/coverage-v8` ^4.0.18 - Coverage reporting
+- Vitest ^4.0.18 (web-ui, libs/rbac) / ^2.1.8 (workers, pinned separately) - Unit tests
+- Jest ^29.7.0 + ts-jest ^29.2.5 (root devDependencies) - unused; no jest config exists anywhere in the repo
+- `@vitest/coverage-v8` ^4.0.18 (web-ui, libs/rbac) / ^2.1.8 (workers) - Coverage reporting, version-matched to each project's own vitest
 - fast-check ^4.5.3 - Property-based testing
 - Playwright ^1.58.2 - E2E browser tests
 - ts-node ^10.9.2 - TypeScript execution (scripts, local runners)
@@ -670,19 +673,6 @@ Active constraints:
 - Workers: each pg-boss job has top-level try/catch; failures are retried per pg-boss config and logged via `createLogger()`
 ## Cross-Cutting Concerns
 <!-- GSD:architecture-end -->
-
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd:debug` for investigation and bug fixing
-- `/gsd:execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
 
 <!-- GSD:profile-start -->
 ## Developer Profile

@@ -34,7 +34,10 @@ describe('Knowledge Base API — cross-tenant isolation', () => {
     it('GET passes tenant-a to KnowledgeBaseService — tenant-b data never queried', async () => {
         await GET();
 
-        expect(KnowledgeBaseService.listKnowledgeBases).toHaveBeenCalledWith('tenant-a');
+        // Second arg is the Gate 3 row filter (getReadRowFilter) — null here since
+        // the mocked session has no ability, meaning "no narrowing" per its own
+        // contract, not "unscoped": tenantId is still the first, load-bearing arg.
+        expect(KnowledgeBaseService.listKnowledgeBases).toHaveBeenCalledWith('tenant-a', null);
 
         const calls = vi.mocked(KnowledgeBaseService.listKnowledgeBases).mock.calls;
         for (const [tenantId] of calls) {
@@ -46,7 +49,7 @@ describe('Knowledge Base API — cross-tenant isolation', () => {
         vi.mocked(getSessionTenantId).mockResolvedValue('tenant-b');
         await GET();
 
-        expect(KnowledgeBaseService.listKnowledgeBases).toHaveBeenCalledWith('tenant-b');
+        expect(KnowledgeBaseService.listKnowledgeBases).toHaveBeenCalledWith('tenant-b', null);
     });
 
     it('tenant-a session never triggers a tenant-b query', async () => {

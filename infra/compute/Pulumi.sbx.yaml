@@ -3,7 +3,10 @@ config:
   nucleus-compute:appName: stx-nucleus-ops-sbx
   nucleus-compute:appUrl: https://d3ckkkrg51rymx.cloudfront.net
   nucleus-compute:subscriptionEmails: ""
-  nucleus-compute:engineVersion: "16.9"
+  # Live instance auto-upgraded past this at some point (pre-existing drift,
+  # unrelated to the VPC migration) — pinned to match reality so Pulumi
+  # doesn't attempt an unsupported minor-version downgrade.
+  nucleus-compute:engineVersion: "16.13"
   nucleus-compute:workersDesiredCount: "1"
   nucleus-compute:dbName: nucleus_sbx
   nucleus-compute:dbUsername: nucleus_sbx_admin
@@ -12,8 +15,16 @@ config:
   # same key is added to Pulumi.prod.yaml; no code change is needed to promote it.
   nucleus-compute:spotGuardEnabled: "true"
   nucleus-compute:scalingAuditEnabled: "true"
-  # RBAC/ABAC enforcement soak — sbx only. Prod stays false/shadow until the
-  # parity mismatch counters are quiet.
+  # RBAC/ABAC enforcement, soaked here first. Prod has since taken
+  # dynamicAbacEnabled (cutover step 4) but NOT rbacRouteGuardMode — see the note
+  # in Pulumi.prod.yaml for why those land as separate deploys. This stack stays
+  # ahead of prod deliberately: it is where the next step is proven.
   nucleus-compute:dynamicAbacEnabled: "true"
   nucleus-compute:rbacRouteGuardMode: enforce
+  # Step 5 (docs/superpowers/specs/2026-08-12-submodule-rbac-design.md §8). Verify
+  # rbac.page_guard.shadow_denial has been quiet on this stack (post step-4 settling)
+  # before this deploy goes out.
+  nucleus-compute:rbacPageGuardMode: enforce
+  nucleus-compute:networkSuffix: -b
+  nucleus-compute:securityGroupDescriptionSuffix: ' (network generation B)'
 encryptionsalt: v1:6SW5zTzfdlk=:v1:pH4TlHXEkhYWOpCy:scl7UhKe7msml3Rs5nStXnRnOxllDA==

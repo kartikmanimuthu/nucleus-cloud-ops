@@ -2,17 +2,15 @@
  * Agent Executor — Bridges trigger endpoints with the Agent Ops LangGraph.
  *
  * Key capabilities:
- * - Isolated sandbox per run (prevents file-tool collisions)
  * - AbortController-based cancel/stop via run-manager
  * - PostgreSQL checkpointer (short-term state) + store (long-term memory)
  * - Full LangGraph event streaming → PostgreSQL event log
  * - Clarification (awaiting_input) and interrupt (tool approval) support
  */
 
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import { HumanMessage } from '@langchain/core/messages';
 import { createDynamicExecutorGraph } from './executor-graphs';
+import { executeDeepRun } from './deep-run-executor';
 import { resolveModelConfig, resolveDefaultModelConfig } from '../agent/model-resolver';
 import { getAgentOpsDefaults, resolveMaxIterations } from './agent-ops-defaults';
 import type { ResolvedModelConfig } from '../agent/agent-shared';
@@ -22,8 +20,11 @@ import type { ResolvedModelConfig } from '../agent/agent-shared';
  *   1. explicit run.model (scheduled task / New Run dialog) — always wins
  *   2. tenant Agent Ops default model (Settings → Agent Defaults)
  *   3. tenant default provider's chat model (legacy fallback)
+ *
+ * Exported so deep-run-executor.ts resolves the SAME model as plan mode instead of
+ * keeping a second copy that can drift.
  */
-async function resolveRunModel(runModel: string | undefined, tenantId: string): Promise<ResolvedModelConfig> {
+export async function resolveRunModel(runModel: string | undefined, tenantId: string): Promise<ResolvedModelConfig> {
     if (runModel) return resolveModelConfig(runModel, tenantId);
     const defaults = await getAgentOpsDefaults(tenantId);
     if (defaults?.defaultModel) {
@@ -43,8 +44,6 @@ import { getMCPManager } from '../agent/mcp-manager';
 import { registerRun, cleanupRun, isAborted } from './run-manager';
 import type { AgentOpsRun, AgentEventType } from './types';
 import type { GatewayEventBus } from '@/lib/gateway/event-bus';
-
-const SANDBOX_BASE = '/tmp/agent-ops';
 
 // How often the executor re-reads its run's DB status mid-stream to honour a
 // cancellation issued on a different web-ui replica (in-process AbortController
@@ -70,7 +69,12 @@ function mapNodeToEventType(node: string): AgentEventType {
 
 // ─── Derive userId from trigger metadata ─────────────────────────────────────
 
-function deriveUserId(run: AgentOpsRun): string {
+/**
+ * A STABLE per-principal id, not a per-run one: agent_memories is keyed
+ * (tenantId, userId), so a run-scoped id would save memories no later run could
+ * ever recall. Exported so deep mode scopes memory identically to plan mode.
+ */
+export function deriveUserId(run: AgentOpsRun): string {
     const trigger = run.trigger as any;
     if (run.source === 'slack' && trigger?.userId) return `slack-${trigger.userId}`;
     if (run.source === 'jira' && trigger?.reporter) return `jira-${trigger.reporter}`;
@@ -82,6 +86,12 @@ function deriveUserId(run: AgentOpsRun): string {
 // ─── Main Executor ────────────────────────────────────────────────────────────
 
 export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventBus): Promise<void> {
+    // Deep mode has its own executor: it consumes the v3 projections and has
+    // per-action HITL, neither of which the v2 loop below can express.
+    if ((run as { mode?: string }).mode === 'deep') {
+        return executeDeepRun(run, eventBus);
+    }
+
     const { runId, tenantId, taskDescription, accountId, accountName, threadId, mcpServerIds, knowledgeBaseIds } = run as any;
     const autoApprove = (run as any).autoApprove ?? false;
     const startTime = Date.now();
@@ -89,8 +99,6 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
     // Register AbortController for cancel support
     const abortController = registerRun(runId);
 
-    const sandboxDir = path.join(SANDBOX_BASE, runId);
-    await fs.mkdir(sandboxDir, { recursive: true });
     console.log(`[AgentExecutor] ▶ Run ${runId} starting`);
 
     try {
@@ -388,9 +396,6 @@ export async function executeAgentRun(run: AgentOpsRun, eventBus?: GatewayEventB
         }
     } finally {
         cleanupRun(runId);
-        try {
-            await fs.rm(sandboxDir, { recursive: true, force: true });
-        } catch { /* non-fatal */ }
     }
 }
 
@@ -576,12 +581,16 @@ async function processLangGraphEvent(
  * routes to 'generate' instead of 'approval_gate'.
  */
 export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEventBus): Promise<void> {
+    if ((run as { mode?: string }).mode === 'deep') {
+        throw new Error(
+            `Run ${run.runId} is deep mode — resume it via POST /api/agent-ops/${run.runId}/decisions, which builds the per-action resume map. resumeApprovedRun cannot resume a deep interrupt.`,
+        );
+    }
+
     const { runId, tenantId, threadId, mcpServerIds, accountId, accountName, knowledgeBaseIds } = run as any;
     const startTime = Date.now();
 
     const abortController = registerRun(runId);
-    const sandboxDir = path.join(SANDBOX_BASE, runId);
-    await fs.mkdir(sandboxDir, { recursive: true });
 
     console.log(`[AgentExecutor] ▶ Resuming approved run ${runId}`);
 
@@ -807,6 +816,5 @@ export async function resumeApprovedRun(run: AgentOpsRun, eventBus?: GatewayEven
         }
     } finally {
         cleanupRun(runId);
-        try { await fs.rm(sandboxDir, { recursive: true, force: true }); } catch { /* non-fatal */ }
     }
 }

@@ -35,6 +35,7 @@ import type { ISlackWorkspaceLinkRepository } from './repositories/slack-workspa
 import type { IDashboardRepository } from './repositories/dashboard/interface';
 import type { ITelegramBotLinkRepository } from './repositories/telegram-bot-link/interface';
 import type { SubagentRunRepository } from './repositories/subagent/interface';
+import type { IResourceGraphRepository } from './repositories/resource-graph/interface';
 
 export function getTenantConfigRepository(): ITenantConfigRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -184,6 +185,12 @@ export function getSubagentRunRepository(): SubagentRunRepository {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { SubagentRunPostgresRepository } = require('./repositories/subagent/postgres');
     return new SubagentRunPostgresRepository();
+}
+
+export function getResourceGraphRepository(): IResourceGraphRepository {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ResourceGraphPostgresRepository } = require('./repositories/resource-graph/postgres');
+    return new ResourceGraphPostgresRepository();
 }
 
 /**

@@ -93,3 +93,37 @@ export function useApproveRun() {
 export function useResumeRun() {
     return useRunAction((id) => `/api/agent-ops/${id}/resume`, 'resume');
 }
+
+/**
+ * Deep mode per-action decisions — POST /api/agent-ops/[runId]/decisions.
+ *
+ * Unlike useApproveRun/useResumeRun (binary run-level actions), a deep run
+ * can pause with several pending actions at once, so the caller supplies one
+ * decision per pending action. The route rejects a partial set (toResumeMap),
+ * so the caller (DeepApprovalCard) is responsible for gating submission until
+ * every pending action has a decision — this hook only sends what it's given.
+ *
+ * Success/failure feedback is left to the caller's mutate() options rather
+ * than toasted here, since the card shows an outcome-specific message.
+ */
+export function useSubmitDecisions() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ runId, decisions }: {
+            runId: string;
+            decisions: Array<{ toolCallId: string; approved: boolean; reason?: string; answer?: string }>;
+        }) =>
+            fetchJson<{ success: boolean; data?: { runId: string; status: string; message: string }; error?: string }>(
+                `/api/agent-ops/${runId}/decisions`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ decisions }),
+                },
+            ),
+        onSuccess: (_d, { runId }) => {
+            qc.invalidateQueries({ queryKey: queryKeys.agentOps.detail(runId) });
+            qc.invalidateQueries({ queryKey: queryKeys.agentOps.lists() });
+        },
+    });
+}

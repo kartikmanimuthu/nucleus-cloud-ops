@@ -4,4 +4,40 @@ config:
   nucleus-compute:subscriptionEmails: ""
   nucleus-compute:scalingAuditEnabled: "true"
   nucleus-compute:spotGuardEnabled: "true"
+  # RBAC/ABAC cutover, step 4 of the five in
+  # docs/superpowers/specs/2026-08-12-submodule-rbac-design.md §8. CASL becomes
+  # the decision source for authorize(), replacing the legacy ROLE_PERMISSIONS
+  # matrix.
+  #
+  # This also closes the split that hid the Spot Guard sidebar entry: the nav
+  # reads compiled rules from `rbac_role_rules` unconditionally (/api/me/ability
+  # -> ability-cache.ts), while authorize() read `custom_roles.permissions`
+  # whenever this flag was false. A custom role whose blob and rules had drifted
+  # apart therefore got a working page with no link to it.
+  #
+  # PRECONDITION: every custom role's `rbac_role_rules` must already reproduce
+  # its legacy blob. Where they do not, this flag turns a hidden nav entry into
+  # a 403 on a page that worked yesterday. Verify with
+  # `bunx tsx scripts/backfill-rbac.ts --dry-run` against prod before deploying.
+  nucleus-compute:dynamicAbacEnabled: "true"
+  # Steps 3 and 5 of the same §8 rollout, promoted from sbx (soaked and tested
+  # there first — see the notes in Pulumi.sbx.yaml). Both were previously left
+  # at their shadow defaults deliberately, since §8 requires each of the three
+  # RBAC/ABAC flags to ship as its own deploy: all three fail as the same
+  # support ticket ("I can't reach a page I could reach yesterday"), and
+  # bundling them leaves a regression with no single suspect.
+  #
+  # PRECONDITION (unverified by this change alone — confirm before applying):
+  # rbac.parity.mismatch has stayed at zero on PROD (not just sbx) across a
+  # soak exercising every role in active use, and rbac.page_guard.shadow_denial
+  # has been quiet on PROD after that soak settled. sbx's soak does not
+  # substitute for prod's — different traffic, different roles in use.
+  nucleus-compute:rbacRouteGuardMode: enforce
+  nucleus-compute:rbacPageGuardMode: enforce
+  nucleus-compute:networkSuffix: -prod
+  # Pin to match the live instance's auto-upgraded version. Without this the
+  # code default ("16.6") diffs against reality and a future un-scoped
+  # `pulumi up --stack prod` would attempt an unsupported RDS downgrade.
+  nucleus-compute:engineVersion: "16.13"
+  nucleus-compute:securityGroupDescriptionSuffix: ' (network generation B, in-flight migration)'
 encryptionsalt: v1:az/CRPwQepk=:v1:Q3Wv53cY3/jQQVFW:J/tbx+l/QDjMwXmAliSF0Ca1HhZaqA==

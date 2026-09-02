@@ -114,4 +114,22 @@ describe('triageChatMessage', () => {
         expect(res.route).toBe('task');
         expect(vi.mocked(autoSelectSkill)).not.toHaveBeenCalled();
     });
+
+    it('treats catalog fetch failure as no catalog — routes without a skill instruction, no crash', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({ chatTriageEnabled: true } as never);
+        vi.mocked(getSkillSummaries).mockRejectedValue(new Error('DB down'));
+        vi.mocked(createAgentModels).mockReturnValue(reflectorReturning('{"route": "task", "skillId": null, "reasoning": "no catalog"}') as any);
+
+        const res = await triageChatMessage(base);
+
+        expect(res).toEqual({ route: 'task', skillId: null, reasoning: 'no catalog' });
+    });
+
+    it('drops the skill when the tenant re-verification lookup itself rejects', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({ chatTriageEnabled: true } as never);
+        vi.mocked(getSkillById).mockRejectedValue(new Error('DB down'));
+        vi.mocked(createAgentModels).mockReturnValue(reflectorReturning('{"route": "task", "skillId": "cost-analyser", "reasoning": "x"}') as any);
+        const res = await triageChatMessage(base);
+        expect(res.skillId).toBeNull();
+    });
 });

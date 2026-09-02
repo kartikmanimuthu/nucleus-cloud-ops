@@ -14,6 +14,15 @@ describe('reconstructAiContentParts', () => {
         expect(reconstructAiContentParts('just an answer')).toBeNull();
     });
 
+    it('returns null for a string that looks like an array but is not valid JSON', () => {
+        expect(reconstructAiContentParts('[not valid json')).toBeNull();
+    });
+
+    it('returns null for a non-array, non-string value (e.g. a number or object)', () => {
+        expect(reconstructAiContentParts(42)).toBeNull();
+        expect(reconstructAiContentParts({ not: 'an array' })).toBeNull();
+    });
+
     it('returns [] for an array of only empty-text reasoning blocks', () => {
         const raw = JSON.stringify([{ type: 'reasoning', reasoning: '', signature: 'sig' }]);
         expect(reconstructAiContentParts(raw)).toEqual([]);

@@ -1,4 +1,4 @@
-# NOTES — engineering scratchpad
+# NOTES — Dipanshu's world
 
 Raw notes on tools, channels and terminology. Seeded from facts verified in-repo on 2026-07-30; decisions still open are marked **[OPEN]**.
 

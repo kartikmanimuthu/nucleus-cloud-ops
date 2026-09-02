@@ -32,6 +32,10 @@ vi.mock('@/lib/agent-ops/agent-executor', () => ({
     resumeApprovedRun: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('@/lib/agent-ops/deep-run-executor', () => ({
+    resumeDeepRun: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@/lib/audit-service', () => ({
     AuditService: {
         logResourceAction: vi.fn().mockResolvedValue(undefined),
@@ -140,6 +144,50 @@ describe('GatewayService', () => {
         expect(res.status).toBe(200);
     });
 
+    it('marks the run failed and still cleans up when resumeApprovedRun rejects (e.g. deep-mode guard)', async () => {
+        // Pins the Fix-1 hazard: .finally() alone does NOT handle a rejection —
+        // it only runs alongside it. Without the .catch() this rejection would
+        // escape as an unhandled promise rejection and the run would be left
+        // stuck at 'awaiting_approval'.
+        const { resumeApprovedRun } = await import('@/lib/agent-ops/agent-executor');
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        (resumeApprovedRun as any).mockRejectedValueOnce(
+            new Error('Run run-1 is deep mode — resume it via POST /api/agent-ops/run-1/decisions'),
+        );
+
+        // Wrap the real (unmocked) bus.subscribe so we can prove the unsubscribe
+        // closure returned to gateway-service.ts actually runs, without touching
+        // the module-level mocks the other tests in this file rely on.
+        const originalSubscribe = bus.subscribe.bind(bus);
+        const unsubscribeSpy = vi.fn();
+        vi.spyOn(bus, 'subscribe').mockImplementation((runId, handler) => {
+            const realUnsubscribe = originalSubscribe(runId, handler);
+            return () => { unsubscribeSpy(); realUnsubscribe(); };
+        });
+        const cleanupSpy = vi.spyOn(bus, 'cleanup');
+
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
+            channelMeta: {}, replyContext: { runId: 'run-1', action: 'approve', tenantId: 'tenant-1' },
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'payload={}' });
+        const res = await service.handleInbound('slack', req as any);
+
+        // Give the fire-and-forget .catch()/.finally() chain a tick to settle.
+        // If the rejection escaped unhandled, Node would raise separately from
+        // this assertion path — reaching these assertions at all is part of the
+        // proof the .catch() ran.
+        await new Promise(r => setTimeout(r, 50));
+
+        expect(res.status).toBe(200);
+        expect(agentOpsService.updateRunStatus).toHaveBeenCalledWith(
+            'tenant-1', 'run-1', 'failed',
+            { error: 'Run run-1 is deep mode — resume it via POST /api/agent-ops/run-1/decisions' },
+        );
+        expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
+        expect(cleanupSpy).toHaveBeenCalledWith('run-1');
+    });
+
     it('routes HIL resume when replyContext is present (reject)', async () => {
         (adapter.parseInbound as any).mockResolvedValue({
             channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
@@ -150,6 +198,86 @@ describe('GatewayService', () => {
         const res = await service.handleInbound('slack', req as any);
         expect(agentOpsService.updateRunStatus).toHaveBeenCalledWith('tenant-1', 'run-1', 'cancelled');
         expect(res.status).toBe(200);
+    });
+
+    it('deep approve: fans the batch verdict out via resumeDeepRun, never resumeApprovedRun', async () => {
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        const { resumeApprovedRun } = await import('@/lib/agent-ops/agent-executor');
+        const { resumeDeepRun } = await import('@/lib/agent-ops/deep-run-executor');
+        const pendingActions = [
+            { toolCallId: 'a', toolName: 'execute_command', args: {}, interruptId: 'i1', index: 0 },
+        ];
+        vi.mocked(agentOpsService.findAwaitingApprovalRun).mockResolvedValueOnce({
+            runId: 'run-1', tenantId: 'tenant-1', source: 'slack', mode: 'deep',
+            status: 'awaiting_approval', taskDescription: 'test', trigger: {},
+            approvalRequest: { planSteps: [], approvalType: 'deep_actions', pendingActions },
+        } as any);
+
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
+            channelMeta: {}, replyContext: { runId: 'run-1', action: 'approve', tenantId: 'tenant-1' },
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'payload={}' });
+        const res = await service.handleInbound('slack', req as any);
+        await new Promise(r => setTimeout(r, 50));
+
+        expect(resumeDeepRun).toHaveBeenCalledWith(
+            expect.objectContaining({ runId: 'run-1', mode: 'deep' }),
+            { i1: { decisions: [{ type: 'approve' }] } },
+            expect.anything(),
+        );
+        expect(resumeApprovedRun).not.toHaveBeenCalled();
+        expect(res.status).toBe(200);
+    });
+
+    it('deep reject: resumes the graph with reject decisions instead of cancelling', async () => {
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        const { resumeDeepRun } = await import('@/lib/agent-ops/deep-run-executor');
+        const pendingActions = [
+            { toolCallId: 'a', toolName: 'execute_command', args: {}, interruptId: 'i1', index: 0 },
+        ];
+        vi.mocked(agentOpsService.findAwaitingApprovalRun).mockResolvedValueOnce({
+            runId: 'run-1', tenantId: 'tenant-1', source: 'slack', mode: 'deep',
+            status: 'awaiting_approval', taskDescription: 'test', trigger: {},
+            approvalRequest: { planSteps: [], approvalType: 'deep_actions', pendingActions },
+        } as any);
+
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
+            channelMeta: {}, replyContext: { runId: 'run-1', action: 'reject', tenantId: 'tenant-1' },
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'payload={}' });
+        const res = await service.handleInbound('slack', req as any);
+        await new Promise(r => setTimeout(r, 50));
+
+        expect(resumeDeepRun).toHaveBeenCalledWith(
+            expect.objectContaining({ runId: 'run-1', mode: 'deep' }),
+            { i1: { decisions: [{ type: 'reject', message: expect.stringMatching(/rejected/i) }] } },
+            expect.anything(),
+        );
+        // Not a cancellation: the deep branch must not flip status to 'cancelled'.
+        expect(agentOpsService.updateRunStatus).not.toHaveBeenCalledWith('tenant-1', 'run-1', 'cancelled');
+        expect(res.status).toBe(200);
+    });
+
+    it('deep approve with no pending actions recorded: 409, does not call resumeDeepRun', async () => {
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        const { resumeDeepRun } = await import('@/lib/agent-ops/deep-run-executor');
+        vi.mocked(agentOpsService.findAwaitingApprovalRun).mockResolvedValueOnce({
+            runId: 'run-1', tenantId: 'tenant-1', source: 'slack', mode: 'deep',
+            status: 'awaiting_approval', taskDescription: 'test', trigger: {},
+            approvalRequest: { planSteps: [], approvalType: 'deep_actions', pendingActions: [] },
+        } as any);
+
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
+            channelMeta: {}, replyContext: { runId: 'run-1', action: 'approve', tenantId: 'tenant-1' },
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'payload={}' });
+        const res = await service.handleInbound('slack', req as any);
+
+        expect(res.status).toBe(409);
+        expect(resumeDeepRun).not.toHaveBeenCalled();
     });
 
     it('routes HIL resume for clarification_response', async () => {
@@ -177,6 +305,62 @@ describe('GatewayService', () => {
         expect(adapter.sendSessionReset).toHaveBeenCalledWith('tenant-1', 67890);
         expect(res.status).toBe(200);
     });
+
+    it('returns 404 for approve when no awaiting-approval run is found', async () => {
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(agentOpsService.findAwaitingApprovalRun).mockResolvedValueOnce(null as any);
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
+            channelMeta: {}, replyContext: { runId: 'run-1', action: 'approve', tenantId: 'tenant-1' },
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'payload={}' });
+        const res = await service.handleInbound('slack', req as any);
+        expect(res.status).toBe(404);
+        expect((await res.json()).error).toBe('No awaiting-approval run found');
+    });
+
+    it('returns 404 for reject when no awaiting-approval run is found', async () => {
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(agentOpsService.findAwaitingApprovalRun).mockResolvedValueOnce(null as any);
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
+            channelMeta: {}, replyContext: { runId: 'run-1', action: 'reject', tenantId: 'tenant-1' },
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'payload={}' });
+        const res = await service.handleInbound('slack', req as any);
+        expect(res.status).toBe(404);
+        expect((await res.json()).error).toBe('No awaiting-approval run found');
+        expect(agentOpsService.updateRunStatus).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 for clarification_response when the run cannot be found', async () => {
+        const { agentOpsService } = await import('@/lib/agent-ops/agent-ops-service');
+        vi.mocked(agentOpsService.getRun).mockResolvedValueOnce(null as any);
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
+            channelMeta: {}, replyContext: { runId: 'run-1', action: 'clarification_response', content: 'x', tenantId: 'tenant-1' },
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'payload={}' });
+        const res = await service.handleInbound('slack', req as any);
+        expect(res.status).toBe(404);
+        expect((await res.json()).error).toBe('Run not found');
+    });
+
+    it('returns 400 for an unrecognized replyContext action', async () => {
+        (adapter.parseInbound as any).mockResolvedValue({
+            channelType: 'slack', tenantId: 'tenant-1', taskDescription: '',
+            channelMeta: {}, replyContext: { runId: 'run-1', action: 'mystery' as any, tenantId: 'tenant-1' },
+        });
+        const req = new Request('http://localhost', { method: 'POST', body: 'payload={}' });
+        const res = await service.handleInbound('slack', req as any);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toBe('Unknown action: mystery');
+    });
+
+    // handleResume's `if (!replyContext) return 400 'Missing reply context'` (gateway-service.ts:119-121)
+    // is unreachable via the public API: handleInbound only ever calls handleResume from inside its own
+    // `if (message.replyContext)` guard (line 45), so replyContext is always truthy at the call site.
+    // Left untested rather than gamed, same precedent as libs/rbac/rule-compiler.ts's defense-in-depth branches.
 });
 
 describe('GatewayService persona routing', () => {

@@ -14,6 +14,8 @@ const {
   mockWriteResourcesToPg,
   mockSaveSyncStatus,
   mockReconcileStaleResources,
+  mockWriteEdgesToPg,
+  mockReconcileStaleEdges,
   mockLogger,
 } = vi.hoisted(() => ({
   mockGetTenantAccounts: vi.fn(),
@@ -24,6 +26,8 @@ const {
   mockWriteResourcesToPg: vi.fn(),
   mockSaveSyncStatus: vi.fn().mockResolvedValue(undefined),
   mockReconcileStaleResources: vi.fn().mockResolvedValue(0),
+  mockWriteEdgesToPg: vi.fn().mockResolvedValue(undefined),
+  mockReconcileStaleEdges: vi.fn().mockResolvedValue(undefined),
   // createLogger builds a fresh closure per call (not memoized by module name — see
   // apps/workers/src/lib/logger.ts), so a logger obtained by calling the real createLogger
   // in this test would be a different instance than the one index.ts holds in its module-level
@@ -60,6 +64,11 @@ vi.mock('../services/pg-writer.js', () => ({
   reconcileStaleResources: mockReconcileStaleResources,
 }));
 
+vi.mock('../services/edge-writer.js', () => ({
+  writeEdgesToPg: mockWriteEdgesToPg,
+  reconcileStaleEdges: mockReconcileStaleEdges,
+}));
+
 vi.mock('../../scheduler/services/pg-service.js', () => ({
   getTenantJobConfig: vi.fn().mockResolvedValue({ period: 'daily', lastRunAt: null }),
   updateTenantJobLastRun: vi.fn().mockResolvedValue(undefined),
@@ -70,6 +79,7 @@ vi.mock('../../../lib/logger.js', () => ({
 }));
 
 import { handleDiscoveryScan } from '../index.js';
+import { writeEdgesToPg } from '../services/edge-writer.js';
 
 const account = {
   id: 'acc-row-1',
@@ -162,6 +172,31 @@ describe('handleDiscoveryScan — reconciliation', () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('stale'),
       expect.objectContaining({ tenantId: 'tenant-1', accountId: 'acc-123', staleCount: 5 }),
+    );
+  });
+
+  it('reports an edge reconciliation failure as its own error, without suppressing the resource warning', async () => {
+    mockRunInventoryScan.mockResolvedValue({
+      resources: [],
+      regionsScanned: 1,
+      servicesScanned: 1,
+      elapsedMs: 10,
+      errors: [],
+    });
+    mockReconcileStaleResources.mockResolvedValue(5);
+    mockReconcileStaleEdges.mockRejectedValueOnce(new Error('edge reconcile exploded'));
+
+    await handleDiscoveryScan({ type: 'scan', tenantId: 'tenant-1', triggeredBy: 'cron' });
+
+    // Resource reconciliation succeeded, so its warning must still be emitted.
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('stale'),
+      expect.objectContaining({ staleCount: 5 }),
+    );
+    // And the failure must name edges, not read as a resource reconciliation failure.
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Edge reconciliation failed'),
+      expect.objectContaining({ tenantId: 'tenant-1', accountId: 'acc-123', error: 'edge reconcile exploded' }),
     );
   });
 
@@ -272,6 +307,54 @@ describe('handleDiscoveryScan — reconciliation', () => {
         staleCount: 5,
         scanError: 'assume role denied',
       }),
+    );
+  });
+
+  it('writes edges for each scanned account', async () => {
+    mockRunInventoryScan.mockResolvedValue({
+      resources: [{ resourceType: 'ec2_instances', resourceId: 'i-1', region: 'us-east-1', service: 'ec2', tags: {}, rawData: { VpcId: 'vpc-1' } }],
+      regionsScanned: 1,
+      servicesScanned: 1,
+      elapsedMs: 10,
+      errors: [],
+    });
+
+    await handleDiscoveryScan({ type: 'scan', tenantId: 'tenant-1', triggeredBy: 'cron' } as any);
+
+    expect(writeEdgesToPg).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ relation: 'in_vpc', toType: 'ec2_vpcs', toId: 'vpc-1' }),
+      ]),
+      'tenant-1',
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+    );
+  });
+
+  it('carries the region of each scanned resource, not one region for the account', async () => {
+    mockRunInventoryScan.mockResolvedValue({
+      resources: [
+        { resourceType: 'ec2_instances', resourceId: 'i-east', region: 'us-east-1', service: 'ec2', tags: {}, rawData: { VpcId: 'vpc-east' } },
+        { resourceType: 'ec2_instances', resourceId: 'i-west', region: 'eu-west-1', service: 'ec2', tags: {}, rawData: { VpcId: 'vpc-west' } },
+      ],
+      regionsScanned: 2,
+      servicesScanned: 1,
+      elapsedMs: 10,
+      errors: [],
+    });
+
+    await handleDiscoveryScan({ type: 'scan', tenantId: 'tenant-1', triggeredBy: 'cron' } as any);
+
+    expect(writeEdgesToPg).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ fromId: 'i-east', toId: 'vpc-east', region: 'us-east-1' }),
+        expect.objectContaining({ fromId: 'i-west', toId: 'vpc-west', region: 'eu-west-1' }),
+      ]),
+      'tenant-1',
+      'acc-123',
+      expect.any(String),
+      expect.any(String),
     );
   });
 });

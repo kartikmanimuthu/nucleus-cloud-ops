@@ -61,6 +61,8 @@ export interface AccountMetadata {
     /** Onboarding template version deployed, read from the role's tags. */
     templateVersion?: number;
 
+    lastSyncedAt?: string;
+
     // ── Scaling Audit ───────────────────────────────────────────────────────────
     /** Per-account opt-in for the daily scaling-audit poll (mirrors spotAutomationEnabled). */
     scalingAuditEnabled?: boolean;

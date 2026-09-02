@@ -102,11 +102,21 @@ describe('createRun', () => {
         expect(run.tenantId).toBe('T0001');
         expect(run.source).toBe('slack');
         expect(run.taskDescription).toBe('Check Lambda configs');
-        // Agent Ops is plan-mode only — createRun coerces whatever the channel
-        // payload carried (here legacy 'fast') so every run is planned.
+        // 'fast' is legacy-only (old Jira Automation bodies, stale checkpoints)
+        // and createRun coerces it to 'plan'.
         expect(run.mode).toBe('plan');
         expect(run.createdAt).toBeTruthy();
         expect(run.updatedAt).toBeTruthy();
+    });
+
+    it('passes an explicit "deep" mode through unchanged', async () => {
+        const run = await createRun({ ...baseCreateParams, mode: 'deep' });
+        expect(run.mode).toBe('deep');
+    });
+
+    it('still coerces "fast" to "plan" (legacy channel payloads)', async () => {
+        const run = await createRun({ ...baseCreateParams, mode: 'fast' });
+        expect(run.mode).toBe('plan');
     });
 });
 

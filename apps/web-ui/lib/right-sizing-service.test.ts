@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const repoMock = {
+    listRecommendations: vi.fn(),
     getRecommendation: vi.fn(),
+    getSummary: vi.fn(),
+    listRuns: vi.fn(),
     updateStatus: vi.fn(),
     getActiveRun: vi.fn(),
     createRun: vi.fn(),
@@ -23,10 +26,48 @@ vi.mock('@/lib/boss-client', () => ({
 
 import { RightSizingService } from './right-sizing-service';
 
+describe('RightSizingService thin delegators', () => {
+    it('listRecommendations delegates to the repository', async () => {
+        repoMock.listRecommendations.mockResolvedValue({ items: [], total: 0 });
+        const filters = { tenantId: 'tenant-a' } as any;
+        const result = await RightSizingService.listRecommendations(filters);
+        expect(repoMock.listRecommendations).toHaveBeenCalledWith(filters);
+        expect(result).toEqual({ items: [], total: 0 });
+    });
+
+    it('getRecommendation delegates to the repository', async () => {
+        repoMock.getRecommendation.mockResolvedValue({ id: 'rec-1' });
+        const result = await RightSizingService.getRecommendation('rec-1', 'tenant-a');
+        expect(repoMock.getRecommendation).toHaveBeenCalledWith('rec-1', 'tenant-a');
+        expect(result).toEqual({ id: 'rec-1' });
+    });
+
+    it('getSummary delegates to the repository', async () => {
+        repoMock.getSummary.mockResolvedValue({ totalRecommendations: 3 });
+        const result = await RightSizingService.getSummary('tenant-a');
+        expect(repoMock.getSummary).toHaveBeenCalledWith('tenant-a');
+        expect(result).toEqual({ totalRecommendations: 3 });
+    });
+
+    it('listRuns delegates to the repository with page/limit', async () => {
+        repoMock.listRuns.mockResolvedValue({ runs: [], total: 0 });
+        const result = await RightSizingService.listRuns('tenant-a', 2, 25);
+        expect(repoMock.listRuns).toHaveBeenCalledWith('tenant-a', 2, 25);
+        expect(result).toEqual({ runs: [], total: 0 });
+    });
+});
+
 describe('RightSizingService.updateStatus', () => {
     beforeEach(() => {
         repoMock.getRecommendation.mockReset();
         repoMock.updateStatus.mockReset();
+    });
+
+    it('rejects an unrecognized status', async () => {
+        await expect(
+            RightSizingService.updateStatus('rec-1', 'tenant-a', 'bogus' as never, 'user-1')
+        ).rejects.toThrow('Invalid status: bogus');
+        expect(repoMock.getRecommendation).not.toHaveBeenCalled();
     });
 
     it('throws NOT_FOUND when the recommendation is not in the caller tenant (no cross-tenant write)', async () => {
@@ -139,6 +180,18 @@ describe('RightSizingService.getRecommendationDetail', () => {
 
         expect(result?.recommendation.id).toBe('rec-1');
         expect(result?.resource).toBeNull();
+        expect(result?.account).toBeNull();
+    });
+
+    it('degrades the account field to null when the account lookup itself rejects', async () => {
+        repoMock.getRecommendation.mockResolvedValue({
+            id: 'rec-1', accountId: '123456789012', resourceType: 'ec2_instances', resourceId: 'i-1',
+        });
+        inventoryRepoMock.getResource.mockResolvedValue({ id: 'inv-1' });
+        accountRepoMock.getAccount.mockRejectedValue(new Error('account service down'));
+
+        const result = await RightSizingService.getRecommendationDetail('rec-1', 'tenant-a');
+
         expect(result?.account).toBeNull();
     });
 });

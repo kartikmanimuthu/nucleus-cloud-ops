@@ -66,4 +66,11 @@ describe('FilesystemBackend jail', () => {
         // would expose /tmp/nucleus-aws-creds/<otherTenant>/credentials and .env.
         expect(src).toContain('virtualMode: true');
     });
+
+    it('must also be constructed with virtualMode in the Agent Ops deep executor graph', async () => {
+        const src = await import('fs/promises').then(fs => fs.readFile('lib/agent-ops/deep-executor-graph.ts', 'utf-8'));
+        // Same jail requirement as deep-agent.ts's FilesystemBackend — this file constructs
+        // a second one that the assertion above does not cover.
+        expect(src).toContain('virtualMode: true');
+    });
 });

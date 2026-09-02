@@ -41,8 +41,6 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof Composer>> = {
     context: baseContext(),
     attachments: [],
     onAttach: vi.fn(),
-    mode: 'fast',
-    onModeChange: vi.fn(),
     autoApprove: true,
     onAutoApproveChange: vi.fn(),
     showTools: false,

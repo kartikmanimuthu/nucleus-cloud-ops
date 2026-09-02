@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { DictationTextarea } from "@/components/voice/dictation-textarea"
 import { Label } from "@/components/ui/label"
 import { GatedButton } from "@/components/rbac/gated"
+import type { AgentMode } from "@/lib/agent-ops/types"
 
 export function NewRunDialog({
     tenantId = "default"
@@ -27,6 +28,12 @@ export function NewRunDialog({
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [taskDescription, setTaskDescription] = useState("")
+    // Agent Ops runs on the deep agent, always. The mode picker was removed
+    // deliberately (mirroring AI Ops, which went deep-only upstream in 76308ae5)
+    // — there is no longer a plan/deep choice to make here. The value is still
+    // sent explicitly rather than relying on the tenant default, so the run row
+    // records the mode it actually executed in.
+    const RUN_MODE: AgentMode = "deep"
 
     const handleRun = async () => {
         if (!taskDescription.trim()) {
@@ -51,6 +58,7 @@ export function NewRunDialog({
                 },
                 body: JSON.stringify({
                     taskDescription: taskDescription.trim(),
+                    mode: RUN_MODE,
                 }),
             })
 
@@ -86,7 +94,7 @@ export function NewRunDialog({
                 <DialogHeader>
                     <DialogTitle>Start Agent Run</DialogTitle>
                     <DialogDescription>
-                        Describe your task. The agent will autonomously determine the best execution strategy, skill, and target account.
+                        Describe your task. DeepAgent will autonomously determine the best execution strategy, skill, and target account.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -101,6 +109,7 @@ export function NewRunDialog({
                             onValueChange={setTaskDescription}
                         />
                     </div>
+
 
                     {error && (
                         <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-950/30 rounded flex items-start gap-2 border border-red-200 dark:border-red-900">

@@ -39,7 +39,7 @@ interface WebhookInboundPayload {
         action: 'clarification_response' | 'approve' | 'reject';
         content?: string;
     };
-    mode?: 'fast' | 'plan';
+    mode?: 'fast' | 'plan' | 'deep';
     autoApprove?: boolean;
     accountId?: string;
 }

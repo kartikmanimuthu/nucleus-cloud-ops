@@ -17,7 +17,7 @@ export interface GatewayMessage {
     tenantId: string;
     taskDescription: string;
     userId?: string;
-    mode?: 'fast' | 'plan';
+    mode?: 'fast' | 'plan' | 'deep';
     autoApprove?: boolean;
     accountId?: string;
     accountName?: string;

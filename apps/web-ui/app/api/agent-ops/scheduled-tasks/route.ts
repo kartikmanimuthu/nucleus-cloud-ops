@@ -5,6 +5,8 @@
 
 import { NextResponse } from 'next/server';
 import { listScheduledTasks, createScheduledTask, validateScheduleInput } from '@/lib/agent-ops/scheduled-task-service';
+import { SELECTABLE_MODES } from '@/lib/agent-ops/types';
+import type { AgentMode } from '@/lib/agent-ops/types';
 import { registerTask } from '@/lib/agent-ops/scheduler-engine';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
 import { getAbilityForSession } from '@/lib/rbac/session-ability';
@@ -74,9 +76,15 @@ export async function POST(req: Request) {
             cronExpression: scheduleType === 'interval' ? '' : body.cronExpression,
             intervalMinutes: scheduleType === 'interval' ? Number(body.intervalMinutes) : undefined,
             timezone: body.timezone || 'UTC',
-            // Agent Ops is plan-mode only — autonomous runs always take the
-            // planner → final → memory_save path regardless of what the client sends.
-            mode: 'plan',
+            // Persisted straight into the ScheduledTask row and later dispatched
+            // on by the executor (trigger/route.ts passes mode: task.mode
+            // through unchanged) — an unvalidated string here would land in the
+            // DB with no matching execution graph. Accept only a mode the
+            // client is actually allowed to pick; anything else falls back to
+            // 'plan', the pre-deep behaviour.
+            mode: (typeof body.mode === 'string' && SELECTABLE_MODES.includes(body.mode as AgentMode))
+                ? (body.mode as AgentMode)
+                : 'plan',
             autoApprove: body.autoApprove ?? false,
             model: body.model,
             accountId: body.accountId,

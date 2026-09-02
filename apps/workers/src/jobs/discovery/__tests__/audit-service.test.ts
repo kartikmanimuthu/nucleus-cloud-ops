@@ -29,12 +29,17 @@ describe('audit-service', () => {
     });
 
     expect(mockConnect).toHaveBeenCalled();
+    // Bound params, in order: id, tenantId, logId, timestamp, eventType, action,
+    // user, userType, resourceType, resourceId, status, severity, details,
+    // metadata, accountId, region, expiresAt, source. Dates are bound as ISO
+    // strings (new Date().toISOString()), not Date instances.
     expect(mockQuery).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO audit_logs'),
       expect.arrayContaining([
         'tenant-123',
+        expect.any(String), // id
         expect.any(String), // logId
-        expect.any(Date),   // timestamp
+        expect.any(String), // timestamp (ISO string)
         'discovery.scan.started',
         'scan_started',
         'system',
@@ -100,14 +105,19 @@ describe('audit-service', () => {
     });
 
     const after = Date.now();
-    const expiresAtArg = mockQuery.mock.calls[0][1].find(
-      (arg: unknown) => arg instanceof Date && (arg as Date).getTime() > after,
-    ) as Date;
+    // expiresAt is bound as an ISO string (new Date(...).toISOString()), not a
+    // Date instance — find it by parsing every string param and taking the one
+    // far enough in the future to be the 30-day TTL rather than "now".
+    const params = mockQuery.mock.calls[0][1] as unknown[];
+    const expiresAtMs = params
+      .filter((arg): arg is string => typeof arg === 'string')
+      .map((arg) => Date.parse(arg))
+      .find((ms) => !Number.isNaN(ms) && ms > after);
 
-    expect(expiresAtArg).toBeDefined();
+    expect(expiresAtMs).toBeDefined();
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    expect(expiresAtArg.getTime()).toBeGreaterThanOrEqual(before + thirtyDaysMs - 1000);
-    expect(expiresAtArg.getTime()).toBeLessThanOrEqual(after + thirtyDaysMs + 1000);
+    expect(expiresAtMs).toBeGreaterThanOrEqual(before + thirtyDaysMs - 1000);
+    expect(expiresAtMs).toBeLessThanOrEqual(after + thirtyDaysMs + 1000);
   });
 
   it('should not throw on query error (non-fatal)', async () => {

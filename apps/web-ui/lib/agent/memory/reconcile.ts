@@ -160,11 +160,19 @@ export async function reconcileMemories(params: {
                     console.log(`🧠 [JUDGE] ${item.fact.key}: ADD (novel despite neighbors)`);
                     await add(item.fact);
                     break;
-                case 'UPDATE':
+                case 'UPDATE': {
                     console.log(`🧠 [JUDGE] ${item.fact.key}: UPDATE → ${d.targetId}`);
-                    await svc.update(tenantId, d.targetId!, d.mergedValue!);
+                    // Overlay, never replace. The judge returns only the fields it chose to
+                    // restate, so writing mergedValue verbatim silently drops every key it
+                    // omitted — including `fact` and `confidence`, which are exactly what the
+                    // Memory tab renders (repositories/agent-memory/postgres.ts). Measured: a
+                    // save_memory row with both fields came back blank after an UPDATE.
+                    const target = item.neighbors.find((n) => n.id === d.targetId);
+                    const merged = { ...(target?.value ?? {}), ...d.mergedValue! };
+                    await svc.update(tenantId, d.targetId!, merged);
                     summary.updated++;
                     break;
+                }
                 case 'SUPERSEDE': {
                     console.log(`🧠 [JUDGE] ${item.fact.key}: SUPERSEDE → displacing ${d.targetId}`);
                     const newId = await svc.remember({

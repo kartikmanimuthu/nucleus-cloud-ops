@@ -203,6 +203,17 @@
       }
     },
     {
+      "pattern": "/api/agent-ops/:runId/decisions",
+      "file": "apps/web-ui/app/api/agent-ops/[runId]/decisions/route.ts",
+      "methods": {
+        "POST": {
+          "action": "approve",
+          "subject": "AgentOps",
+          "source": "declared"
+        }
+      }
+    },
+    {
       "pattern": "/api/agent-ops/:runId/resume",
       "file": "apps/web-ui/app/api/agent-ops/[runId]/resume/route.ts",
       "methods": {
@@ -650,6 +661,17 @@
       }
     },
     {
+      "pattern": "/api/capacity-planning/resources/:resourceId",
+      "file": "apps/web-ui/app/api/capacity-planning/resources/[resourceId]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
       "pattern": "/api/capacity-planning/runs",
       "file": "apps/web-ui/app/api/capacity-planning/runs/route.ts",
       "methods": {
@@ -1039,6 +1061,17 @@
       }
     },
     {
+      "pattern": "/api/inventory/resources/:type/:id",
+      "file": "apps/web-ui/app/api/inventory/resources/[type]/[id]/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "Resource",
+          "source": "declared"
+        }
+      }
+    },
+    {
       "pattern": "/api/inventory/status",
       "file": "apps/web-ui/app/api/inventory/status/route.ts",
       "methods": {
@@ -1303,12 +1336,89 @@
       }
     },
     {
+      "pattern": "/api/network-links/report",
+      "file": "apps/web-ui/app/api/network-links/report/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ScalingAudit",
+          "source": "inferred"
+        }
+      }
+    },
+    {
       "pattern": "/api/regions",
       "file": "apps/web-ui/app/api/regions/route.ts",
       "methods": {
         "GET": {
           "action": "read",
           "subject": "Account",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/resource-graph",
+      "file": "apps/web-ui/app/api/resource-graph/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ResourceGraph",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/resource-graph/expand",
+      "file": "apps/web-ui/app/api/resource-graph/expand/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ResourceGraph",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/resource-graph/path",
+      "file": "apps/web-ui/app/api/resource-graph/path/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ResourceGraph",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/resource-graph/query",
+      "file": "apps/web-ui/app/api/resource-graph/query/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ResourceGraph",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/resource-graph/seed",
+      "file": "apps/web-ui/app/api/resource-graph/seed/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ResourceGraph",
+          "source": "declared"
+        }
+      }
+    },
+    {
+      "pattern": "/api/resource-graph/summary",
+      "file": "apps/web-ui/app/api/resource-graph/summary/route.ts",
+      "methods": {
+        "GET": {
+          "action": "read",
+          "subject": "ResourceGraph",
           "source": "declared"
         }
       }

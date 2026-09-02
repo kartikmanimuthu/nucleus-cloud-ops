@@ -12,7 +12,7 @@ const { enableSpot } = vi.hoisted(() => ({ enableSpot: vi.fn() }));
 
 vi.mock('@/lib/auth-session', () => ({
     getSessionTenantId: vi.fn(async () => 'tenant-a'),
-    getSessionUserEmail: vi.fn(async () => 'test-user@example.com'),
+    getSessionUserEmail: vi.fn(async () => 'arijitamin@smcindiaonline.com'),
 }));
 vi.mock('@/lib/rbac/authorize', () => ({ authorize: vi.fn(async () => null) }));
 // The service layer is mocked, so its audit logging is out of scope here — that is covered
@@ -134,7 +134,7 @@ describe('POST /api/spot-guard/services/[id]/enable', () => {
         expect(enableSpot).toHaveBeenCalledWith(
             'tenant-a',
             { kind: 'registry', id: 'svc-1' },
-            'test-user@example.com',
+            'arijitamin@smcindiaonline.com',
             expect.objectContaining({ confirmServiceName: 'api', spotWeight: 100, onDemandBase: 1 }),
         );
     });
@@ -153,7 +153,7 @@ describe('POST /api/spot-guard/services/[id]/enable', () => {
                 clusterName: 'cluster-a',
                 serviceName: 'api',
             },
-            'test-user@example.com',
+            'arijitamin@smcindiaonline.com',
             expect.anything(),
         );
     });
@@ -165,7 +165,7 @@ describe('POST /api/spot-guard/services/[id]/enable', () => {
         expect(enableSpot).toHaveBeenCalledWith(
             'tenant-a',
             { kind: 'registry', id: 'not-an-account:a:b:c' },
-            'test-user@example.com',
+            'arijitamin@smcindiaonline.com',
             expect.anything(),
         );
     });

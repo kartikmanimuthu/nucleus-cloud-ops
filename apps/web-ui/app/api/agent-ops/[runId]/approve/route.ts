@@ -12,6 +12,10 @@
 import { NextResponse } from 'next/server';
 import { agentOpsService } from '@/lib/agent-ops/agent-ops-service';
 import { resumeApprovedRun } from '@/lib/agent-ops/agent-executor';
+import { fanOutDecision, resolveDeepPendingActions } from '@/lib/agent-ops/deep-batch-decision';
+import { resumeDeepRun } from '@/lib/agent-ops/deep-run-executor';
+import { syntheticOutput } from '@/lib/agent/deep/hitl';
+import type { ToolDecision } from '@/app/api/chat/decisions';
 import { getGatewayEventBus } from '@/lib/gateway/event-bus';
 import { getGatewayService } from '@/lib/gateway';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
@@ -55,6 +59,78 @@ export async function POST(
         // wired to the singleton event bus. We don't call methods on it here —
         // we just need the router subscription infrastructure to exist.
         getGatewayService();
+
+        // ── DEEP: fan the batch verdict out across every pending action ───────
+        if (run.mode === 'deep') {
+            const pendingResult = resolveDeepPendingActions(run);
+            if (!pendingResult.ok) {
+                return NextResponse.json({ error: pendingResult.error }, { status: 409 });
+            }
+            const pending = pendingResult.actions;
+
+            // A rejection here RESUMES the graph (fanOutDecision turns it into
+            // per-action 'reject'/'respond' decisions the agent adapts to) — it
+            // is not a terminal outcome for the run. Writing eventType: 'final'
+            // for it would render a "Final summary" mid-run in the timeline and
+            // export, followed by a second, real final event once the run
+            // actually finishes. Always 'planning' here; the run's own executor
+            // emits the real terminal event when it settles.
+            await agentOpsService.recordEvent({
+                runId, tenantId,
+                eventType: 'planning',
+                node: 'deep_approval_gate',
+                content: `All ${pending.length} pending action(s) ${action === 'approve' ? 'approved' : 'rejected'} via channel.`,
+                metadata: { batch: true, tools: [...new Set(pending.map(p => p.toolName))] },
+            });
+
+            // Rejected actions never execute, so mirror their outcome into the
+            // event log — otherwise their tool cards never settle in the
+            // timeline/export. Mirrors decisions/route.ts's per-action synthetic
+            // write; here every pending action shares the same batch verdict.
+            if (action === 'reject') {
+                for (const item of pending) {
+                    const decision: ToolDecision = { toolCallId: item.toolCallId, approved: false };
+                    await agentOpsService.recordEvent({
+                        runId, tenantId, eventType: 'tool_result', node: 'tools',
+                        toolName: item.toolName,
+                        toolOutput: syntheticOutput(item, decision),
+                        metadata: { toolCallId: item.toolCallId, synthetic: true, status: 'finished' },
+                    });
+                }
+            }
+
+            const session = await getAuthSession();
+            AuditService.logUserAction({
+                eventType: action === 'approve' ? 'agent.run.approved' : 'agent.run.rejected',
+                severity: action === 'approve' ? 'high' : 'medium',
+                apiRoute: 'POST /api/agent-ops/[runId]/approve',
+                httpMethod: 'POST',
+                action: action === 'approve' ? 'Approved Deep Agent Run' : 'Rejected Deep Agent Run',
+                resourceType: 'AgentOps',
+                resourceId: runId,
+                resourceName: runId,
+                user: session?.user?.email || 'unknown',
+                userType: 'user',
+                status: 'success',
+                details: `${action} ${pending.length} deep action(s) on run ${runId}`,
+                metadata: { tenantId, batch: true },
+            }).catch(() => {});
+
+            // Both verdicts resume the graph. A rejection is NOT a cancellation:
+            // the agent receives the rejection messages and decides how to adapt.
+            resumeDeepRun(run, fanOutDecision(pending, action as 'approve' | 'reject'), eventBus)
+                .then(async () => {
+                    const fresh = await agentOpsService.getRun(tenantId, runId);
+                    if (fresh) await finalizeScheduledRun(fresh, { countRun: false });
+                })
+                .catch(err => console.error(`[Agent Ops API] Deep resume failed for run ${runId}:`, err));
+
+            return NextResponse.json({
+                runId,
+                status: 'in_progress',
+                message: `All pending actions ${action === 'approve' ? 'approved' : 'rejected'} — resuming execution.`,
+            });
+        }
 
         // ── REJECT ────────────────────────────────────────────────────────────
         if (action === 'reject') {

@@ -138,6 +138,22 @@ describe('parseReflectorResponse', () => {
         expect(result.isComplete).toBe(true);
         expect(result.analysis).toContain('JSON parse failed but isComplete detected');
     });
+
+    it('stays incomplete when JSON.parse fails and no isComplete:true literal is present', () => {
+        const malformed = '{"isComplete": false, "analysis": "still working",}';
+        const result = parseReflectorResponse(malformed, []);
+        expect(result.isComplete).toBe(false);
+        expect(result.analysis).toBe('Reflection JSON parse failed. Continuing.');
+    });
+
+    it('reports parseFailed and a safe fallback when the parser itself throws outright', () => {
+        // content is typed as string, but a defensive outer catch guards against a
+        // non-string slipping through at runtime (e.g. an unexpected model response shape).
+        const result = parseReflectorResponse(undefined as any, []);
+        expect(result.isComplete).toBe(false);
+        expect(result.parseFailed).toBe(true);
+        expect(result.analysis).toContain('Reflection parsing failed');
+    });
 });
 
 describe('mapUpdatedPlanEntries', () => {

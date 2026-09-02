@@ -32,6 +32,12 @@ vi.mock('next-auth', () => ({ getServerSession: vi.fn().mockResolvedValue(null) 
 vi.mock('@/lib/skill-service', () => ({
     slugify: vi.fn((s: string) => s.toLowerCase().replace(/\s+/g, '-')),
 }));
+// Gate 3 row filter compiles a real ability, which needs a live DB
+// (getRbacVersion/registry lookups) — out of scope for this route-level suite.
+// null = no narrowing, matching the module's own "unrestricted" contract.
+vi.mock('@/lib/rbac/row-filter', () => ({
+    getReadRowFilter: vi.fn().mockResolvedValue(null),
+}));
 
 import { GET, POST } from './route';
 import { authorize } from '@/lib/rbac/authorize';
@@ -80,14 +86,14 @@ describe('GET /api/skills', () => {
         expect(body.success).toBe(true);
         expect(body.skills[0].id).toBe('cost');
         expect(body.skills[0].name).toBe('Cost');
-        expect(repo.listByTenant).toHaveBeenCalledWith('t1', { includeDisabled: false });
+        expect(repo.listByTenant).toHaveBeenCalledWith('t1', { includeDisabled: false, rowFilter: null });
     });
 
     it('passes includeDisabled=true when ?all is present', async () => {
         const repo = { listByTenant: vi.fn().mockResolvedValue([]), getBySlug: vi.fn(), create: vi.fn() };
         vi.mocked(getSkillRepository).mockReturnValue(repo as any);
         await GET(makeRequest(undefined, 'http://x/api/skills?all=1'));
-        expect(repo.listByTenant).toHaveBeenCalledWith('t1', { includeDisabled: true });
+        expect(repo.listByTenant).toHaveBeenCalledWith('t1', { includeDisabled: true, rowFilter: null });
     });
 
     it('returns 500 on repository error', async () => {
@@ -146,6 +152,19 @@ describe('POST /api/skills', () => {
         vi.mocked(getSkillRepository).mockReturnValue(repo as any);
         const res = await POST(makeRequest({ name: 'Cost', description: 'd', tier: 'read-only', content: 'x' }));
         expect((res as any)._status).toBe(409);
+        expect((res as any)._data.success).toBe(false);
+    });
+
+    it('returns 500 when create throws a non-P2002 error', async () => {
+        vi.mocked(authorize).mockResolvedValue(null);
+        const repo = {
+            listByTenant: vi.fn(),
+            getBySlug: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockRejectedValue(new Error('DB down')),
+        };
+        vi.mocked(getSkillRepository).mockReturnValue(repo as any);
+        const res = await POST(makeRequest({ name: 'Cost', description: 'd', tier: 'read-only', content: 'x' }));
+        expect((res as any)._status).toBe(500);
         expect((res as any)._data.success).toBe(false);
     });
 

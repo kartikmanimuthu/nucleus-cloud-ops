@@ -179,7 +179,6 @@ export async function authorize(
     // SuperAdmin bypasses all permission checks
     if (session.user.isSuperAdmin === true) return null;
 
-    const role = session.user.role;
     const tenantId = session.user.tenantId ?? '';
 
     const verdict = await evaluateCasl(action, subjectType, subjectData);
@@ -206,6 +205,49 @@ export async function authorize(
     }
 
     // ── Shadow mode: the legacy matrix decides, CASL is compared ─────────────
+    //
+    // ── RESOLVE THE ROLE FROM THE FK, NOT FROM THE NAME ─────────────────────
+    // `session.user.role` is user_tenant_roles.role — a free-text NAME column
+    // the schema itself labels "keep for backward compat" (schema.prisma:199).
+    // NOTHING constrains it to agree with user_tenant_roles.roleId: the CHECK
+    // that once validated it was dropped in 20260403_drop_role_check_constraint
+    // so custom role names could be arbitrary, and no trigger replaced it.
+    //
+    // resolveRole() (session-ability.ts:44) already treats the FK as
+    // authoritative and consults the name only when roleId is NULL, warning when
+    // it does. THIS path never got that treatment, and the divergence is not
+    // hypothetical: nine `smc` memberships carry role='cloud-admin' against
+    // roleId=cloud-read. Every one of them authorised here as cloud-admin —
+    // full CRUD on Schedules, and create/read/update/delete on IAM — while the
+    // sidebar correctly rendered them as cloud-read. A user presented as
+    // read-only could reach /app/iam/roles and edit any role, including their
+    // own. Hiding the nav entry was the only thing in the way, and use-can.ts:6
+    // is explicit that nav is "UX, not security".
+    //
+    // verdict.roleName IS the FK-resolved name — it comes straight from
+    // principal.roleName. Preferring it costs nothing: evaluateCasl() has
+    // already run above, and getAbilityForSession() is request-cached, so this
+    // adds no query. The session value stays as the fallback for the one case
+    // the FK cannot cover — the ability failing to build at all.
+    const role = verdict?.roleName || session.user.role;
+
+    if (verdict?.roleName && session.user.role && verdict.roleName !== session.user.role) {
+        // Loud on purpose: this is a data-integrity fault, and every occurrence
+        // is a request that previously authorised as the wrong role.
+        console.error(
+            '[rbac] rbac.role.column_mismatch',
+            JSON.stringify({
+                userId: verdict.userId,
+                tenantId,
+                roleFromNameColumn: session.user.role,
+                roleFromFk: verdict.roleName,
+                using: verdict.roleName,
+                action,
+                subject: subjectType,
+            })
+        );
+    }
+
     if (!role) return forbidden(action, subjectType);
 
     const legacyAllowed = await legacyDecision(role, tenantId, action, subjectType);
@@ -261,7 +303,13 @@ export async function isAdmin(): Promise<boolean> {
         return verdict?.allowed === true;
     }
 
-    return session.user.role === 'Owner' || session.user.role === 'Admin';
+    // FK-first, for the same reason as authorize() above: user_tenant_roles.role
+    // is unconstrained free text and can name a different role than roleId points
+    // at. getAbilityForSession() is request-cached, so this is not an extra query.
+    const principal = (await getAbilityForSession())?.principal;
+    const role = principal?.roleName || session.user.role;
+
+    return role === 'Owner' || role === 'Admin';
 }
 
 /**

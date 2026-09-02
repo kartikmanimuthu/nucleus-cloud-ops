@@ -41,10 +41,14 @@ export async function createRun(params: {
     autoApprove?: boolean;
     model?: string;
 }): Promise<AgentOpsRun> {
-    // Agent Ops is plan-mode only — coerce whatever the channel payload carried
-    // ('fast' from old Jira Automation bodies, etc.) so every run is planned and
-    // its terminal path persists outcome memories.
-    const run = await getAgentOpsRunRepository().createRun({ ...params, mode: 'plan' });
+    // 'fast' is legacy-only (old Jira Automation bodies, stale checkpoints) and
+    // is coerced to 'plan' here so every such run is planned. 'plan' and 'deep'
+    // pass through unchanged — a caller-selected deep mode (New Run dialog,
+    // scheduled task, or a tenant's channel default) must actually persist so
+    // the executor dispatches it to the deep graph instead of silently
+    // downgrading it to plan.
+    const mode: AgentMode = params.mode === 'deep' ? 'deep' : 'plan';
+    const run = await getAgentOpsRunRepository().createRun({ ...params, mode });
     console.log(`[AgentOpsService] Created run: ${run.runId} (source: ${params.source})`);
     return run;
 }

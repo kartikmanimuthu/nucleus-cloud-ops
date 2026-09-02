@@ -39,4 +39,5 @@ export interface IAccountRepository {
         tenantId: string
     ): Promise<UIAccount>;
     deleteAccount(accountId: string, tenantId: string): Promise<void>;
+    listByTenant(tenantId: string): Promise<UIAccount[]>;
 }

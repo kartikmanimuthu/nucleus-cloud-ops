@@ -179,6 +179,20 @@ export class AccountPostgresRepository implements IAccountRepository {
         }
     }
 
+    async listByTenant(tenantId: string): Promise<UIAccount[]> {
+        try {
+            const rows = await getTenantClient(tenantId).account.findMany({
+                where: { tenantId },
+                orderBy: { createdAt: 'desc' },
+            });
+            return rows.map((row) => this.transformToUIAccount(row));
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.error('[AccountPostgresRepository] Error in listByTenant:', error);
+            throw new Error(`Failed to list accounts: ${msg}`);
+        }
+    }
+
     private transformToUIAccount(record: {
         id: string;
         tenantId: string;
@@ -198,6 +212,7 @@ export class AccountPostgresRepository implements IAccountRepository {
         spotAutomationCheckedAt?: Date | null;
         spotAutomationError?: string | null;
         templateVersion?: number | null;
+        lastSyncedAt?: Date | null;
         // Scaling Audit. Optional so this transform still accepts a record shape
         // selected before this column existed.
         scalingAuditEnabled?: boolean;
@@ -228,6 +243,7 @@ export class AccountPostgresRepository implements IAccountRepository {
             spotAutomationCheckedAt: record.spotAutomationCheckedAt?.toISOString(),
             spotAutomationError: record.spotAutomationError ?? undefined,
             templateVersion: record.templateVersion ?? undefined,
+            lastSyncedAt: record.lastSyncedAt?.toISOString(),
             scalingAuditEnabled: record.scalingAuditEnabled ?? false,
             lastValidated: record.updatedAt.toISOString(),
             resourceCount: 0,

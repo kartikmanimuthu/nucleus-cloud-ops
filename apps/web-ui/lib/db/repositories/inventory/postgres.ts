@@ -221,6 +221,28 @@ export class InventoryPostgresRepository implements IInventoryRepository {
         }
     }
 
+    async findOne(args: {
+        tenantId: string;
+        resourceType: string;
+        resourceId: string;
+    }): Promise<InventoryResource | null> {
+        try {
+            const row = await getTenantClient(args.tenantId).inventoryResource.findFirst({
+                where: {
+                    tenantId: args.tenantId,
+                    resourceType: args.resourceType,
+                    resourceId: args.resourceId,
+                    isCurrent: true,
+                },
+            });
+            return row ? transformRow(row) : null;
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.error('[InventoryPostgresRepository] Error in findOne:', error);
+            throw new Error(`Failed to find resource: ${msg}`);
+        }
+    }
+
     async upsertResource(
         resource: Omit<InventoryResource, 'id'>
     ): Promise<InventoryResource> {

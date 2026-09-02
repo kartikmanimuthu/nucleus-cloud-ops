@@ -24,6 +24,8 @@ import {
     askUserTool,
 } from "./tools";
 import { createGetRightSizingRecommendationsTool } from "./right-sizing-tool";
+import { createGetResourceNeighborsTool, createGetBlastRadiusTool } from "./resource-graph-tool";
+import { createFindPathTool, createQueryGraphTool, createDescribeEnvironmentTool } from "./resource-graph-query-tool";
 import { createSearchKnowledgeBaseTool } from "./kb-tool";
 import { createLoadSkillTool } from "./skill-tool";
 import { getActiveMCPTools, isOpenAICompatibleProvider, type AccountContext, type ResolvedModelConfig } from "./agent-shared";
@@ -236,16 +238,39 @@ export function createMemoryTools(tenantId: string, userId: string) {
             }
         ),
         tool(
-            async (input: { namespacePrefix: string[]; query: string; limit?: number }) => {
-                const results = await searchMemory(tenantId, userId, input.namespacePrefix, input.query, input.limit ?? 5);
-                if (!results || (results as unknown[]).length === 0) return 'No memories found.';
-                return JSON.stringify(results, null, 2);
+            // namespacePrefix is joined into ONE path and matched as `namespace LIKE
+            // 'prefix%'` (memory-service.ts recall). A wrong guess therefore returns
+            // zero rows that read identically to "nothing stored", and the model has
+            // no way to tell the two apart — observed: it searched
+            // ["infra/<acct>/lambda", "patterns/lambda"], which joined into one
+            // nonsense path, while the automatic recall (no prefix) found 9 lambda
+            // memories from the same query against the same store. So the prefix is
+            // optional, and a prefix that finds nothing falls back to the whole store
+            // and says so, rather than letting a bad guess hide real memories.
+            async (input: { namespacePrefix?: string[]; query: string; limit?: number }) => {
+                const limit = input.limit ?? 5;
+                const prefix = input.namespacePrefix ?? [];
+                const scoped = await searchMemory(tenantId, userId, prefix, input.query, limit);
+                if (scoped && (scoped as unknown[]).length > 0) return JSON.stringify(scoped, null, 2);
+
+                if (prefix.length === 0) return 'No memories found.';
+
+                const all = await searchMemory(tenantId, userId, [], input.query, limit);
+                if (!all || (all as unknown[]).length === 0) return 'No memories found.';
+                return `No memories under "${prefix.join('/')}" — that namespace may not exist. `
+                    + `Searching all namespaces instead found ${(all as unknown[]).length}:\n`
+                    + JSON.stringify(all, null, 2);
             },
             {
                 name: 'search_memory',
                 description: 'Search long-term memory for the current user using semantic search. Call at the start of a new task to retrieve relevant context from previous sessions.',
                 schema: z.object({
-                    namespacePrefix: z.array(z.string()).describe('Namespace prefix to search within e.g. ["user"] or ["infra"]'),
+                    namespacePrefix: z.array(z.string()).optional().describe(
+                        'OPTIONAL path segments to narrow the search, e.g. ["user","preferences"], ["patterns","lambda"], ["infra","<accountId>"]. '
+                        + 'Segments are joined with "/" and matched as a prefix of the namespace — they are NOT a list of alternative namespaces. '
+                        + 'The service name usually lives in the KEY, not the namespace (namespace "infra/<accountId>", key "lambda-deprecated-runtimes"), '
+                        + 'so omit this unless you are certain of the path. Omitted = search everything, which is what the automatic recall does.',
+                    ),
                     query: z.string().describe('Natural language query describing what to look for'),
                     limit: z.number().optional().describe('Max results to return (default 5)'),
                 }),
@@ -293,6 +318,11 @@ export async function assembleTools(options: AssembleToolsOptions = {}) {
         createGetAwsCredentialsTool(effectiveTenantId),
         createListAwsAccountsTool(effectiveTenantId),
         createGetRightSizingRecommendationsTool(effectiveTenantId),
+        createGetResourceNeighborsTool(effectiveTenantId),
+        createGetBlastRadiusTool(effectiveTenantId),
+        createFindPathTool(effectiveTenantId),
+        createQueryGraphTool(effectiveTenantId),
+        createDescribeEnvironmentTool(effectiveTenantId),
         askUserTool,
         ...(options.dispatchAgentTool ? [options.dispatchAgentTool as never] : []),
         ...(includeS3Tools ? [writeFileToS3Tool, getFileFromS3Tool] : []),

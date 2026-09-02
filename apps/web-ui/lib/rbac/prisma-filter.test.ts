@@ -238,6 +238,163 @@ describe('readFilterFor — mongo conditions to Prisma where', () => {
             )
         ).toThrow(UntranslatableFilterError);
     });
+
+    it('translates $exists on a scalar column to IS NULL / IS NOT NULL', () => {
+        const present = readFilterFor(
+            abilityOf([{ action: 'read', subject: 'Schedule', conditions: { accountId: { $exists: true } } }]),
+            'Schedule',
+        );
+        expect(present).toEqual({ OR: [{ accountId: { not: null } }] });
+
+        const absent = readFilterFor(
+            abilityOf([{ action: 'read', subject: 'Schedule', conditions: { accountId: { $exists: false } } }]),
+            'Schedule',
+        );
+        expect(absent).toEqual({ OR: [{ accountId: { equals: null } }] });
+    });
+
+    it('throws on a scalar operator with no Prisma equivalent', () => {
+        expect(() =>
+            readFilterFor(
+                abilityOf([{ action: 'read', subject: 'Schedule', conditions: { accountId: { $size: 1 } } }]),
+                'Schedule',
+            ),
+        ).toThrow(UntranslatableFilterError);
+    });
+
+    it('translates a bare (non-operator) Json path value as $eq', () => {
+        const filter = readFilterFor(
+            abilityOf([{ action: 'read', subject: 'Resource', conditions: { 'tags.Environment': 'prod' } }]),
+            'Resource',
+        );
+        expect(filter).toEqual({ OR: [{ tags: { path: ['Environment'], equals: 'prod' } }] });
+    });
+
+    it('translates $eq and $ne on a Json path', () => {
+        const filter = readFilterFor(
+            abilityOf([{ action: 'read', subject: 'Resource', conditions: { 'tags.Environment': { $eq: 'prod' } } }]),
+            'Resource',
+        );
+        expect(filter).toEqual({ OR: [{ tags: { path: ['Environment'], equals: 'prod' } }] });
+
+        const neFilter = readFilterFor(
+            abilityOf([{ action: 'read', subject: 'Resource', conditions: { 'tags.Environment': { $ne: 'prod' } } }]),
+            'Resource',
+        );
+        expect(neFilter).toEqual({ OR: [{ NOT: { tags: { path: ['Environment'], equals: 'prod' } } }] });
+    });
+
+    it('translates $nin on a Json path to a negated union', () => {
+        const filter = readFilterFor(
+            abilityOf([
+                { action: 'read', subject: 'Resource', conditions: { 'tags.Environment': { $nin: ['prod', 'stage'] } } },
+            ]),
+            'Resource',
+        );
+        expect(filter).toEqual({
+            OR: [{
+                NOT: {
+                    OR: [
+                        { tags: { path: ['Environment'], equals: 'prod' } },
+                        { tags: { path: ['Environment'], equals: 'stage' } },
+                    ],
+                },
+            }],
+        });
+    });
+
+    it('wraps multiple operators on the same Json path in an AND', () => {
+        const filter = readFilterFor(
+            abilityOf([{
+                action: 'read', subject: 'Resource',
+                conditions: { 'tags.Environment': { $ne: 'dev', $in: ['prod', 'stage'] } },
+            }]),
+            'Resource',
+        );
+        expect(filter).toEqual({
+            OR: [{
+                AND: [
+                    { NOT: { tags: { path: ['Environment'], equals: 'dev' } } },
+                    {
+                        OR: [
+                            { tags: { path: ['Environment'], equals: 'prod' } },
+                            { tags: { path: ['Environment'], equals: 'stage' } },
+                        ],
+                    },
+                ],
+            }],
+        });
+    });
+
+    it('throws when $in/$nin on a Json path is not given an array', () => {
+        expect(() =>
+            readFilterFor(
+                abilityOf([{ action: 'read', subject: 'Resource', conditions: { 'tags.Environment': { $in: 'prod' } } }]),
+                'Resource',
+            ),
+        ).toThrow(UntranslatableFilterError);
+        expect(() =>
+            readFilterFor(
+                abilityOf([{ action: 'read', subject: 'Resource', conditions: { 'tags.Environment': { $nin: 'prod' } } }]),
+                'Resource',
+            ),
+        ).toThrow(UntranslatableFilterError);
+    });
+
+    it('throws when a Json path condition carries no operators at all', () => {
+        expect(() =>
+            readFilterFor(
+                abilityOf([{ action: 'read', subject: 'Resource', conditions: { 'tags.Environment': {} } }]),
+                'Resource',
+            ),
+        ).toThrow(UntranslatableFilterError);
+    });
+
+    it('throws when a condition node nests deeper than the compiler could ever produce', () => {
+        // MAX_DEPTH=5 is enforced at compile time; this constructs a hand-built
+        // rule bypassing that cap to prove the translator's own defense-in-depth.
+        let deep: Record<string, unknown> = { accountId: 'x' };
+        for (let i = 0; i < 13; i++) deep = { $and: [deep] };
+        expect(() =>
+            readFilterFor(abilityOf([{ action: 'read', subject: 'Schedule', conditions: deep }]), 'Schedule'),
+        ).toThrow(UntranslatableFilterError);
+    });
+
+    it('throws when a condition node is not an object at all', () => {
+        expect(() =>
+            readFilterFor(
+                abilityOf([{ action: 'read', subject: 'Schedule', conditions: { $not: 'not-an-object' } }]),
+                'Schedule',
+            ),
+        ).toThrow(UntranslatableFilterError);
+    });
+
+    it('throws when AND/OR (the accessibleBy envelope shape) is not an array', () => {
+        expect(() =>
+            readFilterFor(
+                abilityOf([{ action: 'read', subject: 'Schedule', conditions: { AND: 'not-an-array' } as any }]),
+                'Schedule',
+            ),
+        ).toThrow(UntranslatableFilterError);
+    });
+
+    it('throws when $and/$or (mongo-style) is not an array', () => {
+        expect(() =>
+            readFilterFor(
+                abilityOf([{ action: 'read', subject: 'Schedule', conditions: { $and: 'not-an-array' } as any }]),
+                'Schedule',
+            ),
+        ).toThrow(UntranslatableFilterError);
+    });
+
+    it('throws on an unrecognized $-prefixed operator at the condition level', () => {
+        expect(() =>
+            readFilterFor(
+                abilityOf([{ action: 'read', subject: 'Schedule', conditions: { $foo: 'x' } as any }]),
+                'Schedule',
+            ),
+        ).toThrow(UntranslatableFilterError);
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

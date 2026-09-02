@@ -203,4 +203,56 @@ describe('RbacPostgresRepository', () => {
             expect(result[0].role).toBe('viewer');
         });
     });
+
+    describe('error wrapping', () => {
+        it('getUserTenantRole wraps a DB failure', async () => {
+            mockUserTenantRole.findUnique.mockRejectedValueOnce(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.getUserTenantRole('u1', 't1')).rejects.toThrow('Failed to get user tenant role: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('getUserAllRoles wraps a DB failure', async () => {
+            mockUserTenantRole.findMany.mockRejectedValueOnce(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.getUserAllRoles('u1')).rejects.toThrow('Failed to get user roles: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('assignUserRole wraps a DB failure', async () => {
+            mockUserTenantRole.upsert.mockRejectedValueOnce(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.assignUserRole('u1', 'e@b.co', 't1', 'admin', 'a@b.co')).rejects.toThrow('Failed to assign user role: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('getTenantUsers wraps a DB failure', async () => {
+            mockUserTenantRole.findMany.mockRejectedValueOnce(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.getTenantUsers('t1')).rejects.toThrow('Failed to get tenant users: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('stringifies a non-Error throw in each wrapped message', async () => {
+            mockUserTenantRole.findUnique.mockRejectedValueOnce('raw failure');
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.getUserTenantRole('u1', 't1')).rejects.toThrow('Failed to get user tenant role: raw failure');
+            consoleSpy.mockRestore();
+        });
+
+        it('stringifies a non-Error throw for getUserAllRoles, assignUserRole, and getTenantUsers', async () => {
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            mockUserTenantRole.findMany.mockRejectedValueOnce('raw failure');
+            await expect(repo.getUserAllRoles('u1')).rejects.toThrow('Failed to get user roles: raw failure');
+
+            mockUserTenantRole.upsert.mockRejectedValueOnce('raw failure');
+            await expect(repo.assignUserRole('u1', 'e@b.co', 't1', 'admin', 'a@b.co')).rejects.toThrow('Failed to assign user role: raw failure');
+
+            mockUserTenantRole.findMany.mockRejectedValueOnce('raw failure');
+            await expect(repo.getTenantUsers('t1')).rejects.toThrow('Failed to get tenant users: raw failure');
+
+            consoleSpy.mockRestore();
+        });
+    });
 });

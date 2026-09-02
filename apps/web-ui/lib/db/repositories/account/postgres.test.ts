@@ -89,6 +89,14 @@ describe('AccountPostgresRepository', () => {
             );
         });
 
+        it('ignores a whitespace-only searchTerm', async () => {
+            mockPrisma.account.count.mockResolvedValue(0);
+            mockPrisma.account.findMany.mockResolvedValue([]);
+            const repo = new AccountPostgresRepository();
+            await repo.getAccounts({ tenantId: 'org-default', searchTerm: '   ' });
+            expect(mockPrisma.account.findMany.mock.calls[0][0].where.OR).toBeUndefined();
+        });
+
         it('sets where.active=true for statusFilter="active"', async () => {
             mockPrisma.account.count.mockResolvedValue(1);
             mockPrisma.account.findMany.mockResolvedValue([makeRow({ active: true })]);
@@ -254,6 +262,17 @@ describe('AccountPostgresRepository', () => {
                 });
         });
 
+        it('defaults regions to [] and active to true when omitted', async () => {
+            mockPrisma.account.create.mockResolvedValue(makeRow({ accountId: 'acc-bare' }));
+            const repo = new AccountPostgresRepository();
+            await repo.createAccount({
+                accountId: 'acc-bare', name: 'Bare', roleArn: 'arn:aws:iam::111:role/R',
+            } as never, 'org-default');
+            const data = mockPrisma.account.create.mock.calls[0][0].data;
+            expect(data.regions).toEqual([]);
+            expect(data.active).toBe(true);
+        });
+
         it('calls prisma.account.create and returns mapped UIAccount', async () => {
             mockPrisma.account.create.mockResolvedValue(
                 makeRow({ name: 'New Account', accountId: 'acc-new' })
@@ -282,6 +301,69 @@ describe('AccountPostgresRepository', () => {
 
             expect(mockPrisma.account.create).toHaveBeenCalledOnce();
             expect(result.name).toBe('New Account');
+        });
+    });
+
+    describe('error wrapping', () => {
+        it('getAccounts wraps a DB failure', async () => {
+            mockPrisma.account.findMany.mockRejectedValue(new Error('DB down'));
+            mockPrisma.account.count.mockRejectedValue(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const repo = new AccountPostgresRepository();
+            await expect(repo.getAccounts({ tenantId: 'org-default' })).rejects.toThrow('Failed to get accounts: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('getAccount wraps a DB failure', async () => {
+            mockPrisma.account.findFirst.mockRejectedValue(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const repo = new AccountPostgresRepository();
+            await expect(repo.getAccount('acc-1', 'org-default')).rejects.toThrow('Failed to get account: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('createAccount wraps a DB failure', async () => {
+            mockPrisma.account.create.mockRejectedValue(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const repo = new AccountPostgresRepository();
+            await expect(repo.createAccount({
+                accountId: 'a1', name: 'x', roleArn: 'arn', regions: [], active: true, connectionStatus: 'unknown',
+                createdBy: 'a', updatedBy: 'a', tags: [], description: '', lastValidated: '', resourceCount: 0,
+                schedulesCount: 0, monthlySavings: 0,
+            } as any, 'org-default')).rejects.toThrow('Failed to create account: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('stringifies a non-Error throw in the wrapped message', async () => {
+            mockPrisma.account.findFirst.mockRejectedValue('raw failure');
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const repo = new AccountPostgresRepository();
+            await expect(repo.getAccount('acc-1', 'org-default')).rejects.toThrow('Failed to get account: raw failure');
+            consoleSpy.mockRestore();
+        });
+
+        it('stringifies a non-Error throw for getAccounts and createAccount', async () => {
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            mockPrisma.account.findMany.mockRejectedValue('raw failure');
+            mockPrisma.account.count.mockRejectedValue('raw failure');
+            await expect(repo_getAccounts()).rejects.toThrow('Failed to get accounts: raw failure');
+
+            mockPrisma.account.create.mockRejectedValue('raw failure');
+            await expect(repo_createAccount()).rejects.toThrow('Failed to create account: raw failure');
+
+            consoleSpy.mockRestore();
+
+            function repo_getAccounts() {
+                return new AccountPostgresRepository().getAccounts({ tenantId: 'org-default' });
+            }
+            function repo_createAccount() {
+                return new AccountPostgresRepository().createAccount({
+                    accountId: 'a1', name: 'x', roleArn: 'arn', regions: [], active: true, connectionStatus: 'unknown',
+                    createdBy: 'a', updatedBy: 'a', tags: [], description: '', lastValidated: '', resourceCount: 0,
+                    schedulesCount: 0, monthlySavings: 0,
+                } as any, 'org-default');
+            }
         });
     });
 });
@@ -326,6 +408,37 @@ describe('AccountPostgresRepository — updateAccount', () => {
         expect(callArg.data.name).toBeUndefined();
     });
 
+    it('writes every whitelisted field when all are supplied', async () => {
+        mockPrisma.account.update.mockResolvedValue(makeRow());
+        const repo = new AccountPostgresRepository();
+        await repo.updateAccount('acc-1', {
+            name: 'x', roleArn: 'arn', externalId: 'ext', regions: ['us-east-1'], active: true,
+            description: 'd', connectionStatus: 'connected', connectionError: 'none', updatedBy: 'a@b.co',
+            spotAutomationEnabled: true, spotAutomationStatus: 'ready', spotAutomationCheckedAt: '2026-01-01T00:00:00Z',
+            spotAutomationError: null, templateVersion: 'v2', scalingAuditEnabled: true,
+        } as any, 'org-default');
+
+        const data = mockPrisma.account.update.mock.calls[0][0].data;
+        expect(data.roleArn).toBe('arn');
+        expect(data.spotAutomationEnabled).toBe(true);
+        expect(data.spotAutomationCheckedAt).toBeInstanceOf(Date);
+        expect(data.scalingAuditEnabled).toBe(true);
+    });
+
+    it('nulls spotAutomationCheckedAt when explicitly cleared rather than converting a falsy date', async () => {
+        mockPrisma.account.update.mockResolvedValue(makeRow());
+        const repo = new AccountPostgresRepository();
+        await repo.updateAccount('acc-1', { spotAutomationCheckedAt: null } as any, 'org-default');
+        expect(mockPrisma.account.update.mock.calls[0][0].data.spotAutomationCheckedAt).toBeNull();
+    });
+
+    it('writes no whitelisted field when the update object is empty', async () => {
+        mockPrisma.account.update.mockResolvedValue(makeRow());
+        const repo = new AccountPostgresRepository();
+        await repo.updateAccount('acc-1', {}, 'org-default');
+        expect(mockPrisma.account.update.mock.calls[0][0].data).toEqual({});
+    });
+
     it('returns mapped UIAccount after update', async () => {
         mockPrisma.account.update.mockResolvedValue(makeRow({ name: 'Renamed', connectionStatus: 'connected' }));
 
@@ -343,6 +456,14 @@ describe('AccountPostgresRepository — updateAccount', () => {
         await expect(repo.updateAccount('acc-missing', { name: 'X' }, 'org-default')).rejects.toThrow(
             'Failed to update account'
         );
+    });
+
+    it('stringifies a non-Error throw in the wrapped message', async () => {
+        mockPrisma.account.update.mockRejectedValue('raw failure');
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const repo = new AccountPostgresRepository();
+        await expect(repo.updateAccount('acc-1', { name: 'X' }, 'org-default')).rejects.toThrow('Failed to update account: raw failure');
+        consoleSpy.mockRestore();
     });
 });
 
@@ -385,6 +506,14 @@ describe('AccountPostgresRepository — deleteAccount', () => {
 
         const repo = new AccountPostgresRepository();
         await expect(repo.deleteAccount('acc-1', 'org-default')).rejects.toThrow('Failed to delete account');
+    });
+
+    it('stringifies a non-Error throw in the wrapped message', async () => {
+        mockPrisma.account.deleteMany.mockRejectedValue('raw failure');
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const repo = new AccountPostgresRepository();
+        await expect(repo.deleteAccount('acc-1', 'org-default')).rejects.toThrow('Failed to delete account: raw failure');
+        consoleSpy.mockRestore();
     });
 });
 

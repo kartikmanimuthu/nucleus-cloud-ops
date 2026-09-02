@@ -31,6 +31,7 @@ import type { ReactNode } from 'react'
 
 import { AbilityMetaContext, type AbilityMeta } from '@/providers/ability-provider'
 import { SidebarProvider } from '@/components/ui/sidebar'
+import { navMenus } from '@/lib/nav-config'
 import { NavMain, type NavItem } from '../nav-main'
 
 // jsdom lacks the pointer/layout APIs Radix's Tooltip + Collapsible (used by
@@ -70,8 +71,14 @@ beforeAll(() => {
 // CollapsibleContent (`hidden`), which getByRole/queryByRole treat as
 // invisible. Matching the "AI Ops" entry's href keeps the category expanded
 // regardless of gating, which is what this test needs to assert on.
+// Held in a vi.hoisted() box, not a bare `let`, because vi.mock factories are
+// hoisted above module-level declarations — a plain variable would be in TDZ if
+// the factory ever read it eagerly. The second describe below re-points this so
+// ITS category renders expanded; the default keeps the first describe unchanged.
+const nav = vi.hoisted(() => ({ pathname: '/app/agent' }))
+
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/app/agent',
+  usePathname: () => nav.pathname,
 }))
 
 afterEach(() => cleanup())
@@ -149,5 +156,138 @@ describe('NavMain — subject-vs-module precedence', () => {
 
     expect(screen.getByRole('link', { name: 'AI Ops' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Providers' })).toBeTruthy()
+  })
+})
+
+// ── The degraded registry: a subject whose navPath is missing ────────────────
+//
+// Reported on production: "Scale Sentinel" rendered for a role holding NOTHING
+// on Inventory. Cause was a NULL navPath on the ScalingAudit subject —
+// 20260812100000 set it only inside `INSERT ... ON CONFLICT DO NOTHING`, so a
+// pre-existing row never received it (see
+// 20260820000000_backfill_subject_navpaths).
+//
+// With no navPath, resolveNavOwner finds no owner for the href and canSeeHref
+// returns TRUE — a deliberate fail-open (use-can.ts:142-147). The only thing
+// standing between that and a link visible to everyone is the entry's `module`
+// annotation, which Scale Sentinel did not have.
+//
+// So this fixture OMITS the navPath on purpose. The existing
+// scale-sentinel-nav-and-scan.test.tsx pins the healthy case (navPath present,
+// subject gates it); this pins the broken-registry case, which is the state
+// production was actually in and the one nothing covered.
+describe('NavMain — a subject with no navPath must not fail open', () => {
+  const DEGRADED_META: AbilityMeta = {
+    modules: [
+      { key: 'Inventory', label: 'Inventory', icon: null, navPath: '/app/inventory', sortOrder: 30 },
+      { key: 'Accounts', label: 'Accounts', icon: null, navPath: '/app/accounts', sortOrder: 20 },
+    ],
+    actions: [],
+    subjects: [
+      {
+        key: 'Resource',
+        label: 'Resource',
+        kind: 'resource',
+        moduleKey: 'Inventory',
+        navPath: '/app/inventory',
+        sortOrder: 10,
+      },
+      // navPath deliberately null — the production defect this guards.
+      {
+        key: 'ScalingAudit',
+        label: 'Scale Sentinel',
+        kind: 'resource',
+        moduleKey: 'Inventory',
+        navPath: null,
+        sortOrder: 40,
+      },
+      {
+        key: 'Account',
+        label: 'Account',
+        kind: 'resource',
+        moduleKey: 'Accounts',
+        navPath: '/app/accounts',
+        sortOrder: 10,
+      },
+    ],
+    moduleActions: [],
+    actionAliases: {},
+    version: '1.0',
+    isLoaded: true,
+  }
+
+  // Taken FROM lib/nav-config.ts, not retyped from it. A hand-copied entry
+  // would keep asserting that an annotated entry is gated while the real Scale
+  // Sentinel entry quietly lost its annotation — green against the regression
+  // it exists to catch. Reading the real rows means deleting
+  // `module: "Inventory"` from nav-config.ts fails this file.
+  //
+  // Trimmed to the two entries in play: AWS Accounts (the positive control,
+  // visible in both cases) and Scale Sentinel.
+  const cloudOps = navMenus.find((m) => m.title === 'Cloud Operations')
+  const realEntry = (title: string) => {
+    const entry = cloudOps?.items?.find((i) => i.title === title)
+    if (!entry) throw new Error(`nav-config.ts has no Cloud Operations entry '${title}'`)
+    return entry
+  }
+
+  const degradedItems: NavItem[] = [
+    {
+      title: 'Cloud Operations',
+      icon: Bot,
+      items: [realEntry('AWS Accounts'), realEntry('Scale Sentinel')],
+    },
+  ]
+
+  function renderDegraded(rules: { action: string; subject: string; inverted?: boolean }[]) {
+    const ability = createMongoAbility(rules as never)
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <CaslAbilityProvider value={ability as never}>
+          <AbilityMetaContext.Provider value={DEGRADED_META}>
+            <SidebarProvider>{children}</SidebarProvider>
+          </AbilityMetaContext.Provider>
+        </CaslAbilityProvider>
+      )
+    }
+    return render(<NavMain items={degradedItems} />, { wrapper: Wrapper })
+  }
+
+  beforeAll(() => {
+    // A category whose Collapsible is closed marks its children `hidden`, which
+    // getByRole treats as absent — every assertion below would pass vacuously,
+    // green against both the bug and the fix. defaultOpen needs an active child
+    // (nav-main.tsx:133,159).
+    //
+    // It must be the AWS ACCOUNTS href, not the Scale Sentinel one: childActive
+    // is computed over the FILTERED subs, so pointing it at the entry these
+    // tests expect to be hidden would collapse the category precisely when the
+    // fix works — the assertion would then pass for the wrong reason. Anchoring
+    // on the entry that stays visible in both cases keeps the control honest.
+    nav.pathname = '/app/accounts'
+  })
+
+  it('hides Scale Sentinel for a role with no Inventory grant', () => {
+    // The exact production role: read on Accounts, nothing on Inventory.
+    renderDegraded([{ action: 'read', subject: 'Account' }])
+
+    // Positive control — proves the category is expanded and links do render.
+    expect(screen.getByRole('link', { name: 'AWS Accounts' })).toBeTruthy()
+
+    // Without the `module: "Inventory"` annotation this is the FAIL-OPEN: no
+    // subject claims the href, so canSeeHref says true and the link renders
+    // for a role with zero Inventory permission.
+    expect(screen.queryByRole('link', { name: 'Scale Sentinel' })).toBeNull()
+  })
+
+  it('still shows Scale Sentinel when the Inventory module is readable', () => {
+    // The fallback must not be a blanket deny: a role that can read a subject
+    // of Inventory still reaches the page, so the link must stay.
+    renderDegraded([
+      { action: 'read', subject: 'Account' },
+      { action: 'read', subject: 'Resource' },
+    ])
+
+    expect(screen.getByRole('link', { name: 'Scale Sentinel' })).toBeTruthy()
   })
 })

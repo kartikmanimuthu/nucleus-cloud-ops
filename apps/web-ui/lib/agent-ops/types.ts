@@ -12,11 +12,24 @@ export type TriggerSource = 'slack' | 'jira' | 'discord' | 'telegram' | 'webhook
 
 export type AgentOpsStatus = 'queued' | 'in_progress' | 'awaiting_input' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
 
-// Agent Ops is plan-mode only: every run goes planner → execute → reflect →
-// final → memory_save, so autonomous runs always persist outcome memories.
+// Agent Ops supports two live execution graphs:
+//   'plan' — the dynamic executor graph (evaluator → planner → reflect → final)
+//   'deep' — the deepagents framework graph (sub-agents, virtual FS, write_todos)
 // 'fast' remains in the union solely so legacy rows/checkpoints still type-check;
 // nothing produces it anymore and the executor coerces it to 'plan'.
-export type AgentMode = 'plan' | 'fast';
+export type AgentMode = 'plan' | 'fast' | 'deep';
+
+/**
+ * Modes a tenant may actually select. 'fast' is legacy-only and not offered.
+ * Single definition — lib/agent-ops/agent-ops-defaults.ts re-exports this so
+ * its existing server-side importers keep working unchanged; client
+ * components import it directly from here (this module is otherwise
+ * type-only, so it's safe in a client bundle).
+ */
+export const SELECTABLE_MODES: AgentMode[] = ['plan', 'deep'];
+
+/** Mode used when a tenant has not chosen one. Preserves pre-deep behaviour. */
+export const FALLBACK_DEFAULT_MODE: AgentMode = 'plan';
 
 export type AgentEventType =
     | 'planning'
@@ -30,7 +43,10 @@ export type AgentEventType =
     | 'memory_recall'
     | 'memory_save'
     | 'evaluation'
-    | 'notification';
+    | 'notification'
+    // Deep-mode only: the write_todos checklist and sub-agent lifecycle.
+    | 'todo'
+    | 'subagent';
 
 // ─── Trigger Metadata ──────────────────────────────────────────────────
 
@@ -98,8 +114,20 @@ export interface AgentOpsClarification {
 export interface AgentOpsApprovalRequest {
     planSteps: string[];        // Human-readable plan steps to show in Slack
     pendingTools?: string[];    // Tool names that will be called (if interrupt-before-tools)
-    approvalType: 'plan' | 'tool_execution';
+    approvalType: 'plan' | 'tool_execution' | 'deep_actions';
     slackMessageTs?: string;    // ts of the Block Kit approval message (for updating it)
+    /**
+     * Deep mode only. Every action awaiting a decision, flattened across all
+     * pending interrupts. Shape matches PendingAction in lib/agent/deep/hitl.ts;
+     * duplicated structurally here so this types file stays free of agent imports.
+     */
+    pendingActions?: Array<{
+        toolCallId: string;
+        toolName: string;
+        args: Record<string, unknown>;
+        interruptId: string;
+        index: number;
+    }>;
 }
 
 export interface AgentOpsRun {
@@ -353,4 +381,10 @@ export interface AgentOpsDefaultsConfig {
     defaultModel: string;
     // Graph iteration budget — caps the executor loop AND LangGraph's recursionLimit.
     maxIterations: number;
+    /**
+     * Execution graph for runs that carry no explicit mode — channel triggers
+     * (Slack/Jira/Discord/Telegram/webhook) have no UI to pick one. Optional:
+     * rows written before deep mode existed simply resolve to 'plan'.
+     */
+    defaultMode?: AgentMode;
 }

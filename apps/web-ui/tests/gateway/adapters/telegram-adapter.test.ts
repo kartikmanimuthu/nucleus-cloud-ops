@@ -529,9 +529,14 @@ describe('TelegramAdapter.sendScheduledNotification', () => {
         expect(body.text.length).toBeLessThanOrEqual(4096);
     });
 
-    it('no-ops without a chatId', async () => {
+    // sendScheduledNotification THROWS on missing config (mirrors SlackAdapter —
+    // see its adapter test for the full rationale); notifyScheduledRunResult()
+    // catches it and records the message as a failure event on the run.
+    it('throws a descriptive error without a chatId', async () => {
         const noDest = { ...task, notification: { type: 'telegram' } } as unknown as ScheduledTask;
-        await adapter.sendScheduledNotification!(noDest, run, 'result');
+        await expect(adapter.sendScheduledNotification!(noDest, run, 'result')).rejects.toThrow(
+            'No Telegram chatId configured on the task notification'
+        );
         expect(global.fetch).not.toHaveBeenCalled();
     });
 });
@@ -659,5 +664,217 @@ describe('TelegramAdapter dashboard links', () => {
         const { dest } = linkDestination();
         expect(dest).not.toContain('\\');
         expect(dest).toMatch(/\/app\/agent-ops\/run-1$/);
+    });
+});
+
+describe('validateRequest — secret resolution edge cases', () => {
+    let adapter: TelegramAdapter;
+    beforeEach(() => { adapter = new TelegramAdapter(0); });
+
+    const makeReq = (secretHeader: string, body = { message: { text: '/x', chat: { id: 1 } } }) =>
+        new Request('http://localhost/api/v1/gateway/telegram', {
+            method: 'POST',
+            headers: { 'x-telegram-bot-api-secret-token': secretHeader, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+    it('returns false when the signing-config lookup throws and no env fallback exists', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockRejectedValueOnce(new Error('db down'));
+        expect(await adapter.validateRequest(makeReq('tg-secret') as any)).toBe(false);
+    });
+
+    it('returns false when no secret is configured anywhere', async () => {
+        // .mockReturnValueOnce — self-resetting, so it can't leak into later tests
+        // the way a persistent .mockReturnValue would (bit us once already: it left
+        // findTenantIdBySecretToken resolving null for every test declared after this one).
+        vi.mocked(getTelegramBotLinkRepository).mockReturnValueOnce({
+            findTenantIdBySecretToken: vi.fn().mockResolvedValue(null),
+            upsertLink: vi.fn().mockResolvedValue(undefined),
+            getLinkForTenant: vi.fn().mockResolvedValue(null),
+            deleteLinkForTenant: vi.fn().mockResolvedValue(0),
+        } as any);
+        // tenantId resolves to null here, so validateRequest's `if (tenantId)` branch is
+        // skipped entirely — TenantConfigService.getConfig is never reached, so it must
+        // NOT be stubbed with a *Once value here (an unconsumed Once leaks into whichever
+        // later test calls getConfig next).
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        expect(await adapter.validateRequest(makeReq('anything') as any)).toBe(false);
+        expect(errSpy).toHaveBeenCalledWith('[TelegramAdapter] Secret token not configured');
+    });
+
+    it('rejects the request when the resolved tenant config has enabled: false, even with a matching secret', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValueOnce({ secretToken: 'tg-secret', enabled: false } as any);
+        expect(await adapter.validateRequest(makeReq('tg-secret') as any)).toBe(false);
+    });
+});
+
+describe('parseInbound — unsupported update type', () => {
+    it('returns an empty task description for an update with neither a message nor a callback_query', async () => {
+        const adapter = new TelegramAdapter(0);
+        const req = new Request('http://localhost/api/v1/gateway/telegram', {
+            method: 'POST',
+            headers: { 'x-telegram-bot-api-secret-token': 'tg-secret', 'content-type': 'application/json' },
+            body: JSON.stringify({ edited_message: { text: 'edited' } }),
+        });
+        const msg = await adapter.parseInbound(req as any);
+        expect(msg.taskDescription).toBe('');
+        expect(msg.tenantId).toBe('tenant-1');
+        expect(msg.channelMeta).toEqual({});
+    });
+});
+
+describe('sendError / sendApprovalRequest / getConfig / sendSessionReset', () => {
+    let adapter: TelegramAdapter;
+    const run = {
+        runId: 'run-1', tenantId: 'tenant-1', source: 'telegram', taskDescription: 'Stop the idle instance',
+        trigger: { chatId: 555, userId: 1 },
+    } as any;
+
+    beforeEach(() => {
+        adapter = new TelegramAdapter(0);
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({ botToken: 'tg-bot-token', secretToken: 'tg-secret', enabled: true } as any);
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) });
+    });
+
+    it('sendError posts the escaped, truncated error and clears the ack tracking', async () => {
+        await adapter.sendError(run, 'Access denied: cannot stop i-123');
+
+        const [, init] = vi.mocked(global.fetch).mock.calls[0];
+        const body = JSON.parse(init!.body as string);
+        expect(body.text).toContain('Agent Ops Failed');
+        expect(body.text).toContain('Access denied');
+    });
+
+    it('truncates a long error at the nearest newline before the raw-text cap', async () => {
+        const longError = `${'A'.repeat(3400)}\n${'B'.repeat(200)}`;
+        await adapter.sendError(run, longError);
+
+        const body = JSON.parse(vi.mocked(global.fetch).mock.calls[0][1]!.body as string);
+        expect(body.text).toContain('…');
+        expect(body.text).not.toContain('B'.repeat(200));
+    });
+
+    it('truncates a long, unbroken error (no newline or space) at the hard raw-text cap', async () => {
+        const longError = 'A'.repeat(4000);
+        await adapter.sendError(run, longError);
+
+        const body = JSON.parse(vi.mocked(global.fetch).mock.calls[0][1]!.body as string);
+        expect(body.text).toContain('…');
+        expect(body.text.length).toBeLessThan(4000);
+    });
+
+    it('sendApprovalRequest posts the plan, pending tools, and an approve/reject inline keyboard', async () => {
+        await adapter.sendApprovalRequest(run, ['Stop the instance'], ['stop_instance']);
+
+        const [, init] = vi.mocked(global.fetch).mock.calls[0];
+        const body = JSON.parse(init!.body as string);
+        expect(body.text).toContain('Approval Required');
+        expect(body.text).toContain('stop\\_instance');
+        expect(body.reply_markup.inline_keyboard[0]).toHaveLength(2);
+        expect(body.reply_markup.inline_keyboard[0][0].callback_data).toBe('approve:run-1:tenant-1');
+        expect(body.reply_markup.inline_keyboard[0][1].callback_data).toBe('reject:run-1:tenant-1');
+    });
+
+    it('getConfig returns the raw tenant config', async () => {
+        const config = await adapter.getConfig!('tenant-1');
+        expect(config).toMatchObject({ botToken: 'tg-bot-token' });
+    });
+
+    it('getConfig defaults to {} when the lookup fails', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockRejectedValueOnce(new Error('db down'));
+        expect(await adapter.getConfig!('tenant-1')).toEqual({});
+    });
+
+    it('sendSessionReset posts a confirmation message', async () => {
+        await adapter.sendSessionReset('tenant-1', 555);
+
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        const [, init] = vi.mocked(global.fetch).mock.calls[0];
+        const body = JSON.parse(init!.body as string);
+        expect(body.chat_id).toBe(555);
+        expect(body.text).toContain('New conversation started');
+    });
+
+    it('sendSessionReset does nothing when no bot token is configured', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValueOnce({ botToken: '', enabled: true } as any);
+        await adapter.sendSessionReset('tenant-1', 555);
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('sendSessionReset catches and logs a network failure', async () => {
+        global.fetch = vi.fn().mockRejectedValue(new Error('network down'));
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        await adapter.sendSessionReset('tenant-1', 555);
+
+        expect(errSpy).toHaveBeenCalledWith('[TelegramAdapter] sendSessionReset error:', expect.any(Error));
+    });
+});
+
+describe('sendMessage / editMessage — missing bot token branches', () => {
+    let adapter: TelegramAdapter;
+    const run = {
+        runId: 'run-1', tenantId: 'tenant-1', source: 'telegram', taskDescription: 'x',
+        trigger: { chatId: 555, userId: 1 },
+    } as any;
+
+    beforeEach(() => {
+        adapter = new TelegramAdapter(0);
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({ botToken: '', enabled: true } as any);
+        global.fetch = vi.fn();
+    });
+
+    it('sendResult (best-effort) warns and skips the call when no bot token is configured', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        await adapter.sendResult(run, []);
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(warnSpy).toHaveBeenCalledWith('[TelegramAdapter] Bot token not configured');
+    });
+
+    it('sendScheduledNotification (strict) throws when no bot token is configured', async () => {
+        const task = {
+            taskId: 'task-1', tenantId: 'tenant-1', name: 'x',
+            notification: { type: 'telegram', chatId: '555' },
+        } as unknown as ScheduledTask;
+        await expect(adapter.sendScheduledNotification!(task, run, 'result')).rejects.toThrow(
+            'No Telegram Bot Token configured — set it under Channels → Telegram'
+        );
+    });
+
+    it('editMessage (via sendStreamChunk) warns and returns without calling the API when no bot token is configured', async () => {
+        (adapter as any).ackMessageIds.set('run-1', 42);
+        (adapter as any).narration = new NarrationSessions(0);
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        await adapter.sendStreamChunk!(run, { eventType: 'tool_call', node: 'agent', toolName: 'execute_command' } as any);
+
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(warnSpy).toHaveBeenCalledWith('[TelegramAdapter] Bot token not configured');
+    });
+
+    it('editMessage truncates escaped text over the 4096-char edit limit before sending', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({ botToken: 'tg-bot-token', enabled: true } as any);
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+        (adapter as any).ackMessageIds.set('run-1', 42);
+        const longText = 'x'.repeat(5000);
+        const ok = await (adapter as any).editMessage(run, 555, 42, longText);
+
+        expect(ok).toBe(true);
+        const body = JSON.parse(vi.mocked(global.fetch).mock.calls[0][1]!.body as string);
+        expect(body.text.length).toBeLessThan(5000);
+        expect(body.text).toContain('…');
+    });
+
+    it('editMessage logs an error once retries are exhausted', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValue({ botToken: 'tg-bot-token', enabled: true } as any);
+        global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'chat not found' });
+        (adapter as any).ackMessageIds.set('run-1', 42);
+        (adapter as any).narration = new NarrationSessions(0);
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        await adapter.sendStreamChunk!(run, { eventType: 'tool_call', node: 'agent', toolName: 'execute_command' } as any);
+
+        expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('editMessageText gave up'));
     });
 });

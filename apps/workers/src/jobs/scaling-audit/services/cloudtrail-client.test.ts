@@ -47,7 +47,7 @@ describe('isPlatformPrincipal — this platform is not a human', () => {
     };
     const humanIdentity = {
         type: 'AssumedRole',
-        arn: 'arn:aws:sts::688849551607:assumed-role/AWSReservedSSO_stx-devops-admin-tefk_d1ff2c9bfba14ced/test-user@example.com',
+        arn: 'arn:aws:sts::688849551607:assumed-role/AWSReservedSSO_stx-devops-admin-tefk_d1ff2c9bfba14ced/arijitamin@smcindiaonline.com',
         sessionContext: { sessionIssuer: { arn: 'arn:aws:iam::688849551607:role/AWSReservedSSO_stx-devops-admin-tefk_d1ff2c9bfba14ced' } },
     };
 

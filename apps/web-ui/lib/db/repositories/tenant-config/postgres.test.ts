@@ -108,4 +108,64 @@ describe('TenantConfigPostgresRepository', () => {
             );
         });
     });
+
+    describe('error wrapping', () => {
+        it('getConfig wraps a DB failure', async () => {
+            mockTenantConfig.findUnique.mockRejectedValueOnce(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.getConfig('theme', 'tenant-1')).rejects.toThrow('Failed to get config: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('saveConfig wraps a DB failure', async () => {
+            mockTenantConfig.upsert.mockRejectedValueOnce(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.saveConfig('theme', {}, 'tenant-1')).rejects.toThrow('Failed to save config: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('deleteConfig wraps a DB failure', async () => {
+            mockTenantConfig.deleteMany.mockRejectedValueOnce(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.deleteConfig('theme', 'tenant-1')).rejects.toThrow('Failed to delete config: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('listConfigs wraps a DB failure', async () => {
+            mockTenantConfig.findMany.mockRejectedValueOnce(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.listConfigs('tenant-1')).rejects.toThrow('Failed to list configs: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('stringifies a non-Error throw in the wrapped message', async () => {
+            mockTenantConfig.findUnique.mockRejectedValueOnce('raw failure');
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(repo.getConfig('theme', 'tenant-1')).rejects.toThrow('Failed to get config: raw failure');
+            consoleSpy.mockRestore();
+        });
+
+        it('stringifies a non-Error throw for saveConfig, deleteConfig, and listConfigs', async () => {
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            mockTenantConfig.upsert.mockRejectedValueOnce('raw failure');
+            await expect(repo.saveConfig('theme', {}, 'tenant-1')).rejects.toThrow('Failed to save config: raw failure');
+
+            mockTenantConfig.deleteMany.mockRejectedValueOnce('raw failure');
+            await expect(repo.deleteConfig('theme', 'tenant-1')).rejects.toThrow('Failed to delete config: raw failure');
+
+            mockTenantConfig.findMany.mockRejectedValueOnce('raw failure');
+            await expect(repo.listConfigs('tenant-1')).rejects.toThrow('Failed to list configs: raw failure');
+
+            consoleSpy.mockRestore();
+        });
+    });
+
+    it('saveConfig honors an explicit updatedBy over the "system" default', async () => {
+        mockTenantConfig.upsert.mockResolvedValueOnce({});
+        await repo.saveConfig('theme', {}, 'tenant-1', 'alice@b.co');
+        expect(mockTenantConfig.upsert).toHaveBeenCalledWith(
+            expect.objectContaining({ update: expect.objectContaining({ updatedBy: 'alice@b.co' }) })
+        );
+    });
 });

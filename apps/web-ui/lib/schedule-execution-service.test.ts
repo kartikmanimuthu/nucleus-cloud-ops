@@ -27,6 +27,7 @@ describe('ScheduleExecutionService', () => {
     let mockRepo: {
         logExecution: ReturnType<typeof vi.fn>;
         getExecutionHistory: ReturnType<typeof vi.fn>;
+        getExecutionHistoryPaged: ReturnType<typeof vi.fn>;
         getRecentExecutions: ReturnType<typeof vi.fn>;
     };
 
@@ -35,6 +36,7 @@ describe('ScheduleExecutionService', () => {
         mockRepo = {
             logExecution: vi.fn(),
             getExecutionHistory: vi.fn(),
+            getExecutionHistoryPaged: vi.fn(),
             getRecentExecutions: vi.fn(),
         };
         vi.mocked(getScheduleExecutionRepository).mockReturnValue(mockRepo as any);
@@ -76,6 +78,41 @@ describe('ScheduleExecutionService', () => {
             const result = await ScheduleExecutionService.getExecutionsForSchedule('sched-1', 'acc-1');
 
             expect(result).toEqual([]);
+        });
+    });
+
+    describe('getExecutionsPageForSchedule', () => {
+        it('delegates to repo.getExecutionHistoryPaged with a computed offset', async () => {
+            mockRepo.getExecutionHistoryPaged.mockResolvedValue({ executions: [makeExecution()], total: 42 });
+
+            const result = await ScheduleExecutionService.getExecutionsPageForSchedule(
+                'sched-1', 'test-tenant', { page: 3, limit: 20 }
+            );
+
+            expect(mockRepo.getExecutionHistoryPaged).toHaveBeenCalledWith('sched-1', 'test-tenant', {
+                offset: 40, limit: 20,
+            });
+            expect(result).toEqual({ executions: [makeExecution()], total: 42 });
+        });
+
+        it('clamps a non-positive page or limit to 1', async () => {
+            mockRepo.getExecutionHistoryPaged.mockResolvedValue({ executions: [], total: 0 });
+
+            await ScheduleExecutionService.getExecutionsPageForSchedule('sched-1', 'test-tenant', { page: 0, limit: -5 });
+
+            expect(mockRepo.getExecutionHistoryPaged).toHaveBeenCalledWith('sched-1', 'test-tenant', {
+                offset: 0, limit: 1,
+            });
+        });
+
+        it('returns an empty page on error', async () => {
+            mockRepo.getExecutionHistoryPaged.mockRejectedValue(new Error('DB error'));
+
+            const result = await ScheduleExecutionService.getExecutionsPageForSchedule(
+                'sched-1', 'test-tenant', { page: 1, limit: 10 }
+            );
+
+            expect(result).toEqual({ executions: [], total: 0 });
         });
     });
 

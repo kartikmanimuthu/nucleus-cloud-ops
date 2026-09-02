@@ -59,6 +59,11 @@ export interface IInventoryRepository {
         resourceType: string,
         resourceId: string
     ): Promise<InventoryResource | null>;
+    findOne(args: {
+        tenantId: string;
+        resourceType: string;
+        resourceId: string;
+    }): Promise<InventoryResource | null>;
     upsertResource(resource: Omit<InventoryResource, 'id'>): Promise<InventoryResource>;
     upsertBatch(resources: Omit<InventoryResource, 'id'>[]): Promise<number>;
     getResourceCounts(tenantId: string): Promise<ResourceCount[]>;

@@ -49,6 +49,7 @@ async function ecsServicesDeep(
     ListClustersCommand,
     ListServicesCommand,
     DescribeServicesCommand,
+    DescribeTaskDefinitionCommand,
   } = await import('@aws-sdk/client-ecs');
 
   const allServices: any[] = [];
@@ -94,7 +95,58 @@ async function ecsServicesDeep(
     }
   }
 
+  const imagesByTaskDef = new Map<string, string[]>();
+  // Endpoints a task is configured to talk to. The describe call already happens for images;
+  // keeping the env/secret references is what lets the graph record application dependencies
+  // (an ECS service -> its database), which no describe response states directly.
+  const endpointsByTaskDef = new Map<string, string[]>();
+  const distinctTaskDefArns = [...new Set(allServices.map((svc) => svc.taskDefinition).filter(Boolean))];
+
+  for (const taskDefArn of distinctTaskDefArns) {
+    try {
+      const resp = await client.send(new DescribeTaskDefinitionCommand({ taskDefinition: taskDefArn }));
+      const containers = resp.taskDefinition?.containerDefinitions || [];
+      imagesByTaskDef.set(taskDefArn, containers.map((c: any) => c.image).filter(Boolean));
+      endpointsByTaskDef.set(taskDefArn, collectTaskDefReferences(containers));
+    } catch (error) {
+      log.warn('DescribeTaskDefinition failed', { taskDefArn, error: error instanceof Error ? error.message : String(error) });
+      imagesByTaskDef.set(taskDefArn, []);
+      endpointsByTaskDef.set(taskDefArn, []);
+    }
+  }
+
+  for (const svc of allServices) {
+    svc._images = imagesByTaskDef.get(svc.taskDefinition) || [];
+    svc._endpointRefs = endpointsByTaskDef.get(svc.taskDefinition) || [];
+  }
+
   return allServices;
+}
+
+
+// Values in a task definition that name another AWS resource: hostnames from environment
+// variables (a DATABASE_URL, a queue URL) and the ARNs of secrets/parameters it reads.
+// Only the reference is kept — never the value of a secret, which is not returned here anyway.
+function collectTaskDefReferences(containers: any[]): string[] {
+  const refs = new Set<string>();
+
+  for (const container of containers || []) {
+    for (const env of container?.environment || []) {
+      const value = typeof env?.value === 'string' ? env.value : '';
+      if (!value) continue;
+      for (const host of value.matchAll(/[A-Za-z0-9._-]+\.(?:rds|cache|es|elasticache)\.amazonaws\.com/g)) {
+        refs.add(host[0].toLowerCase());
+      }
+      for (const url of value.matchAll(/https:\/\/sqs\.[a-z0-9-]+\.amazonaws\.com\/\d+\/[A-Za-z0-9_-]+/g)) {
+        refs.add(url[0]);
+      }
+    }
+    for (const secret of container?.secrets || []) {
+      if (typeof secret?.valueFrom === 'string' && secret.valueFrom) refs.add(secret.valueFrom);
+    }
+  }
+
+  return [...refs];
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +219,93 @@ async function cloudfrontDeep(
 }
 
 // ---------------------------------------------------------------------------
+// ELBv2 Target Groups — paginate target groups, then describe target health
+// ---------------------------------------------------------------------------
+
+async function targetGroupsWithHealth(
+  client: any,
+  region: string,
+  config: ScanConfig,
+): Promise<any[]> {
+  const { DescribeTargetGroupsCommand, DescribeTargetHealthCommand } = await import(
+    '@aws-sdk/client-elastic-load-balancing-v2'
+  );
+
+  const groups: any[] = [];
+  let marker: string | undefined;
+  do {
+    const resp = await client.send(new DescribeTargetGroupsCommand({ Marker: marker }));
+    groups.push(...(resp.TargetGroups || []));
+    marker = resp.NextMarker;
+  } while (marker);
+
+  for (const group of groups) {
+    try {
+      const health = await client.send(
+        new DescribeTargetHealthCommand({ TargetGroupArn: group.TargetGroupArn }),
+      );
+      group._targetHealth = health.TargetHealthDescriptions || [];
+    } catch (error) {
+      log.warn('Target health lookup failed', {
+        region,
+        targetGroupArn: group.TargetGroupArn,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      group._targetHealth = [];
+    }
+  }
+
+  return groups;
+}
+
+// ---------------------------------------------------------------------------
+// EventBridge Rules — list rules, then list targets per rule
+// ---------------------------------------------------------------------------
+
+async function eventsRulesWithTargets(
+  client: any,
+  region: string,
+  config: ScanConfig,
+): Promise<any[]> {
+  const { ListRulesCommand, ListTargetsByRuleCommand } = await import('@aws-sdk/client-eventbridge');
+
+  const rules: any[] = [];
+  let nextToken: string | undefined;
+  do {
+    const resp = await client.send(new ListRulesCommand({ NextToken: nextToken }));
+    rules.push(...(resp.Rules || []));
+    nextToken = resp.NextToken;
+  } while (nextToken);
+
+  for (const rule of rules) {
+    try {
+      const targets: any[] = [];
+      let targetsNextToken: string | undefined;
+      do {
+        const resp = await client.send(
+          new ListTargetsByRuleCommand({
+            Rule: rule.Name,
+            EventBusName: rule.EventBusName,
+            NextToken: targetsNextToken,
+          }),
+        );
+        targets.push(...(resp.Targets || []));
+        targetsNextToken = resp.NextToken;
+      } while (targetsNextToken);
+      rule._targets = targets;
+    } catch (error) {
+      log.warn('EventBridge target lookup failed', {
+        region,
+        rule: rule.Name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return rules;
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch map — keyed by "service:function"
 // ---------------------------------------------------------------------------
 
@@ -175,4 +314,6 @@ export const CUSTOM_SCANNERS: Record<string, CustomScannerFn> = {
   'ecs:list_services': ecsServicesDeep,
   'wafv2:list_web_acls': wafv2Deep,
   'cloudfront:list_distributions': cloudfrontDeep,
+  'elbv2:describe_target_groups': targetGroupsWithHealth,
+  'events:list_rules': eventsRulesWithTargets,
 };

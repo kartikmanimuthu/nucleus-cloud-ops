@@ -196,6 +196,13 @@ describe('ScheduleExecutionPostgresRepository', () => {
             );
         });
 
+        it('defaults a null duration to undefined', async () => {
+            mockPrisma.scheduleExecution.findMany.mockResolvedValue([makeExecutionRow({ duration: null })]);
+            const repo = new ScheduleExecutionPostgresRepository();
+            const [result] = await repo.getRecentExecutions('org-default');
+            expect(result.duration).toBeUndefined();
+        });
+
         it('returns mapped UIScheduleExecution for recent executions', async () => {
             mockPrisma.scheduleExecution.findMany.mockResolvedValue([
                 makeExecutionRow({ status: 'partial', resourcesFailed: 1 }),
@@ -207,6 +214,69 @@ describe('ScheduleExecutionPostgresRepository', () => {
             expect(result).toHaveLength(1);
             expect(result[0].status).toBe('partial');
             expect(result[0].resourcesFailed).toBe(1);
+        });
+    });
+
+    describe('error wrapping', () => {
+        it('logExecution wraps a DB failure', async () => {
+            mockPrisma.scheduleExecution.create.mockRejectedValue(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const repo = new ScheduleExecutionPostgresRepository();
+            await expect(repo.logExecution({
+                tenantId: 'org-default', scheduleId: 's1', accountId: 'a1', status: 'success', executionTime: '',
+            } as any)).rejects.toThrow('Failed to log execution: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('getExecutionHistory wraps a DB failure', async () => {
+            mockPrisma.scheduleExecution.findMany.mockRejectedValue(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const repo = new ScheduleExecutionPostgresRepository();
+            await expect(repo.getExecutionHistory('s1', 'org-default')).rejects.toThrow('Failed to get execution history: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('getExecutionHistoryPaged wraps a DB failure', async () => {
+            mockPrisma.scheduleExecution.count.mockRejectedValue(new Error('DB down'));
+            mockPrisma.scheduleExecution.findMany.mockRejectedValue(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const repo = new ScheduleExecutionPostgresRepository();
+            await expect(repo.getExecutionHistoryPaged('s1', 'org-default', { offset: 0, limit: 10 }))
+                .rejects.toThrow('Failed to get paged execution history: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('getRecentExecutions wraps a DB failure', async () => {
+            mockPrisma.scheduleExecution.findMany.mockRejectedValue(new Error('DB down'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const repo = new ScheduleExecutionPostgresRepository();
+            await expect(repo.getRecentExecutions('org-default')).rejects.toThrow('Failed to get recent executions: DB down');
+            consoleSpy.mockRestore();
+        });
+
+        it('stringifies a non-Error throw in the wrapped message', async () => {
+            mockPrisma.scheduleExecution.findMany.mockRejectedValue('raw failure');
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const repo = new ScheduleExecutionPostgresRepository();
+            await expect(repo.getRecentExecutions('org-default')).rejects.toThrow('Failed to get recent executions: raw failure');
+            consoleSpy.mockRestore();
+        });
+
+        it('stringifies a non-Error throw for logExecution and getExecutionHistoryPaged', async () => {
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            mockPrisma.scheduleExecution.create.mockRejectedValue('raw failure');
+            const repo = new ScheduleExecutionPostgresRepository();
+            await expect(repo.logExecution({
+                tenantId: 'org-default', scheduleId: 's1', accountId: 'a1', status: 'success', executionTime: '',
+            } as any)).rejects.toThrow('Failed to log execution: raw failure');
+
+            mockPrisma.scheduleExecution.count.mockRejectedValue('raw failure');
+            mockPrisma.scheduleExecution.findMany.mockRejectedValue('raw failure');
+            await expect(repo.getExecutionHistoryPaged('s1', 'org-default', { offset: 0, limit: 10 }))
+                .rejects.toThrow('Failed to get paged execution history: raw failure');
+
+            consoleSpy.mockRestore();
         });
     });
 });

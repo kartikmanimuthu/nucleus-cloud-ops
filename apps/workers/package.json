@@ -13,6 +13,8 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "DATABASE_URL=\"${DATABASE_URL:-postgresql://nucleus:nucleus_dev@localhost:5432/nucleus?connection_limit=10}\" vitest run",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
@@ -72,6 +74,7 @@
     "@types/pdf-parse": "^1.1.4",
     "@types/pg": "^8.20.0",
     "@types/uuid": "^10.0.0",
+    "@vitest/coverage-v8": "^2.1.8",
     "fast-check": "^4.8.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

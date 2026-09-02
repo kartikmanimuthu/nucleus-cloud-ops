@@ -1,7 +1,19 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import { buildCommandEnv } from './tools';
+
+const logResourceActionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('@/lib/audit-service', () => ({ AuditService: { logResourceAction: logResourceActionMock } }));
+
+const execFileMock = vi.hoisted(() => vi.fn());
+vi.mock('child_process', () => ({ execFile: vi.fn(), exec: vi.fn() }));
+vi.mock('util', async (orig) => {
+    const actual = await orig<typeof import('util')>();
+    return { ...actual, promisify: () => execFileMock };
+});
+
 import {
     validateAwsReadRequest, buildAwsReadArgv, normalizeParams, ALLOWED_FLAGS, ALLOWED_OPS, VALUE_SHAPES,
+    createAwsReadTool, AWS_READ_OUTPUT_MAX_CHARS,
     type ParamValue, type ValueShape,
 } from './aws-read-tool';
 import { markSubagentReadOnlyTool } from './subagent-tool-marker';
@@ -518,6 +530,71 @@ describe('normalizeParams — JSON-document parameters', () => {
     it('still refuses a raw string carrying a scheme', () => {
         const params = normalizeParams({ '--time-period': 'file:///etc/passwd' })!;
         expect(validateAwsReadRequest({ ...ce, params })).not.toBeNull();
+    });
+});
+
+describe('createAwsReadTool — execution', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('refuses without ever calling execFile when the request fails validation', async () => {
+        const result = await createAwsReadTool('tenant-1').invoke({ service: 'not-a-real-service', operation: 'x' } as never);
+        expect(result).toContain('REFUSED:');
+        expect(execFileMock).not.toHaveBeenCalled();
+    });
+
+    it('runs aws with shell:false and returns stdout on success, audit-logging the call', async () => {
+        execFileMock.mockResolvedValue({ stdout: '{"Reservations":[]}', stderr: '' });
+
+        const result = await createAwsReadTool('tenant-1', 'user-1').invoke(ok as never);
+
+        expect(execFileMock).toHaveBeenCalledWith(
+            'aws', expect.arrayContaining(['ec2', 'describe-instances']),
+            expect.objectContaining({ shell: false }),
+        );
+        expect(result).toBe('{"Reservations":[]}');
+        expect(logResourceActionMock).toHaveBeenCalledWith(expect.objectContaining({
+            eventType: 'agent.subagent.aws_read', tenantId: 'tenant-1', user: 'user-1', userType: 'user',
+        }));
+    });
+
+    it('falls back to stderr, then to "(no output)", when stdout is empty', async () => {
+        execFileMock.mockResolvedValue({ stdout: '', stderr: 'a warning' });
+        expect(await createAwsReadTool('tenant-1').invoke(ok as never)).toBe('a warning');
+
+        execFileMock.mockResolvedValue({ stdout: '', stderr: '' });
+        expect(await createAwsReadTool('tenant-1').invoke(ok as never)).toBe('(no output)');
+    });
+
+    it('attributes the audit log to "subagent"/"system" when no userId is given', async () => {
+        execFileMock.mockResolvedValue({ stdout: 'ok', stderr: '' });
+        await createAwsReadTool('tenant-1').invoke(ok as never);
+        expect(logResourceActionMock).toHaveBeenCalledWith(expect.objectContaining({ user: 'subagent', userType: 'system' }));
+    });
+
+    it('never lets an audit-log failure block the read', async () => {
+        logResourceActionMock.mockRejectedValue(new Error('audit db down'));
+        execFileMock.mockResolvedValue({ stdout: 'ok', stderr: '' });
+        await expect(createAwsReadTool('tenant-1').invoke(ok as never)).resolves.toBe('ok');
+    });
+
+    it('truncates output beyond AWS_READ_OUTPUT_MAX_CHARS', async () => {
+        execFileMock.mockResolvedValue({ stdout: 'x'.repeat(AWS_READ_OUTPUT_MAX_CHARS + 500), stderr: '' });
+        const result = await createAwsReadTool('tenant-1').invoke(ok as never);
+        expect(result.endsWith('…[truncated]')).toBe(true);
+        expect(result.length).toBeLessThan(AWS_READ_OUTPUT_MAX_CHARS + 100);
+    });
+
+    it('returns a formatted ERROR string (message + stderr) when execFile rejects', async () => {
+        execFileMock.mockRejectedValue(Object.assign(new Error('exit code 254'), { stderr: 'AccessDenied: not authorized' }));
+        const result = await createAwsReadTool('tenant-1').invoke(ok as never);
+        expect(result).toContain('ERROR: exit code 254');
+        expect(result).toContain('AccessDenied: not authorized');
+    });
+
+    it('stringifies a non-Error rejection with no message/stderr fields', async () => {
+        execFileMock.mockRejectedValue('raw string failure');
+        const result = await createAwsReadTool('tenant-1').invoke(ok as never);
+        expect(result).toBe('ERROR: raw string failure');
     });
 });
 

@@ -24,11 +24,15 @@ const mockRepo = {
 
 vi.mock('@/lib/auth-session', () => ({
     getSessionTenantId: vi.fn(async () => TENANT_A),
-    getSessionUserEmail: vi.fn(async () => 'test-user@example.com'),
+    getSessionUserEmail: vi.fn(async () => 'arijitamin@smcindiaonline.com'),
 }));
 
 vi.mock('@/lib/rbac/authorize', () => ({
     authorize: vi.fn(async () => null), // authorized
+}));
+
+vi.mock('@/lib/rbac/row-filter', () => ({
+    getReadRowFilter: vi.fn(async () => null), // no narrowing
 }));
 
 vi.mock('@/lib/db/repository-factory', () => ({
@@ -139,7 +143,7 @@ describe('Spot Guard tenant isolation — cross-tenant access', () => {
             'svc-1',
             TENANT_A,
             'unmanaged',
-            'test-user@example.com',
+            'arijitamin@smcindiaonline.com',
         );
     });
 });

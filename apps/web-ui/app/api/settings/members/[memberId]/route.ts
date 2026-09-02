@@ -45,9 +45,52 @@ export async function PATCH(
             );
         }
 
-        const updated = await prisma.userTenantRole.update({
-            where: { id: memberId },
-            data: { role: role.trim() },
+        const nextRole = role.trim();
+
+        // ── WRITE BOTH COLUMNS, ALWAYS ──────────────────────────────────────
+        // user_tenant_roles records the role twice: `role` (free text, labelled
+        // "keep for backward compat" at schema.prisma:199) and `roleId` (the FK).
+        // They are read by DIFFERENT code paths — authorize()'s legacy branch
+        // resolves by NAME, while session-ability.ts:44 (CASL, the sidebar and
+        // the page guard) resolves by FK and only consults the name when roleId
+        // is NULL.
+        //
+        // This handler previously wrote `role` alone, leaving roleId pointing at
+        // the PREVIOUS role. Nothing catches that: the CHECK constraint on `role`
+        // was dropped in 20260403_drop_role_check_constraint and no trigger
+        // enforces the two columns agreeing. The result is a member the API
+        // authorises as one role and the UI renders as another — nine `smc`
+        // memberships ended up with role='cloud-admin' against roleId=cloud-read,
+        // granting Schedules and IAM through the API while the sidebar showed
+        // them as read-only. See docs/rca-2026-08-21-role-column-divergence.md.
+        //
+        // roleId resolves to NULL for the predefined roles (Owner/Admin/Member/
+        // Viewer), which have no tenant-local row — the documented meaning of a
+        // null FK, and resolveRole() falls back to the name for exactly that case.
+        // Same lookup shape as invitation-service.ts:66 and :331.
+        const updated = await prisma.$transaction(async (tx) => {
+            const customRole = await tx.customRole.findFirst({
+                where: { tenantId, name: nextRole },
+                select: { id: true },
+            });
+
+            const row = await tx.userTenantRole.update({
+                where: { id: memberId },
+                data: { role: nextRole, roleId: customRole?.id ?? null },
+            });
+
+            // Without this the change does not take effect. principalCache in
+            // session-ability.ts:131 is keyed `tenantId:userId:version`, so the
+            // OLD principal — carrying the old roleId — keeps being served until
+            // the version moves. Mirrors withRbacVersionBump() in
+            // registry-service.ts:129; inlined to avoid passing this route's
+            // tenant-extended client where an RbacTransaction is expected.
+            await tx.tenant.update({
+                where: { id: tenantId },
+                data: { rbacVersion: { increment: 1 } },
+            });
+
+            return row;
         });
 
         AuditService.logUserAction({

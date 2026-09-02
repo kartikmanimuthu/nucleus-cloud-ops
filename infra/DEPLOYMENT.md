@@ -103,7 +103,7 @@ Only non-secret config values need to be set:
 
 ```bash
 cd infra/compute
-PULUMI_CONFIG_PASSPHRASE="" AWS_PROFILE=PLATFORM-ADMIN pulumi config set appUrl "https://d11lr8aqp8vqde.cloudfront.net" --stack prod
+PULUMI_CONFIG_PASSPHRASE="" AWS_PROFILE=PLATFORM-ADMIN pulumi config set appUrl "https://d2o00a2uwp9po0.cloudfront.net" --stack prod
 PULUMI_CONFIG_PASSPHRASE="" AWS_PROFILE=PLATFORM-ADMIN pulumi config set subscriptionEmails "" --stack prod
 ```
 
@@ -124,7 +124,7 @@ The compute stack uses `requireOutput()` — it fails at preview time if network
 
 | Output | Value | Description |
 |--------|-------|-------------|
-| `cloudFrontUrl` | `https://d11lr8aqp8vqde.cloudfront.net` | Public app URL |
+| `cloudFrontUrl` | `https://d2o00a2uwp9po0.cloudfront.net` | Public app URL (prod; sbx is `https://d3ckkkrg51rymx.cloudfront.net`) |
 | `postgresEndpoint` | `nucleus-cloud-ops-postgres.*.ap-south-1.rds.amazonaws.com` | RDS hostname |
 | `bastionInstanceId` | `i-xxxxxxxxxxxxxxxxx` | Bastion EC2 instance ID (for SSM tunnel) |
 | `ecsClusterName` | `nucleus-cloud-ops-ecs-cluster` | ECS cluster name |
