@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -10,6 +11,7 @@ import { Copy, ExternalLink, Server, Database, Cloud, Tag, Clock, MapPin, Box } 
 import { toast } from "sonner";
 import { getServiceName, getAwsConsoleUrl } from "@/lib/resource-types";
 import { getColumnsForType } from "@/lib/inventory/column-registry";
+import { ResourceDependenciesTab } from "./resource-dependencies-tab";
 import { formatDateTime } from "@/lib/date-utils";
 import { useTenant } from '@/lib/tenant-context';
 
@@ -31,6 +33,8 @@ interface ResourceDetailDialogProps {
     resource: ResourceDetailProps | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    initialTab?: string;
+    onTabChange?: (tab: string) => void;
 }
 
 // Helper to get resource icon
@@ -66,25 +70,49 @@ function formatMetaValue(value: unknown): string {
     return String(value);
 }
 
-export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceDetailDialogProps) {
-    if (!resource) return null;
+export function ResourceDetailDialog({ resource, open, onOpenChange, initialTab, onTabChange }: ResourceDetailDialogProps) {
+    const [activeTab, setActiveTab] = useState(initialTab ?? 'details');
+    const [stack, setStack] = useState<ResourceDetailProps[]>([]);
+
+    useEffect(() => {
+        setActiveTab(initialTab ?? 'details');
+        setStack([]);
+    }, [resource?.resourceId, open, initialTab]);
 
     const { timezone } = useTenant();
+
+    if (!resource) return null;
+
+    const focused = stack.length ? stack[stack.length - 1] : resource;
 
     const copyToClipboard = (text: string, label: string) => {
         navigator.clipboard.writeText(text);
         toast.success(`${label} copied to clipboard`);
     };
 
-    const awsConsoleUrl = getAwsConsoleUrl(resource);
-    const serviceName = getServiceName(resource.resourceType);
-    const tags = resource.tags || {};
-    const metadata = resource.metadata || {};
+    const pivot = async (resourceType: string, resourceId: string) => {
+        const res = await fetch(
+            `/api/inventory/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`,
+        );
+        const body = await res.json();
+        if (!res.ok || !body.success) {
+            toast.error('Could not open that resource', { description: body.error });
+            return;
+        }
+        setStack((prev) => [...prev, body.data as ResourceDetailProps]);
+        setActiveTab('dependencies');
+        onTabChange?.('dependencies');
+    };
+
+    const awsConsoleUrl = getAwsConsoleUrl(focused);
+    const serviceName = getServiceName(focused.resourceType);
+    const tags = focused.tags || {};
+    const metadata = focused.metadata || {};
     const hasMetadata = Object.keys(metadata).length > 0;
 
     const COMMON_COL_IDS = new Set(['name', 'state', 'region', 'accountId', 'tags', 'lastDiscoveredAt', 'service', 'resourceType']);
 
-    const metadataColumns = resource ? getColumnsForType(resource.resourceType)
+    const metadataColumns = focused ? getColumnsForType(focused.resourceType)
         .filter(col => col.id && !COMMON_COL_IDS.has(col.id) && metadata && col.id in metadata)
         .map(col => ({ key: col.id as string, label: (col.meta as { label: string })?.label ?? col.id as string }))
       : [];
@@ -95,14 +123,14 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                 <DialogHeader>
                     <div className="flex items-center gap-3">
                         <div className="p-2 rounded-lg bg-primary/10">
-                            {getResourceIcon(resource.resourceType)}
+                            {getResourceIcon(focused.resourceType)}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <DialogTitle className="text-lg truncate">{resource.name}</DialogTitle>
+                            <DialogTitle className="text-lg truncate">{focused.name}</DialogTitle>
                             <DialogDescription asChild>
                                 <div className="flex items-center gap-2 mt-1">
                                     <Badge variant="secondary">{serviceName}</Badge>
-                                    {getStateBadge(resource.state)}
+                                    {getStateBadge(focused.state)}
                                 </div>
                             </DialogDescription>
                         </div>
@@ -117,13 +145,42 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                     </div>
                 </DialogHeader>
 
-                <Tabs defaultValue="details" className="flex-1 overflow-hidden flex flex-col">
-                    <TabsList className="grid w-full grid-cols-3">
+                {stack.length > 0 && (
+                    <nav aria-label="Focus trail" className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                        {[resource!, ...stack].map((r, i, all) => (
+                            <span key={`${r.resourceType}:${r.resourceId}`} className="flex items-center gap-1">
+                                {i > 0 && <span aria-hidden>›</span>}
+                                {i === all.length - 1 ? (
+                                    <span className="font-medium text-foreground">{r.name || r.resourceId}</span>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        className="hover:underline"
+                                        onClick={() => setStack((prev) => prev.slice(0, i))}
+                                    >
+                                        {r.name || r.resourceId}
+                                    </button>
+                                )}
+                            </span>
+                        ))}
+                    </nav>
+                )}
+
+                <Tabs
+                    value={activeTab}
+                    onValueChange={(value) => {
+                        setActiveTab(value);
+                        onTabChange?.(value);
+                    }}
+                    className="flex-1 overflow-hidden flex flex-col"
+                >
+                    <TabsList className="grid w-full grid-cols-4">
                         <TabsTrigger value="details">Details</TabsTrigger>
                         <TabsTrigger value="tags">Tags ({Object.keys(tags).length})</TabsTrigger>
                         <TabsTrigger value="metadata" disabled={!hasMetadata}>
                             Metadata
                         </TabsTrigger>
+                        <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
                     </TabsList>
 
                     <ScrollArea className="flex-1 mt-4">
@@ -134,23 +191,23 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                                     <label className="text-xs font-medium text-muted-foreground">Resource ID</label>
                                     <div className="flex items-center gap-2">
                                         <code className="text-sm bg-muted px-2 py-1 rounded truncate flex-1">
-                                            {resource.resourceId}
+                                            {focused.resourceId}
                                         </code>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(resource.resourceId, "Resource ID")}>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(focused.resourceId, "Resource ID")}>
                                             <Copy className="h-4 w-4" />
                                         </Button>
                                     </div>
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-medium text-muted-foreground">Account</label>
-                                    {resource.accountName && (
-                                        <div className="text-sm font-medium">{resource.accountName}</div>
+                                    {focused.accountName && (
+                                        <div className="text-sm font-medium">{focused.accountName}</div>
                                     )}
                                     <div className="flex items-center gap-2">
                                         <code className="text-sm bg-muted px-2 py-1 rounded truncate flex-1">
-                                            {resource.accountId}
+                                            {focused.accountId}
                                         </code>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(resource.accountId, "Account ID")}>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(focused.accountId, "Account ID")}>
                                             <Copy className="h-4 w-4" />
                                         </Button>
                                     </div>
@@ -161,9 +218,9 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                                 <label className="text-xs font-medium text-muted-foreground">Resource ARN</label>
                                 <div className="flex items-center gap-2">
                                     <code className="text-xs bg-muted px-2 py-1 rounded truncate flex-1">
-                                        {resource.resourceArn}
+                                        {focused.resourceArn}
                                     </code>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(resource.resourceArn, "ARN")}>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(focused.resourceArn, "ARN")}>
                                         <Copy className="h-4 w-4" />
                                     </Button>
                                 </div>
@@ -177,7 +234,7 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                                     <MapPin className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
                                     <div>
                                         <div className="text-sm font-medium">Region</div>
-                                        <div className="text-sm text-muted-foreground">{resource.region}</div>
+                                        <div className="text-sm text-muted-foreground">{focused.region}</div>
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-3 p-3 rounded-lg border">
@@ -192,8 +249,8 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                                     <div>
                                         <div className="text-sm font-medium">Last Discovered</div>
                                         <div className="text-sm text-muted-foreground">
-                                            {resource.lastDiscoveredAt
-                                                ? formatDateTime(resource.lastDiscoveredAt, "shortDate", timezone)
+                                            {focused.lastDiscoveredAt
+                                                ? formatDateTime(focused.lastDiscoveredAt, "shortDate", timezone)
                                                 : "Never"}
                                         </div>
                                     </div>
@@ -272,6 +329,15 @@ export function ResourceDetailDialog({ resource, open, onOpenChange }: ResourceD
                                     </pre>
                                 </div>
                             )}
+                        </TabsContent>
+
+                        <TabsContent value="dependencies" className="mt-0">
+                            <ResourceDependenciesTab
+                                resourceType={focused.resourceType}
+                                resourceId={focused.resourceId}
+                                active={activeTab === 'dependencies'}
+                                onPivot={pivot}
+                            />
                         </TabsContent>
                     </ScrollArea>
                 </Tabs>

@@ -211,7 +211,7 @@ export async function POST(req: Request) {
         const isResumeTurn = Array.isArray(decisions) || messages[messages.length - 1]?.role === 'tool';
         let effectiveSkill: string | null = selectedSkill || null;
         let triageRoute: 'direct' | 'task' = 'task';
-        if (!isResumeTurn && mode !== 'deep') {
+        if (!isResumeTurn) {
             const lastMsg = messages[messages.length - 1];
             const lastUserText = typeof lastMsg?.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg?.content ?? '');
             const triage = await triageChatMessage({
@@ -220,7 +220,10 @@ export async function POST(req: Request) {
                 model: resolvedModel,
                 // Skip skill matching when a skill is pinned OR the console
                 // "Auto skills" toggle is off (routing still runs either way).
-                skillAlreadySelected: !!effectiveSkill || autoLoadSkills === false,
+                // Deep always skips it too: deep discloses skills progressively via
+                // the load_skill tool, so a triage-pinned skill would inline the full
+                // content into its prompt and pre-empt that choice.
+                skillAlreadySelected: !!effectiveSkill || autoLoadSkills === false || mode === 'deep',
             });
             triageRoute = triage.route;
             if (!effectiveSkill && triage.skillId) effectiveSkill = triage.skillId;
@@ -629,6 +632,11 @@ export async function POST(req: Request) {
             if (mode === 'deep') {
                 const { processDeepStream } = await import('./deep-stream');
                 const deepUsage = { input: 0, output: 0 };
+                // Middleware memory calls never enter graph state, so persistDeepHistory cannot
+                // see them. Buffer their narration here and persist it as marker-prefixed
+                // display messages — the same shape the v2 path uses, which the history route
+                // already replays as data-memory parts.
+                const deepMemory = { recall: '', save: '' };
 
                 // @ts-ignore
                 const deepRun = await graph.streamEvents(
@@ -672,11 +680,15 @@ export async function POST(req: Request) {
                         },
                         getInterruptState: () => graph.getState(config),
                         onUsage: (i, o) => { deepUsage.input += i; deepUsage.output += o; },
+                        onMemoryText: (op, text) => {
+                            if (op === 'save') deepMemory.save += (deepMemory.save ? '\n\n' : '') + text;
+                            else deepMemory.recall += (deepMemory.recall ? '\n\n' : '') + text;
+                        },
                         onFinish: () => persistDeepHistory({
                             getMessages: async () => (await graph.getState(config)).values?.messages ?? [],
                             threadId,
                             userId: resolvedUserId, tenantId: resolvedTenantId,
-                            preRunMessageCount, usage: deepUsage,
+                            preRunMessageCount, usage: deepUsage, memory: deepMemory,
                         }),
                     }),
                 });
@@ -883,8 +895,10 @@ interface StreamEvent {
 
 /**
  * Deep's chat-history write. The v2 path does this inline in processStream, wrapped in
- * fast/plan-only concerns (phase markers, memory recall/save messages) that deep does not
- * produce — deep messages are untagged and its memory is tool-driven.
+ * phase-marker bookkeeping that deep does not need for its own messages — deep's model
+ * output is untagged. Memory is the exception: DeepMemoryMiddleware runs its recall/save
+ * models in beforeAgent/afterAgent, so those turns never land in graph state and the
+ * narration has to be passed in and persisted as display-only messages.
  */
 async function persistDeepHistory(args: {
     getMessages: () => Promise<BaseMessage[]>;
@@ -893,14 +907,16 @@ async function persistDeepHistory(args: {
     tenantId?: string;
     preRunMessageCount: number;
     usage: { input: number; output: number };
+    memory?: { recall: string; save: string };
 }): Promise<void> {
-    const { getMessages, threadId, userId, tenantId, preRunMessageCount, usage } = args;
+    const { getMessages, threadId, userId, tenantId, preRunMessageCount, usage, memory } = args;
     if (!userId) return;
     try {
         const allMessages = await getMessages();
         const newMessages = allMessages.slice(preRunMessageCount);
+        const hasMemory = !!(memory?.recall.trim() || memory?.save.trim());
         console.log(`[DeepStream][${threadId}] persist ${allMessages.length} total, ${newMessages.length} new`);
-        if (newMessages.length === 0) return;
+        if (newMessages.length === 0 && !hasMemory) return;
 
         const mapped = newMessages.map(m => {
             const role = m._getType();
@@ -927,6 +943,18 @@ async function persistDeepHistory(args: {
                     break;
                 }
             }
+        }
+
+        // Display-only memory rows, positioned as the live stream emitted them: recall right
+        // after the user's turn, save at the end. Markers are what the history route parses.
+        if (memory?.recall.trim()) {
+            const humanIdx = mapped.findIndex(m => m.role === 'human');
+            mapped.splice(humanIdx >= 0 ? humanIdx + 1 : 0, 0, {
+                role: 'ai', content: getPhaseMarker('memory_recall') + memory.recall, metadata: undefined,
+            });
+        }
+        if (memory?.save.trim()) {
+            mapped.push({ role: 'ai', content: getPhaseMarker('memory_save') + memory.save, metadata: undefined });
         }
 
         const firstHuman = allMessages.find(m => m._getType() === 'human');

@@ -46,8 +46,53 @@ jobs:
         run: bun run lint
         continue-on-error: true
 
-      # Non-blocking until the mock-harness failures in the agent test suite
-      # are fixed. Remove continue-on-error once the suite is green.
+      # DB-free unit suite (the 3-4 real Postgres integration suites are
+      # describe.skipIf'd without DATABASE_URL — see the `coverage` job below
+      # for those plus the coverage report).
       - name: Test
         run: bun run test
-        continue-on-error: true
+
+  coverage:
+    name: Coverage (unit + Postgres integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: nucleus
+          POSTGRES_USER: nucleus
+          POSTGRES_PASSWORD: nucleus_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nucleus -d nucleus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://nucleus:nucleus_dev@localhost:5432/nucleus?connection_limit=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply migrations
+        run: |
+          prisma migrate deploy --schema=./libs/prisma/schema.prisma
+          prisma db execute --file ./libs/prisma/ensure-vector-indexes.sql --schema=./libs/prisma/schema.prisma
+
+      - name: Test + coverage
+        run: bun run test:coverage

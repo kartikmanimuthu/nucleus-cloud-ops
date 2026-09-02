@@ -57,8 +57,10 @@ export function CoverageBanner({ gaps }: { gaps: WatermarkGap[] }) {
                             <code className="rounded bg-muted px-1 py-0.5 font-mono">ecs:UpdateService</code> from the console, CLI, or a deployment pipeline does not appear in the source API and is <span className="font-medium text-foreground">absent from this record</span>.
                         </p>
                         <p>
-                            Coverage gaps above report whether polls of the source APIs succeeded — not that those APIs expose every path capacity can change by. Naming individual principals, and capturing direct{" "}
-                            <code className="rounded bg-muted px-1 py-0.5 font-mono">ecs:UpdateService</code> calls, both require CloudTrail integration (not yet implemented).
+                            Coverage gaps above report whether polls of the source APIs succeeded — not that those APIs expose every path capacity can change by. Direct{" "}
+                            <code className="rounded bg-muted px-1 py-0.5 font-mono">ecs:UpdateService</code>,{" "}
+                            <code className="rounded bg-muted px-1 py-0.5 font-mono">asg:SetDesiredCapacity</code>, and{" "}
+                            <code className="rounded bg-muted px-1 py-0.5 font-mono">asg:UpdateAutoScalingGroup</code> calls are captured via CloudTrail (event history ~90 days), which identifies the calling principal. Changes older than that window cannot be attributed retrospectively.
                         </p>
                     </div>
                 </div>

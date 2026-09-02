@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockGetProvider, mockGetConfigById } = vi.hoisted(() => ({
+const { mockGetProvider, mockGetConfigById, mockGetDefaultConfig } = vi.hoisted(() => ({
     mockGetProvider: vi.fn(),
     mockGetConfigById: vi.fn(),
+    mockGetDefaultConfig: vi.fn(),
 }));
 vi.mock('@/lib/provider-model-service', () => ({
-    ProviderModelService: { getProvider: mockGetProvider, getConfigById: mockGetConfigById },
+    ProviderModelService: { getProvider: mockGetProvider, getConfigById: mockGetConfigById, getDefaultConfig: mockGetDefaultConfig },
 }));
 
-import { resolveModelConfig } from './model-resolver';
+import { resolveModelConfig, resolveDefaultModelConfig } from './model-resolver';
 
 const UUID = '550e8400-e29b-41d4-a716-446655440000';
 
@@ -143,5 +144,63 @@ describe('resolveModelConfig', () => {
             maxTokens: undefined,
         });
         expect(mockGetProvider).toHaveBeenCalledWith(UUID, 'tenant-1');
+    });
+
+    it('throws when the Bedrock provider config cannot be decrypted/found after passing the record check', async () => {
+        mockGetProvider.mockResolvedValue({
+            id: UUID, isEnabled: true,
+            models: [{ id: 'model-x', label: 'Model X' }],
+        });
+        mockGetConfigById.mockResolvedValue(null);
+        await expect(resolveModelConfig(`bedrock:model-x:${UUID}`, 'tenant-1'))
+            .rejects.toThrow('Provider not found or disabled');
+    });
+
+    it('throws when a record-backed (non-Bedrock) provider config cannot be found after passing the record check', async () => {
+        mockGetProvider.mockResolvedValue({
+            id: UUID, isEnabled: true,
+            models: [{ id: 'model-x', label: 'Model X' }],
+        });
+        mockGetConfigById.mockResolvedValue(null);
+        await expect(resolveModelConfig(`anthropic:model-x:${UUID}`, 'tenant-1'))
+            .rejects.toThrow('Provider not found or disabled');
+    });
+});
+
+describe('resolveDefaultModelConfig', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('throws when the tenant has no default provider', async () => {
+        mockGetDefaultConfig.mockResolvedValue(null);
+        await expect(resolveDefaultModelConfig('tenant-1')).rejects.toThrow('provider');
+    });
+
+    it('throws when the default provider has no chat model selected', async () => {
+        mockGetDefaultConfig.mockResolvedValue({ provider: 'anthropic', chatModel: undefined, models: [] });
+        await expect(resolveDefaultModelConfig('tenant-1')).rejects.toThrow('no chat model selected');
+    });
+
+    it('resolves the tenant default config into a ResolvedModelConfig for Bedrock', async () => {
+        mockGetDefaultConfig.mockResolvedValue({
+            provider: 'bedrock', chatModel: 'claude-sonnet',
+            region: 'us-east-1', accessKeyId: 'AK', secretAccessKey: 'SK',
+            models: [{ id: 'claude-sonnet', maxTokens: 4096, temperature: 0.2 }],
+        });
+        const result = await resolveDefaultModelConfig('tenant-1');
+        expect(result).toEqual({
+            provider: 'bedrock', modelId: 'claude-sonnet', region: 'us-east-1',
+            accessKeyId: 'AK', secretAccessKey: 'SK', maxTokens: 4096, temperature: 0.2,
+        });
+    });
+
+    it('resolves the tenant default config for a non-Bedrock provider, defaulting maxTokens/temperature when the model entry is absent', async () => {
+        mockGetDefaultConfig.mockResolvedValue({
+            provider: 'openai', chatModel: 'gpt-4', baseUrl: undefined, apiKey: 'sk-x', models: [],
+        });
+        const result = await resolveDefaultModelConfig('tenant-1');
+        expect(result).toEqual({
+            provider: 'openai', modelId: 'gpt-4', baseUrl: undefined, apiKey: 'sk-x',
+            maxTokens: undefined, temperature: undefined,
+        });
     });
 });

@@ -23,6 +23,7 @@ vi.mock('@/lib/account-service', () => ({
     AccountService: { updateAccount: mockUpdate, validateAccount: mockValidate },
 }));
 
+import { getSessionTenantId } from '@/lib/auth-session';
 import { POST } from './route';
 
 const makeRequest = (body: unknown) =>
@@ -39,6 +40,19 @@ describe('POST /api/accounts/bulk', () => {
         const res = await POST(makeRequest({ action: 'nuke', accountIds: ['a'] }));
         expect(res._status).toBe(400);
         expect(res._data.success).toBe(false);
+    });
+
+    it('returns 400 for a body that fails to parse as JSON', async () => {
+        const req = { json: vi.fn().mockRejectedValue(new Error('bad json')) } as any;
+        const res = await POST(req);
+        expect(res._status).toBe(400);
+        expect(res._data.error).toBe('Invalid JSON body');
+    });
+
+    it('returns 401 when the session tenant cannot be resolved', async () => {
+        vi.mocked(getSessionTenantId).mockRejectedValueOnce(new Error('Unauthenticated'));
+        const res = await POST(makeRequest({ action: 'activate', accountIds: ['a'] }));
+        expect(res._status).toBe(401);
     });
 
     it('rejects an empty id list', async () => {

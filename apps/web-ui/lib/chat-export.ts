@@ -12,15 +12,38 @@
 
 import { formatDateTime } from './date-utils';
 import { unwrapToolInput } from '@/lib/agent-chat/events';
+import {
+    cap,
+    createPdfWriter,
+    mdToPdfBlocks,
+    PDF_TOOL_IO_CAP,
+    stripInlineMarkdown,
+    toPdfSafeText,
+    type PdfBlock,
+} from '@/lib/pdf/pdf-blocks';
+
+// The PDF engine moved to @/lib/pdf/pdf-blocks so Agent Ops renders through the
+// SAME block model, writer and WinAnsi rules. Re-exported here because this
+// module was its original home and both callers and tests import it from here.
+export { mdToPdfBlocks, stripInlineMarkdown, toPdfSafeText, type PdfBlock };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ChatMessage = any; // Use any to handle the complex AI SDK message structure
 
 /** Cap long tool payloads in PDFs so a scan-heavy run stays a readable file. */
-const PDF_TOOL_IO_CAP = 2000;
 
-function cap(text: string, max: number): string {
-    return text.length > max ? `${text.slice(0, max)}\n… (truncated)` : text;
-}
+/**
+ * The standard-14 PDF fonts jsPDF draws with (helvetica/courier) use
+ * WinAnsiEncoding — one byte per glyph. Anything above it is emitted as raw
+ * UTF-16 bytes and drawn as Latin-1: an emoji's D83D DE4F surfaces as "Ø=ÞO",
+ * and jsPDF switches that whole string to two-bytes-per-char, which is what
+ * spaces the line out ("H a h a"). Both symptoms have one cause, so one filter
+ * in writeText fixes both for every block kind and both exports.
+ *
+ * Embedding a Unicode TTF is the alternative; it costs ~300KB of bundle and
+ * still cannot render colour emoji, so decoration is dropped and the glyphs
+ * that carry meaning are transliterated.
+ */
+
 
 function isToolPart(part: ChatMessage): boolean {
     return !!(part.toolCallId || (part.type?.startsWith('tool-') && part.type !== 'text') || part.type === 'dynamic-tool');
@@ -164,155 +187,6 @@ export async function exportToMarkdown(messages: ChatMessage[], threadId: string
 
 // ─── Markdown-aware PDF rendering ────────────────────────────────────────────
 
-export type PdfBlock =
-    | { kind: 'heading'; level: number; text: string }
-    | { kind: 'para'; text: string }
-    | { kind: 'bullet'; text: string }
-    | { kind: 'mono'; text: string }
-    | { kind: 'note'; text: string }
-    | { kind: 'label'; text: string; color: [number, number, number] }
-    | { kind: 'gap' };
-
-/** Strip inline markdown syntax (**bold**, *em*, `code`, [text](url)) for PDF text. */
-export function stripInlineMarkdown(text: string): string {
-    return text
-        .replace(/\*\*([^*]+)\*\*/g, '$1')
-        .replace(/\*([^*]+)\*/g, '$1')
-        .replace(/`([^`]+)`/g, '$1')
-        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
-}
-
-/**
- * Line-based markdown → PDF block classifier: headings sized, emphasis
- * stripped, list markers normalized, fenced code and table rows set in
- * monospace, table separator rows and horizontal rules dropped.
- */
-export function mdToPdfBlocks(markdown: string): PdfBlock[] {
-    const blocks: PdfBlock[] = [];
-    let inFence = false;
-
-    for (const rawLine of markdown.split('\n')) {
-        const line = rawLine.replace(/\s+$/, '');
-
-        if (/^\s*```/.test(line)) {
-            inFence = !inFence;
-            continue;
-        }
-        if (inFence) {
-            blocks.push({ kind: 'mono', text: rawLine });
-            continue;
-        }
-        if (!line.trim()) {
-            blocks.push({ kind: 'gap' });
-            continue;
-        }
-
-        const heading = line.match(/^(#{1,6})\s+(.*)$/);
-        if (heading) {
-            blocks.push({ kind: 'heading', level: heading[1].length, text: stripInlineMarkdown(heading[2]) });
-            continue;
-        }
-        if (/^(-{3,}|\*{3,})$/.test(line.trim())) {
-            blocks.push({ kind: 'gap' });
-            continue;
-        }
-        if (/^\s*\|.*\|\s*$/.test(line)) {
-            // Drop the |---|---| separator row; keep data rows as monospace so
-            // the pipes at least align instead of rendering as broken prose.
-            if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue;
-            blocks.push({ kind: 'mono', text: stripInlineMarkdown(line) });
-            continue;
-        }
-        const bullet = line.match(/^\s*([-*+]|\d+\.)\s+(.*)$/);
-        if (bullet) {
-            const marker = /^\d/.test(bullet[1]) ? `${bullet[1]} ` : '• ';
-            blocks.push({ kind: 'bullet', text: `${marker}${stripInlineMarkdown(bullet[2])}` });
-            continue;
-        }
-        blocks.push({ kind: 'para', text: stripInlineMarkdown(line) });
-    }
-
-    // Collapse runs of blank lines into a single gap.
-    return blocks.filter((b, i, arr) => !(b.kind === 'gap' && arr[i - 1]?.kind === 'gap'));
-}
-
-interface PdfWriter {
-    write: (blocks: PdfBlock[]) => void;
-    save: (filename: string) => void;
-}
-
-async function createPdfWriter(): Promise<PdfWriter> {
-    const { jsPDF } = await import('jspdf');
-    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 15;
-    const maxWidth = pageWidth - margin * 2;
-    let y = margin;
-
-    const ensureRoom = (needed: number) => {
-        if (y + needed > pageHeight - margin) {
-            doc.addPage();
-            y = margin;
-        }
-    };
-
-    const writeText = (
-        text: string,
-        opts: { size: number; style?: 'normal' | 'bold' | 'italic'; color?: [number, number, number]; font?: 'helvetica' | 'courier'; indent?: number },
-    ) => {
-        doc.setFont(opts.font ?? 'helvetica', opts.style ?? 'normal');
-        doc.setFontSize(opts.size);
-        const [r, g, b] = opts.color ?? [17, 24, 39];
-        doc.setTextColor(r, g, b);
-        const indent = opts.indent ?? 0;
-        const lineHeight = opts.size * 0.45;
-        const lines = doc.splitTextToSize(text, maxWidth - indent) as string[];
-        for (const line of lines) {
-            ensureRoom(lineHeight);
-            doc.text(line, margin + indent, y);
-            y += lineHeight;
-        }
-    };
-
-    const HEADING_SIZES: Record<number, number> = { 1: 14, 2: 12.5, 3: 11, 4: 10.5, 5: 10, 6: 10 };
-
-    const write = (blocks: PdfBlock[]) => {
-        for (const block of blocks) {
-            switch (block.kind) {
-                case 'gap':
-                    y += 2;
-                    break;
-                case 'heading':
-                    ensureRoom(10);
-                    y += block.level <= 2 ? 3 : 2;
-                    writeText(block.text, { size: HEADING_SIZES[block.level] ?? 10, style: 'bold' });
-                    y += 1;
-                    break;
-                case 'para':
-                    writeText(block.text, { size: 9.5 });
-                    break;
-                case 'bullet':
-                    writeText(block.text, { size: 9.5, indent: 4 });
-                    break;
-                case 'mono':
-                    writeText(block.text, { size: 7.5, font: 'courier', color: [55, 65, 81] });
-                    break;
-                case 'note':
-                    writeText(block.text, { size: 8.5, style: 'italic', color: [107, 114, 128], indent: 2 });
-                    break;
-                case 'label':
-                    ensureRoom(10);
-                    y += 2;
-                    writeText(block.text, { size: 10.5, style: 'bold', color: block.color });
-                    y += 0.5;
-                    break;
-            }
-        }
-    };
-
-    return { write, save: (filename: string) => doc.save(filename) };
-}
 
 function headerBlocks(title: string, threadId: string): PdfBlock[] {
     return [

@@ -101,7 +101,7 @@ export function EmptyState({ onSuggestion }: { onSuggestion: (prompt: string) =>
 
               <p className="text-xs text-muted-foreground">
                 {allowed
-                  ? "Pick accounts, model, mode, and skill in the composer below — or just start typing."
+                  ? "Pick accounts, model, and skill in the composer below — or just start typing."
                   : (reason ?? "You do not have permission to run the agent.")}
               </p>
             </>

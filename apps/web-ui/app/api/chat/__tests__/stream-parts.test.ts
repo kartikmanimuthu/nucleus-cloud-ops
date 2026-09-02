@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude } from '@/app/api/chat/stream-parts';
-import { buildUsagePart } from '../stream-parts';
+import { buildMemoryPart, humanizeReflection, humanizePlanning, isWorkingMemoryPayload, stripWorkingMemoryPrelude, isMemoryNarration } from '@/app/api/chat/stream-parts';
+import { buildUsagePart, buildActiveSkillPart, buildInterruptParts } from '../stream-parts';
 import { buildSubagentPart, buildHeartbeatChunks, isSubagentModelEvent } from '../stream-parts';
 import { SUBAGENT_MODEL_TAG } from '@/lib/agent/subagent';
 
@@ -127,6 +127,11 @@ describe('humanizeReflection', () => {
         expect(humanizeReflection(raw)).toBe(raw);
     });
 
+    it('returns raw unchanged when a {...} span is present but not valid JSON', () => {
+        const raw = '{ "analysis": "test", "issues": , }';
+        expect(humanizeReflection(raw)).toBe(raw);
+    });
+
     // reflectNode (apps/web-ui/lib/agent/planning-agent.ts) persists a pre-formatted
     // feedback string, never raw JSON — persisted reflection content must reach the
     // SAME prose shape the live JSON path produces. Mirrors planning-agent's exact
@@ -191,6 +196,16 @@ describe('humanizePlanning', () => {
         const raw = '["unterminated, "broken]';
         expect(humanizePlanning(raw)).toBe(raw);
     });
+
+    it('returns raw text unchanged when the object shape does not parse', () => {
+        const raw = '{"plan": ["unterminated, "broken]}';
+        expect(humanizePlanning(raw)).toBe(raw);
+    });
+
+    it('returns raw text unchanged when the object shape parses but "plan" is not a string array', () => {
+        const raw = '{"plan": "not-an-array"}';
+        expect(humanizePlanning(raw)).toBe(raw);
+    });
 });
 
 describe('isWorkingMemoryPayload', () => {
@@ -236,6 +251,75 @@ describe('stripWorkingMemoryPrelude', () => {
 describe('buildUsagePart', () => {
     it('builds a data-usage part', () => {
         expect(buildUsagePart(3, 4)).toEqual({ type: 'data-usage', data: { input: 3, output: 4 } });
+    });
+});
+
+describe('buildActiveSkillPart', () => {
+    it('builds a data-skill part carrying the slug and source', () => {
+        expect(buildActiveSkillPart('cost-optimization', 'user')).toEqual({
+            type: 'data-skill',
+            data: { slug: 'cost-optimization', source: 'user' },
+        });
+        expect(buildActiveSkillPart('right-sizing', 'auto')).toEqual({
+            type: 'data-skill',
+            data: { slug: 'right-sizing', source: 'auto' },
+        });
+    });
+});
+
+describe('buildInterruptParts', () => {
+    it('returns an empty array when nothing is pending', () => {
+        expect(buildInterruptParts({ messages: [], guardVerdicts: {} }, 'thread-1')).toEqual([]);
+    });
+
+    it('emits a data-approval batch for a pending normal tool, carrying its guard verdict', () => {
+        const messages = [
+            {
+                _getType: () => 'ai',
+                tool_calls: [{ id: 'call-1', name: 'stop_instance', args: { instanceId: 'i-1' } }],
+            },
+        ];
+        const guardVerdicts = { 'call-1': { decision: 'review' as const, reason: 'stops a running instance' } };
+        const parts = buildInterruptParts({ messages: messages as any, guardVerdicts }, 'thread-1');
+
+        expect(parts).toHaveLength(1);
+        expect(parts[0].type).toBe('data-approval');
+        expect(parts[0].id).toBe('approval-thread-1');
+        expect((parts[0].data as any).tools).toEqual([
+            { toolCallId: 'call-1', toolName: 'stop_instance', args: { instanceId: 'i-1' }, guard: guardVerdicts['call-1'] },
+        ]);
+    });
+
+    it('emits a data-clarification part for a pending ask_user call, defaulting question and options', () => {
+        const messages = [
+            {
+                _getType: () => 'ai',
+                tool_calls: [{ id: 'call-2', name: 'ask_user', args: {} }],
+            },
+        ];
+        const parts = buildInterruptParts({ messages: messages as any, guardVerdicts: {} }, 'thread-1');
+
+        expect(parts).toHaveLength(2);
+        expect(parts[0].type).toBe('data-approval');
+        expect((parts[0].data as any).tools).toEqual([]);
+        expect(parts[1]).toEqual({
+            type: 'data-clarification',
+            id: 'clarify-call-2',
+            data: { toolCallId: 'call-2', question: 'The agent needs your input.', options: [] },
+        });
+    });
+
+    it('carries a custom question and stringified options for an ask_user call', () => {
+        const messages = [
+            {
+                _getType: () => 'ai',
+                tool_calls: [{ id: 'call-3', name: 'ask_user', args: { question: 'Which region?', options: ['us-east-1', 2] } }],
+            },
+        ];
+        const parts = buildInterruptParts({ messages: messages as any, guardVerdicts: {} }, 'thread-1');
+        const clarification = parts.find((p) => p.type === 'data-clarification');
+        expect((clarification!.data as any).question).toBe('Which region?');
+        expect((clarification!.data as any).options).toEqual(['us-east-1', '2']);
     });
 });
 
@@ -369,3 +453,66 @@ describe('buildSubagentPart live-detail fields', () => {
         expect('lastTool' in (without.data as object)).toBe(false);
     });
 });
+
+describe('isMemoryNarration', () => {
+    it('suppresses the reconcile judge payload', () => {
+        expect(isMemoryNarration('[{"factIndex": 1, "action": "ADD"}, {"factIndex": 2, "action": "ADD"}]')).toBe(false)
+    })
+
+    it('suppresses a judge payload carrying targetIds', () => {
+        expect(isMemoryNarration(JSON.stringify([
+            { factIndex: 0, action: 'ADD' },
+            { factIndex: 1, action: 'REINFORCE', targetId: '03d9dd03-d942-4d02-be66-5e8ef9278765' },
+        ]))).toBe(false)
+    })
+
+    it('suppresses the skill distiller payload', () => {
+        expect(isMemoryNarration(JSON.stringify({
+            name: 'AWS Cost Explorer Analysis',
+            description: 'Use when gathering AWS Cost Explorer data.',
+            narrative: '## Purpose\nProvides guidance for...',
+        }))).toBe(false)
+    })
+
+    it('suppresses a fenced distiller payload', () => {
+        expect(isMemoryNarration('```json\n{"name":"X","description":"Y","narrative":"## Z"}\n```')).toBe(false)
+    })
+
+    it('keeps a real extracted-memory payload', () => {
+        expect(isMemoryNarration(JSON.stringify([{
+            namespace: ['patterns', 'lambda-audit'],
+            key: 'lambda-fleet-review-methodology',
+            value: { fact: 'Effective methodology for auditing a Lambda fleet', confidence: 'medium' },
+        }]))).toBe(true)
+    })
+
+    it('suppresses an INVALID-JSON distiller payload (raw newline in narrative)', () => {
+        // Verbatim shape from prod: the narrative carries a literal newline, so the
+        // payload does not parse — this is what defeated the parse-based check and let
+        // the whole skill document render as a memory.
+        const raw = '{"name":"AWS Cost Explorer Analysis & Attribution","description":"Use when gathering AWS Cost Explorer data.","narrative":"## Purpose\nProvides guidance for accurately gathering data.\n\n## When to use\nApply this skill whenever..."}'
+        expect(() => JSON.parse(raw)).toThrow()
+        expect(isMemoryNarration(raw)).toBe(false)
+    })
+
+    it('suppresses a distiller payload framed in prose', () => {
+        const raw = 'Here is the skill document:\n{"name":"X","description":"Y","narrative":"## Purpose\nZ"}'
+        expect(isMemoryNarration(raw)).toBe(false)
+    })
+
+    it('keeps a memory with name+description but no narrative', () => {
+        expect(isMemoryNarration('{"name":"x","description":"y","fact":"z"}')).toBe(true)
+    })
+
+    it('keeps prose narration', () => {
+        expect(isMemoryNarration('- Saved that the ECS cluster in us-east-1 is stx-cloud-platform')).toBe(true)
+    })
+
+    it('keeps an empty array (not a judge verdict)', () => {
+        expect(isMemoryNarration('[]')).toBe(true)
+    })
+
+    it('keeps an object that merely has a name', () => {
+        expect(isMemoryNarration('{"name":"something","fact":"a real memory"}')).toBe(true)
+    })
+})

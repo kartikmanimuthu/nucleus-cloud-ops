@@ -121,4 +121,12 @@ describe('POST /api/skills/distill', () => {
         expect((res as any)._status).toBe(400);
         expect((res as any)._data.error).toBe('No LLM provider is configured.');
     });
+
+    it('500s on an unexpected error unrelated to provider configuration', async () => {
+        const invoke = vi.fn().mockRejectedValue(new Error('model call crashed'));
+        vi.mocked(createAgentModels).mockReturnValue({ main: { invoke }, reflector: {} } as any);
+        const res = await POST(makeRequest({ transcript: 'USER: hi' }));
+        expect((res as any)._status).toBe(500);
+        expect((res as any)._data.success).toBe(false);
+    });
 });

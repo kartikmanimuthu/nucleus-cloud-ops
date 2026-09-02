@@ -78,8 +78,21 @@ describe('reconcileMemories', () => {
         const merged = { fact: 'merged', source: 's', confidence: 'high' };
         const judge = judgeReturning([{ factIndex: 0, action: 'UPDATE', targetId: 'old-1', mergedValue: merged }]);
         const summary = await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
-        expect(mockSvc.update).toHaveBeenCalledWith('t1', 'old-1', merged);
+        expect(mockSvc.update).toHaveBeenCalledWith('t1', 'old-1', { ...neighbor('old-1').value, ...merged });
         expect(summary.updated).toBe(1);
+    });
+
+    it('UPDATE overlays mergedValue onto the target — fields the judge omits survive', async () => {
+        mockSvc.recall.mockResolvedValue([
+            { ...neighbor('old-1'), value: { fact: 'old fact', confidence: 'high', instance_count: 5 } },
+        ]);
+        // Judge restates only `fact`; a verbatim write would drop confidence + instance_count,
+        // which is what blanked the Memory tab's Fact/Confidence columns.
+        const judge = judgeReturning([{ factIndex: 0, action: 'UPDATE', targetId: 'old-1', mergedValue: { fact: 'new fact' } }]);
+        await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
+        expect(mockSvc.update).toHaveBeenCalledWith('t1', 'old-1', {
+            fact: 'new fact', confidence: 'high', instance_count: 5,
+        });
     });
 
     it('NOOP → nothing written', async () => {
@@ -181,6 +194,50 @@ describe('reconcileMemories', () => {
         await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
         expect(mockSvc.recall).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['SEMANTIC'] }));
         expect(mockSvc.remember).toHaveBeenCalledWith(expect.objectContaining({ kind: 'SEMANTIC' }));
+    });
+
+    it('ADD chosen by the judge despite having neighbors', async () => {
+        mockSvc.recall.mockResolvedValue([neighbor('old-1')]);
+        const judge = judgeReturning([{ factIndex: 0, action: 'ADD' }]);
+        const summary = await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
+        expect(mockSvc.remember).toHaveBeenCalledTimes(1);
+        expect(mockSvc.supersede).not.toHaveBeenCalled();
+        expect(summary.added).toBe(1);
+    });
+
+    it('SUPERSEDE collapses to an in-place update when remember() upserts onto the same row as the target', async () => {
+        // remember() shares namespace+key with the target, so ON CONFLICT DO UPDATE
+        // returns the SAME id — the new row IS the target row.
+        mockSvc.recall.mockResolvedValue([neighbor('old-1')]);
+        mockSvc.remember.mockResolvedValue('old-1');
+        const judge = judgeReturning([{ factIndex: 0, action: 'SUPERSEDE', targetId: 'old-1' }]);
+
+        const summary = await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
+
+        expect(mockSvc.supersede).not.toHaveBeenCalled();
+        expect(summary.superseded).toBe(0);
+        expect(summary.updated).toBe(1);
+        expect(summary.added).toBe(0);
+    });
+
+    it('a fast-path ADD failure (no neighbors) is counted as failed, not thrown', async () => {
+        mockSvc.recall.mockResolvedValue([]);
+        mockSvc.remember.mockRejectedValueOnce(new Error('db unavailable'));
+        const judge = judgeReturning([]);
+
+        const summary = await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
+
+        expect(summary.failed).toBe(1);
+        expect(summary.added).toBe(0);
+    });
+
+    it('a malformed judge response (no JSON array) leaves every neighbor-bearing fact to fall back to ADD', async () => {
+        mockSvc.recall.mockResolvedValue([neighbor('old-1')]);
+        const judge = { invoke: vi.fn().mockResolvedValue({ content: 'not json at all' }) } as any;
+
+        const summary = await reconcileMemories({ ...base, facts: [fact('k1')], judgeModel: judge });
+
+        expect(summary.added).toBe(1);
     });
 });
 

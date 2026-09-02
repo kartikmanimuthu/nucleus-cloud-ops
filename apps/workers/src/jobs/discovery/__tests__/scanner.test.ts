@@ -139,6 +139,12 @@ describe('scanner — invokeService', () => {
       function: 'describe_vpcs',
       result_key: 'Vpcs',
     });
+    // The promise can reject while timers are still being advanced below,
+    // before the `expect(promise).rejects` assertion attaches its own handler
+    // — attach a no-op catch immediately so Node doesn't flag it as an
+    // unhandled rejection in that window. A promise supports multiple
+    // independent .catch() consumers, so the real assertion below is unaffected.
+    promise.catch(() => {});
 
     // Advance timers past all retry delays (2s + 4s + 8s)
     await vi.runAllTimersAsync();
@@ -471,10 +477,38 @@ describe('scanner — extractResourceIdentifiers', () => {
     expect(ids.name).toBe('key-abc-123');
   });
 
+  it('should extract TargetGroupArn as resourceId, not VpcId', () => {
+    const ids = extractResourceIdentifiers(
+      {
+        TargetGroupArn: 'arn:aws:elasticloadbalancing:us-east-1:111:targetgroup/tg-web/abc123',
+        TargetGroupName: 'tg-web',
+        VpcId: 'vpc-123',
+        LoadBalancerArns: ['arn:aws:elasticloadbalancing:us-east-1:111:loadbalancer/app/prod-alb/xyz'],
+      },
+      'elbv2',
+    );
+
+    expect(ids.resourceId).toBe('arn:aws:elasticloadbalancing:us-east-1:111:targetgroup/tg-web/abc123');
+    expect(ids.name).toBe('tg-web');
+  });
+
   it('should handle State as dict with Name key', () => {
     const resource = { InstanceId: 'i-123', State: { Name: 'stopped', Code: 80 } };
     const ids = extractResourceIdentifiers(resource, 'ec2');
     expect(ids.state).toBe('stopped');
+  });
+
+  it('identifies an elastic ip by its allocation id, not the instance it is attached to', () => {
+    const ids = extractResourceIdentifiers({
+      AllocationId: 'eipalloc-1',
+      InstanceId: 'i-999',
+      PublicIp: '52.1.2.3',
+    }, 'ec2');
+    expect(ids.resourceId).toBe('eipalloc-1');
+  });
+
+  it('still identifies an instance by its instance id', () => {
+    expect(extractResourceIdentifiers({ InstanceId: 'i-999' }, 'ec2').resourceId).toBe('i-999');
   });
 });
 

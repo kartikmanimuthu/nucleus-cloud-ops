@@ -1,4 +1,10 @@
 config:
   aws:region: ap-south-1
-  nucleus-networking:vpcCidr: 10.0.0.0/16
+  nucleus-networking:vpcCidr: 10.182.16.0/22
+  nucleus-networking:networkSuffix: -prod
+  # Shared into this account via AWS RAM (stx-fw-hub-tgw-share), owned by
+  # account 585768182456. Attachment enables inter-account connectivity for
+  # the data engineering team's VPC(s).
+  nucleus-networking:transitGatewayId: tgw-0490f03c643a18a9d
+  nucleus-networking:transitGatewayRouteCidrs: 10.136.0.0/16
 encryptionsalt: v1:2BLqHurb92I=:v1:UMUwH4ixvhAVIBRy:i8ElmyuF2TrLn0kgW9YwVBxCvfoJsw==

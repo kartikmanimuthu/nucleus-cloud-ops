@@ -96,4 +96,46 @@ describe('PUT /api/settings/aiops', () => {
         vi.mocked(authorize).mockResolvedValue(denied as never);
         expect(await PUT(putRequest(valid))).toBe(denied);
     });
+
+    it('403s with no tenant context', async () => {
+        vi.mocked(getSessionTenantId).mockResolvedValue(null as never);
+        expect((await PUT(putRequest(valid))).status).toBe(403);
+    });
+
+    it('returns 500 when saving throws', async () => {
+        vi.mocked(TenantConfigService.saveConfig).mockRejectedValue(new Error('DB down'));
+        expect((await PUT(putRequest(valid))).status).toBe(500);
+    });
+});
+
+describe('PUT /api/settings/aiops (features shape)', () => {
+    beforeEach(() => { vi.mocked(TenantConfigService.saveConfig).mockResolvedValue(undefined as never); });
+
+    const validFeatures = {
+        features: {
+            chatTriageEnabled: true, workingMemoryEnabled: true, episodicMemoryEnabled: false,
+            proceduralMemoryEnabled: false, memoryReconcileEnabled: false, autoSkillCreationEnabled: false,
+            skillSynthesisMinRules: 5, maxIterations: 30,
+        },
+    };
+
+    it('saves valid feature flags, primes the cache, and audits it', async () => {
+        const res = await PUT(putRequest(validFeatures));
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.success).toBe(true);
+        expect(TenantConfigService.saveConfig).toHaveBeenCalledWith(
+            'aiops-features', expect.objectContaining({ chatTriageEnabled: true }), 't1', 'a@b.com',
+        );
+        expect(AuditService.logUserAction).toHaveBeenCalledWith(
+            expect.objectContaining({ eventType: 'aiops.features.settings.updated' })
+        );
+    });
+
+    it('400s on invalid feature input', async () => {
+        const res = await PUT(putRequest({ features: { maxIterations: 'not-a-number' } }));
+        expect(res.status).toBe(400);
+        expect(TenantConfigService.saveConfig).not.toHaveBeenCalled();
+    });
 });

@@ -25,7 +25,16 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { CronPicker } from "./cron-picker"
-import type { ScheduledTask } from "@/lib/agent-ops/types"
+import type { ScheduledTask, AgentMode } from "@/lib/agent-ops/types"
+import { SELECTABLE_MODES } from "@/lib/agent-ops/types"
+
+// Labels for the modes offered by SELECTABLE_MODES (the single source of
+// truth for what's selectable, defined in lib/agent-ops/types.ts — 'fast' is
+// legacy-only and never appears there).
+const MODE_LABELS: Partial<Record<AgentMode, string>> = {
+    plan: "Plan & execute",
+    deep: "Deep (sub-agents)",
+}
 
 /** sessionStorage key for a chat->scheduled-task draft handed to the tasks page. */
 export const SCHEDULED_TASK_PREFILL_KEY = "agent-ops:scheduled-task-prefill"
@@ -50,6 +59,7 @@ interface ScheduledTaskDialogProps {
 const DEFAULT_FORM = {
     name: "",
     description: "",
+    mode: "plan" as "plan" | "deep",
     scheduleType: "cron" as "cron" | "interval",
     cronExpression: "0 9 * * *",
     intervalValue: 4,
@@ -81,6 +91,7 @@ export function ScheduledTaskDialog({ tenantId = "default", task, prefill, onSav
     const [form, setForm] = useState(() => task ? {
         name: task.name,
         description: task.description,
+        mode: task?.mode === "deep" ? "deep" : "plan",
         scheduleType: task.scheduleType ?? "cron",
         cronExpression: task.cronExpression || DEFAULT_FORM.cronExpression,
         ...splitIntervalMinutes(task.intervalMinutes),
@@ -111,10 +122,10 @@ export function ScheduledTaskDialog({ tenantId = "default", task, prefill, onSav
         try {
             // tenantId is resolved server-side from the session — never sent by the
             // client (a stale/placeholder value here would re-home the task's tenant).
-            // Mode is not sent: Agent Ops runs are always plan-mode.
             const body = {
                 name: form.name.trim(),
                 description: form.description.trim(),
+                mode: form.mode,
                 scheduleType: form.scheduleType,
                 cronExpression: form.scheduleType === "cron" ? form.cronExpression : "",
                 intervalMinutes: form.scheduleType === "interval" ? intervalMinutes : undefined,
@@ -197,6 +208,25 @@ export function ScheduledTaskDialog({ tenantId = "default", task, prefill, onSav
                             value={form.description}
                             onValueChange={v => set("description", v)}
                         />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="task-mode">Execution mode</Label>
+                        <Select value={form.mode} onValueChange={v => set("mode", v)}>
+                            <SelectTrigger id="task-mode">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {SELECTABLE_MODES.map(m => (
+                                    <SelectItem key={m} value={m}>
+                                        {MODE_LABELS[m] ?? m}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                            Deep runs use sub-agents and a to-do list. Existing tasks keep Plan unless changed.
+                        </p>
                     </div>
 
                     <div className="space-y-1.5">

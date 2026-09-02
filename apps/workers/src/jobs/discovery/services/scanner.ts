@@ -441,12 +441,17 @@ export function extractResourceIdentifiers(
   };
 
   const idKeys = [
+    // AllocationId first: an attached Elastic IP's describe_addresses response carries the
+    // instance's InstanceId as a context field, so matching InstanceId first files the EIP
+    // under the instance's own id. Only EIP responses carry a top-level AllocationId, so
+    // hoisting it cannot affect any other resource type.
+    'AllocationId',
     'InstanceId', 'DBInstanceIdentifier', 'DBClusterIdentifier', 'ClusterIdentifier',
     'FunctionName', 'BucketName', 'AlarmName', 'Name',
     // NatGatewayId and SubnetId must come before VpcId: NAT gateways and subnets both carry
     // VpcId as a context field, so checking VpcId first collapses all resources in a VPC to one.
     'VolumeId', 'NetworkInterfaceId', 'NatGatewayId', 'SubnetId', 'GroupId',
-    'KeyId', 'AutoScalingGroupName', 'LoadBalancerArn', 'TopicArn', 'QueueUrl',
+    'KeyId', 'AutoScalingGroupName', 'TargetGroupArn', 'LoadBalancerArn', 'TopicArn', 'QueueUrl',
     'FileSystemId', 'DistributionId', 'TableName', 'StreamName',
     'CacheClusterId', 'ReplicationGroupId', 'ClusterArn', 'ServiceArn', 'TaskArn',
     'TransitGatewayId', 'TransitGatewayAttachmentId', 'VpcPeeringConnectionId',
@@ -473,7 +478,7 @@ export function extractResourceIdentifiers(
 
   const arnKeys = [
     'Arn', 'ARN', 'FunctionArn', 'DBInstanceArn', 'DBClusterArn',
-    'LoadBalancerArn', 'TopicArn', 'QueueArn', 'FileSystemArn',
+    'LoadBalancerArn', 'TargetGroupArn', 'TopicArn', 'QueueArn', 'FileSystemArn',
     'KeyArn', 'ClusterArn', 'ServiceArn', 'TaskArn', 'TableArn',
     'TransitGatewayArn',
     // serviceArn before clusterArn for same reason as idKeys above
@@ -491,7 +496,7 @@ export function extractResourceIdentifiers(
 
   const nameKeys = [
     'Name', 'DBInstanceIdentifier', 'DBClusterIdentifier', 'FunctionName',
-    'BucketName', 'AutoScalingGroupName', 'LoadBalancerName', 'FileSystemId',
+    'BucketName', 'AutoScalingGroupName', 'LoadBalancerName', 'TargetGroupName', 'FileSystemId',
     'TableName', 'TopicName', 'QueueName',
     'clusterName', 'serviceName',
     'repositoryName',
@@ -665,9 +670,11 @@ export async function runInventoryScan(
         serviceLimit(async () => {
           try {
             if (config.constraints?.regionOverride) {
-              const overrideRegion = config.constraints.regionOverride;
+              // Global service: scan once, with a client pinned to the override region. This must
+              // NOT require the override region to be one the tenant configured — an account
+              // scanned only in ap-south-1 still owns global CloudFront distributions, and gating
+              // on `region === overrideRegion` silently returned zero for every such account.
               const key = `${config.service}:${config.function}`;
-              if (region !== overrideRegion) return;
               if (overrideScanned.has(key)) return;
               overrideScanned.add(key);
             }

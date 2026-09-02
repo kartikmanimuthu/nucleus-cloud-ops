@@ -52,4 +52,10 @@ describe('buildClientErrorText', () => {
         expect(buildClientErrorText({ code: 500 })).toContain('500');
         expect(buildClientErrorText(null)).toBe('null');
     });
+
+    it('falls back to "Unknown error" when the value cannot be JSON.stringified (circular reference)', () => {
+        const circular: Record<string, unknown> = {};
+        circular.self = circular;
+        expect(buildClientErrorText(circular)).toBe('Unknown error');
+    });
 });

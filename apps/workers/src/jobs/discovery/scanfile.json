@@ -91,7 +91,9 @@
     "result_key": "Buckets",
     "enrichments": [
       { "type": "tags", "method": "get_bucket_tagging", "nameKey": "Name", "inputKey": "Bucket" },
-      { "type": "detail", "method": "get_bucket_location", "nameKey": "Name", "inputKey": "Bucket" }
+      { "type": "detail", "method": "get_bucket_location", "nameKey": "Name", "inputKey": "Bucket" },
+      { "type": "detail", "method": "get_bucket_encryption", "nameKey": "Name", "inputKey": "Bucket" },
+      { "type": "detail", "method": "get_bucket_notification_configuration", "nameKey": "Name", "inputKey": "Bucket" }
     ],
     "constraints": { "regionFilter": true }
   },
@@ -111,6 +113,11 @@
     "enrichments": [
       { "type": "tags", "method": "describe_tags", "arnKey": "LoadBalancerArn", "inputKey": "ResourceArns", "batchSize": 20 }
     ]
+  },
+  {
+    "service": "elbv2",
+    "function": "describe_target_groups",
+    "result_key": "TargetGroups"
   },
   {
     "service": "elasticache",
@@ -179,7 +186,10 @@
   {
     "service": "codepipeline",
     "function": "list_pipelines",
-    "result_key": "pipelines"
+    "result_key": "pipelines",
+    "enrichments": [
+      { "type": "detail", "method": "get_pipeline", "nameKey": "name", "inputKey": "name", "mergeKey": "pipeline" }
+    ]
   },
   {
     "service": "ssm",

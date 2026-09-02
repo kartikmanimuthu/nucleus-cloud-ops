@@ -73,6 +73,14 @@ describe('GET /api/spot-guard/settings', () => {
         expect(res.status).toBe(403);
         expect(getConfig).not.toHaveBeenCalled();
     });
+
+    it('returns 500 when reading the config throws', async () => {
+        getConfig.mockRejectedValue(new Error('DB down'));
+
+        const res = await GET();
+
+        expect(res.status).toBe(500);
+    });
 });
 
 describe('PUT /api/spot-guard/settings — merging', () => {
@@ -168,5 +176,20 @@ describe('PUT /api/spot-guard/settings — validation', () => {
 
         expect(res.status).toBe(200);
         expect(saveConfig).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats an unparsable request body as an empty object', async () => {
+        const req = { json: vi.fn().mockRejectedValue(new Error('invalid JSON')) } as any;
+        const res = await PUT(req);
+        // An empty body has every field optional, so it validates and saves the existing config unchanged.
+        expect(res.status).toBe(200);
+    });
+
+    it('returns 500 when saving throws', async () => {
+        saveConfig.mockRejectedValue(new Error('DB down'));
+
+        const res = await put({ slackChannelId: 'C0123456789' });
+
+        expect(res.status).toBe(500);
     });
 });

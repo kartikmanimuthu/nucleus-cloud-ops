@@ -12,6 +12,8 @@ import {
     validateScheduleInput,
 } from '@/lib/agent-ops/scheduled-task-service';
 import type { UpdateScheduledTaskParams } from '@/lib/db/repositories/scheduled-task/interface';
+import { SELECTABLE_MODES } from '@/lib/agent-ops/types';
+import type { AgentMode } from '@/lib/agent-ops/types';
 import { registerTask, unregisterTask } from '@/lib/agent-ops/scheduler-engine';
 import { cancelActiveRunsForTask } from '@/lib/agent-ops/agent-ops-service';
 import { getSessionTenantId, getAuthSession } from '@/lib/auth-session';
@@ -51,8 +53,20 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
         // Whitelist the mutable fields — a raw pass-through would let clients
         // set lifecycle columns (runCount, taskStatus, nextRunAt, …) directly.
-        // mode is intentionally NOT accepted: Agent Ops is plan-mode only.
+        // mode IS accepted (deep mode shipped after this task), but only when
+        // it's a mode the client is actually allowed to pick — an unvalidated
+        // string would persist into the DB column with no matching execution
+        // graph for the executor to dispatch on later.
         const updates: UpdateScheduledTaskParams = {};
+        if (body.mode !== undefined) {
+            if (typeof body.mode !== 'string' || !SELECTABLE_MODES.includes(body.mode as AgentMode)) {
+                return NextResponse.json(
+                    { error: `mode must be one of: ${SELECTABLE_MODES.join(', ')}` },
+                    { status: 400 },
+                );
+            }
+            updates.mode = body.mode as AgentMode;
+        }
         if (body.name !== undefined) updates.name = body.name;
         if (body.description !== undefined) updates.description = body.description;
         if (body.scheduleType !== undefined) updates.scheduleType = body.scheduleType;

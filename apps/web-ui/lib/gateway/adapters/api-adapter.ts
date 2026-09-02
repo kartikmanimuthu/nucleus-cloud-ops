@@ -15,8 +15,15 @@ import type {
     HilCapabilities,
     GatewayMessage,
 } from '@/lib/gateway/types';
-import type { AgentOpsRun, AgentOpsEvent } from '@/lib/agent-ops/types';
+import type { AgentOpsRun, AgentOpsEvent, AgentMode } from '@/lib/agent-ops/types';
+import { SELECTABLE_MODES } from '@/lib/agent-ops/types';
 import { getAuthSession } from '@/lib/auth-session';
+
+
+/** Exported so every adapter that accepts a client-supplied `mode` guards it the same way. */
+export function isSelectableMode(mode: unknown): mode is AgentMode {
+    return typeof mode === 'string' && SELECTABLE_MODES.includes(mode as AgentMode);
+}
 
 export class ApiAdapter implements ChannelAdapter {
     readonly channelType: ChannelType = 'api';
@@ -59,8 +66,12 @@ export class ApiAdapter implements ChannelAdapter {
             channelType: 'api',
             tenantId,
             taskDescription: payload.taskDescription?.trim() || '',
-            // Agent Ops is plan-mode only; createRun coerces regardless.
-            mode: 'plan',
+            // Pass through only a mode the client is actually allowed to pick.
+            // Anything else (missing, invalid, legacy 'fast') is left undefined
+            // so gateway-service.ts's `message.mode ?? await resolveDefaultMode(tenantId)`
+            // still engages the tenant's configured default instead of a
+            // hardcoded 'plan' here defeating it.
+            mode: isSelectableMode(payload.mode) ? payload.mode : undefined,
             autoApprove: payload.autoApprove ?? false,
             accountId: payload.accountId,
             accountName: payload.accountName,

@@ -303,7 +303,7 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
             isStreaming={isStreaming}
             elapsedMs={elapsedMs}
             onMenuAction={handleMenuAction}
-            isDeep={pickers.agentMode === "deep"}
+            isDeep
           />
         </div>
         <button
@@ -360,8 +360,6 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
                 context={pickers.composerContext}
                 attachments={attachments}
                 onAttach={setAttachments}
-                mode={pickers.agentMode}
-                onModeChange={pickers.setAgentMode}
                 autoApprove={pickers.autoApprove}
                 onAutoApproveChange={pickers.setAutoApprove}
                 showTools={showWork}
@@ -390,7 +388,7 @@ export function SessionView({ threadId, ownerUserId, active, onStatusChange, onT
           )}
         >
           <div className="h-full w-72 xl:w-80">
-            <RunRail runState={runState} isStreaming={isStreaming} context={pickers.railContext} threadId={threadId} isDeep={pickers.agentMode === "deep"} />
+            <RunRail runState={runState} isStreaming={isStreaming} context={pickers.railContext} threadId={threadId} isDeep />
           </div>
         </div>
       </div>

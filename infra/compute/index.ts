@@ -49,6 +49,17 @@ const dbUsername = config.get("dbUsername") ?? "nucleus_admin";
 const engineVersion = config.get("engineVersion") ?? "16.6";
 const workersDesiredCount = config.getNumber("workersDesiredCount") ?? 2;
 
+// Optional resource-name suffix. Empty for a stack that has never set it —
+// byte-for-byte the same names as if this key didn't exist.
+const nameSuffix = config.get("networkSuffix") ?? "";
+// Optional suffix appended to a handful of security-group descriptions.
+// `description` is immutable on aws.ec2.SecurityGroup (no AWS API to modify
+// it), so if a stack's live groups already carry descriptive text, that
+// exact text must be supplied here — a mismatch forces a full SG replace.
+// Config-driven rather than keyed off nameSuffix/the stack name, so this
+// stays generic: whatever text (if any) is already live per stack.
+const securityGroupDescriptionSuffix = config.get("securityGroupDescriptionSuffix") ?? "";
+
 // Fargate Spot Guard — cross-account ECS event ingestion (EventBridge + SQS).
 //
 // Defaults to FALSE so this stays a no-op on every stack that has not opted in.
@@ -70,6 +81,7 @@ const scalingAuditEnabled = config.getBoolean("scalingAuditEnabled") ?? false;
 // run the soak described at the task-definition env entry below.
 const dynamicAbacEnabled = config.getBoolean("dynamicAbacEnabled") ?? false;
 const rbacRouteGuardMode = config.get("rbacRouteGuardMode") ?? "shadow";
+const rbacPageGuardMode = config.get("rbacPageGuardMode") ?? "shadow";
 
 // The bus name as a plain string, so both the EventBus resource (declared ~1200 lines
 // below) and the web-ui task definition (declared above it) can derive from ONE source.
@@ -341,8 +353,10 @@ emails.forEach((email: string, i: number) => {
 
 // RDS Security Group — allow port 5432 from within VPC (ECS tasks + Lambdas)
 const rdsSecurityGroup = new aws.ec2.SecurityGroup("rds-sg", {
-    name: `${appName}-rds-sg`,
-    description: "Security group for RDS PostgreSQL - VPC internal access",
+    name: `${appName}-rds-sg${nameSuffix}`,
+    // description is immutable on aws.ec2.SecurityGroup — kept in sync with
+    // securityGroupDescriptionSuffix so it byte-matches whatever is already live.
+    description: `Security group for RDS PostgreSQL - VPC internal access${securityGroupDescriptionSuffix}`,
     vpcId: vpcId,
     ingress: [{
         fromPort: 5432,
@@ -369,15 +383,25 @@ const postgresInstance = new aws.rds.Instance("postgres", {
     dbName: dbName,
     username: dbUsername,
     password: dbPassword,
+    // dbSubnetGroupName has a history of being treated as ForceNew by this
+    // provider family — moving an instance to a different subnet group must
+    // go through a raw `aws rds modify-db-instance` call outside Pulumi
+    // (followed by a `pulumi refresh`), never a direct code edit here while
+    // the live value still differs from what's declared.
     dbSubnetGroupName: dbSubnetGroupName,
     vpcSecurityGroupIds: [rdsSecurityGroup.id],
     multiAz: false,
     allocatedStorage: 20,
     storageType: "gp3",
-    skipFinalSnapshot: true,
-    deletionProtection: false,
+    skipFinalSnapshot: false,
+    finalSnapshotIdentifier: `${appName}-postgres-final`,
+    deletionProtection: true,
+    // Was 0 (no automated backups, no point-in-time recovery at all) on both
+    // stacks — the only recovery path was a manual snapshot someone
+    // remembered to take. In-place ModifyDBInstance, no reboot.
+    backupRetentionPeriod: 7,
     tags: { Name: `${appName}-postgres` },
-}, { retainOnDelete: false });
+}, { retainOnDelete: false, protect: true });
 
 // Store full connection string in Secrets Manager (needs postgresInstance.address)
 new aws.secretsmanager.SecretVersion("database-url-version", {
@@ -415,30 +439,6 @@ const bastionInstanceProfile = new aws.iam.InstanceProfile("bastion-instance-pro
     role: bastionRole.name,
 });
 
-// No inbound rules — SSM agent initiates outbound connections to SSM endpoints
-const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {
-    name: `${appName}-bastion-sg`,
-    description: "Bastion - SSM only, no inbound SSH",
-    vpcId: vpcId,
-    egress: [
-        {
-            fromPort: 443,
-            toPort: 443,
-            protocol: "tcp",
-            cidrBlocks: ["0.0.0.0/0"],
-            description: "HTTPS to SSM endpoints (via NAT or VPC endpoints)",
-        },
-        {
-            fromPort: 5432,
-            toPort: 5432,
-            protocol: "tcp",
-            cidrBlocks: [vpcCidr],
-            description: "PostgreSQL tunnel to RDS",
-        },
-    ],
-    tags: { Name: `${appName}-bastion-sg` },
-});
-
 // Latest Amazon Linux 2023 ARM64 AMI (full, not minimal — SSM agent pre-installed)
 // Filter: standard AMIs start with the date (20...), minimal AMIs start with "minimal-"
 const bastionAmi = aws.ec2.getAmiOutput({
@@ -467,6 +467,31 @@ fi
     return Buffer.from(script).toString("base64");
 });
 
+// No inbound rules — SSM agent initiates outbound connections to SSM endpoints
+const bastionSg = new aws.ec2.SecurityGroup("bastion-sg", {
+    name: `${appName}-bastion-sg${nameSuffix}`,
+    // description is immutable on aws.ec2.SecurityGroup — see the rds-sg note above.
+    description: `Bastion - SSM only, no inbound SSH${securityGroupDescriptionSuffix}`,
+    vpcId: vpcId,
+    egress: [
+        {
+            fromPort: 443,
+            toPort: 443,
+            protocol: "tcp",
+            cidrBlocks: ["0.0.0.0/0"],
+            description: "HTTPS to SSM endpoints (via NAT or VPC endpoints)",
+        },
+        {
+            fromPort: 5432,
+            toPort: 5432,
+            protocol: "tcp",
+            cidrBlocks: [vpcCidr],
+            description: "PostgreSQL tunnel to RDS",
+        },
+    ],
+    tags: { Name: `${appName}-bastion-sg${nameSuffix}` },
+});
+
 // t4g.small in first private subnet — no public IP, reachable only via SSM
 const bastionInstance = new aws.ec2.Instance("bastion", {
     ami: bastionAmi.id,
@@ -476,7 +501,7 @@ const bastionInstance = new aws.ec2.Instance("bastion", {
     vpcSecurityGroupIds: [bastionSg.id],
     userData: bastionUserData,
     associatePublicIpAddress: false,
-    tags: { Name: `${appName}-bastion` },
+    tags: { Name: `${appName}-bastion${nameSuffix}` },
 });
 
 export const bastionInstanceId = bastionInstance.id;
@@ -503,12 +528,16 @@ const ecrPublicLogin = new command.local.Command("ecr-public-login", {
     },
 });
 
-// Explicit source hash — combines apps/web-ui/ + libs/prisma/ + patches/ so any change to any
-// produces a new imageTag, forcing a Docker rebuild + new ECS task definition revision.
-// patches/ is COPYed into the image and applied by bun install, so a patch edit must rebuild.
+// Explicit source hash — combines apps/web-ui/ + libs/prisma/ + libs/rbac/ + patches/ so any
+// change to any produces a new imageTag, forcing a Docker rebuild + new ECS task definition
+// revision. patches/ is COPYed into the image and applied by bun install, so a patch edit must
+// rebuild. libs/rbac/ holds the committed route-manifest.json that middleware.ts's Layer 1
+// route guard reads at request time (apps/web-ui/lib/rbac/route-authz.ts) — without it here, a
+// rbac:sync regeneration (fixing an unmapped-route 403) would silently not redeploy.
 const webUiSrcHash = crypto.createHash("sha256")
     .update(hashDirectory(path.join(repoRoot, "apps/web-ui")))
     .update(hashDirectory(path.join(repoRoot, "libs", "prisma")))
+    .update(hashDirectory(path.join(repoRoot, "libs", "rbac")))
     .update(hashDirectory(path.join(repoRoot, "patches")))
     .digest("hex")
     .substring(0, 12);
@@ -779,23 +808,29 @@ const webUiTaskDef = new aws.ecs.TaskDefinition("web-ui-task-def", {
                     value: `arn:aws:events:${region}:${acctId}:event-bus/${spotGuardBusNameLiteral}`,
                 }]
                 : []),
-            // RBAC/ABAC rollout — deliberately at the SAFE defaults.
+            // RBAC/ABAC rollout. The DEFAULTS here stay false/shadow, so a stack
+            // that does not opt in is unchanged. sbx opts into both; prod has
+            // taken DYNAMIC_ABAC_ENABLED only, with the route guard still to
+            // follow as its own deploy.
             //
-            // authorize.ts gates flipping DYNAMIC_ABAC_ENABLED on "the mismatch
-            // counter staying at zero across a soak long enough to have exercised
-            // every role in active use", and middleware.ts records that turning
-            // Layer 1 on must never be the thing that breaks prod. That soak has
-            // never run, because these two flags existed only in .env and never
-            // reached a deployed task definition.
+            // Declaring them here is what made the cutover a value change plus a
+            // deploy rather than a code change: shadow logging
+            // (rbac.parity.mismatch, rbac.row_filter.shadow) flowed from
+            // production first, and authorize.ts gates the flip on that mismatch
+            // counter reaching zero across a soak that exercises every role in
+            // active use.
             //
-            // Declaring them here is what makes the soak possible: shadow logging
-            // (rbac.parity.mismatch, rbac.row_filter.shadow) starts flowing from
-            // production, and the cutover becomes a value change plus a deploy
-            // rather than a code change. Do NOT flip these to true/enforce on
-            // prod until the shadow logs have been quiet across that soak; sbx
-            // is where that soak runs.
+            // Enforcing does NOT create grants — it only changes which store the
+            // decision reads. A role whose `rbac_role_rules` are thinner than its
+            // legacy `custom_roles.permissions` blob loses access at the moment
+            // this turns on, so the blob->rules projection must be verified per
+            // environment first (apps/web-ui/scripts/backfill-rbac.ts --dry-run).
             { name: "DYNAMIC_ABAC_ENABLED", value: String(dynamicAbacEnabled) },
             { name: "RBAC_ROUTE_GUARD_MODE", value: rbacRouteGuardMode },
+            // Step 5 of the rollout (docs/superpowers/specs/2026-08-12-submodule-rbac-design.md
+            // §8) — ships as its own deploy, gated on a quiet rbac.page_guard.shadow_denial
+            // log from step 3, observed after step 4 (DYNAMIC_ABAC_ENABLED) has settled.
+            { name: "RBAC_PAGE_GUARD_MODE", value: rbacPageGuardMode },
         ],
     }])),
 }, { retainOnDelete: true });
@@ -811,8 +846,9 @@ const cloudFrontPrefixList = aws.ec2.getManagedPrefixListOutput({
 
 // ALB Security Group — inbound port 80 from CloudFront managed prefix list only
 const albSecurityGroup = new aws.ec2.SecurityGroup("alb-sg", {
-    name: `${appName}-alb-sg`,
-    description: "Security group for WebUI ALB - CloudFront origin only",
+    name: `${appName}-alb-sg${nameSuffix}`,
+    // description is immutable on aws.ec2.SecurityGroup — see the rds-sg note above.
+    description: `Security group for WebUI ALB - CloudFront origin only${securityGroupDescriptionSuffix}`,
     vpcId: vpcId,
     ingress: [{
         fromPort: 80,
@@ -832,8 +868,9 @@ const albSecurityGroup = new aws.ec2.SecurityGroup("alb-sg", {
 
 // ECS Service Security Group — inbound port 3000 from ALB security group only
 const ecsServiceSecurityGroup = new aws.ec2.SecurityGroup("ecs-service-sg", {
-    name: `${appName}-ecs-service-sg`,
-    description: "Security group for WebUI ECS tasks - ALB traffic only",
+    name: `${appName}-ecs-service-sg${nameSuffix}`,
+    // description is immutable on aws.ec2.SecurityGroup — see the rds-sg note above.
+    description: `Security group for WebUI ECS tasks - ALB traffic only${securityGroupDescriptionSuffix}`,
     vpcId: vpcId,
     ingress: [{
         fromPort: 3000,
@@ -853,7 +890,7 @@ const ecsServiceSecurityGroup = new aws.ec2.SecurityGroup("ecs-service-sg", {
 
 // Application Load Balancer — internet-facing, idleTimeout 1200s for long streaming requests
 const alb = new aws.lb.LoadBalancer("web-ui-alb", {
-    name: `${appName}-alb`,
+    name: `${appName}-alb${nameSuffix}`,
     internal: false,
     loadBalancerType: "application",
     securityGroups: [albSecurityGroup.id],
@@ -863,7 +900,7 @@ const alb = new aws.lb.LoadBalancer("web-ui-alb", {
 
 // Target Group — IP target type, port 3000, /api/health health check
 const webUiTargetGroup = new aws.lb.TargetGroup("web-ui-tg", {
-    name: `${appName}-web-ui-tg`,
+    name: `${appName}-web-ui-tg${nameSuffix}`,
     port: 3000,
     protocol: "HTTP",
     targetType: "ip",
@@ -890,13 +927,9 @@ const httpListener = new aws.lb.Listener("http-listener", {
     }],
 });
 
-// ============================================================================
-// ECS FARGATE SERVICE + AUTO SCALING
-// ============================================================================
-
 // ECS Fargate Service — forceNewDeployment, circuit breaker with rollback
 const webUiService = new aws.ecs.Service("web-ui-service", {
-    name: `${appName}-web-ui-service`,
+    name: `${appName}-web-ui-service${nameSuffix}`,
     cluster: ecsCluster.arn,
     taskDefinition: webUiTaskDef.arn,
     desiredCount: 1,
@@ -908,6 +941,10 @@ const webUiService = new aws.ecs.Service("web-ui-service", {
     },
     deploymentMinimumHealthyPercent: 100,
     deploymentMaximumPercent: 200,
+    // 15 min grace period so a replacement task has time to finish
+    // `prisma migrate deploy` + Next.js boot before ECS decides it's
+    // unhealthy and recycles it again.
+    healthCheckGracePeriodSeconds: 900,
     networkConfiguration: {
         subnets: privateSubnetIds,
         securityGroups: [ecsServiceSecurityGroup.id],
@@ -918,7 +955,14 @@ const webUiService = new aws.ecs.Service("web-ui-service", {
         containerName: "WebUIContainer",
         containerPort: 3000,
     }],
-}, { dependsOn: [httpListener] });
+}, {
+    dependsOn: [httpListener],
+    // desiredCount:1 above is a fixed literal, but the autoscaling target
+    // below has minCapacity:2 — live reality is always >=2, so without this
+    // every unrelated `pulumi up` diffs 2->1 and (because
+    // forceNewDeployment:true) force-rolls the service.
+    ignoreChanges: ["desiredCount"],
+});
 
 // Auto Scaling Target — min 2, max 10
 const scalingTarget = new aws.appautoscaling.Target("web-ui-scaling-target", {
@@ -931,7 +975,7 @@ const scalingTarget = new aws.appautoscaling.Target("web-ui-scaling-target", {
 
 // CPU Scaling Policy — target 70%
 new aws.appautoscaling.Policy("web-ui-cpu-scaling", {
-    name: `${appName}-web-ui-cpu-scaling`,
+    name: `${appName}-web-ui-cpu-scaling${nameSuffix}`,
     policyType: "TargetTrackingScaling",
     resourceId: scalingTarget.resourceId,
     scalableDimension: scalingTarget.scalableDimension,
@@ -946,7 +990,7 @@ new aws.appautoscaling.Policy("web-ui-cpu-scaling", {
 
 // Memory Scaling Policy — target 75%
 new aws.appautoscaling.Policy("web-ui-memory-scaling", {
-    name: `${appName}-web-ui-memory-scaling`,
+    name: `${appName}-web-ui-memory-scaling${nameSuffix}`,
     policyType: "TargetTrackingScaling",
     resourceId: scalingTarget.resourceId,
     scalableDimension: scalingTarget.scalableDimension,
@@ -1580,8 +1624,9 @@ if (spotGuardEnabled) {
 }
 
 const workersSecurityGroup = new aws.ec2.SecurityGroup("workers-sg", {
-    name: `${appName}-workers-sg`,
-    description: "Security group for pg-boss workers - egress only",
+    name: `${appName}-workers-sg${nameSuffix}`,
+    // description is immutable on aws.ec2.SecurityGroup — see the rds-sg note above.
+    description: `Security group for pg-boss workers - egress only${securityGroupDescriptionSuffix}`,
     vpcId: vpcId,
     egress: [{
         fromPort: 0,
@@ -1726,6 +1771,11 @@ const workersService = new aws.ecs.Service("workers-service", {
     deploymentMinimumHealthyPercent: 50,
     deploymentMaximumPercent: 200,
     deploymentCircuitBreaker: { enable: true, rollback: true },
+    // Same reasoning as web-ui's grace period: workers' own container health
+    // check (health.ts liveness server, 60s startPeriod already) is separate
+    // from this — this covers a container that's healthy while the DB is
+    // still temporarily unreachable (e.g. mid-maintenance).
+    healthCheckGracePeriodSeconds: 900,
     networkConfiguration: {
         subnets: privateSubnetIds,
         securityGroups: [workersSecurityGroup.id],

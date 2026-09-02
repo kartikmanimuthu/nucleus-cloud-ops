@@ -126,7 +126,10 @@ export class ScalingAuditService {
             userType: 'user',
             status: 'success',
             severity: 'low',
-            details: `Exported ${rowCount} scaling event row(s) as ${format.toUpperCase()}. Filters: ${JSON.stringify(filters)}`,
+            // "row(s)" not "scaling event row(s)" — this same call also logs a
+            // Direct Connect & VPN export, whose rows are availability/bandwidth
+            // summaries, not scaling events.
+            details: `Exported ${rowCount} row(s) as ${format.toUpperCase()}. Filters: ${JSON.stringify(filters)}`,
             tenantId,
         });
     }

@@ -747,6 +747,68 @@ function isEmptyAiMessageContent(ai: AIMessage): boolean {
     });
 }
 
+/**
+ * Rewrite AI messages Bedrock would reject for having no content, leaving every
+ * other message untouched.
+ *
+ * The deep agent does not run sanitizeMessagesForBedrock — deepagents owns the
+ * model call — so it has no guard at all, and reopening an old thread failed with
+ * "The content field in the Message object at messages.N is empty". The cause is
+ * the one stripReasoningBlocks documents above: a reasoning-only message comes
+ * back from the checkpoint with its reasoningText nulled and nothing left behind.
+ * Fresh runs never hit it, which is why it only surfaced on history threads.
+ *
+ * Deliberately narrower than sanitizeMessagesForBedrock: this only rewrites empty
+ * content. It does not reorder tool results or drop orphans — deepagents handles those.
+ * It does not strip reasoning either; deep pairs it with stripReasoningFromMessages,
+ * because deepagents turned out NOT to handle replayed thinking blocks — production
+ * threads failed on a missing thinking.signature after a checkpoint round-trip.
+ */
+/**
+ * Strips extended-thinking / reasoning blocks from a message list.
+ *
+ * The deep agent needs this for the same reason fast and planning do, but by a
+ * different route. A thinking block is only replayable while it still carries the
+ * `signature` the model issued with it; the checkpoint round-trip does not preserve
+ * that field, so replaying a stored turn fails with
+ *   ValidationException: messages.N.content.0.thinking.signature: Field required
+ * — observed in production on threads days old, while sandbox runs on fresh threads
+ * passed 86 times. Same image digest in both, so it is the stored history that
+ * differs, not the code. Reasoning is the model's own scratchpad and is not needed
+ * for context fidelity, so dropping it is the safe mitigation rather than trying to
+ * carry a signature the persistence layer never kept.
+ *
+ * Apply before repairEmptyAiContent: stripping can empty a reasoning-only turn, and
+ * Bedrock rejects a message with no content.
+ */
+export function stripReasoningFromMessages(messages: BaseMessage[]): BaseMessage[] {
+    return messages.map(stripReasoningBlocks);
+}
+
+export function repairEmptyAiContent(messages: BaseMessage[]): BaseMessage[] {
+    return messages.map((msg) => {
+        if (msg._getType() !== 'ai') return msg;
+        const ai = msg as AIMessage;
+        if (!isEmptyAiMessageContent(ai)) return msg;
+        return new AIMessage({
+            // A BLOCK ARRAY, not a string. deepagents messages carry
+            // response_metadata.output_version === 'v1', and on that flag
+            // @langchain/core moves `content` into `contentBlocks` and then calls
+            // .push on it (dist/messages/ai.js:51-58). A string has no .push, so
+            // passing one throws "initParams.contentBlocks.push is not a function".
+            // An array is also literally what Bedrock asked for: "Add a ContentBlock
+            // object to the content field."
+            content: [{ type: 'text', text: '(reasoning omitted)' }],
+            tool_calls: ai.tool_calls,
+            additional_kwargs: ai.additional_kwargs,
+            response_metadata: ai.response_metadata,
+            id: ai.id,
+            name: ai.name,
+            usage_metadata: ai.usage_metadata,
+        });
+    });
+}
+
 export function sanitizeMessagesForBedrock(messages: BaseMessage[]): BaseMessage[] {
     // Bedrock requires every toolResult to IMMEDIATELY follow the assistant
     // toolUse that owns it — "answered somewhere in the array" is not enough.

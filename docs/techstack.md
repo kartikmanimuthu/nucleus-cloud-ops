@@ -148,7 +148,7 @@ Deploy order: **networking → compute**. State backend: S3 (`s3://nucleus-pulum
 |---|---|
 | Container runtime | **ECS Fargate** — two services: `web-ui` and `workers`, both on `node:20-slim` |
 | Image build | Dockerfile installs with Bun, builds under `node:20-slim` via `npm run build` (real Node + fresh `.next`) |
-| CDN | **AWS CloudFront** in front of ALB + S3 — https://d11lr8aqp8vqde.cloudfront.net |
+| CDN | **AWS CloudFront** in front of ALB + S3 — https://d2o00a2uwp9po0.cloudfront.net |
 | Background jobs | pg-boss jobs in the `workers` service (per-tenant cron); no AWS Lambda |
 | Audit | Every AWS-mutating action logged via `AuditService` (`audit_log` table, 30-day TTL) |
 

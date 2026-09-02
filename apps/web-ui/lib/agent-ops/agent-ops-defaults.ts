@@ -8,7 +8,14 @@
  */
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { env } from '@/env';
-import type { AgentOpsDefaultsConfig } from './types';
+import type { AgentOpsDefaultsConfig, AgentMode } from './types';
+import { SELECTABLE_MODES, FALLBACK_DEFAULT_MODE } from './types';
+
+// Single definitions now live in ./types (that module is otherwise type-only,
+// so client components can import them directly without pulling in this
+// module's server-only TenantConfigService/env). Re-exported here so every
+// existing server-side importer of this file keeps working unchanged.
+export { SELECTABLE_MODES, FALLBACK_DEFAULT_MODE };
 
 export const AGENT_OPS_DEFAULTS_KEY = 'agent-ops-defaults';
 
@@ -28,6 +35,7 @@ export const FALLBACK_MAX_ITERATIONS = Number(env.AGENT_OPS_MAX_ITERATIONS) || 1
 export function validateAgentOpsDefaults(input: {
     defaultModel?: unknown;
     maxIterations?: unknown;
+    defaultMode?: unknown;
 }): string | null {
     if (typeof input.defaultModel !== 'string' || !input.defaultModel.trim()) {
         return 'defaultModel is required';
@@ -35,6 +43,11 @@ export function validateAgentOpsDefaults(input: {
     const n = Number(input.maxIterations);
     if (!Number.isInteger(n) || n < MIN_MAX_ITERATIONS || n > MAX_MAX_ITERATIONS) {
         return `maxIterations must be an integer between ${MIN_MAX_ITERATIONS} and ${MAX_MAX_ITERATIONS}`;
+    }
+    if (input.defaultMode !== undefined) {
+        if (typeof input.defaultMode !== 'string' || !SELECTABLE_MODES.includes(input.defaultMode as AgentMode)) {
+            return `defaultMode must be one of: ${SELECTABLE_MODES.join(', ')}`;
+        }
     }
     return null;
 }
@@ -52,4 +65,14 @@ export async function resolveMaxIterations(tenantId: string): Promise<number> {
     const config = await getAgentOpsDefaults(tenantId);
     if (!config || !Number.isFinite(config.maxIterations)) return FALLBACK_MAX_ITERATIONS;
     return Math.min(MAX_MAX_ITERATIONS, Math.max(MIN_MAX_ITERATIONS, Math.round(config.maxIterations)));
+}
+
+/**
+ * Resolve the execution graph for a run that carries no explicit mode.
+ * Never throws: an unreadable or unrecognised value resolves to 'plan'.
+ */
+export async function resolveDefaultMode(tenantId: string): Promise<AgentMode> {
+    const config = await getAgentOpsDefaults(tenantId);
+    const mode = config?.defaultMode;
+    return mode && SELECTABLE_MODES.includes(mode) ? mode : FALLBACK_DEFAULT_MODE;
 }

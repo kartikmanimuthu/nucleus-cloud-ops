@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/lib/knowledge-base/service', () => ({
     KnowledgeBaseService: { listKnowledgeBases: vi.fn() },
@@ -7,7 +7,7 @@ vi.mock('./model-factory', () => ({ createAgentModels: vi.fn() }));
 
 import { KnowledgeBaseService } from '@/lib/knowledge-base/service';
 import { createAgentModels } from './model-factory';
-import { autoSelectKb, resolveKnowledgeBaseIds } from './auto-kb-select';
+import { autoSelectKb, resolveKnowledgeBaseIds, autoKbSelectionEnabled } from './auto-kb-select';
 
 const model = { provider: 'x', modelId: 'm' } as any;
 function mockReflector(content: string) {
@@ -97,6 +97,49 @@ describe('autoSelectKb — malformed input and empty messages', () => {
         // empty HumanMessage throws "'human' must contain non-empty content".
         const result = await autoSelectKb({ tenantId: 't1', message: '   ', model: {} as never });
         expect(result).toEqual({ kbIds: [], reasoning: '' });
+    });
+
+    it('returns [] when the reflector response has no parseable JSON', async () => {
+        vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockResolvedValue([
+            { id: 'kb-runbooks', name: 'R', description: 'ops', vectorCount: 5, status: 'active' },
+        ] as any);
+        mockReflector('I am not sure which knowledge base applies here.');
+        const result = await autoSelectKb({ tenantId: 't1', message: 'q', model });
+        expect(result).toEqual({ kbIds: [], reasoning: '' });
+    });
+
+    it('never throws — returns [] when listKnowledgeBases itself fails', async () => {
+        vi.mocked(KnowledgeBaseService.listKnowledgeBases).mockRejectedValue(new Error('DB down'));
+        const result = await autoSelectKb({ tenantId: 't1', message: 'q', model });
+        expect(result).toEqual({ kbIds: [], reasoning: '' });
+    });
+});
+
+describe('autoKbSelectionEnabled', () => {
+    const ORIGINAL = process.env.AUTO_KB_SELECTION_ENABLED;
+    beforeEach(() => vi.clearAllMocks());
+    afterEach(() => {
+        if (ORIGINAL === undefined) delete process.env.AUTO_KB_SELECTION_ENABLED;
+        else process.env.AUTO_KB_SELECTION_ENABLED = ORIGINAL;
+    });
+
+    it('defaults to enabled when unset', () => {
+        delete process.env.AUTO_KB_SELECTION_ENABLED;
+        expect(autoKbSelectionEnabled()).toBe(true);
+    });
+
+    it('is disabled when set to "false" or "0"', () => {
+        process.env.AUTO_KB_SELECTION_ENABLED = 'false';
+        expect(autoKbSelectionEnabled()).toBe(false);
+        process.env.AUTO_KB_SELECTION_ENABLED = '0';
+        expect(autoKbSelectionEnabled()).toBe(false);
+    });
+
+    it('short-circuits autoSelectKb to an empty result when disabled', async () => {
+        process.env.AUTO_KB_SELECTION_ENABLED = 'false';
+        const result = await autoSelectKb({ tenantId: 't1', message: 'restart the pipeline', model });
+        expect(result).toEqual({ kbIds: [], reasoning: '' });
+        expect(KnowledgeBaseService.listKnowledgeBases).not.toHaveBeenCalled();
     });
 });
 

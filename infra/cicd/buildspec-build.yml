@@ -25,7 +25,9 @@ phases:
       - bun run rbac:check
       # Nx task graph: build + test across all projects (web-ui, workers)
       - bun run build
-      - bun run test
+      # No Postgres sidecar in this pipeline — the real-DB integration suites
+      # are describe.skipIf'd without DATABASE_URL, same as `bun run test`.
+      - bun run test:coverage
 artifacts:
   files: '**/*'
   name: build-output-$(date +%Y%m%d-%H%M%S)

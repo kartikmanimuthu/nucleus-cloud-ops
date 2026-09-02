@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FileUpload, type FileAttachment } from "@/components/agent/file-upload";
 import { MicButton } from "@/components/voice/mic-button";
@@ -18,14 +17,6 @@ export type { ComposerContext } from "./composer-pickers";
 const MAX_CHARS = 6000;
 const CHAR_WARNING_THRESHOLD = 5400;
 const TEXTAREA_MAX_HEIGHT_PX = 192; // matches max-h-48
-
-// Must stay in sync with the modes /api/chat accepts (fast | plan | deep) —
-// same vocabulary as the monolith's AGENT_MODES (chat-interface.tsx).
-const AGENT_MODES = [
-  { id: "fast", label: "Fast" },
-  { id: "plan", label: "Plan & execute" },
-  { id: "deep", label: "Deep" },
-];
 
 export interface ComposerProps {
   value: string;
@@ -43,8 +34,6 @@ export interface ComposerProps {
   context: ComposerContext;
   attachments: FileAttachment[];
   onAttach: (files: FileAttachment[]) => void;
-  mode: string;
-  onModeChange: (mode: string) => void;
   autoApprove: boolean;
   onAutoApproveChange: (value: boolean) => void;
   showTools: boolean;
@@ -67,8 +56,6 @@ export function Composer({
   context,
   attachments,
   onAttach,
-  mode,
-  onModeChange,
   autoApprove,
   onAutoApproveChange,
   showTools,
@@ -79,7 +66,7 @@ export function Composer({
   isEnhancing = false,
 }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [modePopoverOpen, setModePopoverOpen] = useState(false);
+  const [settingsPopoverOpen, setSettingsPopoverOpen] = useState(false);
   const [plusPopoverOpen, setPlusPopoverOpen] = useState(false);
 
   // Auto-grow 1→8 rows; capped by max-h-48 (192px) after which the textarea
@@ -106,7 +93,6 @@ export function Composer({
     }
   };
 
-  const modeLabel = AGENT_MODES.find((m) => m.id === mode)?.label ?? "Mode";
   const kbCount = context.kb.selectedIds.length;
   const toolsCount = context.tools.selectedIds.length;
 
@@ -180,7 +166,7 @@ export function Composer({
             </span>
           )}
 
-          <Popover open={modePopoverOpen} onOpenChange={setModePopoverOpen}>
+          <Popover open={settingsPopoverOpen} onOpenChange={setSettingsPopoverOpen}>
             <PopoverTrigger asChild>
               <Button
                 type="button"
@@ -190,25 +176,10 @@ export function Composer({
                 className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
               >
                 <Settings2 className="h-3 w-3" />
-                {modeLabel}
+                Deep
               </Button>
             </PopoverTrigger>
             <PopoverContent side="top" align="end" className="w-64 space-y-3 p-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Mode</Label>
-                <Select value={mode} onValueChange={onModeChange} disabled={locked}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {AGENT_MODES.map((m) => (
-                      <SelectItem key={m.id} value={m.id} className="text-xs">
-                        {m.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="flex items-center justify-between gap-2">
                 <Label
                   htmlFor="composer-auto-approve"

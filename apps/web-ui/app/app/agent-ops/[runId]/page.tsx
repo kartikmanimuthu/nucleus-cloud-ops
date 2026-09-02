@@ -11,6 +11,7 @@ import { Spinner } from "@/components/ui/spinner"
 import {
   ArrowLeft, CheckCircle2, ChevronDown, Clock, Loader2, MessageSquare, ShieldCheck, ShieldX, XCircle,
 } from "lucide-react"
+import { DeepApprovalCard } from "@/components/agent-ops/deep-approval-card"
 import { RunHeader } from "@/components/agent-ops/run-timeline/run-header"
 import { RunTimeline } from "@/components/agent-ops/run-timeline/timeline"
 import { useRunStream } from "@/components/agent-ops/run-timeline/use-run-stream"
@@ -209,7 +210,18 @@ export default function RunDetailPage() {
           )}
 
           {/* HIL: approval — inline where the run paused */}
-          {run.status === "awaiting_approval" && run.approvalRequest && (
+          {run.status === "awaiting_approval" && run.approvalRequest?.approvalType === "deep_actions" && (
+            <DeepApprovalCard
+              runId={runId}
+              actions={(run.approvalRequest.pendingActions ?? []).map(a => ({
+                toolCallId: a.toolCallId,
+                toolName: a.toolName,
+                args: a.args,
+              }))}
+            />
+          )}
+
+          {run.status === "awaiting_approval" && run.approvalRequest && run.approvalRequest.approvalType !== "deep_actions" && (
             <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50/50 p-4 dark:border-amber-700 dark:bg-amber-950/20">
               <p className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
                 <ShieldCheck className="h-4 w-4" /> Approval required

@@ -2,10 +2,11 @@ import type { UIMessageChunk } from 'ai';
 import type { SubagentEvent } from '@/lib/agent/dispatch-agent-tool';
 import {
     buildPlanPart, buildUsagePart, buildSubagentPart, buildActiveSkillPart, buildPhasePart,
-    buildMemoryPart,
+    buildMemoryPart, buildHeartbeatChunks, isMemoryNarration,
 } from './stream-parts';
 import { todosToPlanSteps } from '@/lib/agent/deep/stream-adapt';
 import { pendingActions } from '@/lib/agent/deep/hitl';
+import type { ToolCallHandle, DeepRun } from '@/lib/agent/deep/projections';
 
 /**
  * Deep-mode stream, built on the documented v3 projections.
@@ -21,44 +22,6 @@ import { pendingActions } from '@/lib/agent/deep/hitl';
  * `processStream` (v2) is untouched and still serves fast/plan.
  */
 
-type ToolCallStatus = 'running' | 'finished' | 'error';
-
-interface ToolCallHandle {
-    readonly name: string;
-    readonly callId: string;
-    readonly input: unknown;
-    readonly output: Promise<unknown>;
-    readonly status: Promise<ToolCallStatus>;
-    readonly error: Promise<string | undefined>;
-}
-
-interface TextStream extends AsyncIterable<string> { }
-
-interface UsageLike { input_tokens?: number; output_tokens?: number }
-
-interface MessageHandle {
-    readonly node?: string;
-    readonly text: TextStream;
-    readonly reasoning: TextStream;
-    readonly usage: PromiseLike<UsageLike | undefined>;
-}
-
-interface SubagentHandle {
-    readonly name: string;
-    readonly taskInput: PromiseLike<unknown>;
-    readonly output: PromiseLike<unknown>;
-    readonly toolCalls: AsyncIterable<ToolCallHandle>;
-    readonly messages: AsyncIterable<MessageHandle>;
-}
-
-interface DeepRun extends AsyncIterable<unknown> {
-    readonly messages: AsyncIterable<MessageHandle>;
-    readonly toolCalls: AsyncIterable<ToolCallHandle>;
-    readonly subagents: AsyncIterable<SubagentHandle>;
-    readonly values: AsyncIterable<Record<string, unknown>>;
-    readonly interrupted: boolean;
-}
-
 export interface DeepStreamOptions {
     run: DeepRun;
     threadId: string;
@@ -71,6 +34,8 @@ export interface DeepStreamOptions {
     getInterruptState: () => Promise<unknown>;
     /** Run token totals, for the history metadata the UI reads back on reload. */
     onUsage?: (input: number, output: number) => void;
+    /** Memory narration text, so a reloaded thread replays the same memory rows the run streamed. */
+    onMemoryText?: (op: 'recall' | 'save', text: string) => void;
     onFinish?: () => Promise<void> | void;
 }
 
@@ -86,7 +51,7 @@ function outputText(value: unknown): string {
 export function processDeepStream(opts: DeepStreamOptions): ReadableStream<UIMessageChunk> {
     const {
         run, threadId, releaseLock, activeSkill, syntheticDecisionResults = [],
-        onSubagentEvent, getInterruptState, onUsage, onFinish,
+        onSubagentEvent, getInterruptState, onUsage, onMemoryText, onFinish,
     } = opts;
 
     return new ReadableStream<UIMessageChunk>({
@@ -112,6 +77,28 @@ export function processDeepStream(opts: DeepStreamOptions): ReadableStream<UIMes
                     return false;
                 }
             };
+
+            // CloudFront drops any origin connection idle for 60s
+            // (originReadTimeout, infra/compute/index.ts). A sub-agent thinks and runs
+            // tools for minutes while this stream emits nothing, so the browser saw
+            // "network error" and the abort surfaced here as
+            // "task callId=... -> ERROR This operation was aborted" — reproducible on
+            // sbx, never locally, because localhost has no CloudFront in front of it.
+            //
+            // processStream (v2) has carried this heartbeat since fast/plan gained
+            // sub-agents; the v3 deep path never got it. Same 15s tick, same pure
+            // buildHeartbeatChunks body, which always yields at least one chunk:
+            // liveSubagents empties as sub-agents finish, and the orchestrator's
+            // post-fan-out call is the longest silence in the run, so a map-dependent
+            // tick would go quiet exactly when the timeout bites. The fallback chunk is
+            // `transient`, so deriveRunState never sees it and no UI state moves.
+            // Nothing may be inserted between this setInterval and the `try` — the
+            // matching clearInterval lives in that try's finally.
+            const liveSubagents = new Map<string, SubagentEvent>();
+            const HEARTBEAT_MS = 15_000;
+            const heartbeat = setInterval(() => {
+                for (const chunk of buildHeartbeatChunks(liveSubagents.values())) send(chunk);
+            }, HEARTBEAT_MS);
 
             try {
                 log('run', `start${activeSkill ? ` skill=${activeSkill.slug}(${activeSkill.source})` : ''}`);
@@ -199,9 +186,13 @@ export function processDeepStream(opts: DeepStreamOptions): ReadableStream<UIMes
                                     for await (const delta of message.text) {
                                         if (delta) buf += delta;
                                     }
-                                    if (buf.trim()) {
-                                        send(buildMemoryPart(isMemorySave ? 'save' : 'recall', buf) as UIMessageChunk);
+                                    if (buf.trim() && isMemoryNarration(buf)) {
+                                        const op = isMemorySave ? 'save' : 'recall';
+                                        send(buildMemoryPart(op, buf) as UIMessageChunk);
+                                        onMemoryText?.(op, buf);
                                         emittedAnything = true;
+                                    } else if (buf.trim()) {
+                                        log('messages', `memory buffer suppressed (judge/distiller payload, ${buf.length} chars)`);
                                     }
                                 })().catch(() => undefined));
                                 watchers.push(
@@ -264,6 +255,7 @@ export function processDeepStream(opts: DeepStreamOptions): ReadableStream<UIMes
                                 id, role: subagent.name, task: '', status: 'running',
                                 toolCount: 0, tokensIn: 0, tokensOut: 0,
                             };
+                            liveSubagents.set(id, event);
                             onSubagentEvent?.(event);
                             send(buildSubagentPart(event) as UIMessageChunk);
                             emittedAnything = true;
@@ -313,12 +305,14 @@ export function processDeepStream(opts: DeepStreamOptions): ReadableStream<UIMes
                                 Promise.resolve(subagent.output).then(
                                     out => {
                                         const done: SubagentEvent = { ...event, status: 'done', summary: outputText(out).slice(0, 4000) };
+                                        liveSubagents.delete(id);
                                         onSubagentEvent?.(done);
                                         send(buildSubagentPart(done) as UIMessageChunk);
                                         log('subagents', `${subagent.name} id=${id} -> done (${event.toolCount} tools)`);
                                     },
                                     () => {
                                         const failed: SubagentEvent = { ...event, status: 'failed' };
+                                        liveSubagents.delete(id);
                                         onSubagentEvent?.(failed);
                                         send(buildSubagentPart(failed) as UIMessageChunk);
                                         log('subagents', `${subagent.name} id=${id} -> FAILED`);
@@ -413,6 +407,7 @@ export function processDeepStream(opts: DeepStreamOptions): ReadableStream<UIMes
                     send({ type: 'error', errorText: message } as unknown as UIMessageChunk);
                 }
             } finally {
+                clearInterval(heartbeat);
                 try { await onFinish?.(); } catch (e) { console.error('[DeepStream] onFinish failed:', e); }
                 releaseLock();
                 if (!closed) { closed = true; try { controller.close(); } catch { /* already closed */ } }

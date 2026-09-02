@@ -274,3 +274,120 @@ describe('KnowledgeBasePostgresRepository — tenant isolation', () => {
         expect(getTenantClient).toHaveBeenCalledWith('tenant-test');
     });
 });
+
+describe('KnowledgeBasePostgresRepository — error wrapping', () => {
+    let mockPrisma: {
+        knowledgeBase: {
+            findMany: MockedFunction<any>;
+            findFirst: MockedFunction<any>;
+            create: MockedFunction<any>;
+            updateMany: MockedFunction<any>;
+            deleteMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            knowledgeBase: {
+                findMany: vi.fn().mockRejectedValue(new Error('DB down')),
+                findFirst: vi.fn().mockRejectedValue(new Error('DB down')),
+                create: vi.fn().mockRejectedValue(new Error('DB down')),
+                updateMany: vi.fn().mockRejectedValue(new Error('DB down')),
+                deleteMany: vi.fn().mockRejectedValue(new Error('DB down')),
+            },
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    const cases: Array<[string, (repo: KnowledgeBasePostgresRepository) => Promise<unknown>, string]> = [
+        ['listKnowledgeBases', (r) => r.listKnowledgeBases('tenant-1'), 'Failed to list knowledge bases: DB down'],
+        ['getKnowledgeBase', (r) => r.getKnowledgeBase('kb-1', 'tenant-1'), 'Failed to get knowledge base: DB down'],
+        ['createKnowledgeBase', (r) => r.createKnowledgeBase({ name: 'x' } as any, 'tenant-1'), 'Failed to create knowledge base: DB down'],
+        ['updateKnowledgeBase', (r) => r.updateKnowledgeBase('kb-1', { name: 'x' }, 'tenant-1'), 'Failed to update knowledge base: DB down'],
+        ['setKnowledgeBaseStatus', (r) => r.setKnowledgeBaseStatus('kb-1', 'tenant-1', 'active'), 'Failed to set knowledge base status: DB down'],
+        ['deleteKnowledgeBase', (r) => r.deleteKnowledgeBase('kb-1', 'tenant-1'), 'Failed to delete knowledge base: DB down'],
+        ['updateDataSourceCount', (r) => r.updateDataSourceCount('kb-1', 1, 'tenant-1'), 'Failed to update data source count: DB down'],
+        ['updateVectorCount', (r) => r.updateVectorCount('kb-1', 1, 'tenant-1'), 'Failed to update vector count: DB down'],
+    ];
+
+    it.each(cases)('%s wraps a repository failure in a descriptive error', async (_name, call, expectedMessage) => {
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const repo = new KnowledgeBasePostgresRepository();
+        await expect(call(repo)).rejects.toThrow(expectedMessage);
+        consoleSpy.mockRestore();
+    });
+
+    it.each(cases)('%s stringifies a non-Error throw in the wrapped message', async (_name, call) => {
+        for (const m of Object.values(mockPrisma.knowledgeBase)) (m as MockedFunction<any>).mockRejectedValue('raw failure');
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const repo = new KnowledgeBasePostgresRepository();
+        await expect(call(repo)).rejects.toThrow(/raw failure$/);
+        consoleSpy.mockRestore();
+    });
+});
+
+describe('KnowledgeBasePostgresRepository — additional coverage', () => {
+    let mockPrisma: {
+        knowledgeBase: {
+            findMany: MockedFunction<any>;
+            findFirst: MockedFunction<any>;
+            create: MockedFunction<any>;
+            updateMany: MockedFunction<any>;
+            deleteMany: MockedFunction<any>;
+        };
+    };
+
+    beforeEach(() => {
+        mockPrisma = {
+            knowledgeBase: {
+                findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn(),
+            },
+        };
+        vi.mocked(getTenantClient).mockReturnValue(mockPrisma as any);
+    });
+
+    it('defaults a null description/createdBy to undefined', async () => {
+        mockPrisma.knowledgeBase.findFirst.mockResolvedValue(makeKBRow({ description: null, createdBy: null }));
+        const repo = new KnowledgeBasePostgresRepository();
+        const kb = await repo.getKnowledgeBase('kb-1', 'tenant-1');
+        expect(kb?.description).toBeUndefined();
+        expect(kb?.createdBy).toBeUndefined();
+    });
+
+    it('updateKnowledgeBase applies only the fields explicitly present in the input', async () => {
+        mockPrisma.knowledgeBase.updateMany.mockResolvedValue({ count: 1 });
+        const repo = new KnowledgeBasePostgresRepository();
+        await repo.updateKnowledgeBase('kb-1', { description: 'only this' }, 'tenant-1');
+        expect(mockPrisma.knowledgeBase.updateMany.mock.calls[0][0].data).toEqual({ description: 'only this' });
+    });
+
+    it('getKnowledgeBase returns null when no row matches', async () => {
+        mockPrisma.knowledgeBase.findFirst.mockResolvedValue(null);
+        const repo = new KnowledgeBasePostgresRepository();
+        expect(await repo.getKnowledgeBase('missing', 'tenant-1')).toBeNull();
+    });
+
+    it('updateDataSourceCount and updateVectorCount use Prisma increment, never a read-modify-write', async () => {
+        mockPrisma.knowledgeBase.updateMany.mockResolvedValue({ count: 1 });
+        const repo = new KnowledgeBasePostgresRepository();
+
+        await repo.updateDataSourceCount('kb-1', 3, 'tenant-1');
+        expect(mockPrisma.knowledgeBase.updateMany).toHaveBeenCalledWith({
+            where: { id: 'kb-1', tenantId: 'tenant-1' }, data: { dataSourceCount: { increment: 3 } },
+        });
+
+        await repo.updateVectorCount('kb-1', -2, 'tenant-1');
+        expect(mockPrisma.knowledgeBase.updateMany).toHaveBeenCalledWith({
+            where: { id: 'kb-1', tenantId: 'tenant-1' }, data: { vectorCount: { increment: -2 } },
+        });
+    });
+
+    it('setKnowledgeBaseStatus updates only the status field, scoped by tenant', async () => {
+        mockPrisma.knowledgeBase.updateMany.mockResolvedValue({ count: 1 });
+        const repo = new KnowledgeBasePostgresRepository();
+        await repo.setKnowledgeBaseStatus('kb-1', 'tenant-1', 'error');
+        expect(mockPrisma.knowledgeBase.updateMany).toHaveBeenCalledWith({
+            where: { id: 'kb-1', tenantId: 'tenant-1' }, data: { status: 'error' },
+        });
+    });
+});

@@ -5,6 +5,28 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
+// This suite runs under vitest's default 'node' environment (jsdom is opt-in,
+// via environmentMatchGlobs in vitest.config.ts, for **/__tests__/**/*.test.tsx
+// component tests only) — so the browser FileReader API isn't ambient here.
+// Node's own File/Blob (global since Node 18) back a minimal, behaviorally-real
+// stub: it actually reads the file's bytes rather than faking a fixed result.
+class NodeFileReader {
+    result: string | null = null;
+    onload: (() => void) | null = null;
+    onerror: ((err: unknown) => void) | null = null;
+
+    readAsDataURL(file: File) {
+        file.arrayBuffer()
+            .then((buf) => {
+                const base64 = Buffer.from(buf).toString('base64');
+                this.result = `data:${file.type};base64,${base64}`;
+                this.onload?.();
+            })
+            .catch((err) => this.onerror?.(err));
+    }
+}
+(globalThis as unknown as { FileReader: typeof NodeFileReader }).FileReader = NodeFileReader;
+
 describe('File Upload - Multimodal Support', () => {
   describe('File Validation', () => {
     it('should accept valid image types', () => {

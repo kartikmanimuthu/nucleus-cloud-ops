@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, Cpu, Gauge, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Cpu, Gauge, Layers, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAgentOpsDefaults, useSaveAgentOpsDefaults } from '@/lib/queries/agent-ops-settings';
 import { useProviderModels, defaultModelId } from '@/lib/queries/providers';
@@ -19,10 +19,20 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import type { AgentMode } from '@/lib/agent-ops/types';
+import { SELECTABLE_MODES } from '@/lib/agent-ops/types';
 
 // Keep in sync with lib/agent-ops/agent-ops-defaults.ts.
 const MIN_MAX_ITERATIONS = 10;
 const MAX_MAX_ITERATIONS = 500;
+
+// Labels for the modes offered by SELECTABLE_MODES (the single source of
+// truth for what's selectable, defined in lib/agent-ops/types.ts — 'fast' is
+// legacy-only and never appears there).
+const MODE_LABELS: Partial<Record<AgentMode, string>> = {
+    plan: 'Plan & execute — evaluator picks a skill, then plans and reflects',
+    deep: 'Deep — sub-agents, to-do list, and a virtual filesystem',
+};
 
 interface AgentOpsSettingsFormProps {
     backHref?: string;
@@ -41,6 +51,7 @@ export function AgentOpsSettingsForm({
 
     const [defaultModel, setDefaultModel] = useState('');
     const [maxIterations, setMaxIterations] = useState<number>(150);
+    const [defaultMode, setDefaultMode] = useState<AgentMode>('plan');
     const [saved, setSaved] = useState(false);
     const [error, setError] = useState('');
 
@@ -51,6 +62,7 @@ export function AgentOpsSettingsForm({
         if (data) {
             setDefaultModel((prev) => prev || data.defaultModel || defaultModelId(models ?? []));
             setMaxIterations(data.maxIterations || 150);
+            setDefaultMode(data.defaultMode || 'plan');
         }
     }, [data, models]);
 
@@ -79,7 +91,7 @@ export function AgentOpsSettingsForm({
         }
         setError('');
         try {
-            await saveMutation.mutateAsync({ defaultModel, maxIterations });
+            await saveMutation.mutateAsync({ defaultModel, maxIterations, defaultMode });
             setSaved(true);
             toast.success('Agent Ops defaults saved — new runs will use this configuration');
             setTimeout(() => setSaved(false), 3000);
@@ -203,6 +215,35 @@ export function AgentOpsSettingsForm({
                     <p className="text-xs text-muted-foreground">
                         Between {MIN_MAX_ITERATIONS} and {MAX_MAX_ITERATIONS}. Default is 150.
                     </p>
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                        <Layers className="h-4 w-4" />
+                        Default Execution Mode
+                    </CardTitle>
+                    <CardDescription>
+                        Used when a run does not choose its own mode — chiefly channel triggers (Slack, Jira,
+                        Discord, Telegram, webhook), which have no UI to pick one. The New Run dialog and
+                        scheduled tasks always send their own explicit selection and ignore this default.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                    <Label htmlFor="defaultMode">Execution mode</Label>
+                    <Select value={defaultMode} onValueChange={v => setDefaultMode(v as AgentMode)}>
+                        <SelectTrigger id="defaultMode" className="w-full sm:w-80">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {SELECTABLE_MODES.map(m => (
+                                <SelectItem key={m} value={m}>
+                                    {MODE_LABELS[m] ?? m}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </CardContent>
             </Card>
 

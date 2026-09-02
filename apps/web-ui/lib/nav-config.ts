@@ -53,9 +53,22 @@ export const navMenus: NavItem[] = [
     items: [
       { title: "AWS Accounts", href: "/app/accounts", module: "Accounts" },
       { title: "Inventory", href: "/app/inventory", module: "Inventory" },
+      // ResourceGraph has no registered subject; without `module` this href would
+      // fail OPEN (see the Scale Sentinel note below) and render for every role.
+      { title: "Resource Graph", href: "/app/resource-graph", module: "Inventory" },
       // Certificate -> Settings, per SUBJECT_TO_MODULE.
       { title: "Certificates", href: "/app/certificates", module: "Settings" },
-      { title: "Scale Sentinel", href: "/app/cloud-operations/scale-sentinel" },
+      // `module` is the fail-CLOSED fallback, not the primary gate. The
+      // ScalingAudit subject claims this href by navPath and wins outright
+      // (nav-main.tsx resolves a subject claim before the annotation), so this
+      // changes nothing while the registry row is intact.
+      //
+      // It matters when that row is NOT intact. With no navPath, nothing claims
+      // the href, canSeeHref fails OPEN by design (use-can.ts:142-147) and an
+      // unannotated entry renders for every role — which is exactly what
+      // happened here, see 20260820000000_backfill_subject_navpaths. Annotated,
+      // the entry degrades to module-level gating instead of to no gating.
+      { title: "Scale Sentinel", href: "/app/cloud-operations/scale-sentinel", module: "Inventory" },
     ],
   },
   {

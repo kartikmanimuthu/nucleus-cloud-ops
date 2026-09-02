@@ -25,6 +25,8 @@
     "test": "nx run-many -t test --all",
     "test:web": "nx test web-ui",
     "test:workers": "nx test workers",
+    "test:coverage": "nx run-many -t test:coverage --all",
+    "test:integration": "docker compose up -d postgres && nx run-many -t test:integration --all",
     "lint": "nx run-many -t lint --all",
     "typecheck": "nx run-many -t typecheck --all",
     "affected:typecheck": "nx affected -t typecheck",

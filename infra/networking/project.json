@@ -5,21 +5,21 @@
     "preview": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pulumi preview --stack prod",
+        "command": "pulumi preview --stack {args.stack}",
         "cwd": "infra/networking"
       }
     },
     "up": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pulumi up --stack prod --yes",
+        "command": "pulumi up --stack {args.stack} --yes",
         "cwd": "infra/networking"
       }
     },
     "destroy": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pulumi destroy --stack prod",
+        "command": "pulumi destroy --stack {args.stack}",
         "cwd": "infra/networking"
       }
     }

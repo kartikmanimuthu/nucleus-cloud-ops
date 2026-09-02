@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { NetworkAvailabilityReportRow } from "@/lib/db/repositories/network-links/interface";
@@ -9,15 +10,31 @@ import type { NetworkAvailabilityReportRow } from "@/lib/db/repositories/network
  * bandwidth summary rows for the selected window, not a resource-browsing
  * list. Purely presentational: the page fetches rows via
  * useNetworkAvailabilityReport and passes them down.
+ *
+ * `error` must be checked distinctly from an empty `rows` — a failed fetch
+ * and a genuinely empty window must never render the same message, or a real
+ * outage (e.g. an RBAC/auth failure) looks identical to "no data for this
+ * account/window" and goes unnoticed.
  */
 export function NetworkAvailabilityReport({
     rows,
     loading,
+    error,
 }: {
     rows: NetworkAvailabilityReportRow[];
     loading: boolean;
+    error?: string | null;
 }) {
     if (loading) return <Skeleton className="h-72 w-full" />;
+
+    if (error) {
+        return (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-10 text-sm text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Failed to load the network availability report: {error}</span>
+            </div>
+        );
+    }
 
     if (rows.length === 0) {
         return (

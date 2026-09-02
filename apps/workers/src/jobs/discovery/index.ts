@@ -5,6 +5,8 @@ import { writeAuditLog } from './services/audit-service.js';
 import { assumeRole } from './services/sts-service.js';
 import { runInventoryScan } from './services/scanner.js';
 import { writeResourcesToPg, saveSyncStatus, reconcileStaleResources } from './services/pg-writer.js';
+import { extractEdges } from './services/edge-extractor.js';
+import { writeEdgesToPg, reconcileStaleEdges } from './services/edge-writer.js';
 import { getTenantJobConfig } from '../scheduler/services/pg-service.js';
 import { ensureStatelyScanQueue, dispatchTenantScan, DEAD_LETTER_QUEUE } from '../../lib/tenant-fanout.js';
 import type { DiscoveryFanOutJob, DiscoveryScanJob } from './types.js';
@@ -64,6 +66,20 @@ async function reconcileAndWarnIfEmpty(
         });
         return;
     }
+
+    // Separate catch: an edge failure is not a resource failure, and must not swallow
+    // the empty-scan warning below now that resource reconciliation has succeeded.
+    try {
+        await reconcileStaleEdges(tenantId, accountId, scanId);
+    } catch (err) {
+        log.error('Edge reconciliation failed — leaving previous isCurrent state in place (fail open)', {
+            tenantId,
+            accountId,
+            scanId,
+            error: err instanceof Error ? err.message : String(err),
+        });
+    }
+
     if (resourceCount === 0 && staleCount > 0) {
         log.warn('Reconciliation marked previously-current resources stale after an empty/failed scan', {
             tenantId,
@@ -119,6 +135,12 @@ export async function handleDiscoveryScan(jobData: unknown): Promise<void> {
             totalResources += result.resources.length;
 
             await writeResourcesToPg(result.resources, tenantId, account.accountId, scanId);
+            // Edges must be derived here: rawData is not persisted, so this is the
+            // only point at which the relationship data exists.
+            const edges = extractEdges(result.resources, account.accountId);
+            // Every edge carries its own source-resource region; the argument is only a
+            // fallback, since one scan spans every region in the account.
+            await writeEdgesToPg(edges, tenantId, account.accountId, regions[0] ?? 'us-east-1', scanId);
             await reconcileAndWarnIfEmpty(tenantId, account.accountId, scanId, result.resources.length);
             await updateAccountSyncStatus(tenantId, account.accountId, {
                 lastSyncedAt: new Date().toISOString(),

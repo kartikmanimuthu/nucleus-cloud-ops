@@ -89,6 +89,69 @@ describe('NotificationRouter', () => {
         expect(noHilAdapter.sendError).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('/app/agent-ops/run-1/respond'));
     });
 
+    it('dispatches hil:plan_approval to adapter.sendApprovalRequest when supported', async () => {
+        router.attachToRun(makeRun());
+        bus.emit({ type: 'hil:plan_approval', runId: 'run-1', tenantId: 'tenant-1', timestamp: new Date(), data: { planSteps: ['Step 1'] } });
+        await new Promise(r => setTimeout(r, 50));
+        expect(adapter.sendApprovalRequest).toHaveBeenCalledWith(expect.anything(), ['Step 1']);
+    });
+
+    it('falls back to dashboard URL for hil:plan_approval when adapter lacks approvalButtons', async () => {
+        const noApprovalAdapter = makeMockAdapter({
+            hilCapabilities: { clarification: true, approvalButtons: false, threadedReplies: true },
+        });
+        registry = new AdapterRegistry();
+        registry.register(noApprovalAdapter);
+        router = new NotificationRouter(bus, registry);
+
+        router.attachToRun(makeRun());
+        bus.emit({ type: 'hil:plan_approval', runId: 'run-1', tenantId: 'tenant-1', timestamp: new Date(), data: { planSteps: ['Step 1'] } });
+        await new Promise(r => setTimeout(r, 50));
+        expect(noApprovalAdapter.sendApprovalRequest).not.toHaveBeenCalled();
+        expect(noApprovalAdapter.sendError).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('needs approval'));
+    });
+
+    it('dispatches hil:tool_approval to adapter.sendApprovalRequest with pendingTools when supported', async () => {
+        router.attachToRun(makeRun());
+        bus.emit({ type: 'hil:tool_approval', runId: 'run-1', tenantId: 'tenant-1', timestamp: new Date(), data: { pendingTools: ['stop_instance'] } });
+        await new Promise(r => setTimeout(r, 50));
+        expect(adapter.sendApprovalRequest).toHaveBeenCalledWith(expect.anything(), undefined, ['stop_instance']);
+    });
+
+    it('falls back to dashboard URL for hil:tool_approval when adapter lacks approvalButtons', async () => {
+        const noApprovalAdapter = makeMockAdapter({
+            hilCapabilities: { clarification: true, approvalButtons: false, threadedReplies: true },
+        });
+        registry = new AdapterRegistry();
+        registry.register(noApprovalAdapter);
+        router = new NotificationRouter(bus, registry);
+
+        router.attachToRun(makeRun());
+        bus.emit({ type: 'hil:tool_approval', runId: 'run-1', tenantId: 'tenant-1', timestamp: new Date(), data: { pendingTools: ['stop_instance'] } });
+        await new Promise(r => setTimeout(r, 50));
+        expect(noApprovalAdapter.sendApprovalRequest).not.toHaveBeenCalled();
+        expect(noApprovalAdapter.sendError).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('needs tool approval'));
+    });
+
+    it('logs and swallows an error thrown while dispatching an event', async () => {
+        const throwingAdapter = makeMockAdapter({
+            sendError: vi.fn().mockRejectedValue(new Error('delivery failed')),
+        });
+        registry = new AdapterRegistry();
+        registry.register(throwingAdapter);
+        router = new NotificationRouter(bus, registry);
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        router.attachToRun(makeRun());
+        bus.emit({ type: 'run:failed', runId: 'run-1', tenantId: 'tenant-1', timestamp: new Date(), data: { error: 'boom' } });
+        await new Promise(r => setTimeout(r, 50));
+
+        expect(errSpy).toHaveBeenCalledWith(
+            expect.stringContaining('Error dispatching run:failed for run run-1:'),
+            expect.any(Error),
+        );
+    });
+
     it('detach stops event delivery', async () => {
         const detach = router.attachToRun(makeRun());
         detach();

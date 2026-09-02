@@ -11,7 +11,7 @@ which this plan is purely additive.
 
 ### A. `feature/casl-abac` — the other checkout
 
-**Location:** `<repo root>`, branch `feature/casl-abac`.
+**Location:** `C:\Dipanshu\smc-stx-nucleus-cloud-ops`, branch `feature/casl-abac`.
 **State:** substantial **uncommitted** working-tree changes. 83 files under `app/api/` modified,
 plus a 24-file / **4,638-line** `apps/web-ui/lib/rbac/` with 9 test files.
 **Deployed to:** the shared dev database (`postgresql://…/postgres`), where its 3 migrations

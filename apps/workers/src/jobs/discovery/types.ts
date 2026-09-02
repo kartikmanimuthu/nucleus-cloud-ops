@@ -112,3 +112,37 @@ export interface AssumedCredentials {
   };
   region: string;
 }
+
+// ---------------------------------------------------------------------------
+// Resource dependency graph edges
+// ---------------------------------------------------------------------------
+
+export type EdgeTransform = 'csv' | 'arn-last-segment';
+
+export interface EdgeSpec {
+  path: string;
+  relation: string;
+  toType: string;
+  transform?: EdgeTransform;
+  when?: { path: string; equals: string };
+  // Where the far side's owning account sits in the describe response. Only set on
+  // relations that genuinely cross accounts; resolved values equal to the scanning
+  // account are dropped so `toAccountId` keeps meaning "cross-account".
+  accountPath?: string;
+  // Take the owning account from the ARN in `path` when it is not the account being
+  // scanned. For values that are always same-account this must stay off, or every edge
+  // gets stamped with a cross-account owner it does not have.
+  accountFromArn?: boolean;
+}
+
+export interface ResourceEdge {
+  fromType: string;
+  fromId: string;
+  relation: string;
+  toType: string;
+  toId: string;
+  // Stamped by extractEdges from the source resource; a scan covers many regions
+  // per account, so the region cannot be inferred at write time.
+  region?: string;
+  toAccountId?: string | null;
+}

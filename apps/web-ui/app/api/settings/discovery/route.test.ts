@@ -23,6 +23,7 @@ vi.mock('@/lib/tenant-config-service', () => ({
 
 import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/rbac/authorize';
+import { getSessionTenantId } from '@/lib/auth-session';
 import { TenantConfigService } from '@/lib/tenant-config-service';
 import { GET, PUT } from '@/app/api/settings/discovery/route';
 
@@ -65,6 +66,24 @@ describe('GET /api/settings/discovery', () => {
         const res = await GET();
         expect((res as any)._status).toBe(500);
         expect((res as any)._data.success).toBe(false);
+    });
+
+    it('returns 403 when there is no tenant context', async () => {
+        vi.mocked(getSessionTenantId).mockResolvedValueOnce('' as any);
+        const res = await GET();
+        expect((res as any)._status).toBe(403);
+        expect((res as any)._data.error).toBe('No tenant context');
+    });
+
+    it('computes nextEligibleAt from a stored lastRunAt', async () => {
+        vi.mocked(TenantConfigService.getConfig).mockResolvedValueOnce({
+            period: 'daily',
+            lastRunAt: '2024-01-01T00:00:00.000Z',
+        });
+        const res = await GET();
+        const body = (res as any)._data;
+        expect(body.data.lastRunAt).toBe('2024-01-01T00:00:00.000Z');
+        expect(body.data.nextEligibleAt).toBe('2024-01-02T00:00:00.000Z');
     });
 });
 
@@ -112,5 +131,12 @@ describe('PUT /api/settings/discovery', () => {
         const res = await PUT(makeRequest({ period: 'daily' }));
         expect((res as any)._status).toBe(500);
         expect((res as any)._data.success).toBe(false);
+    });
+
+    it('returns 403 when there is no tenant context', async () => {
+        vi.mocked(getSessionTenantId).mockResolvedValueOnce('' as any);
+        const res = await PUT(makeRequest({ period: 'daily' }));
+        expect((res as any)._status).toBe(403);
+        expect((res as any)._data.error).toBe('No tenant context');
     });
 });

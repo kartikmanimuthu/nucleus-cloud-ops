@@ -124,6 +124,9 @@ export const SUBJECT_TO_MODULE: Record<string, Module> = {
     Billing: 'Settings',
     Certificate: 'Settings',
     RightSizing: 'Inventory', // right-sizing analyzes discovered inventory (read=view, update=review/trigger scan)
+    // Read-only view of discovered inventory relationships. No update/delete action
+    // exists for this subject, so it cannot become a privilege escalation.
+    ResourceGraph: 'Inventory',
     // ScalingAudit maps to Inventory, same reasoning as RightSizing: it only reads
     // AWS scaling-activity history and writes advisory/audit rows (ScalingEvent,
     // coverage, policy snapshots) — it never calls a mutating AWS API. update=

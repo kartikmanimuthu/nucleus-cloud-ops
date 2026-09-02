@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { StatCard } from "@/components/shared/stat-card";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,8 @@ const PAGE_SIZES = [10, 20, 50, 100, 200, 500];
 
 export default function InventoryPage() {
     const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
     const { timezone } = useTenant();
     const [resources, setResources] = useState<Resource[]>([]);
     const [loading, setLoading] = useState(true);
@@ -98,6 +100,68 @@ export default function InventoryPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [totalItems, setTotalItems] = useState(0);
     const [pageSize, setPageSize] = useState(50);
+
+    // URL state sync for resource dialog
+    const urlResource = searchParams.get('resource');
+    const urlTab = searchParams.get('tab') ?? undefined;
+
+    const selectedResourceRef = useRef(selectedResource);
+    selectedResourceRef.current = selectedResource;
+    const dialogOpenRef = useRef(dialogOpen);
+    dialogOpenRef.current = dialogOpen;
+
+    useEffect(() => {
+        if (!urlResource) {
+            if (dialogOpenRef.current || selectedResourceRef.current) {
+                setSelectedResource(null);
+                setDialogOpen(false);
+            }
+            return;
+        }
+
+        const currentKey = selectedResourceRef.current
+            ? `${selectedResourceRef.current.resourceType}:${selectedResourceRef.current.resourceId}`
+            : null;
+
+        if (currentKey === urlResource && dialogOpenRef.current) {
+            return;
+        }
+
+        const [type, ...idParts] = urlResource.split(':');
+        const id = idParts.join(':');
+        if (!type || !id) {
+            setSelectedResource(null);
+            setDialogOpen(false);
+            return;
+        }
+
+        fetch(`/api/inventory/resources/${encodeURIComponent(type)}/${encodeURIComponent(id)}`)
+            .then(res => res.json())
+            .then(body => {
+                if (body.success) {
+                    setSelectedResource({
+                        resourceId: body.data.resourceId,
+                        resourceArn: body.data.resourceArn ?? '',
+                        resourceType: body.data.resourceType,
+                        name: body.data.name ?? '',
+                        region: body.data.region,
+                        state: body.data.status ?? 'unknown',
+                        accountId: body.data.accountId,
+                        lastDiscoveredAt: body.data.discoveredAt,
+                        tags: body.data.tags ?? {},
+                        metadata: body.data.metadata ?? {},
+                    });
+                    setDialogOpen(true);
+                } else {
+                    setSelectedResource(null);
+                    setDialogOpen(false);
+                }
+            })
+            .catch(() => {
+                setSelectedResource(null);
+                setDialogOpen(false);
+            });
+    }, [urlResource]);
 
     const hasPendingChanges =
         draftSearch !== searchTerm ||
@@ -225,7 +289,7 @@ export default function InventoryPage() {
     }, [searchTerm, resourceType, region, selectedAccounts, currentPage, pageSize]);
 
     const handleRowClick = (resource: Resource) => {
-        setSelectedResource({
+        const detail: ResourceDetailProps = {
             resourceId: resource.resourceId,
             resourceArn: resource.resourceArn,
             resourceType: resource.resourceType,
@@ -237,8 +301,30 @@ export default function InventoryPage() {
             lastDiscoveredAt: resource.lastDiscoveredAt,
             tags: resource.tags,
             metadata: resource.metadata as Record<string, unknown>,
-        });
+        };
+        setSelectedResource(detail);
         setDialogOpen(true);
+
+        const params = new URLSearchParams(searchParams.toString());
+        params.set('resource', `${detail.resourceType}:${detail.resourceId}`);
+        params.delete('tab');
+        router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    };
+
+    const handleDialogOpenChange = (open: boolean) => {
+        setDialogOpen(open);
+        if (!open) {
+            const params = new URLSearchParams(searchParams.toString());
+            params.delete('resource');
+            params.delete('tab');
+            router.push(`${pathname}?${params.toString()}`, { scroll: false });
+        }
+    };
+
+    const handleTabChange = (tab: string) => {
+        const params = new URLSearchParams(searchParams.toString());
+        params.set('tab', tab);
+        router.push(`${pathname}?${params.toString()}`, { scroll: false });
     };
 
     const totalResources = inventoryStatus?.totalResources || 0;
@@ -594,7 +680,9 @@ export default function InventoryPage() {
             <ResourceDetailDialog
                 resource={selectedResource}
                 open={dialogOpen}
-                onOpenChange={setDialogOpen}
+                onOpenChange={handleDialogOpenChange}
+                initialTab={urlTab}
+                onTabChange={handleTabChange}
             />
 
             {/* Ask AI Dialog — passes active grid filters for contextual responses */}

@@ -86,6 +86,13 @@ describe('AgentOpsRunPostgresRepository', () => {
             expect(result.threadId).toBe('agent-ops-mock-run-id');
             expect(mockPrisma.agentOpsRun.create).toHaveBeenCalledOnce();
         });
+
+        it('defaults trigger to {} when the caller supplies none', async () => {
+            mockPrisma.agentOpsRun.create.mockResolvedValue(makeRunRow());
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.createRun({ tenantId: 't1', source: 'slack', taskDescription: 'x', mode: 'plan' } as any);
+            expect(mockPrisma.agentOpsRun.create.mock.calls[0][0].data.trigger).toEqual({});
+        });
     });
 
     describe('getRun', () => {
@@ -230,6 +237,12 @@ describe('AgentOpsRunPostgresRepository', () => {
             expect(callArg.where.source).toBe('jira');
             expect(callArg.where.trigger).toEqual({ path: ['issueKey'], equals: 'PROJ-123' });
         });
+
+        it('returns null when no matching run exists', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(null);
+            const repo = new AgentOpsRunPostgresRepository();
+            expect(await repo.findAwaitingApprovalRunByJiraIssue('PROJ-999')).toBeNull();
+        });
     });
 
     describe('findAwaitingRunBySlackThread', () => {
@@ -261,6 +274,245 @@ describe('AgentOpsRunPostgresRepository', () => {
             const callArg = mockPrisma.agentOpsRun.updateMany.mock.calls[0][0];
             expect(callArg.data.completedAt).toBeDefined();
             expect(callArg.data.durationMs).toBeGreaterThan(0);
+        });
+
+        it('sets completedAt/durationMs on a failed status too', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(
+                makeRunRow({ createdAt: new Date('2024-01-01T00:00:00Z') })
+            );
+            mockPrisma.agentOpsRun.updateMany.mockResolvedValue({ count: 1 });
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.updateRunStatus('t1', 'run-1', 'failed');
+            expect(mockPrisma.agentOpsRun.updateMany.mock.calls[0][0].data.completedAt).toBeDefined();
+        });
+
+        it('does not set completedAt/durationMs on a non-terminal status', async () => {
+            mockPrisma.agentOpsRun.updateMany.mockResolvedValue({ count: 1 });
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.updateRunStatus('t1', 'run-1', 'in_progress');
+            const data = mockPrisma.agentOpsRun.updateMany.mock.calls[0][0].data;
+            expect(data).not.toHaveProperty('completedAt');
+            expect(data).not.toHaveProperty('durationMs');
+            expect(mockPrisma.agentOpsRun.findFirst).not.toHaveBeenCalled(); // no need to look up createdAt
+        });
+
+        it('skips durationMs when the prior run cannot be found (no createdAt to diff against)', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(null);
+            mockPrisma.agentOpsRun.updateMany.mockResolvedValue({ count: 1 });
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.updateRunStatus('t1', 'run-1', 'completed');
+            expect(mockPrisma.agentOpsRun.updateMany.mock.calls[0][0].data).not.toHaveProperty('durationMs');
+        });
+
+        it('passes through result/error/clarification/approvalRequest only when present', async () => {
+            mockPrisma.agentOpsRun.updateMany.mockResolvedValue({ count: 1 });
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.updateRunStatus('t1', 'run-1', 'in_progress', {
+                result: { ok: true }, error: 'oops', clarification: { q: 'x' }, approvalRequest: { a: 'x' },
+            } as any);
+            const data = mockPrisma.agentOpsRun.updateMany.mock.calls[0][0].data;
+            expect(data.result).toEqual({ ok: true });
+            expect(data.error).toBe('oops');
+            expect(data.clarification).toEqual({ q: 'x' });
+            expect(data.approvalRequest).toEqual({ a: 'x' });
+        });
+
+        it('omits result/error/clarification/approvalRequest when extra is not given', async () => {
+            mockPrisma.agentOpsRun.updateMany.mockResolvedValue({ count: 1 });
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.updateRunStatus('t1', 'run-1', 'in_progress');
+            const data = mockPrisma.agentOpsRun.updateMany.mock.calls[0][0].data;
+            expect(data).not.toHaveProperty('result');
+            expect(data).not.toHaveProperty('error');
+        });
+    });
+
+    describe('updateRunTrigger', () => {
+        it('overwrites the trigger JSON and bumps updatedAt', async () => {
+            mockPrisma.agentOpsRun.updateMany.mockResolvedValue({ count: 1 });
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.updateRunTrigger('t1', 'run-1', { userId: 'u1' } as any);
+            expect(mockPrisma.agentOpsRun.updateMany).toHaveBeenCalledWith({
+                where: { tenantId: 't1', runId: 'run-1' },
+                data: { trigger: { userId: 'u1' }, updatedAt: expect.any(Date) },
+            });
+        });
+    });
+
+    describe('updateApprovalMessageTs', () => {
+        it('merges slackMessageTs into the existing approvalRequest', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(
+                makeRunRow({ approvalRequest: { approvers: ['a@b.co'] } })
+            );
+            mockPrisma.agentOpsRun.updateMany.mockResolvedValue({ count: 1 });
+
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.updateApprovalMessageTs('t1', 'run-1', 'ts-123');
+
+            expect(mockPrisma.agentOpsRun.updateMany.mock.calls[0][0].data.approvalRequest).toEqual({
+                approvers: ['a@b.co'], slackMessageTs: 'ts-123',
+            });
+        });
+
+        it('no-ops when the run has no approvalRequest at all', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(makeRunRow({ approvalRequest: null }));
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.updateApprovalMessageTs('t1', 'run-1', 'ts-123');
+            expect(mockPrisma.agentOpsRun.updateMany).not.toHaveBeenCalled();
+        });
+
+        it('no-ops when the run itself does not exist', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(null);
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.updateApprovalMessageTs('t1', 'missing', 'ts-123');
+            expect(mockPrisma.agentOpsRun.updateMany).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('listRuns — sorting', () => {
+        it('defaults to createdAt desc when no sortBy is given', async () => {
+            mockPrisma.agentOpsRun.findMany.mockResolvedValue([]);
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.listRuns({ tenantId: 't1' });
+            expect(mockPrisma.agentOpsRun.findMany.mock.calls[0][0].orderBy).toEqual({ createdAt: 'desc' });
+        });
+
+        it('sorts by the given column and direction', async () => {
+            mockPrisma.agentOpsRun.findMany.mockResolvedValue([]);
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.listRuns({ tenantId: 't1', sortBy: 'status', sortDir: 'asc' });
+            expect(mockPrisma.agentOpsRun.findMany.mock.calls[0][0].orderBy).toEqual({ status: 'asc' });
+        });
+
+        it('defaults sortDir to desc when a sortBy is given without a direction', async () => {
+            mockPrisma.agentOpsRun.findMany.mockResolvedValue([]);
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.listRuns({ tenantId: 't1', sortBy: 'taskDescription' });
+            expect(mockPrisma.agentOpsRun.findMany.mock.calls[0][0].orderBy).toEqual({ taskDescription: 'desc' });
+        });
+
+        it('throws when tenantId is missing', async () => {
+            const repo = new AgentOpsRunPostgresRepository();
+            await expect(repo.listRuns({} as any)).rejects.toThrow('listRuns: tenantId is required');
+        });
+
+        it('intersects a Gate-3 row filter under AND', async () => {
+            mockPrisma.agentOpsRun.findMany.mockResolvedValue([]);
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.listRuns({ tenantId: 't1', rowFilter: { accountId: { in: ['a1'] } } });
+            expect(mockPrisma.agentOpsRun.findMany.mock.calls[0][0].where.AND).toEqual([{ accountId: { in: ['a1'] } }]);
+        });
+    });
+
+    describe('listActiveRunsByTask', () => {
+        it('filters by scheduled source, active statuses, and the trigger.taskId JSON path', async () => {
+            mockPrisma.agentOpsRun.findMany.mockResolvedValue([makeRunRow({ source: 'scheduled' })]);
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.listActiveRunsByTask('t1', 'task-1');
+
+            const call = mockPrisma.agentOpsRun.findMany.mock.calls[0][0];
+            expect(call.where.source).toBe('scheduled');
+            expect(call.where.status).toEqual({ in: ['queued', 'in_progress', 'awaiting_input', 'awaiting_approval'] });
+            expect(call.where.trigger).toEqual({ path: ['taskId'], equals: 'task-1' });
+        });
+    });
+
+    describe('listRunsBySource', () => {
+        it('queries cross-tenant via the unscoped client, filtered by source, defaulting limit to 25', async () => {
+            mockPrisma.agentOpsRun.findMany.mockResolvedValue([makeRunRow()]);
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.listRunsBySource('slack');
+            expect(getPrismaClient).toHaveBeenCalled();
+            const call = mockPrisma.agentOpsRun.findMany.mock.calls[0][0];
+            expect(call.where).toEqual({ source: 'slack' });
+            expect(call.take).toBe(25);
+        });
+
+        it('honors an explicit limit', async () => {
+            mockPrisma.agentOpsRun.findMany.mockResolvedValue([]);
+            const repo = new AgentOpsRunPostgresRepository();
+            await repo.listRunsBySource('jira', 5);
+            expect(mockPrisma.agentOpsRun.findMany.mock.calls[0][0].take).toBe(5);
+        });
+    });
+
+    describe('findAwaitingRunByJiraIssue', () => {
+        it('filters by awaiting_input status, jira source, and issueKey JSON path', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(makeRunRow({ source: 'jira', status: 'awaiting_input' }));
+            const repo = new AgentOpsRunPostgresRepository();
+            const result = await repo.findAwaitingRunByJiraIssue('PROJ-9');
+            const call = mockPrisma.agentOpsRun.findFirst.mock.calls[0][0];
+            expect(call.where).toEqual({ status: 'awaiting_input', source: 'jira', trigger: { path: ['issueKey'], equals: 'PROJ-9' } });
+            expect(result).not.toBeNull();
+        });
+
+        it('returns null when nothing matches', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(null);
+            const repo = new AgentOpsRunPostgresRepository();
+            expect(await repo.findAwaitingRunByJiraIssue('PROJ-9')).toBeNull();
+        });
+    });
+
+    describe('findAwaitingRunBySlackThread — threadTs verification', () => {
+        it('returns null when the channel matches but threadTs does not', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(
+                makeRunRow({ trigger: { channelId: 'C1', threadTs: 'other-ts' } }),
+            );
+            const repo = new AgentOpsRunPostgresRepository();
+            expect(await repo.findAwaitingRunBySlackThread('C1', 'ts1')).toBeNull();
+        });
+
+        it('returns null immediately when no channel-matching run exists', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(null);
+            const repo = new AgentOpsRunPostgresRepository();
+            expect(await repo.findAwaitingRunBySlackThread('C1', 'ts1')).toBeNull();
+        });
+    });
+
+    describe('findResumableTelegramRun', () => {
+        it('filters by telegram source, awaiting_input status, idle cutoff, and chatId JSON path', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(makeRunRow({ source: 'telegram', status: 'awaiting_input' }));
+            const cutoff = new Date('2026-01-01T00:00:00Z');
+
+            const repo = new AgentOpsRunPostgresRepository();
+            const result = await repo.findResumableTelegramRun(12345, cutoff);
+
+            const call = mockPrisma.agentOpsRun.findFirst.mock.calls[0][0];
+            expect(call.where).toEqual({
+                source: 'telegram', status: 'awaiting_input', updatedAt: { gte: cutoff },
+                trigger: { path: ['chatId'], equals: 12345 },
+            });
+            expect(result).not.toBeNull();
+        });
+
+        it('returns null when no resumable run exists', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(null);
+            const repo = new AgentOpsRunPostgresRepository();
+            expect(await repo.findResumableTelegramRun(12345, new Date())).toBeNull();
+        });
+    });
+
+    describe('toAgentOpsRun — optional field mapping', () => {
+        it('defaults accountId/accountName/selectedSkill/model/error/durationMs to undefined when null', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(makeRunRow({
+                accountId: null, accountName: null, selectedSkill: null, model: null, error: null, durationMs: null, completedAt: null,
+            }));
+            const repo = new AgentOpsRunPostgresRepository();
+            const run = await repo.getRun('t1', 'run-1');
+            expect(run?.accountId).toBeUndefined();
+            expect(run?.model).toBeUndefined();
+            expect(run?.completedAt).toBeUndefined();
+        });
+
+        it('converts a populated completedAt to an ISO string and derives ttl from expiresAt', async () => {
+            mockPrisma.agentOpsRun.findFirst.mockResolvedValue(makeRunRow({
+                completedAt: new Date('2024-01-02T00:00:00Z'),
+                expiresAt: new Date('2024-02-01T00:00:00Z'),
+            }));
+            const repo = new AgentOpsRunPostgresRepository();
+            const run = await repo.getRun('t1', 'run-1');
+            expect(run?.completedAt).toBe('2024-01-02T00:00:00.000Z');
+            expect(run?.ttl).toBe(Math.floor(new Date('2024-02-01T00:00:00Z').getTime() / 1000));
         });
     });
 });

@@ -52,7 +52,13 @@ apps/web-ui-e2e
 .env.*
 
 # ── Test and tooling artefacts ──────────────────────────────────────────────
-**/coverage
+# NOT `**/coverage`: that matches a directory of that name at any depth, which also
+# excluded app/api/scaling-audit/coverage/route.ts — a real API route. It was then
+# missing from every built image and 404'd wherever it was deployed. Coverage output
+# only lands at a project root, so match it there.
+/coverage
+apps/*/coverage
+libs/*/coverage
 **/.nyc_output
 **/test-results
 **/playwright-report

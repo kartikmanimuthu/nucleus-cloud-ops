@@ -181,4 +181,14 @@ export const queryKeys = {
         inventory: () => [...queryKeys.dashboard.all, 'inventory'] as const,
         audit: (range: string) => [...queryKeys.dashboard.all, 'audit', range] as const,
     },
+    resourceGraph: {
+        all: ['resourceGraph'] as const,
+        details: () => [...queryKeys.resourceGraph.all, 'detail'] as const,
+        detail: (resourceType: string, resourceId: string) =>
+            [...queryKeys.resourceGraph.details(), resourceType, resourceId] as const,
+        summary: (accountId?: string) =>
+            [...queryKeys.resourceGraph.all, 'summary', accountId ?? 'all'] as const,
+        byType: (resourceType: string, accountId?: string) =>
+            [...queryKeys.resourceGraph.all, 'byType', resourceType, accountId ?? 'all'] as const,
+    },
 } as const;

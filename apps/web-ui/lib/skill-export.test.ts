@@ -6,8 +6,33 @@
  * tests/agent-ops/export-markdown.test.ts.
  */
 
-import { describe, it, expect } from 'vitest';
-import { buildSkillMarkdown, buildAllSkillsMarkdown, buildSkillFile } from './skill-export';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const { mockDownloadText, mockDownloadBlob, mockGenerateAsync, mockFile, mockFolder } = vi.hoisted(() => ({
+    mockDownloadText: vi.fn(),
+    mockDownloadBlob: vi.fn(),
+    mockGenerateAsync: vi.fn().mockResolvedValue('zip-blob'),
+    mockFile: vi.fn(),
+    mockFolder: vi.fn(() => ({ file: vi.fn() })),
+}));
+mockFolder.mockImplementation(() => ({ file: mockFile }));
+
+vi.mock('@/lib/export-utils', async () => {
+    const actual = await vi.importActual<typeof import('./export-utils')>('./export-utils');
+    return { ...actual, downloadText: mockDownloadText, downloadBlob: mockDownloadBlob };
+});
+
+vi.mock('jszip', () => ({
+    default: vi.fn().mockImplementation(function (this: any) {
+        this.folder = mockFolder;
+        this.generateAsync = mockGenerateAsync;
+    }),
+}));
+
+import {
+    buildSkillMarkdown, buildAllSkillsMarkdown, buildSkillFile,
+    exportSkillToFile, exportSkillToMarkdown, exportAllSkillsToMarkdown, exportAllSkillsToZip,
+} from './skill-export';
 import type { SkillDTO } from './client-skill-service';
 
 function makeSkill(overrides: Partial<SkillDTO> = {}): SkillDTO {
@@ -151,5 +176,69 @@ describe('buildSkillFile (portable SKILL.md)', () => {
     it('uses a YAML block scalar for multi-line descriptions', () => {
         const md = buildSkillFile(makeSkill({ description: 'line one\nline two' }));
         expect(md).toContain('description: |-\n  line one\n  line two');
+    });
+});
+
+describe('exportSkillToFile / exportSkillToMarkdown / exportAllSkillsToMarkdown (Blob downloads)', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('exportSkillToFile downloads the portable SKILL.md content under the skill id', () => {
+        exportSkillToFile(makeSkill());
+        expect(mockDownloadText).toHaveBeenCalledWith(
+            expect.stringContaining('name: "Stop EC2 at night"'),
+            'stop-ec2-at-night.md',
+        );
+    });
+
+    it('exportSkillToFile falls back to a slugified name when the skill has no id', () => {
+        exportSkillToFile(makeSkill({ id: '' }));
+        expect(mockDownloadText).toHaveBeenCalledWith(expect.any(String), 'stop-ec2-at-night.md');
+    });
+
+    it('exportSkillToMarkdown downloads the human-readable report under a skill- prefixed filename', () => {
+        exportSkillToMarkdown(makeSkill());
+        expect(mockDownloadText).toHaveBeenCalledWith(
+            expect.stringContaining('# Stop EC2 at night'),
+            'skill-stop-ec2-at-night.md',
+        );
+    });
+
+    it('exportAllSkillsToMarkdown downloads a dated export file', () => {
+        exportAllSkillsToMarkdown([makeSkill()]);
+        expect(mockDownloadText).toHaveBeenCalledWith(
+            expect.stringContaining('# Skills export'),
+            expect.stringMatching(/^skills-export-\d{4}-\d{2}-\d{2}\.md$/),
+        );
+    });
+});
+
+describe('exportAllSkillsToZip', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('writes one SKILL.md per skill under skills/<id>/, sorted by name', async () => {
+        await exportAllSkillsToZip([
+            makeSkill({ id: 'zeta', name: 'Zeta skill' }),
+            makeSkill({ id: 'alpha', name: 'Alpha skill' }),
+        ]);
+
+        expect(mockFolder).toHaveBeenCalledWith('skills');
+        expect(mockFile).toHaveBeenCalledTimes(2);
+        expect(mockFile.mock.calls[0][0]).toBe('alpha/SKILL.md');
+        expect(mockFile.mock.calls[1][0]).toBe('zeta/SKILL.md');
+    });
+
+    it('generates and downloads the zip as a dated file', async () => {
+        await exportAllSkillsToZip([makeSkill()]);
+
+        expect(mockGenerateAsync).toHaveBeenCalledWith({ type: 'blob' });
+        expect(mockDownloadBlob).toHaveBeenCalledWith(
+            'zip-blob',
+            expect.stringMatching(/^skills-export-\d{4}-\d{2}-\d{2}\.zip$/),
+        );
+    });
+
+    it('throws when the zip folder cannot be created', async () => {
+        mockFolder.mockReturnValueOnce(null as any);
+        await expect(exportAllSkillsToZip([makeSkill()])).rejects.toThrow('Failed to create skills folder in zip');
     });
 });

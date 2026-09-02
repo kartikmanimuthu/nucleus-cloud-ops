@@ -39,6 +39,14 @@ describe('autoSelectSkill', () => {
         vi.mocked(getSkillById).mockResolvedValue(null);
         vi.mocked(createAgentModels).mockReturnValue(reflectorReturning('{"skillId": "made-up", "reasoning": "x"}') as any);
         expect(await autoSelectSkill(base)).toBeNull();
+        expect(getSkillById).not.toHaveBeenCalled();
+    });
+
+    it('returns null when the slug is listed in the catalog string but no longer exists per-tenant (deleted mid-race)', async () => {
+        vi.mocked(getSkillById).mockResolvedValue(null);
+        vi.mocked(createAgentModels).mockReturnValue(reflectorReturning('{"skillId": "cost-analyser", "reasoning": "cost question"}') as any);
+        expect(await autoSelectSkill(base)).toBeNull();
+        expect(getSkillById).toHaveBeenCalledWith('t1', 'cost-analyser');
     });
 
     it('returns null when no skills exist, without an LLM call', async () => {

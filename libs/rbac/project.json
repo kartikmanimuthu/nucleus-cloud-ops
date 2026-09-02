@@ -6,8 +6,17 @@
   "targets": {
     "test": {
       "executor": "nx:run-commands",
+      "outputs": ["{projectRoot}/coverage"],
       "options": {
         "command": "bun run test",
+        "cwd": "libs/rbac"
+      }
+    },
+    "test:coverage": {
+      "executor": "nx:run-commands",
+      "outputs": ["{projectRoot}/coverage"],
+      "options": {
+        "command": "bun run test:coverage",
         "cwd": "libs/rbac"
       }
     },

@@ -6,7 +6,7 @@ vi.mock('@/lib/db/repository-factory', () => ({
     getSkillRepository: () => ({ listByTenant, getBySlug }),
 }));
 
-import { loadSkills, getSkillContent, loadAllSkillContent, slugify, getSkillSummaries } from './skill-service';
+import { loadSkills, getSkillById, getSkillContent, loadAllSkillContent, slugify, getSkillSummaries } from './skill-service';
 
 const rec = (over: Record<string, unknown> = {}) => ({
     id: 'cuid', tenantId: 't', slug: 'cost-analyser', name: 'Cost Analyser',
@@ -23,6 +23,15 @@ describe('skill-service', () => {
         const skills = await loadSkills('t');
         expect(skills).toHaveLength(1);
         expect(skills[0]).toEqual({ id: 'cost-analyser', name: 'Cost Analyser', description: 'Analyse spend', tier: 'read-only' });
+    });
+
+    it('getSkillById returns skill metadata by slug, or null when not found', async () => {
+        getBySlug.mockResolvedValueOnce(rec());
+        expect(await getSkillById('t', 'cost-analyser')).toEqual({
+            id: 'cost-analyser', name: 'Cost Analyser', description: 'Analyse spend', tier: 'read-only',
+        });
+        getBySlug.mockResolvedValueOnce(null);
+        expect(await getSkillById('t', 'missing')).toBeNull();
     });
 
     it('getSkillContent returns the markdown body or null', async () => {

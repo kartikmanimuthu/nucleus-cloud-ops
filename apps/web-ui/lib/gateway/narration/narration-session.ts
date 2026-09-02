@@ -17,6 +17,18 @@ import type { AgentOpsRun, AgentOpsEvent } from '@/lib/agent-ops/types';
 const DEFAULT_MIN_INTERVAL_MS = 2000;
 
 /**
+ * Deep runs tag both tool_call and tool_result with metadata.toolCallId and
+ * drain run.toolCalls in parallel watchers, so two concurrent same-named tool
+ * calls can settle out of order — keying the checklist by toolName alone ticks
+ * the wrong step done. Prefer the id when the event carries one; plan-mode
+ * events never do, so they fall back to toolName unchanged.
+ */
+function correlationKeyOf(event: AgentOpsEvent): string | undefined {
+    const id = (event.metadata as { toolCallId?: unknown } | undefined)?.toolCallId;
+    return typeof id === 'string' ? id : event.toolName;
+}
+
+/**
  * Per-run narration bookkeeping shared by every narrating channel adapter.
  * Owns the checklist, the resolved-model cache, the finished-run guard, and
  * the send throttle; adapters own only their transport.
@@ -49,11 +61,11 @@ export class NarrationSessions {
             let checklist = this.checklists.get(run.runId) ?? createChecklist();
 
             if (event.eventType === 'tool_result') {
-                checklist = completeStep(checklist, event.toolName);
+                checklist = completeStep(checklist, correlationKeyOf(event));
             } else {
                 const phrase = await this.translate(run, event);
                 checklist = event.eventType === 'tool_call'
-                    ? addStep(checklist, phrase, { key: event.toolName })
+                    ? addStep(checklist, phrase, { key: correlationKeyOf(event) })
                     // planning / reflection are finished milestones, not work in flight.
                     : addStep(checklist, phrase, { done: true });
             }

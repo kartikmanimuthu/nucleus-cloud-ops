@@ -26,6 +26,13 @@ vi.mock('@/lib/rbac/authorize', () => ({
     authorize: vi.fn().mockResolvedValue(null), // null = authorized
 }));
 
+// Gate 3 row filter — same rationale as authorize() above: this route-level
+// suite exercises the route's own logic, not RBAC row-filter translation
+// (covered by lib/rbac/row-filter.test.ts). null = no narrowing.
+vi.mock('@/lib/rbac/row-filter', () => ({
+    getReadRowFilter: vi.fn().mockResolvedValue(null),
+}));
+
 // Mock AccountService
 vi.mock('@/lib/account-service', () => ({
     AccountService: {
@@ -83,6 +90,9 @@ describe('GET /api/accounts', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(authorize).mockResolvedValue(null);
+        vi.mocked(getServerSession).mockResolvedValue({
+            user: { email: 'alice@example.com', tenantId: 'tenant-test' },
+        } as any);
     });
 
     it('returns 200 with accounts list', async () => {
@@ -141,7 +151,9 @@ describe('POST /api/accounts', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(authorize).mockResolvedValue(null);
-        vi.mocked(getServerSession).mockResolvedValue({ user: { email: 'alice@example.com' } } as any);
+        vi.mocked(getServerSession).mockResolvedValue({
+            user: { email: 'alice@example.com', tenantId: 'tenant-test' },
+        } as any);
     });
 
     it('creates account and returns 200', async () => {
@@ -193,6 +205,9 @@ describe('POST /api/accounts', () => {
 describe('GET /api/accounts/[accountId]', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.mocked(getServerSession).mockResolvedValue({
+            user: { email: 'alice@example.com', tenantId: 'tenant-test' },
+        } as any);
     });
 
     it('returns 200 with account data when found', async () => {
@@ -230,7 +245,13 @@ describe('GET /api/accounts/[accountId]', () => {
 describe('PUT /api/accounts/[accountId]', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(getServerSession).mockResolvedValue({ user: { email: 'bob@example.com' } } as any);
+        vi.mocked(authorize).mockResolvedValue(null);
+        vi.mocked(getServerSession).mockResolvedValue({
+            user: { email: 'bob@example.com', tenantId: 'tenant-test' },
+        } as any);
+        // Pre-flight ownership check (D-03): route loads the existing row before
+        // authorizing/mutating, so every test needs a truthy getAccount() by default.
+        vi.mocked(AccountService.getAccount).mockResolvedValue(makeAccount() as any);
     });
 
     it('updates account and returns 200', async () => {
@@ -241,10 +262,22 @@ describe('PUT /api/accounts/[accountId]', () => {
 
         expect(AccountService.updateAccount).toHaveBeenCalledWith(
             'acc-1',
-            expect.objectContaining({ name: 'Updated', updatedBy: 'bob@example.com' })
+            expect.objectContaining({ name: 'Updated', updatedBy: 'bob@example.com' }),
+            'tenant-test'
         );
         expect(res._status).toBe(200);
         expect(res._data).toMatchObject({ success: true });
+    });
+
+    it('returns 403 when the account does not exist (pre-flight ownership check)', async () => {
+        vi.mocked(AccountService.getAccount).mockResolvedValue(null);
+
+        const req = makeRequest('http://localhost/api/accounts/acc-missing', { name: 'X' });
+        const res = await PUT(req, makeParams('acc-missing'));
+
+        expect(res._status).toBe(403);
+        expect(res._data).toMatchObject({ success: false, error: 'Forbidden' });
+        expect(AccountService.updateAccount).not.toHaveBeenCalled();
     });
 
     it('returns 500 when AccountService.updateAccount throws', async () => {
@@ -256,12 +289,26 @@ describe('PUT /api/accounts/[accountId]', () => {
         expect(res._status).toBe(500);
         expect(res._data).toMatchObject({ success: false, error: 'Update failed' });
     });
+
+    it('returns the Layer-2 authorize() denial, evaluated against the existing row', async () => {
+        vi.mocked(authorize).mockResolvedValueOnce({ _status: 403, _data: { error: 'Forbidden' } } as any);
+
+        const req = makeRequest('http://localhost/api/accounts/acc-1', { name: 'X' });
+        const res = await PUT(req, makeParams('acc-1'));
+
+        expect(res).toEqual({ _status: 403, _data: { error: 'Forbidden' } });
+        expect(AccountService.updateAccount).not.toHaveBeenCalled();
+    });
 });
 
 describe('DELETE /api/accounts/[accountId]', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(getServerSession).mockResolvedValue({ user: { email: 'carol@example.com' } } as any);
+        vi.mocked(authorize).mockResolvedValue(null);
+        vi.mocked(getServerSession).mockResolvedValue({
+            user: { email: 'carol@example.com', tenantId: 'tenant-test' },
+        } as any);
+        vi.mocked(AccountService.getAccount).mockResolvedValue(makeAccount() as any);
     });
 
     it('deletes account and returns 200', async () => {
@@ -270,9 +317,20 @@ describe('DELETE /api/accounts/[accountId]', () => {
         const req = makeRequest('http://localhost/api/accounts/acc-del');
         const res = await DELETE(req, makeParams('acc-del'));
 
-        expect(AccountService.deleteAccount).toHaveBeenCalledWith('acc-del', 'carol@example.com');
+        expect(AccountService.deleteAccount).toHaveBeenCalledWith('acc-del', 'carol@example.com', 'tenant-test');
         expect(res._status).toBe(200);
         expect(res._data).toMatchObject({ success: true });
+    });
+
+    it('returns 403 when the account does not exist (pre-flight ownership check)', async () => {
+        vi.mocked(AccountService.getAccount).mockResolvedValue(null);
+
+        const req = makeRequest('http://localhost/api/accounts/acc-missing');
+        const res = await DELETE(req, makeParams('acc-missing'));
+
+        expect(res._status).toBe(403);
+        expect(res._data).toMatchObject({ success: false, error: 'Forbidden' });
+        expect(AccountService.deleteAccount).not.toHaveBeenCalled();
     });
 
     it('returns 500 when AccountService.deleteAccount throws', async () => {
@@ -285,13 +343,23 @@ describe('DELETE /api/accounts/[accountId]', () => {
         expect(res._data).toMatchObject({ success: false, error: 'Delete failed' });
     });
 
+    it('returns the Layer-2 authorize() denial, evaluated against the existing row', async () => {
+        vi.mocked(authorize).mockResolvedValueOnce({ _status: 403, _data: { error: 'Forbidden' } } as any);
+
+        const req = makeRequest('http://localhost/api/accounts/acc-del');
+        const res = await DELETE(req, makeParams('acc-del'));
+
+        expect(res).toEqual({ _status: 403, _data: { error: 'Forbidden' } });
+        expect(AccountService.deleteAccount).not.toHaveBeenCalled();
+    });
+
     it('uses "api-user" as deletedBy when session has no email', async () => {
-        vi.mocked(getServerSession).mockResolvedValue(null);
+        vi.mocked(getServerSession).mockResolvedValue({ user: { tenantId: 'tenant-test' } } as any);
         vi.mocked(AccountService.deleteAccount).mockResolvedValue(undefined);
 
         const req = makeRequest('http://localhost/api/accounts/acc-del');
         await DELETE(req, makeParams('acc-del'));
 
-        expect(AccountService.deleteAccount).toHaveBeenCalledWith('acc-del', 'api-user');
+        expect(AccountService.deleteAccount).toHaveBeenCalledWith('acc-del', 'api-user', 'tenant-test');
     });
 });

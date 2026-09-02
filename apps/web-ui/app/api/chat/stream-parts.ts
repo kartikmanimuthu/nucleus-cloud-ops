@@ -59,6 +59,45 @@ export function buildMemoryPart(op: 'recall' | 'save', summary: string): DataPar
 }
 
 /**
+ * True when a memory-phase buffer is an actual memory, not internal bookkeeping.
+ *
+ * Three model calls run under DeepMemoryMiddleware.after_agent and all reach the
+ * stream with the SAME node name and the SAME model (reflectorModel), so neither
+ * can tell them apart: fact extraction (a real memory), the reconcile judge, and
+ * the skill distiller. Only the first is a memory — the other two rendered as
+ * "Saved memories" blocks full of raw JSON. Shape is the only discriminator left.
+ */
+export function isMemoryNarration(raw: string): boolean {
+    const text = raw.replace(/```(?:json)?/gi, '').trim();
+
+    const arrayStart = text.indexOf('[');
+    if (arrayStart !== -1) {
+        const parsed = tryParse(text.slice(arrayStart, text.lastIndexOf(']') + 1));
+        // Reconcile judge: [{ factIndex, action, targetId? }, ...]
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(
+            (e) => e && typeof e === 'object' && 'factIndex' in e && 'action' in e,
+        )) return false;
+    }
+
+    // Skill distiller: { name, description, narrative }. Matched on key tokens, NOT by
+    // parsing: its `narrative` is markdown carrying raw newlines, so the payload is
+    // routinely invalid JSON — the same defect that makes skill synthesis itself fail
+    // with "Bad control character in string literal". A JSON.parse-based check returned
+    // null here and let the whole skill document render as a memory.
+    // Not anchored to the start: the distiller sometimes frames the object in prose.
+    // All three keys together are the signal — an extracted memory carries
+    // namespace/key/value/fact and never a `narrative`.
+    if (text.includes('{') && /"name"\s*:/.test(text)
+        && /"description"\s*:/.test(text) && /"narrative"\s*:/.test(text)) return false;
+
+    return true;
+}
+
+function tryParse(candidate: string): unknown {
+    try { return JSON.parse(candidate); } catch { return null; }
+}
+
+/**
  * One data-subagent part per sub-agent state change. The `id` is stable per
  * sub-agent so the client replaces the card in place rather than appending a new
  * one on every progress tick.

@@ -106,6 +106,23 @@ describe('GET /api/accounts/template — Spot Guard parameters', () => {
     });
 });
 
+describe('GET/POST /api/accounts/template — error handling', () => {
+    it('GET returns 500 when the request URL cannot be parsed', async () => {
+        const res = await GET({ url: 'not-a-valid-url' } as any);
+        const body = await res.json();
+        expect(res.status).toBe(500);
+        expect(body.error).toBe('Failed to generate template');
+    });
+
+    it('POST returns 500 when the request body cannot be parsed', async () => {
+        const req = { json: vi.fn().mockRejectedValue(new Error('bad json')) } as any;
+        const res = await POST(req);
+        const body = await res.json();
+        expect(res.status).toBe(500);
+        expect(body.success).toBe(false);
+    });
+});
+
 describe('POST /api/accounts/template — same contract as GET', () => {
     it('honours enableSpotAutomation: true from the JSON body', async () => {
         const res = await POST(

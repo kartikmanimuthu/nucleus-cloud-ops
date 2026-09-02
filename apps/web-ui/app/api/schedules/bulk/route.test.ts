@@ -23,6 +23,7 @@ vi.mock('@/lib/schedule-service', () => ({
     ScheduleService: { setScheduleActive: mockSetActive, executeSchedule: mockExecute },
 }));
 
+import { getSessionTenantId } from '@/lib/auth-session';
 import { POST } from './route';
 
 const makeRequest = (body: unknown) =>
@@ -38,6 +39,19 @@ describe('POST /api/schedules/bulk', () => {
     it('rejects an unsupported action', async () => {
         const res = await POST(makeRequest({ action: 'delete', scheduleIds: ['s'] }));
         expect(res._status).toBe(400);
+    });
+
+    it('returns 400 for a body that fails to parse as JSON', async () => {
+        const req = { json: vi.fn().mockRejectedValue(new Error('bad json')) } as any;
+        const res = await POST(req);
+        expect(res._status).toBe(400);
+        expect(res._data.error).toBe('Invalid JSON body');
+    });
+
+    it('returns 401 when the session tenant cannot be resolved', async () => {
+        vi.mocked(getSessionTenantId).mockRejectedValueOnce(new Error('Unauthenticated'));
+        const res = await POST(makeRequest({ action: 'activate', scheduleIds: ['s1'] }));
+        expect(res._status).toBe(401);
     });
 
     it('rejects an empty id list', async () => {
@@ -56,6 +70,11 @@ describe('POST /api/schedules/bulk', () => {
         await POST(makeRequest({ action: 'activate', scheduleIds: ['s1', 's2'] }));
         expect(mockSetActive).toHaveBeenCalledTimes(2);
         expect(mockSetActive.mock.calls[0][1]).toBe(true);
+    });
+
+    it('deactivate sets explicit active:false (not a flip)', async () => {
+        await POST(makeRequest({ action: 'deactivate', scheduleIds: ['s1'] }));
+        expect(mockSetActive).toHaveBeenCalledWith('s1', false, 'u@x.com', 'tenant-abc');
     });
 
     it('execute routes to executeSchedule and reports partial success', async () => {

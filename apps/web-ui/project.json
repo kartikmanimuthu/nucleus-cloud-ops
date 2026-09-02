@@ -22,8 +22,24 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "outputs": ["{projectRoot}/coverage"],
       "options": {
         "command": "bun run test",
+        "cwd": "apps/web-ui"
+      }
+    },
+    "test:coverage": {
+      "executor": "nx:run-commands",
+      "outputs": ["{projectRoot}/coverage"],
+      "options": {
+        "command": "bun run test:coverage",
+        "cwd": "apps/web-ui"
+      }
+    },
+    "test:integration": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun run test:integration",
         "cwd": "apps/web-ui"
       }
     },

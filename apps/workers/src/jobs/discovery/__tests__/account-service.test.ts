@@ -93,17 +93,19 @@ describe('account-service', () => {
         lastSyncResourceCount: 150,
       });
 
+      // updatedAt/lastSyncedAt are ISO strings (new Date().toISOString()), not
+      // Date objects — the query binds them straight through to Postgres.
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE accounts'),
-        expect.arrayContaining([
+        [
           'tenant-1',
           '123456789012',
           'connected',  // derived from success → connected
           null,         // no error
-          expect.any(Date),
-          expect.any(Date),
+          expect.any(String), // updatedAt
+          '2026-04-05T02:30:00Z', // lastSyncedAt, passed through verbatim
           150,
-        ]),
+        ],
       );
       expect(mockRelease).toHaveBeenCalled();
     });
@@ -120,15 +122,15 @@ describe('account-service', () => {
 
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE accounts'),
-        expect.arrayContaining([
+        [
           'tenant-1',
           '123456789012',
           'error',           // derived from error → error
           'AssumeRole failed',
-          expect.any(Date),
-          expect.any(Date),
+          expect.any(String), // updatedAt
+          '2026-04-05T02:30:00Z', // lastSyncedAt, passed through verbatim
           0,
-        ]),
+        ],
       );
     });
 

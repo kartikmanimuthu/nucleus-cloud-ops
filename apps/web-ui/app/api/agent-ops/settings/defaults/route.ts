@@ -15,6 +15,7 @@ import { authorize } from '@/lib/rbac/authorize';
 import {
     AGENT_OPS_DEFAULTS_KEY,
     FALLBACK_MAX_ITERATIONS,
+    FALLBACK_DEFAULT_MODE,
     validateAgentOpsDefaults,
 } from '@/lib/agent-ops/agent-ops-defaults';
 import type { AgentOpsDefaultsConfig } from '@/lib/agent-ops/types';
@@ -32,11 +33,12 @@ export async function GET() {
 
         if (!config) {
             // Not configured yet — surface the effective fallback iteration limit
-            // so the form can pre-fill a sensible value.
+            // and mode so the form can pre-fill sensible values.
             return NextResponse.json({
                 configured: false,
                 defaultModel: '',
                 maxIterations: FALLBACK_MAX_ITERATIONS,
+                defaultMode: FALLBACK_DEFAULT_MODE,
             });
         }
 
@@ -44,6 +46,7 @@ export async function GET() {
             configured: true,
             defaultModel: config.defaultModel,
             maxIterations: config.maxIterations,
+            defaultMode: config.defaultMode ?? FALLBACK_DEFAULT_MODE,
         });
     } catch (error: any) {
         console.error('[API /agent-ops/settings/defaults] GET error:', error);
@@ -70,6 +73,7 @@ export async function PUT(req: Request) {
         const config: AgentOpsDefaultsConfig = {
             defaultModel: body.defaultModel!.trim(),
             maxIterations: Math.round(Number(body.maxIterations)),
+            ...(body.defaultMode !== undefined && { defaultMode: body.defaultMode }),
         };
 
         await TenantConfigService.saveConfig(AGENT_OPS_DEFAULTS_KEY, config, tenantId);
@@ -88,7 +92,7 @@ export async function PUT(req: Request) {
             user: session?.user?.email || 'unknown',
             userType: 'user',
             status: 'success',
-            details: `Set default model to "${config.defaultModel}" and graph limit to ${config.maxIterations}`,
+            details: `Set default model to "${config.defaultModel}", graph limit to ${config.maxIterations}, and default mode to "${config.defaultMode ?? FALLBACK_DEFAULT_MODE}"`,
             metadata: { tenantId },
         }).catch(() => {});
 
@@ -97,6 +101,7 @@ export async function PUT(req: Request) {
             configured: true,
             defaultModel: config.defaultModel,
             maxIterations: config.maxIterations,
+            defaultMode: config.defaultMode ?? FALLBACK_DEFAULT_MODE,
         });
     } catch (error: any) {
         console.error('[API /agent-ops/settings/defaults] PUT error:', error);

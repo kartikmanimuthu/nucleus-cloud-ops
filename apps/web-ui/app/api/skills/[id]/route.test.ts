@@ -115,6 +115,30 @@ describe('GET /api/skills/[id]', () => {
         expect((res as any)._data.success).toBe(false);
         expect((res as any)._data.error).toBe('Skill not found');
     });
+
+    it('returns 401 when the session is unauthenticated', async () => {
+        vi.mocked(getSessionTenantId).mockRejectedValue(new Error('Unauthenticated: no session'));
+
+        const res = await GET(makeRequest(), makeParams('cost-optimization'));
+
+        expect((res as any)._status).toBe(401);
+        expect((res as any)._data.error).toBe('Unauthenticated');
+    });
+
+    it('returns 500 on an unexpected error', async () => {
+        const repo = {
+            getBySlug: vi.fn().mockRejectedValue(new Error('DB down')),
+            getById: vi.fn(),
+            update: vi.fn(),
+            remove: vi.fn(),
+        };
+        vi.mocked(getSkillRepository).mockReturnValue(repo as any);
+
+        const res = await GET(makeRequest(), makeParams('cost-optimization'));
+
+        expect((res as any)._status).toBe(500);
+        expect((res as any)._data.error).toBe('DB down');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -199,6 +223,25 @@ describe('PATCH /api/skills/[id]', () => {
         expect((res as any)._data.success).toBe(false);
         expect((res as any)._data.error).toMatch(/already exists/);
     });
+
+    it('returns 500 and rethrows a non-P2002 error from update', async () => {
+        const skill = mockSkill();
+        const repo = {
+            getBySlug: vi.fn().mockResolvedValue(skill),
+            getById: vi.fn(),
+            update: vi.fn().mockRejectedValue(new Error('DB down')),
+            remove: vi.fn(),
+        };
+        vi.mocked(getSkillRepository).mockReturnValue(repo as any);
+
+        const res = await PATCH(
+            makeRequest({ name: 'New Name' }),
+            makeParams('cost-optimization')
+        );
+
+        expect((res as any)._status).toBe(500);
+        expect((res as any)._data.error).toBe('DB down');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -251,5 +294,21 @@ describe('DELETE /api/skills/[id]', () => {
         const res = await DELETE(makeRequest(), makeParams('cost-optimization'));
 
         expect(res).toEqual({ status: 403, _data: { error: 'Forbidden' }, _status: 403 });
+    });
+
+    it('returns 500 on an unexpected error', async () => {
+        const skill = mockSkill();
+        const repo = {
+            getBySlug: vi.fn().mockResolvedValue(skill),
+            getById: vi.fn(),
+            update: vi.fn(),
+            remove: vi.fn().mockRejectedValue(new Error('DB down')),
+        };
+        vi.mocked(getSkillRepository).mockReturnValue(repo as any);
+
+        const res = await DELETE(makeRequest(), makeParams('cost-optimization'));
+
+        expect((res as any)._status).toBe(500);
+        expect((res as any)._data.error).toBe('DB down');
     });
 });

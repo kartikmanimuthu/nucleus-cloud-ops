@@ -3,8 +3,33 @@
  * lib/skill-export.test.ts: only the pure builders are tested; the Blob/zip
  * wrappers are thin DOM code identical to skill-export's.
  */
-import { describe, it, expect } from 'vitest';
-import { buildMemoryMarkdown, buildAllMemoriesMarkdown, buildMemoryFile } from './memory-export';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const { mockDownloadText, mockDownloadBlob, mockGenerateAsync, mockFile, mockFolder } = vi.hoisted(() => ({
+    mockDownloadText: vi.fn(),
+    mockDownloadBlob: vi.fn(),
+    mockGenerateAsync: vi.fn().mockResolvedValue('zip-blob'),
+    mockFile: vi.fn(),
+    mockFolder: vi.fn(() => ({ file: vi.fn() })),
+}));
+mockFolder.mockImplementation(() => ({ file: mockFile }));
+
+vi.mock('@/lib/export-utils', async () => {
+    const actual = await vi.importActual<typeof import('./export-utils')>('./export-utils');
+    return { ...actual, downloadText: mockDownloadText, downloadBlob: mockDownloadBlob };
+});
+
+vi.mock('jszip', () => ({
+    default: vi.fn().mockImplementation(function (this: any) {
+        this.folder = mockFolder;
+        this.generateAsync = mockGenerateAsync;
+    }),
+}));
+
+import {
+    buildMemoryMarkdown, buildAllMemoriesMarkdown, buildMemoryFile,
+    exportMemoryToMarkdown, exportAllMemoriesToMarkdown, exportMemoryToFile, exportAllMemoriesToZip,
+} from './memory-export';
 import type { MemoryRow } from './queries/agent-memories';
 
 function makeMemory(overrides: Partial<MemoryRow> = {}): MemoryRow {
@@ -199,5 +224,78 @@ describe('buildMemoryFile (portable frontmatter)', () => {
     it('uses a YAML block scalar for multi-line namespaces', () => {
         const md = buildMemoryFile(makeMemory({ namespace: 'line one\nline two' }));
         expect(md).toContain('namespace: |-\n  line one\n  line two');
+    });
+
+    it('renders an empty value body for an unrecognized kind', () => {
+        const md = buildMemoryFile(makeMemory({ kind: 'UNKNOWN' as any }));
+        const bodyStart = md.indexOf('\n---\n') + '\n---\n'.length;
+        expect(md.slice(bodyStart).trim()).toBe('');
+    });
+});
+
+describe('exportMemoryToMarkdown / exportAllMemoriesToMarkdown / exportMemoryToFile (Blob downloads)', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('exportMemoryToMarkdown downloads the report under the fileSafe key', () => {
+        exportMemoryToMarkdown(makeMemory());
+        expect(mockDownloadText).toHaveBeenCalledWith(
+            expect.stringContaining('# prod-stop-schedule'),
+            'prod-stop-schedule.md',
+        );
+    });
+
+    it('exportMemoryToMarkdown falls back to the memory id when the key is empty', () => {
+        exportMemoryToMarkdown(makeMemory({ key: '' }));
+        expect(mockDownloadText).toHaveBeenCalledWith(expect.any(String), 'cm1a2b3c.md');
+    });
+
+    it('exportAllMemoriesToMarkdown downloads a dated combined report', () => {
+        exportAllMemoriesToMarkdown([makeMemory()]);
+        expect(mockDownloadText).toHaveBeenCalledWith(
+            expect.stringContaining('# Memory export'),
+            expect.stringMatching(/^memory-export-\d{4}-\d{2}-\d{2}\.md$/),
+        );
+    });
+
+    it('exportMemoryToFile downloads the portable frontmatter file under the fileSafe key', () => {
+        exportMemoryToFile(makeMemory());
+        expect(mockDownloadText).toHaveBeenCalledWith(
+            expect.stringContaining('kind: SEMANTIC'),
+            'prod-stop-schedule.md',
+        );
+    });
+});
+
+describe('exportAllMemoriesToZip', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('writes one file per memory under memories/<KIND>/<id>.md, grouped and ordered by KIND_ORDER', async () => {
+        await exportAllMemoriesToZip([
+            makeMemory({ id: 'proc-1', kind: 'PROCEDURAL' }),
+            makeMemory({ id: 'sem-1', kind: 'SEMANTIC' }),
+            makeMemory({ id: 'epi-1', kind: 'EPISODIC' }),
+        ]);
+
+        expect(mockFolder).toHaveBeenCalledWith('memories');
+        expect(mockFile).toHaveBeenCalledTimes(3);
+        // KIND_ORDER = [SEMANTIC, EPISODIC, PROCEDURAL]
+        expect(mockFile.mock.calls[0][0]).toBe('SEMANTIC/sem-1.md');
+        expect(mockFile.mock.calls[1][0]).toBe('EPISODIC/epi-1.md');
+        expect(mockFile.mock.calls[2][0]).toBe('PROCEDURAL/proc-1.md');
+    });
+
+    it('generates and downloads the zip as a dated file', async () => {
+        await exportAllMemoriesToZip([makeMemory()]);
+
+        expect(mockGenerateAsync).toHaveBeenCalledWith({ type: 'blob' });
+        expect(mockDownloadBlob).toHaveBeenCalledWith(
+            'zip-blob',
+            expect.stringMatching(/^memories-export-\d{4}-\d{2}-\d{2}\.zip$/),
+        );
+    });
+
+    it('throws when the zip folder cannot be created', async () => {
+        mockFolder.mockReturnValueOnce(null as any);
+        await expect(exportAllMemoriesToZip([makeMemory()])).rejects.toThrow('Failed to create memories folder in zip');
     });
 });
